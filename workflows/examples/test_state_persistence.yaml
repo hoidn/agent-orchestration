@@ -1,0 +1,34 @@
+# Example workflow demonstrating state persistence (AT-4)
+version: "1.1.1"
+name: "State Persistence Demo"
+
+# Initial context saved to state
+context:
+  project: "orchestrator"
+  environment: "test"
+
+steps:
+  - name: "Initialize"
+    command: "echo 'Starting workflow'"
+    output_capture: "text"
+
+  - name: "ProcessData"
+    command: "echo '{\"status\": \"processing\", \"count\": 42}'"
+    output_capture: "json"
+
+  - name: "ListFiles"
+    command: "ls -1"
+    output_capture: "lines"
+
+  # For-each loop to demonstrate loop state tracking
+  - name: "ProcessItems"
+    for_each:
+      items: ["item1", "item2", "item3"]
+    steps:
+      - name: "Transform"
+        command: "echo 'Processing ${item}'"
+        output_capture: "text"
+
+  - name: "Complete"
+    command: "echo 'Workflow completed'"
+    output_capture: "text"

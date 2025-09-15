@@ -63,15 +63,18 @@
 - [ ] Truncation metadata recorded
 **Evidence**: Tests `test_inject_requires_version_1_1_1`, `test_inject_allowed_with_version_1_1_1`, `test_inject_object_form` pass
 
-### 6. ⬜ [AT-4] State Persistence
-**Status**: Blocked by #1
+### 6. ✅ [AT-4] State Persistence
+**Status**: COMPLETED (2025-09-15)
 **Acceptance**: Write/read state.json with schema v1.1.1
 **Spec**: `specs/state.md`
 **DoD**:
-- [ ] Atomic writes with tmp+rename
-- [ ] Backup creation
-- [ ] Checksum validation
-- [ ] Schema version in state
+- [x] Atomic writes with tmp+rename
+- [x] Backup creation
+- [x] Checksum validation
+- [x] Schema version in state
+**Implementation**: `orchestrator/state/` module with StateManager and StateFileHandler
+**Tests**: 17 unit tests in `tests/test_state.py` - all passing
+**Evidence**: Test `test_acceptance_at4_state_persistence` validates complete cycle
 
 ### 7. ⬜ [AT-8/9] Provider Templates
 **Status**: Blocked by #1
@@ -201,3 +204,25 @@
 **Test Results**: All 18 unit tests passing + 4 integration tests passing
 
 **Next Priority**: Implement state manager (AT-4) or basic executor for output capture (AT-1/2)
+
+### 2025-09-15 Loop 2: State Persistence Implementation
+**Acceptance Test Completed**: AT-4
+**Files Created**:
+- `orchestrator/state/__init__.py` - State module exports
+- `orchestrator/state/run_state.py` - StateManager, RunState, StepState classes
+- `orchestrator/state/persistence.py` - StateFileHandler for atomic operations
+- `tests/test_state.py` - 17 comprehensive unit tests for state persistence
+- `workflows/examples/test_state_persistence.yaml` - Example workflow demonstrating state features
+
+**Key Implementation Details**:
+- Run ID format: YYYYMMDDTHHMMSSZ-<6char> with UTC timestamps
+- Schema version 1.1.1 in all state files
+- Atomic writes using temp file + rename pattern
+- Workflow checksum validation for resume safety
+- Backup management (keep last 3 with --backup-state flag)
+- Support for loop state indexing (steps.<LoopName>[i].<StepName>)
+- For-each loop state tracking with items/indices
+
+**Test Results**: All 17 state tests passing, including AT-4 acceptance test
+
+**Next Priority**: Implement basic executor (AT-1/2) to enable actual workflow execution
