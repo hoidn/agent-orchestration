@@ -41,15 +41,18 @@
 - [x] Tests for edge cases
 **Evidence**: Tests `test_absolute_path_rejected`, `test_parent_escape_rejected`, `test_dependency_path_safety` all pass
 
-### 4. ⬜ [AT-1/2] Basic Output Capture (text/lines/json)
-**Status**: Blocked by #1
+### 4. ✅ [AT-1/2] Basic Output Capture (text/lines/json)
+**Status**: COMPLETED (2025-09-15)
 **Acceptance**: Capture modes populate state correctly
 **Spec**: `specs/io.md`
 **DoD**:
-- [ ] Text capture with 8KB limit
-- [ ] Lines capture with 10K limit
-- [ ] JSON capture with 1MB limit
-- [ ] State structure correct
+- [x] Text capture with 8KB limit
+- [x] Lines capture with 10K limit
+- [x] JSON capture with 1MB limit
+- [x] State structure correct
+**Implementation**: `orchestrator/exec/` module with StepExecutor and OutputCapture
+**Tests**: 22 unit tests in `tests/test_executor.py` - all passing
+**Evidence**: Tests `test_acceptance_at1_lines_capture` and `test_acceptance_at2_json_capture` validate AT-1 and AT-2
 
 ### 5. ⬜ [AT-28-35] Dependency Injection (v1.1.1)
 **Status**: PARTIALLY DONE (validation complete, execution needed)
@@ -77,13 +80,14 @@
 **Evidence**: Test `test_acceptance_at4_state_persistence` validates complete cycle
 
 ### 7. ⬜ [AT-8/9] Provider Templates
-**Status**: Blocked by #1
+**Status**: Blocked - needs provider implementation
 **Acceptance**: argv vs stdin modes work correctly
 **Spec**: `specs/providers.md`
 **DoD**:
 - [ ] Template + params merge
 - [ ] argv mode with ${PROMPT}
 - [ ] stdin mode without ${PROMPT}
+**Note**: Basic executor created but full provider support pending
 
 ### 8. ⬜ [AT-48/49] Placeholder Validation
 **Status**: Blocked by #1
@@ -226,3 +230,25 @@
 **Test Results**: All 17 state tests passing, including AT-4 acceptance test
 
 **Next Priority**: Implement basic executor (AT-1/2) to enable actual workflow execution
+
+### 2025-09-15 Loop 3: Basic Executor and Output Capture Implementation
+**Acceptance Tests Completed**: AT-1, AT-2
+**Files Created**:
+- `orchestrator/exec/__init__.py` - Executor module exports
+- `orchestrator/exec/output_capture.py` - OutputCapture with mode-specific limits
+- `orchestrator/exec/step_executor.py` - StepExecutor for command execution
+- `tests/test_executor.py` - 22 unit tests covering all capture modes
+- `workflows/examples/test_output_capture.yaml` - Example workflow demonstrating capture modes
+
+**Key Implementation Details**:
+- Text mode: 8 KiB limit with truncation to logs/StepName.stdout
+- Lines mode: 10,000 lines limit with CRLF normalization
+- JSON mode: 1 MiB parse buffer with allow_parse_error flag support
+- Output file tee semantics (full stream to file, limited in state)
+- Stderr capture to logs/StepName.stderr when non-empty
+- Missing secrets cause exit code 2 with error context
+- JSON parse errors cause exit code 2 unless allow_parse_error=true
+
+**Test Results**: All 22 executor tests passing, including AT-1 and AT-2
+
+**Next Priority**: Implement provider templates (AT-8/9) or dependency resolution (AT-22-27)

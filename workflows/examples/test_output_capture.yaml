@@ -1,0 +1,31 @@
+# Example workflow demonstrating output capture modes (AT-1, AT-2)
+version: "1.1"
+name: "OutputCaptureDemo"
+
+steps:
+  # AT-1: Lines capture mode
+  - name: GenerateLines
+    command: ["sh", "-c", "for i in 1 2 3 4 5; do echo Line $i; done"]
+    output_capture: lines
+
+  # AT-2: JSON capture mode
+  - name: GenerateJSON
+    command: ["echo", '{"status": "success", "count": 5, "items": ["a", "b", "c"]}']
+    output_capture: json
+
+  # Default text mode with truncation
+  - name: TextCapture
+    command: ["echo", "This is plain text output that will be captured as text"]
+    output_capture: text
+
+  # JSON with parse error handling
+  - name: InvalidJSONStrict
+    command: ["echo", "not valid json"]
+    output_capture: json
+    # This will fail with exit code 2
+
+  - name: InvalidJSONAllowed
+    command: ["echo", "not valid json but allowed"]
+    output_capture: json
+    allow_parse_error: true
+    # This will succeed and fall back to text capture
