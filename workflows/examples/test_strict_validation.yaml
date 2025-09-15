@@ -1,0 +1,32 @@
+# Test workflow for AT-7: Strict validation with unknown field rejection
+version: "1.1"
+name: "test_strict_validation"
+strict_flow: true
+
+steps:
+  - name: SimpleCommand
+    command: ["echo", "Testing strict validation"]
+
+  - name: ConditionalStep
+    when:
+      equals:
+        left: "${context.mode}"
+        right: "test"
+    command: ["echo", "Mode is test"]
+
+  - name: BranchingStep
+    command: ["test", "-f", "required.txt"]
+    "on":
+      success:
+        goto: Success
+      failure:
+        goto: HandleMissing
+
+  - name: HandleMissing
+    command: ["echo", "Missing required.txt"]
+    "on":
+      success:
+        goto: _end
+
+  - name: Success
+    command: ["echo", "Found required.txt"]

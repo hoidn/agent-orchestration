@@ -37,6 +37,7 @@ Ground rules (do these every loop):
 7) Update `CLAUDE.md` with any new, brief run/build/test command or known quirk. Do not put runtime status into `CLAUDE.md`.
 8) Emit artifacts: logs, state snapshots, and—if applicable—`artifacts/<agent>/status_<step>.json`. Keep runtime state in `state.json` and `logs/` (not in docs).
 9) Reconcile spec vs. architecture: if behavior is underspecified in the spec but captured in `arch.md`, follow `arch.md`. If there is a conflict, prefer the spec for external contracts and propose an `arch.md` patch (record in `fix_plan.md`).
+10) Version control hygiene: after each loop, stage and commit all intended changes. Use a descriptive message including acceptance IDs and module scope. Do not commit runtime state/logs (e.g., `.orchestrate/runs/**`, `logs/**`). Always include `fix_plan.md` and any updated prompts/docs.
 
 Validation Boundary (must follow):
 - Loader only: DSL schema/shape, unknown fields, version gating (e.g., injection requires `version: "1.1.1"`), mutual exclusivity, and `goto` target validation.
@@ -105,6 +106,11 @@ No cheating (important):
 Release hygiene (when everything is green):
 - Update `CHANGELOG.md` with user‑visible changes mapped to spec sections.
 - Create a tag (e.g., `v1.1.1`) once acceptance tests are passing. If tagging is not possible in this environment, record the intended tag in the changelog.
+
+Commit hygiene (each loop):
+- Command: `git add -A && git commit -m "<AT-ids> <module>: <concise summary>"`
+- Message must reference acceptance IDs (e.g., `AT-49`) and module (e.g., `providers/executor`), and briefly state behavior implemented/validated.
+- Include `fix_plan.md` and prompt/doc updates. Exclude runtime artifacts and state.
 
 Loop Self‑Checklist (end of every loop):
 - Layer check done (loader vs executor) and justified.

@@ -1,0 +1,20 @@
+# Test workflow for AT-10: Provider/Command mutual exclusivity
+# This file contains INVALID examples that should be rejected
+version: "1.1"
+name: "test_exclusivity_invalid"
+
+providers:
+  claude:
+    command: ["claude", "-p", "${PROMPT}"]
+
+steps:
+  # INVALID: Has both provider and command
+  - name: InvalidBoth
+    provider: "claude"
+    command: ["echo", "test"]
+
+  # INVALID: Has wait_for and command
+  - name: InvalidWaitCommand
+    wait_for:
+      glob: "*.txt"
+    command: ["echo", "waiting"]
