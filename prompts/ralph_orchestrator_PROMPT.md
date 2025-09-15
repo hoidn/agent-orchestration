@@ -16,6 +16,11 @@ One thing per loop:
 - Before changing code, search the repo to ensure it’s not already implemented or half‑implemented. Do not assume missing.
 - After implementing, run only the tests/examples relevant to that feature (fast feedback). If they pass, run the broader acceptance subset.
 
+At the start of each loop, declare:
+- Acceptance focus: AT-xx[, AT-yy]
+- Module scope: one of { workflow/loader | providers/executor | io/capture | deps/injection | fsq/wait | state | cli }
+- Stop rule: If planned changes cross another module category, reduce scope now to keep one acceptance area per loop.
+
 Subagents policy (context budget):
 - You may use up to 200 subagents for search, summarization, inventory, and planning.
 - Use at most 1 subagent for building/running tests/acceptance suites to avoid back‑pressure.
@@ -32,6 +37,17 @@ Ground rules (do these every loop):
 7) Update `CLAUDE.md` with any new, brief run/build/test command or known quirk. Do not put runtime status into `CLAUDE.md`.
 8) Emit artifacts: logs, state snapshots, and—if applicable—`artifacts/<agent>/status_<step>.json`. Keep runtime state in `state.json` and `logs/` (not in docs).
 9) Reconcile spec vs. architecture: if behavior is underspecified in the spec but captured in `arch.md`, follow `arch.md`. If there is a conflict, prefer the spec for external contracts and propose an `arch.md` patch (record in `fix_plan.md`).
+
+Validation Boundary (must follow):
+- Loader only: DSL schema/shape, unknown fields, version gating (e.g., injection requires `version: "1.1.1"`), mutual exclusivity, and `goto` target validation.
+- Executor only: unresolved placeholders (`error.context.missing_placeholders`), `${PROMPT}` misuse in stdin mode (`invalid_prompt_placeholder`), provider param/argv substitution, dependency injection application and truncation recording.
+- Sign: If a check needs runtime substitution or provider execution, do not implement it in the loader.
+
+Gates and platform notes:
+- Path Safety Gate (AT-38/39): All paths/globs must pass `resolve_safe` and symlink-escape checks; validate at load when static and pre‑op when dynamic. Add tests for absolute, parent‑escape, and symlink‑escape.
+- Injection Gate (AT-28–35 + versioning): Using `depends_on.inject` requires `version: "1.1.1"`. Enforce deterministic ordering and ~256 KiB cap; when truncated, populate `steps.<Step>.debug.injection` with details.
+- Backpressure Template: For every loop, add at least one positive and one negative unit test tied to acceptance IDs, plus the smallest workflow that proves the clause (e.g., stdin mode without `${PROMPT}`).
+- Platform Note: If tests/commands are POSIX‑specific, note Windows/WSL alternatives in `CLAUDE.md`.
 
 Spec/Architecture points you must implement and/or verify (select one per loop):
 - DSL validation (see `specs/dsl.md`, `specs/versioning.md`): strict unknown‑field rejection; `version:` feature gating (1.1.1 required for `depends_on.inject`). Allow `provider_params` to carry extra keys (ignored with debug log) without weakening DSL strictness.
@@ -89,6 +105,13 @@ No cheating (important):
 Release hygiene (when everything is green):
 - Update `CHANGELOG.md` with user‑visible changes mapped to spec sections.
 - Create a tag (e.g., `v1.1.1`) once acceptance tests are passing. If tagging is not possible in this environment, record the intended tag in the changelog.
+
+Loop Self‑Checklist (end of every loop):
+- Layer check done (loader vs executor) and justified.
+- Acceptance IDs quoted and limited (one area; 1–2 IDs max).
+- Backpressure present: unit + smallest integration, with expected pass/fail and remediation.
+- Evidence includes file:line pointers for presence/absence; no “assume missing”.
+- Scope stayed within a single module category; if not, capture deferral in `fix_plan.md`.
 
 Start here (task selection):
 1) Parse the Acceptance Tests list from `specs/acceptance/index.md` and cross‑reference code/tests to detect the highest‑value missing or flaky item.

@@ -21,8 +21,8 @@ Subagents policy:
 Method (follow in order):
 1) Extract acceptance items: Parse the “Acceptance Tests” list from `specs/acceptance/index.md` into a numbered set. Normalize each item to a single declarative statement.
 2) Map to code/tests/examples: For each acceptance item, search the codebase for relevant modules, validators, CLI handlers, and example workflows. Capture file pointers (paths + line anchors) as evidence.
-3) Categorize status: done (clear implementation + tests/examples), partial (some logic exists or tests incomplete), missing (no clear implementation or tests).
-4) Define DoD per item: Link back to spec line(s) and describe how to verify (test or example workflow to run, expected state/log fields, exit codes). Keep it minimal and objective.
+3) Categorize status: done (clear implementation + tests/examples), partial (some logic exists or tests incomplete), missing (no clear implementation or tests). Also tag each item with a Boundary: Loader or Executor. If implemented at the wrong layer, mark status [~] and add a task to move it.
+4) Define DoD per item: Link back to spec line(s) and describe how to verify (test or example workflow to run, expected state/log fields, exit codes). Keep it minimal and objective. If boundary is wrong, include moving the check/logic to the correct layer in DoD.
 5) Identify dependencies: Note prerequisites among items (e.g., DSL validation before injection; path safety before depends_on).
 6) Prioritize: Score items by impact, risk, and enabling power. Output a Top‑10 list first, then the full backlog.
 7) Update artifacts: Overwrite `fix_plan.md` with the structured content below. Do not place runtime status in docs.
@@ -38,6 +38,7 @@ Legend: [ ] missing  [~] partial  [x] done  (status reflects implementation + te
 1. <title> — status: [ ], spec: <section/ref>, acceptance: <ids>, DoD: <one sentence>
    - Rationale: <impact/enabler>
    - Evidence: <paths or “none”>
+   - Boundary: Loader|Executor
    - Tasks:
      - <short actionable>
      - <short actionable>
@@ -48,6 +49,7 @@ Legend: [ ] missing  [~] partial  [x] done  (status reflects implementation + te
 - Status: [ ]|[~]|[x]
 - Spec refs: <section ids or anchors>
 - Acceptance IDs: <list>
+- Boundary: Loader|Executor
 - Evidence (code/tests/examples):
   - <path:line> — <note>
 - Definition of Done:
