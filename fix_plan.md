@@ -98,15 +98,15 @@
 - [ ] stdin mode + ${PROMPT} → validation error
 - [ ] Error context includes missing_placeholders
 
-### 9. ⬜ [AT-22-27] Dependency Resolution
-**Status**: Blocked by #1
+### 9. ✅ [AT-22-27] Dependency Resolution
+**Status**: COMPLETED (2025-09-15)
 **Acceptance**: Required/optional globs work
-**Spec**: `specs/dependencies.md`
+**Spec**: `specs/dependencies.md`, `specs/variables.md`
 **DoD**:
-- [ ] POSIX glob matching
-- [ ] Missing required → exit 2
-- [ ] Missing optional → continue
-- [ ] Variable substitution in patterns
+- [x] POSIX glob matching
+- [x] Missing required → exit 2
+- [x] Missing optional → continue
+- [x] Variable substitution in patterns
 
 ### 10. ⬜ [AT-17-19] Wait-For Implementation
 **Status**: Blocked by #1
@@ -252,3 +252,27 @@
 **Test Results**: All 22 executor tests passing, including AT-1 and AT-2
 
 **Next Priority**: Implement provider templates (AT-8/9) or dependency resolution (AT-22-27)
+
+### 2025-09-15 Loop 4: Dependency Resolution and Variable Substitution
+**Acceptance Tests Completed**: AT-22, AT-23, AT-24, AT-25, AT-26, AT-27
+**Files Created**:
+- `orchestrator/workflow/substitution.py` - Variable substitution with namespace support
+- `orchestrator/deps/__init__.py` - Dependency module exports
+- `orchestrator/deps/resolver.py` - DependencyResolver with glob matching
+- `tests/test_dependencies.py` - 18 unit tests for dependencies and substitution
+- `workflows/examples/test_dependencies.yaml` - Example workflow demonstrating dependencies
+
+**Key Implementation Details**:
+- POSIX glob pattern matching with deterministic lexicographic ordering
+- Required dependencies fail with exit 2 and DependencyError if missing
+- Optional dependencies are omitted silently when missing
+- Variable substitution in dependency patterns (${context.*}, ${steps.*}, etc.)
+- Path safety validation: reject absolute paths and .. traversal
+- Symlink escape detection: filter out symlinks that escape WORKSPACE
+- Environment namespace rejection: ${env.*} variables cause validation error
+- Escape sequences: $$ -> $, $${ -> ${
+- Loop dependencies re-evaluated each iteration
+
+**Test Results**: All 18 dependency tests passing, total 75 tests passing
+
+**Next Priority**: Implement provider templates (AT-8/9) or wait-for (AT-17-19)

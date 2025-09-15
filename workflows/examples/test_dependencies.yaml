@@ -1,0 +1,61 @@
+# Example workflow demonstrating dependency resolution (AT-22-27)
+version: "1.1"
+name: "DependencyTest"
+description: "Test dependency resolution with required and optional files"
+
+context:
+  project: "myproject"
+  module: "src"
+
+steps:
+  # AT-22: Required dependency validation
+  - name: RequiredDependencies
+    description: "Step with required dependencies"
+    depends_on:
+      required:
+        - "orchestrator/*.py"  # Should find Python files
+        - "specs/*.md"         # Should find spec files
+    command: ["echo", "Found all required dependencies"]
+
+  # AT-26: Optional dependencies
+  - name: OptionalDependencies
+    description: "Step with optional dependencies"
+    depends_on:
+      required:
+        - "orchestrator/deps/*.py"
+      optional:
+        - "nonexistent/*.txt"  # Won't exist, but that's OK
+        - "missing/*.md"       # Also won't exist
+    command: ["echo", "Optional dependencies are optional"]
+
+  # AT-24: Variable substitution in dependencies
+  - name: VariableInDependencies
+    description: "Dependencies with variable substitution"
+    depends_on:
+      required:
+        - "${context.module}/*.py"  # Will resolve to "src/*.py"
+        - "orchestrator/${context.module}/*.py"  # Pattern with variable
+    command: ["echo", "Variables in dependencies work"]
+
+  # AT-23: POSIX glob patterns
+  - name: GlobPatterns
+    description: "Various glob patterns"
+    depends_on:
+      required:
+        - "workflows/examples/*.yaml"  # This file itself
+      optional:
+        - "*.md"  # Root level markdown files
+        - "specs/acceptance/*.md"  # Nested patterns
+    command: ["ls", "-la"]
+
+  # Mixed required and optional
+  - name: MixedDependencies
+    description: "Both required and optional dependencies"
+    depends_on:
+      required:
+        - "orchestrator/workflow/*.py"
+        - "orchestrator/state/*.py"
+      optional:
+        - "docs/*.md"
+        - "tests/*.py"
+    command: ["echo", "Mixed dependencies resolved"]
