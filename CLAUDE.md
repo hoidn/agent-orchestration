@@ -28,12 +28,16 @@ This project uses standard Python packaging. Set up the editable install to make
     pip install pytest pyyaml  # Install dev dependencies
     ```
 
-### 2. Running Ralph Loops
+### 2. Testing notes 
+#### Tier 1: Unit tests
+#### Tier 2: Integration tests
+#### Tier 3: End-to-End (E2E) Tests with Real agents
+These tests are slow and require network access. They are essential for final validation but should not be overused.
 
--   **Planning loop** (derive/refresh fix_plan.md):
-    `while :; do cat prompts/ralph_orchestrator_PLAN_PROMPT.md | npx --yes @sourcegraph/amp; sleep 1; done`
--   **Build loop** (implement one acceptance item):
-    `while :; do cat prompts/ralph_orchestrator_PROMPT.md | npx --yes @sourcegraph/amp; sleep 1; done`
+-   **How to Run**: Use the `pytest` marker `-m e2e`.
+    ```bash
+    pytest -v -m e2e
+    ```
 
 ### 3. Running Tests (Backpressure)
 
