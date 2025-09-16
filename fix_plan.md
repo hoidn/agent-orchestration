@@ -97,12 +97,14 @@
 
 ## Top-10 Priority Items (Next Loops)
 
-1. **AT-3,13**: For-each loops execution
-   - Items_from pointer resolution
-   - Loop scope variables
-   - Loop execution with state tracking
+1. **AT-3,13**: For-each loops execution [IN PROGRESS]
+   - ✅ Items_from pointer resolution implemented in `orchestrator/workflow/pointers.py`
+   - ✅ WorkflowExecutor created with for-each support in `orchestrator/workflow/executor.py`
+   - ✅ Loop scope variables (${item}, ${loop.index}, ${loop.total}) support added
+   - ⚠️ Integration tests need debugging (5 failing, pointer resolution tests pass)
+   - TODO: Complete integration testing and wire into main execution flow
 
-3. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
+2. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
    - Safety constraints
    - Directory management
 
@@ -110,10 +112,54 @@
    - Environment composition
    - Masking in logs/state
    - Missing secrets error handling
+   - Tasks:
+     - Implement best‑effort secret value masking (exact value redaction → "***") across prompt audit, state.debug, and logs.
+     - Enforce precedence: step `env` overrides `secrets` when keys collide; still treat the key as secret for masking.
+     - Source only from orchestrator process environment; accept empty strings as present; record `missing_secrets` for absent names.
+     - Add tests covering: missing_secrets (AT‑41), masking behavior (AT‑42), source (AT‑54), and env vs secrets precedence (AT‑55).
 
 5. **AT-5,6**: Queue management
     - Inbox atomicity (*.tmp → rename)
     - User-driven moves to processed/failed
+
+## Refactor Track — Contract Hardening (Non‑optional)
+
+1. Execution safety (argv, no shell=True) — spec: dsl.md/providers.md; acceptance: AT‑8, AT‑9, AT‑50
+   - Rationale: Align process execution with argv semantics, reduce injection/quoting risk.
+   - DoD: All command/provider executions use argv lists; all provider/command tests pass unchanged.
+   - Tasks:
+     - Replace `shell=True` command paths with `subprocess.run([...])` argv forms.
+     - Normalize executor APIs to accept `List[str]` (and keep a safe string→argv adapter only where unavoidable).
+     - Update tests to assert argv behavior, not shell parsing.
+
+2. Loader error handling (library/CLI boundary) — spec: versioning.md/dsl.md (strict validation)
+   - Rationale: Keep loader reusable; avoid process control inside library code.
+   - DoD: Loader raises structured exceptions; CLI maps to exit codes; existing validation tests adapted to expect exceptions.
+   - Tasks:
+     - Replace internal `sys.exit(2)` with raising a `WorkflowValidationError` carrying messages.
+     - Adjust tests to catch exceptions and assert messages/exit semantics.
+
+3. Injection integration + debug record — acceptance: AT‑28–35, AT‑53
+   - Rationale: Injector exists; ensure it’s applied and recorded during execution.
+   - DoD: For provider steps with `depends_on.inject`, executor composes prompt with resolver+injector; on truncation, record `steps.<Step>.debug.injection{...}`.
+   - Tasks:
+     - In provider execution flow, resolve required/optional globs (deterministic order), apply injector (list/content, prepend/append).
+     - Persist truncation metadata to `StepState.debug.injection` exactly as per spec.
+     - Add tests for list/content modes, custom instruction, prepend/append, and truncation record.
+
+4. Output capture spill consistency (JSON overflow + allow_parse_error) — acceptance: AT‑15, AT‑52
+   - Rationale: Ensure large JSON with allow_parse_error behaves like text truncation and spills full stream.
+   - DoD: Overflow path writes full stdout to `logs/<Step>.stdout` and stores truncated text in state.
+   - Tasks:
+     - Unify spill logic between text truncation and JSON overflow fallback.
+     - Add regression test asserting presence and contents of `logs/<Step>.stdout`.
+
+5. Provider params substitution (nested) — acceptance: AT‑44
+   - Rationale: Centralize substitution with namespace/escape rules; support nested dicts/lists.
+   - DoD: Single substitution pass over strings in provider_params (recursively), honoring `${run|context|loop|steps.*}` and escapes; tests cover nested structures.
+   - Tasks:
+     - Introduce a shared substitution utility; apply in provider params handling.
+     - Add tests for nested maps/arrays and pointer forms.
 
 ## Backlog
 
@@ -130,7 +176,14 @@
 - Following ADR-01: Path safety enforced at load time
 - Following ADR-03: Provider as managed black box
 - Loader/Executor separation per arch.md: validation vs runtime substitution
-- **CRITICAL**: Module structure per arch.md now being enforced (orchestrator/exec/*, orchestrator/deps/* created)
+- **CRITICAL**: Module structure per arch.md now being enforced:
+  - ✅ orchestrator/exec/* (output_capture.py, step_executor.py)
+  - ✅ orchestrator/deps/* (resolver.py, injector.py)
+  - ✅ orchestrator/providers/* (registry.py, executor.py, types.py)
+  - ✅ orchestrator/fsq/* (wait.py)
+  - ✅ orchestrator/workflow/* (executor.py, pointers.py) - NEW THIS LOOP
+  - ✅ orchestrator/state.py
+  - ✅ orchestrator/loader.py
 
 ## Next Loop Recommendation
 
