@@ -37,6 +37,7 @@ Ground rules (do these every loop):
    b. **Test collection itself MUST succeed.** An `ImportError` or any other collection error is a CRITICAL blocking failure that you must fix immediately.
    c. An iteration is only considered successful if this full regression check passes cleanly.
    When reporting results, cite the Acceptance Test numbers covered (e.g., "AT-28, AT-33").
+   If a loop changes only non-code artifacts (e.g., prompts/docs/plan), at minimum ensure `pytest --collect-only -q` succeeds before committing.
 6) Update `fix_plan.md`: mark the item you addressed as done; add follow‑ups if you discovered edge cases or debt.
 7) Update `CLAUDE.md` with any new, brief run/build/test command or known quirk. Do not put runtime status into `CLAUDE.md`.
 8) Emit artifacts: logs, state snapshots, and—if applicable—`artifacts/<agent>/status_<step>.json`. Keep runtime state in `state.json` and `logs/` (not in docs).
