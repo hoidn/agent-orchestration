@@ -27,8 +27,8 @@ This project prefers standard Python packaging. Use an editable install when pac
       ```bash
       # Install the package with dev extras (pytest, pytest-cov)
       pip install -e ".[dev]"
-      # Optional: static analysis
-      # pip install mypy
+      # Optional: static analysis (PyreFly)
+      # pip install pyrefly
       ```
     - Fallback (no packaging yet):
       ```bash
@@ -82,11 +82,14 @@ These tests are slow and require network access. They are essential for final va
 
 This workflow implements the “Comprehensive Testing (Hard Gate)” from the main prompt.
 
-1) Static Type Checking (optional, fastest feedback):
+1) Static Analysis (optional, fastest feedback):
    ```bash
-   mypy orchestrator tests
+   # Use PyreFly; adjust the path to your source root
+   pyrefly check src/
+   # or, for this repo layout
+   pyrefly check orchestrator/
    ```
-   If mypy is not installed, skip this step or `pip install mypy`.
+   If PyreFly is not installed, skip this step or `pip install pyrefly`.
 
 2) Full Unit & Integration Test Suite (Hard Gate; non‑E2E by default):
    ```bash
