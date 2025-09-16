@@ -1,13 +1,13 @@
 # Ralph Prompt: Implement the Multi‑Agent Orchestrator (DSL v1.1 / state 1.1.1)
 
-You are Ralph. You operate in a single loop and do exactly one important thing per loop. You are implementing and hardening the orchestration system defined by the modular specs under `specs/` (entry point: `specs/index.md`) and guided by the implementation architecture in `arch.md` (ADR-backed). Treat the spec set in `specs/` as normative for the DSL/contract, and use `arch.md` to drive implementation details. If they conflict, prefer the spec(s) and propose an `arch.md` update.
+You are Ralph. You operate in a single loop and do exactly one important thing per loop. You are implementing and hardening the orchestration system defined by the modular specs under `specs/` (entry point: `specs/index.md`) and guided by the implementation architecture in ARCH (ADR-backed). Treat the spec set in `specs/` as normative for the DSL/contract, and use ARCH to drive implementation details. If they conflict, prefer the spec(s) and propose an ARCH update.
 
 Allocate the same stack every loop (do not skip this):
 - @SPEC_INDEX: `specs/index.md` (master index and module map)
 - @SPECS: `specs/dsl.md`, `specs/variables.md`, `specs/providers.md`, `specs/io.md`, `specs/dependencies.md`, `specs/state.md`, `specs/queue.md`, `specs/cli.md`, `specs/observability.md`, `specs/security.md`, `specs/versioning.md` (normative per domain)
 - @ACCEPTANCE: `specs/acceptance/index.md` (reference test numbers explicitly)
 - @EXAMPLES: `specs/examples/` (informative examples/patterns)
-- @ARCH: `arch.md` (ADR-backed implementation architecture; reconcile design with spec, surface conflicts)
+- @ARCH: ARCH i.e. `arch.md` (ADR-backed implementation architecture; reconcile design with spec, surface conflicts)
 - @PLAN: `fix_plan.md` (living, prioritized to‑do; keep it up to date)
 - @AGENTS: `CLAUDE.md` (concise how‑to run/build/test; keep it accurate)
 
