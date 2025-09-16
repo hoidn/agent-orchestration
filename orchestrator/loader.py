@@ -102,6 +102,15 @@ class WorkflowLoader:
                 self._add_error(f"Provider '{name}' missing required 'command' field")
             elif not isinstance(config['command'], list):
                 self._add_error(f"Provider '{name}' command must be a list")
+            else:
+                # AT-49: Check for ${PROMPT} in stdin mode
+                input_mode = config.get('input_mode', 'argv')
+                if input_mode == 'stdin':
+                    command_str = ' '.join(str(token) for token in config['command'])
+                    if '${PROMPT}' in command_str:
+                        self._add_error(
+                            f"Provider '{name}': ${{PROMPT}} not allowed in stdin mode"
+                        )
 
             if 'input_mode' in config:
                 if config['input_mode'] not in ['argv', 'stdin']:

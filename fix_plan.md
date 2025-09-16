@@ -58,41 +58,46 @@
    - Provider template validation
    - For-each loop structure validation
 
+✅ **AT-8,9,48-51**: Provider execution (argv vs stdin modes)
+   - Implemented provider registry in `orchestrator/providers/registry.py`
+   - Provider template validation with stdin mode ${PROMPT} check
+   - Provider executor with argv/stdin input modes
+   - Placeholder substitution and validation
+   - Parameter merging (defaults overlaid by step params)
+   - Missing placeholder detection with error context
+   - Tests: Full test suite in `test_provider_execution.py` and `test_provider_integration.py` (20 tests passing)
+
 ## Top-10 Priority Items (Next Loops)
 
-1. **AT-8,9,48-51**: Provider execution (argv vs stdin modes)
-   - Provider registry and template composition
-   - Placeholder substitution and validation
-
-2. **AT-22-27**: Dependency validation and resolution
+1. **AT-22-27**: Dependency validation and resolution
    - Required vs optional semantics
    - POSIX glob matching
    - Re-evaluation in loops
 
-3. **AT-28-35,53**: Dependency injection (v1.1.1 feature)
+2. **AT-28-35,53**: Dependency injection (v1.1.1 feature)
    - List/content modes
    - Deterministic ordering
    - Size caps and truncation metadata
 
-4. **AT-17-19**: Wait-for implementation
+3. **AT-17-19**: Wait-for implementation
    - Polling logic with timeout
    - State tracking (duration_ms, poll_count, files)
 
-5. **AT-3,13**: For-each loops execution
+4. **AT-3,13**: For-each loops execution
    - Items_from pointer resolution
    - Loop scope variables
    - Loop execution with state tracking
 
-6. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
+5. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
    - Safety constraints
    - Directory management
 
-7. **AT-41,42,54,55**: Secrets handling
+6. **AT-41,42,54,55**: Secrets handling
    - Environment composition
    - Masking in logs/state
    - Missing secrets error handling
 
-8. **AT-5,6**: Queue management
+7. **AT-5,6**: Queue management
     - Inbox atomicity (*.tmp → rename)
     - User-driven moves to processed/failed
 
