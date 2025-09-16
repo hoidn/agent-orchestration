@@ -2,6 +2,19 @@
 
 ## Completed
 
+✅ **AT-1,2,45,52**: Output capture modes (text/lines/json) with truncation
+   - Implemented in `orchestrator/exec/output_capture.py` per arch.md module structure
+   - Text mode: 8 KiB limit with spill to logs
+   - Lines mode: 10,000 lines limit with CRLF normalization
+   - JSON mode: 1 MiB buffer limit, parse error handling with allow_parse_error flag
+   - Tee semantics: output_file receives full stream while state limits apply
+   - Tests: Complete test suite in `test_output_capture.py` (17 tests passing)
+
+✅ **AT-14,15**: JSON oversize handling
+   - JSON >1 MiB fails with exit 2 unless allow_parse_error=true
+   - With allow_parse_error, stores truncated text and succeeds
+   - Tests: `test_at14_json_oversize_fails`, `test_at15_json_parse_error_allowed`
+
 ✅ **AT-7**: No env namespace - `${env.*}` rejected by schema validator
    - Implemented in `orchestrator/loader.py` with regex pattern check
    - Tests: `test_at7_env_namespace_rejected`, `test_at7_env_in_provider_params_rejected`
@@ -47,47 +60,39 @@
 
 ## Top-10 Priority Items (Next Loops)
 
-1. **AT-1,2,45,52**: Output capture modes (text/lines/json) with truncation
-   - Implement executor module
-   - Handle state/log truncation at 8 KiB
-   - Full tee to output_file
-
-2. **AT-14,15**: JSON oversize handling (>1 MiB fails unless allow_parse_error)
-   - Implement in executor's output capture
-
-3. **AT-8,9,48-51**: Provider execution (argv vs stdin modes)
+1. **AT-8,9,48-51**: Provider execution (argv vs stdin modes)
    - Provider registry and template composition
    - Placeholder substitution and validation
 
-4. **AT-22-27**: Dependency validation and resolution
+2. **AT-22-27**: Dependency validation and resolution
    - Required vs optional semantics
    - POSIX glob matching
    - Re-evaluation in loops
 
-5. **AT-28-35,53**: Dependency injection (v1.1.1 feature)
+3. **AT-28-35,53**: Dependency injection (v1.1.1 feature)
    - List/content modes
    - Deterministic ordering
    - Size caps and truncation metadata
 
-6. **AT-17-19**: Wait-for implementation
+4. **AT-17-19**: Wait-for implementation
    - Polling logic with timeout
    - State tracking (duration_ms, poll_count, files)
 
-7. **AT-3,13**: For-each loops execution
+5. **AT-3,13**: For-each loops execution
    - Items_from pointer resolution
    - Loop scope variables
    - Loop execution with state tracking
 
-8. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
+6. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
    - Safety constraints
    - Directory management
 
-9. **AT-41,42,54,55**: Secrets handling
-    - Environment composition
-    - Masking in logs/state
-    - Missing secrets error handling
+7. **AT-41,42,54,55**: Secrets handling
+   - Environment composition
+   - Masking in logs/state
+   - Missing secrets error handling
 
-10. **AT-5,6**: Queue management
+8. **AT-5,6**: Queue management
     - Inbox atomicity (*.tmp → rename)
     - User-driven moves to processed/failed
 
@@ -104,8 +109,10 @@
 
 - Following ADR-02b: Strict validation at declared version
 - Following ADR-01: Path safety enforced at load time
+- Following ADR-03: Provider as managed black box
 - Loader/Executor separation per arch.md: validation vs runtime substitution
+- **CRITICAL**: Module structure per arch.md now being enforced (orchestrator/exec/* created)
 
 ## Next Loop Recommendation
 
-Implement executor module with output capture (AT-1,2,45,52) as the StateManager is now in place to record execution results.
+Implement provider registry and execution (AT-8,9,48-51) now that the executor foundation is in place.

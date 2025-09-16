@@ -1,0 +1,35 @@
+# Example workflow demonstrating output capture modes
+# Tests AT-1, AT-2, AT-45, AT-52
+
+version: "1.1"
+name: output_capture_demo
+description: Demonstrates text, lines, and JSON output capture
+
+context:
+  demo_value: "test"
+
+steps:
+  - name: capture_text
+    command: echo "Simple text output"
+    output_capture: text
+
+  - name: capture_lines
+    command: |
+      echo "line1"
+      echo "line2"
+      echo "line3"
+    output_capture: lines
+
+  - name: capture_json
+    command: echo '{"status":"success","value":42}'
+    output_capture: json
+
+  - name: capture_large_text
+    command: python3 -c "print('x' * 9000)"
+    output_capture: text
+    # This will truncate at 8 KiB
+
+  - name: capture_with_tee
+    command: echo "This goes to both state and file"
+    output_capture: text
+    output_file: demo_output.txt
