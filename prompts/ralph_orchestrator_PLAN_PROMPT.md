@@ -82,6 +82,7 @@ Don’ts:
 Outputs of this loop (must produce all):
 - Updated `fix_plan.md` per template (Top‑10 + Backlog + Cross‑cutting).
 - A short summary (max 10 lines) of the highest‑impact next 3 items and why.
+- Stage and commit the updated plan: `git add -A && git commit -m "[plan] fix_plan: refresh priorities and mapping"` (include evidence pointers when useful).
 
 Next loop handoff:
 - The next build loop should pick item #1 from Top‑10, quote its DoD, and implement only that one.
