@@ -210,11 +210,9 @@ steps:
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
                     mode=CaptureMode.LINES,
-                    stdout="file1.txt\nfile2.txt\nfile3.txt\n",
-                    stderr="",
+                    output="file1.txt\nfile2.txt\nfile3.txt\n",
                     lines=["file1.txt", "file2.txt", "file3.txt"],
-                    truncated_state=False,
-                    truncated_log=False
+                    truncated=False
                 )
                 from orchestrator.exec.step_executor import ExecutionResult
                 return ExecutionResult(
@@ -228,11 +226,8 @@ steps:
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
                     mode=CaptureMode.TEXT,
-                    stdout=command,  # Echo back the command
-                    stderr="",
-                    text=command,
-                    truncated_state=False,
-                    truncated_log=False
+                    output=command,  # Echo back the command
+                    truncated=False
                 )
                 from orchestrator.exec.step_executor import ExecutionResult
                 return ExecutionResult(
@@ -270,7 +265,7 @@ steps:
             indexed_key = f'ProcessFiles[{i}].ProcessFile'
             assert indexed_key in state['steps']
             result = state['steps'][indexed_key]
-            assert f'Processing {filename}' in result['text']
+            assert f'Processing {filename}' in result.get('output', '')
 
     def test_at13_for_each_json_pointer(self):
         """AT-13: for_each with nested JSON pointer."""
@@ -322,11 +317,9 @@ steps:
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
                     mode=CaptureMode.JSON,
-                    stdout='{"tasks": {"items": ["task1", "task2", "task3"]}}',
-                    stderr="",
-                    json={"tasks": {"items": ["task1", "task2", "task3"]}},
-                    truncated_state=False,
-                    truncated_log=False
+                    output='{"tasks": {"items": ["task1", "task2", "task3"]}}',
+                    json_data={"tasks": {"items": ["task1", "task2", "task3"]}},
+                    truncated=False
                 )
                 from orchestrator.exec.step_executor import ExecutionResult
                 return ExecutionResult(
@@ -340,11 +333,8 @@ steps:
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
                     mode=CaptureMode.TEXT,
-                    stdout=command,
-                    stderr="",
-                    text=command,
-                    truncated_state=False,
-                    truncated_log=False
+                    output=command,
+                    truncated=False
                 )
                 from orchestrator.exec.step_executor import ExecutionResult
                 return ExecutionResult(
@@ -374,7 +364,7 @@ steps:
             indexed_key = f'ProcessTasks[{i}].HandleTask'
             assert indexed_key in state['steps']
             result = state['steps'][indexed_key]
-            assert f'Handling {task}' in result['text']
+            assert f'Handling {task}' in result.get('output', '')
 
     def test_for_each_invalid_pointer_fails(self):
         """Test for_each with invalid pointer fails with exit code 2."""
@@ -457,11 +447,9 @@ steps:
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
                     mode=CaptureMode.JSON,
-                    stdout='{"value": 42}',
-                    stderr="",
-                    json={"value": 42},
-                    truncated_state=False,
-                    truncated_log=False
+                    output='{"value": 42}',
+                    json_data={"value": 42},
+                    truncated=False
                 )
                 from orchestrator.exec.step_executor import ExecutionResult
                 return ExecutionResult(
@@ -526,11 +514,8 @@ steps:
             from orchestrator.exec.output_capture import CaptureResult, CaptureMode
             result = CaptureResult(
                 mode=CaptureMode.TEXT,
-                stdout=command,
-                stderr="",
-                text=command,
-                truncated_state=False,
-                truncated_log=False
+                output=command,
+                truncated=False
             )
             from orchestrator.exec.step_executor import ExecutionResult
             return ExecutionResult(

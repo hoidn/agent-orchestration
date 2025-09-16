@@ -63,8 +63,11 @@ class WorkflowExecutor:
         Returns:
             Final execution state
         """
-        # Initialize state
-        state = self.state_manager.get_state()
+        # Load current state
+        run_state = self.state_manager.load()
+
+        # Convert to dict format for internal processing
+        state = run_state.to_dict()
 
         # Execute steps sequentially
         for step_index, step in enumerate(self.steps):
@@ -79,12 +82,17 @@ class WorkflowExecutor:
             elif 'wait_for' in step:
                 state = self._execute_wait_for(step, state)
             elif 'provider' in step:
-                state = self._execute_provider(step, state)
+                result = self._execute_provider(step, state)
+                # Store result in state
+                if 'steps' not in state:
+                    state['steps'] = {}
+                state['steps'][step_name] = result
             elif 'command' in step:
-                state = self._execute_command(step, state)
-
-            # Update state after each step
-            self.state_manager.update_state(state)
+                result = self._execute_command(step, state)
+                # Store result in state
+                if 'steps' not in state:
+                    state['steps'] = {}
+                state['steps'][step_name] = result
 
         return state
 
@@ -201,6 +209,20 @@ class WorkflowExecutor:
                 indexed_key = f"{step_name}[{i}].{nested_name}"
                 state['steps'][indexed_key] = result
 
+                # Update state manager with each loop step result (AT-43)
+                from ..state import StepResult
+                exit_code = result.get('exit_code', 0)
+                step_result = StepResult(
+                    status='completed' if exit_code == 0 else 'failed',
+                    exit_code=exit_code,
+                    output=result.get('output'),
+                    lines=result.get('lines'),
+                    json=result.get('json'),
+                    error=result.get('error'),
+                    truncated=result.get('truncated', False)
+                )
+                self.state_manager.update_loop_step(step_name, i, nested_name, step_result)
+
         return state
 
     def _execute_command_with_context(
@@ -301,8 +323,15 @@ class WorkflowExecutor:
             Combined context dictionary
         """
         # Combine contexts (loop vars override globals)
+        # Get run metadata from current state
+        run_state = self.state_manager.load()
+        run_metadata = {
+            'id': run_state.run_id,
+            'timestamp_utc': run_state.started_at
+        }
+
         context = {
-            'run': self.state_manager.get_run_metadata(),
+            'run': run_metadata,
             'context': self.variables,
             'steps': state.get('steps', {}),
             **loop_context  # Loop vars override

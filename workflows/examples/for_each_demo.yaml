@@ -1,0 +1,30 @@
+version: "1.1"
+
+steps:
+  # AT-3: Dynamic for-each with items_from
+  - name: ListServices
+    command: ["echo", "api\nauth\ndata"]
+    output_capture: lines
+
+  - name: CheckServices
+    for_each:
+      items_from: "steps.ListServices.lines"
+      as: service
+      steps:
+        - name: Check
+          command: ["echo", "Checking service: ${service}"]
+          output_capture: text
+
+  # AT-13: Nested JSON path resolution
+  - name: GetConfig
+    command: ["echo", '{"servers": {"production": ["web1", "web2", "web3"]}}']
+    output_capture: json
+
+  - name: DeployToServers
+    for_each:
+      items_from: "steps.GetConfig.json.servers.production"
+      as: server
+      steps:
+        - name: Deploy
+          command: ["echo", "Deploying to ${server}..."]
+          output_capture: text

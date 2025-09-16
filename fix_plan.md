@@ -95,20 +95,21 @@
    - Integration with step executor for workflow execution
    - Tests: Complete test suite in `test_wait_for.py` (10 tests passing)
 
+✅ **AT-3,13**: For-each loops execution
+   - Items_from pointer resolution implemented in `orchestrator/workflow/pointers.py`
+   - WorkflowExecutor created with for-each support in `orchestrator/workflow/executor.py`
+   - Loop scope variables (${item}, ${loop.index}, ${loop.total}) support added
+   - State manager integration fixed (using correct API methods)
+   - Test suite: Complete with 12 tests passing in `test_for_each_execution.py`
+   - Example workflow created in `workflows/examples/for_each_demo.yaml`
+
 ## Top-10 Priority Items (Next Loops)
 
-1. **AT-3,13**: For-each loops execution [IN PROGRESS]
-   - ✅ Items_from pointer resolution implemented in `orchestrator/workflow/pointers.py`
-   - ✅ WorkflowExecutor created with for-each support in `orchestrator/workflow/executor.py`
-   - ✅ Loop scope variables (${item}, ${loop.index}, ${loop.total}) support added
-   - ⚠️ Integration tests need debugging (5 failing, pointer resolution tests pass)
-   - TODO: Complete integration testing and wire into main execution flow
-
-2. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
+1. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
    - Safety constraints
    - Directory management
 
-4. **AT-41,42,54,55**: Secrets handling
+2. **AT-41,42,54,55**: Secrets handling
    - Environment composition
    - Masking in logs/state
    - Missing secrets error handling
