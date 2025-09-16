@@ -103,13 +103,20 @@
    - Test suite: Complete with 12 tests passing in `test_for_each_execution.py`
    - Example workflow created in `workflows/examples/for_each_demo.yaml`
 
+✅ **AT-11,12,16**: CLI implementation (clean/archive processed)
+   - Implemented complete CLI module in `orchestrator/cli/`
+   - Main entry point with argparse in `orchestrator/cli/main.py`
+   - Run command with safety checks in `orchestrator/cli/commands/run.py`
+   - AT-11: --clean-processed empties directory (with safety validation)
+   - AT-12: --archive-processed creates zip on success
+   - AT-16: Safety checks prevent cleaning outside WORKSPACE
+   - Archive destination validation prevents placing inside processed_dir
+   - Tests: Complete test suite in `test_cli_safety.py` (15 tests passing)
+   - Created executable script `orchestrate` for command-line usage
+
 ## Top-10 Priority Items (Next Loops)
 
-1. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
-   - Safety constraints
-   - Directory management
-
-2. **AT-41,42,54,55**: Secrets handling
+1. **AT-41,42,54,55**: Secrets handling
    - Environment composition
    - Masking in logs/state
    - Missing secrets error handling
@@ -119,7 +126,7 @@
      - Source only from orchestrator process environment; accept empty strings as present; record `missing_secrets` for absent names.
      - Add tests covering: missing_secrets (AT‑41), masking behavior (AT‑42), source (AT‑54), and env vs secrets precedence (AT‑55).
 
-5. **AT-5,6**: Queue management
+2. **AT-5,6**: Queue management
     - Inbox atomicity (*.tmp → rename)
     - User-driven moves to processed/failed
 
@@ -182,10 +189,11 @@
   - ✅ orchestrator/deps/* (resolver.py, injector.py)
   - ✅ orchestrator/providers/* (registry.py, executor.py, types.py)
   - ✅ orchestrator/fsq/* (wait.py)
-  - ✅ orchestrator/workflow/* (executor.py, pointers.py) - NEW THIS LOOP
+  - ✅ orchestrator/workflow/* (executor.py, pointers.py)
+  - ✅ orchestrator/cli/* (main.py, commands/run.py) - NEW THIS LOOP
   - ✅ orchestrator/state.py
   - ✅ orchestrator/loader.py
 
 ## Next Loop Recommendation
 
-Implement wait-for functionality (AT-17-19) now that dependencies are complete. This provides the polling primitive needed for inter-agent communication.
+Implement secrets handling (AT-41,42,54,55) as it's needed for secure workflow execution and is a priority item. This provides the polling primitive needed for inter-agent communication.

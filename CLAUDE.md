@@ -25,8 +25,10 @@ This project prefers standard Python packaging. Use an editable install when pac
 3.  **Editable install vs fallback**
     - Editable path (preferred when packaging is ready):
       ```bash
-      pip install -e .
-      pip install pytest pyyaml  # dev dependencies
+      # Install the package with dev extras (pytest, pytest-cov)
+      pip install -e ".[dev]"
+      # Optional: static analysis
+      # pip install mypy
       ```
     - Fallback (no packaging yet):
       ```bash
@@ -43,7 +45,29 @@ This project prefers standard Python packaging. Use an editable install when pac
         requires_secrets: tests that require secrets; must skip when secrets are absent
     ```
 
-### 2. Testing notes 
+### 2. Running the Orchestrator
+
+The orchestrator can be run via the CLI:
+
+```bash
+# Run a workflow
+./orchestrate run workflows/demo.yaml \
+  --context key=value \
+  --clean-processed \
+  --archive-processed output.zip
+
+# Dry run (validate only)
+./orchestrate run workflows/demo.yaml --dry-run
+
+# With debug logging
+./orchestrate run workflows/demo.yaml --debug
+```
+
+Key safety features:
+- `--clean-processed`: Empties processed directory (must be within WORKSPACE)
+- `--archive-processed`: Creates zip archive of processed directory on success
+
+### 3. Testing notes 
 #### Tier 1: Unit tests
 #### Tier 2: Integration tests
 #### Tier 3: End-to-End (E2E) Tests with Real agents
@@ -54,19 +78,29 @@ These tests are slow and require network access. They are essential for final va
     pytest -v -m e2e
     ```
 
-### 3. Running Tests (Backpressure)
+### 3. Testing & Validation Workflow (Backpressure)
 
--   Default Hard Gate (full run without E2E):
-    ```bash
-    pytest -m "not e2e" -v
-    ```
--   E2E (opt‑in):
-    ```bash
-    pytest -m e2e -v
-    ```
--   Markers: register `e2e` in `pytest.ini` (when added) to silence marker warnings.
--   Network/secrets policy: tests marked `@pytest.mark.e2e` must skip when secrets/network are unavailable. No network is assumed for default runs.
--   If you see `0 tests collected`, add a smoke test (e.g., loader schema validation) before proceeding.
+This workflow implements the “Comprehensive Testing (Hard Gate)” from the main prompt.
+
+1) Static Type Checking (optional, fastest feedback):
+   ```bash
+   mypy orchestrator tests
+   ```
+   If mypy is not installed, skip this step or `pip install mypy`.
+
+2) Full Unit & Integration Test Suite (Hard Gate; non‑E2E by default):
+   ```bash
+   pytest -m "not e2e" -v
+   ```
+
+3) End‑to‑End (E2E) Tests (opt‑in):
+   ```bash
+   pytest -v -m e2e
+   ```
+
+- Markers: register `e2e` in `pytest.ini` (already included) to silence marker warnings.
+- Network/secrets policy: tests marked `@pytest.mark.e2e` must skip when secrets/network are unavailable. No network is assumed for default runs.
+- If you see `0 tests collected`, add a smoke test (e.g., loader schema validation) before proceeding.
 
 Repo map
 - Specs (normative): `specs/index.md` (entry), modules in `specs/*.md`

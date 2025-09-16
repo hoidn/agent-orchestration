@@ -36,6 +36,9 @@ Ground rules (do these every loop):
 2) Search first. Use `ripgrep` patterns and outline findings. If an item exists but is incomplete, prefer finishing it over duplicating.
 3) Implement fully. No placeholders or stubs that merely satisfy trivial checks.
 4) Add/adjust tests and minimal example workflows to prove behavior. Prefer targeted tests that map 1:1 to the Acceptance Tests list.
+   - API Usage Discipline (Consistency Check): Before you call a function from another module for the first time in a loop, re‑read its signature and return type; copy a known‑correct usage from existing tests/examples.
+   - Strong Contracts: Prefer returning typed dataclasses (or similar) for complex, stable APIs. Avoid introducing new untyped dict returns; do not change existing public contracts without a migration plan.
+   - Static Analysis (optional): If mypy is available, run it on changed modules and their immediate dependents; resolve new errors before running the full test suite.
 5) **Comprehensive Testing (Hard Gate)**: After implementing your change and running any new targeted tests, you MUST run the **entire `pytest` suite** from the project root (`pytest -v`).
    a. The entire suite MUST pass without any `FAILED` or `ERROR` statuses.
    b. **Test collection itself MUST succeed.** An `ImportError` or any other collection error is a CRITICAL blocking failure that you must fix immediately.
