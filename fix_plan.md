@@ -1,6 +1,6 @@
 # Fix Plan - Multi-Agent Orchestrator Implementation
 
-## Completed (This Loop)
+## Completed
 
 ✅ **AT-7**: No env namespace - `${env.*}` rejected by schema validator
    - Implemented in `orchestrator/loader.py` with regex pattern check
@@ -26,6 +26,18 @@
    - Implemented deprecation check
    - Test: `test_at40_deprecated_override_rejected`
 
+✅ **AT-4**: Status schema - Write/read status.json with v1 schema
+   - Implemented complete StateManager in `orchestrator/state.py`
+   - Atomic writes with temp file + rename
+   - Backup support with rotation (keep last 3)
+   - Checksum validation for workflow integrity
+   - State repair from backups
+   - Tests: Full test suite in `test_state_manager.py` (10 tests passing)
+
+✅ **AT-43**: Loop state indexing - Results stored as `steps.<LoopName>[i].<StepName>`
+   - Implemented in StateManager.update_loop_step()
+   - Test: `test_at4_loop_state_indexing`
+
 ✅ **Core Loader Foundation**
    - Strict unknown field rejection
    - Version gating (1.1, 1.1.1 support)
@@ -43,46 +55,44 @@
 2. **AT-14,15**: JSON oversize handling (>1 MiB fails unless allow_parse_error)
    - Implement in executor's output capture
 
-3. **AT-4**: State file management (write/read state.json)
-   - Implement state manager
-   - Atomic writes with backup rotation
-
-4. **AT-8,9,48-51**: Provider execution (argv vs stdin modes)
+3. **AT-8,9,48-51**: Provider execution (argv vs stdin modes)
    - Provider registry and template composition
    - Placeholder substitution and validation
 
-5. **AT-22-27**: Dependency validation and resolution
+4. **AT-22-27**: Dependency validation and resolution
    - Required vs optional semantics
    - POSIX glob matching
    - Re-evaluation in loops
 
-6. **AT-28-35,53**: Dependency injection (v1.1.1 feature)
+5. **AT-28-35,53**: Dependency injection (v1.1.1 feature)
    - List/content modes
    - Deterministic ordering
    - Size caps and truncation metadata
 
-7. **AT-17-19**: Wait-for implementation
+6. **AT-17-19**: Wait-for implementation
    - Polling logic with timeout
    - State tracking (duration_ms, poll_count, files)
 
-8. **AT-3,13,43**: For-each loops execution
+7. **AT-3,13**: For-each loops execution
    - Items_from pointer resolution
    - Loop scope variables
-   - State indexing `steps.<LoopName>[i].<StepName>`
+   - Loop execution with state tracking
 
-9. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
+8. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
    - Safety constraints
    - Directory management
 
-10. **AT-41,42,54,55**: Secrets handling
+9. **AT-41,42,54,55**: Secrets handling
     - Environment composition
     - Masking in logs/state
     - Missing secrets error handling
 
+10. **AT-5,6**: Queue management
+    - Inbox atomicity (*.tmp → rename)
+    - User-driven moves to processed/failed
+
 ## Backlog
 
-- AT-5: Inbox atomicity (*.tmp → rename)
-- AT-6: Queue management (user-driven moves)
 - AT-20,21: Timeouts and retries
 - AT-37,46,47: Conditional execution (when.equals/exists/not_exists)
 - AT-44: Provider params variable substitution
@@ -98,4 +108,4 @@
 
 ## Next Loop Recommendation
 
-Implement state manager (AT-4) as it's foundational for all execution tracking and enables testing of the executor module in subsequent loops.
+Implement executor module with output capture (AT-1,2,45,52) as the StateManager is now in place to record execution results.
