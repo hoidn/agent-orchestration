@@ -28,7 +28,11 @@ Subagents policy (context budget):
 
 Ground rules (do these every loop):
 1) Read the spec section(s) related to your chosen task and the Acceptance Tests expectations. Quote the exact requirement(s) you implement.
-   Also read the relevant `arch.md` sections/ADRs; quote the ADR(s) you are aligning to.
+   Also read the relevant ARCH sections/ADRs; quote the ADR(s) you are aligning to.
+ ARCHITECTURAL DISCIPLINE (IMPORTANT GATE): The modular structure defined in ARCH is NOT optional.
+  a. You MUST create and populate the directory structure as specified.
+  b. Logic MUST be placed in the correct module. 
+  c. Any deviation from the ARCH module structure will be considered a CRITICAL failure, equivalent to a broken test.
 2) Search first. Use `ripgrep` patterns and outline findings. If an item exists but is incomplete, prefer finishing it over duplicating.
 3) Implement fully. No placeholders or stubs that merely satisfy trivial checks.
 4) Add/adjust tests and minimal example workflows to prove behavior. Prefer targeted tests that map 1:1 to the Acceptance Tests list.
