@@ -67,37 +67,47 @@
    - Missing placeholder detection with error context
    - Tests: Full test suite in `test_provider_execution.py` and `test_provider_integration.py` (20 tests passing)
 
+✅ **AT-22-27**: Dependency validation and resolution
+   - Implemented complete dependency resolver in `orchestrator/deps/resolver.py`
+   - POSIX glob matching with deterministic lexicographic ordering
+   - Required vs optional file semantics (missing required fails with exit 2)
+   - Variable substitution in patterns before resolution
+   - Path safety validation (absolute paths and .. traversal rejected)
+   - Symlink escape detection
+   - Support for re-evaluation in loops with different variables
+   - Tests: Complete test suite in `test_dependency_resolution.py` (14 tests passing)
+
+✅ **AT-28-35,53**: Dependency injection (v1.1.1 feature)
+   - Implemented dependency injector in `orchestrator/deps/injector.py`
+   - List mode: prepends/appends file paths with instruction
+   - Content mode: includes file contents with headers showing size info
+   - Shorthand support: `inject: true` equals list mode with prepend
+   - Custom instruction and position (prepend/append) support
+   - Size cap at ~256 KiB with truncation metadata recording
+   - Deterministic ordering preserved from resolver
+   - Tests: Complete test suite in `test_dependency_injection.py` (11 tests passing)
+
 ## Top-10 Priority Items (Next Loops)
 
-1. **AT-22-27**: Dependency validation and resolution
-   - Required vs optional semantics
-   - POSIX glob matching
-   - Re-evaluation in loops
-
-2. **AT-28-35,53**: Dependency injection (v1.1.1 feature)
-   - List/content modes
-   - Deterministic ordering
-   - Size caps and truncation metadata
-
-3. **AT-17-19**: Wait-for implementation
+1. **AT-17-19**: Wait-for implementation
    - Polling logic with timeout
    - State tracking (duration_ms, poll_count, files)
 
-4. **AT-3,13**: For-each loops execution
+2. **AT-3,13**: For-each loops execution
    - Items_from pointer resolution
    - Loop scope variables
    - Loop execution with state tracking
 
-5. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
+3. **AT-11,12,16**: CLI implementation (run, clean/archive processed)
    - Safety constraints
    - Directory management
 
-6. **AT-41,42,54,55**: Secrets handling
+4. **AT-41,42,54,55**: Secrets handling
    - Environment composition
    - Masking in logs/state
    - Missing secrets error handling
 
-7. **AT-5,6**: Queue management
+5. **AT-5,6**: Queue management
     - Inbox atomicity (*.tmp → rename)
     - User-driven moves to processed/failed
 
@@ -116,8 +126,8 @@
 - Following ADR-01: Path safety enforced at load time
 - Following ADR-03: Provider as managed black box
 - Loader/Executor separation per arch.md: validation vs runtime substitution
-- **CRITICAL**: Module structure per arch.md now being enforced (orchestrator/exec/* created)
+- **CRITICAL**: Module structure per arch.md now being enforced (orchestrator/exec/*, orchestrator/deps/* created)
 
 ## Next Loop Recommendation
 
-Implement provider registry and execution (AT-8,9,48-51) now that the executor foundation is in place.
+Implement wait-for functionality (AT-17-19) now that dependencies are complete. This provides the polling primitive needed for inter-agent communication.
