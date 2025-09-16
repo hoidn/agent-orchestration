@@ -5,9 +5,12 @@ Implements AT-8, AT-9, AT-48, AT-49, AT-50, AT-51 per specs/providers.md.
 
 import re
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 
 from orchestrator.workflow.types import Step, ProviderTemplate, InputMode
+
+if TYPE_CHECKING:
+    from orchestrator.deps import ResolvedDependencies
 
 
 class ProviderError(Exception):
@@ -36,7 +39,8 @@ class TemplateResolver:
         self,
         step: Step,
         context: Dict[str, Any],
-        loop_vars: Optional[Dict[str, str]] = None
+        loop_vars: Optional[Dict[str, str]] = None,
+        resolved_dependencies: Optional['ResolvedDependencies'] = None
     ) -> Tuple[List[str], Optional[bytes], Dict[str, Any]]:
         """Build command for provider step per specs/providers.md.
 
@@ -52,6 +56,7 @@ class TemplateResolver:
             step: Provider step
             context: Variable context with run, context, steps namespaces
             loop_vars: Optional loop variables
+            resolved_dependencies: Optional resolved dependencies for injection
 
         Returns:
             Tuple of (command, stdin_input, error_context)
@@ -68,7 +73,7 @@ class TemplateResolver:
         template = self.providers[step.provider]
 
         # Step 1: Compose prompt from input_file
-        prompt = self._compose_prompt(step, context, loop_vars)
+        prompt, injection_debug = self._compose_prompt(step, context, loop_vars, resolved_dependencies)
 
         # Step 2: Merge defaults with provider_params (step wins)
         params = dict(template.defaults)
@@ -115,30 +120,67 @@ class TemplateResolver:
             }
             return command, stdin_input, error_context
 
-        return command, stdin_input, {}
+        # Build error context with injection debug if present
+        error_context = {}
+        if injection_debug:
+            error_context['injection_debug'] = injection_debug
+
+        return command, stdin_input, error_context
 
     def _compose_prompt(
         self,
         step: Step,
         context: Dict[str, Any],
-        loop_vars: Optional[Dict[str, str]] = None
-    ) -> str:
+        loop_vars: Optional[Dict[str, str]] = None,
+        resolved_dependencies: Optional['ResolvedDependencies'] = None
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Compose prompt from input file and optional injection.
 
-        Note: Dependency injection is handled by the executor before calling this.
-        This method just reads the input file.
+        Args:
+            step: Step with input_file and injection config
+            context: Variable context
+            loop_vars: Optional loop variables
+            resolved_dependencies: Optional resolved dependencies for injection
+
+        Returns:
+            Tuple of (prompt, injection_debug_info)
         """
         if not step.input_file:
-            return ""
+            return "", None
 
         input_path = self.workspace / step.input_file
         if not input_path.exists():
             raise ProviderError(f"Input file not found: {step.input_file}")
 
         try:
-            return input_path.read_text()
+            prompt = input_path.read_text()
         except Exception as e:
             raise ProviderError(f"Failed to read input file: {e}")
+
+        # Apply dependency injection if configured
+        injection_debug = None
+        if step.depends_on and step.depends_on.inject and resolved_dependencies:
+            from orchestrator.deps import DependencyInjector
+
+            injector = DependencyInjector(str(self.workspace))
+            result = injector.inject(
+                prompt,
+                resolved_dependencies.all_files,
+                step.depends_on.inject
+            )
+
+            prompt = result.injected_content
+
+            # Record debug info if truncated
+            if result.truncated:
+                injection_debug = {
+                    "injection_truncated": True,
+                    "total_bytes": result.total_bytes,
+                    "shown_bytes": result.shown_bytes,
+                    "truncated_files": result.truncated_files
+                }
+
+        return prompt, injection_debug
 
     def _substitute_params(
         self,

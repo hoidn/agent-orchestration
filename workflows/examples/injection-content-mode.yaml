@@ -1,0 +1,38 @@
+# Example workflow demonstrating content mode injection (AT-30)
+#
+# This workflow shows how dependency injection in content mode
+# includes the actual file contents in the prompt.
+
+name: content-mode-injection-demo
+version: "1.1.1"  # Required for injection feature
+
+providers:
+  # Mock provider that echoes its input for testing
+  echo_provider:
+    command: ["sh", "-c", "echo 'Provider received prompt with ${PROMPT_SIZE} bytes'"]
+    defaults:
+      PROMPT_SIZE: "unknown"
+    input_mode: "argv"
+
+steps:
+  - name: create_test_files
+    command: ["sh", "-c", "mkdir -p artifacts/test && echo 'API Design Document\n\nDefines REST endpoints:\n- GET /users\n- POST /users\n- GET /users/{id}' > artifacts/test/api.md && echo 'Database Schema\n\nTables:\n- users (id, name, email)\n- posts (id, user_id, content)' > artifacts/test/schema.md"]
+
+  - name: demonstrate_content_injection
+    provider: echo_provider
+    provider_params:
+      PROMPT_SIZE: "${run.workspace}/artifacts"  # Will be substituted
+    input_file: prompts/generic_implement.md
+    depends_on:
+      required:
+        - "artifacts/test/*.md"
+      inject:
+        mode: "content"  # Include full file contents
+        instruction: "Review these architecture documents before implementation:"
+        position: "prepend"  # Place before the prompt
+
+  - name: show_injection_size_info
+    command: ["echo", "Content mode injection completed - files were included with headers showing byte counts"]
+
+context:
+  project: "injection-demo"

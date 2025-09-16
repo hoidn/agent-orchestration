@@ -13,6 +13,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from orchestrator.workflow.types import Step, OutputCapture as OutputCaptureEnum
 from orchestrator.state.run_state import StepState
 from orchestrator.providers import TemplateResolver
+from orchestrator.deps import DependencyResolver, DependencyError
+from orchestrator.variables import VariableSubstitutor
 from .output_capture import OutputCapture, OutputCaptureMode, CaptureResult
 
 
@@ -85,7 +87,7 @@ class StepExecutor:
             stdin_input = None
         elif step.provider:
             try:
-                command, stdin_input = self._build_provider_command(step, context, loop_vars)
+                command, stdin_input = self._build_provider_command(step, context, loop_vars, state)
             except ValueError as e:
                 # Handle missing placeholders (AT-48)
                 error_msg = str(e)
@@ -303,7 +305,8 @@ class StepExecutor:
         self,
         step: Step,
         context: Dict[str, Any],
-        loop_vars: Optional[Dict[str, str]] = None
+        loop_vars: Optional[Dict[str, str]] = None,
+        state: Optional[StepState] = None
     ) -> Tuple[List[str], Optional[bytes]]:
         """Build command for provider step.
 
@@ -311,6 +314,7 @@ class StepExecutor:
             step: Provider step
             context: Variable context
             loop_vars: Optional loop variables
+            state: Optional step state to update with debug info
 
         Returns:
             Tuple of (command, stdin_input)
@@ -327,14 +331,50 @@ class StepExecutor:
                 prompt = "No input file specified"
             return ["echo", prompt], None
 
+        # Resolve dependencies if specified
+        resolved_dependencies = None
+        if step.depends_on:
+            resolver = DependencyResolver(str(self.workspace))
+            substitutor = VariableSubstitutor()
+
+            # Substitute variables in dependency patterns
+            required = step.depends_on.required or []
+            optional = step.depends_on.optional or []
+
+            # Apply substitution to patterns
+            substituted_required = [
+                substitutor.substitute(pattern, context, loop_vars)
+                for pattern in required
+            ]
+            substituted_optional = [
+                substitutor.substitute(pattern, context, loop_vars)
+                for pattern in optional
+            ]
+
+            try:
+                resolved_dependencies = resolver.resolve(
+                    required=substituted_required,
+                    optional=substituted_optional
+                )
+            except DependencyError as e:
+                # Dependencies will be checked separately by executor
+                # Here we just resolve for injection purposes
+                pass
+
         # Use template resolver for full provider support
         command, stdin_input, error_context = self.template_resolver.build_provider_command(
-            step, context, loop_vars
+            step, context, loop_vars, resolved_dependencies
         )
 
         # Handle missing placeholders (AT-48)
         if error_context.get('missing_placeholders'):
             # This will be caught by executor and result in exit code 2
             raise ValueError(f"Missing placeholders: {error_context['missing_placeholders']}")
+
+        # Record injection debug info in state if present
+        if state and error_context.get('injection_debug'):
+            if not state.debug:
+                state.debug = {}
+            state.debug['injection'] = error_context['injection_debug']
 
         return command, stdin_input

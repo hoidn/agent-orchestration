@@ -54,17 +54,22 @@
 **Tests**: 22 unit tests in `tests/test_executor.py` - all passing
 **Evidence**: Tests `test_acceptance_at1_lines_capture` and `test_acceptance_at2_json_capture` validate AT-1 and AT-2
 
-### 5. ⬜ [AT-28-35] Dependency Injection (v1.1.1)
-**Status**: PARTIALLY DONE (validation complete, execution needed)
+### 5. ✅ [AT-28-35] Dependency Injection (v1.1.1)
+**Status**: COMPLETED (2025-09-15)
 **Acceptance**: `inject` modes work with version gating
 **Spec**: `specs/dependencies.md#injection`
 **DoD**:
 - [x] Version 1.1.1 required for inject (validation complete)
-- [ ] List mode works (needs executor)
-- [ ] Content mode works (needs executor)
-- [ ] Size caps enforced (~256KB)
-- [ ] Truncation metadata recorded
-**Evidence**: Tests `test_inject_requires_version_1_1_1`, `test_inject_allowed_with_version_1_1_1`, `test_inject_object_form` pass
+- [x] List mode works (AT-29)
+- [x] Content mode works (AT-30)
+- [x] Size caps enforced (~256KB)
+- [x] Truncation metadata recorded
+- [x] Custom instruction support (AT-31)
+- [x] Append position support (AT-32)
+- [x] No injection by default (AT-35)
+**Implementation**: `orchestrator/deps/injector.py` with full injection support
+**Tests**: 9 comprehensive tests in `tests/test_injection.py` - all passing
+**Evidence**: Tests for AT-28, AT-29, AT-30, AT-31, AT-32, AT-35 all pass
 
 ### 6. ✅ [AT-4] State Persistence
 **Status**: COMPLETED (2025-09-15)
@@ -301,5 +306,28 @@
 - Loop dependencies re-evaluated each iteration
 
 **Test Results**: All 18 dependency tests passing, total 75 tests passing
+
+**Next Priority**: Implement wait-for (AT-17-19) or for-each loops (AT-3)
+
+### 2025-09-15 Loop 6: Dependency Injection Implementation
+**Acceptance Tests Completed**: AT-28, AT-29, AT-30, AT-31, AT-32, AT-35
+**Files Created**:
+- `orchestrator/deps/injector.py` - DependencyInjector for prompt composition
+- `tests/test_injection.py` - 9 comprehensive tests for injection modes
+- `workflows/examples/injection-content-mode.yaml` - Example workflow with content injection
+- `prompts/generic_implement.md` - Generic prompt for use with injection
+
+**Key Implementation Details**:
+- Shorthand `inject: true` ≡ `{mode: "list", position: "prepend"}` with default instruction
+- List mode: prepends/appends bullet list of file paths
+- Content mode: includes file contents with headers showing `(shown_bytes/total_bytes)`
+- Deterministic lexicographic ordering of injected files
+- Size cap of ~256 KiB with graceful truncation
+- Custom instruction overrides default "The following files are available..."
+- Position control: prepend (default) or append to prompt
+- Truncation metadata recorded in `steps.<Step>.debug.injection`
+- Integration with TemplateResolver for provider execution
+
+**Test Results**: All 9 injection tests passing, total 96 tests passing
 
 **Next Priority**: Implement wait-for (AT-17-19) or for-each loops (AT-3)
