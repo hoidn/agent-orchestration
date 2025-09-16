@@ -40,7 +40,7 @@
 
 - Examples
   - Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-sonnet-4-20250514" }`.
-  - Codex CLI: `command: ["codex","exec"]`, `input_mode: 'stdin'` (prompt via stdin).
+  - Codex CLI: `command: ["codex","exec","--model","${model}","--dangerously-bypass-approvals-and-sandbox"]`, `input_mode: 'stdin'` (prompt via stdin).
 
 ## Direct CLI Integration (details)
 
@@ -54,8 +54,10 @@ providers:
   gemini:
     command: ["gemini", "-p", "${PROMPT}"]
   codex:
-    command: ["codex", "exec"]
+    command: ["codex", "exec", "--model", "${model}", "--dangerously-bypass-approvals-and-sandbox"]
     input_mode: "stdin"
+    defaults:
+      model: "gpt-5"
 ```
 
 Step-level usage:
@@ -114,7 +116,7 @@ steps:
 | --- | --- | --- | --- |
 | claude | `claude -p ${PROMPT} --model ${model}` | argv | Default model via provider defaults (e.g., `claude-sonnet-4-20250514`) or CLI config/env. |
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
-| codex | `codex exec` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Defaults (e.g., `model: gpt-5`) may be provided in provider defaults or via Codex CLI config. |
+| codex | `codex exec --model ${model} --dangerously-bypass-approvals-and-sandbox` | stdin | Reads prompt from stdin. The `--dangerously...` flag is required for fully autonomous operation. |
 
 Exit code mapping:
 - 0 = Success
