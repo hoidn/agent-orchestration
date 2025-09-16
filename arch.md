@@ -402,7 +402,7 @@ interface StatusJsonV1 {
 
 - Provider registry holds templates:
   - Example (Claude): `command: ["claude","-p","${PROMPT}","--model","${model}"]`, `input_mode: 'argv'`
-  - Example (Codex): `command: ["codex","exec"]`, `input_mode: 'stdin'` (prompt via stdin)
+  - Example (Codex): `command: ["codex","exec","--model","${model}","--dangerously-bypass-approvals-and-sandbox"]`, `input_mode: 'stdin'` (prompt via stdin)
   - `defaults.model = 'claude-sonnet-4-20250514'` (configurable when CLI supports it)
 - Command construction rules:
   - Mutual exclusivity: a step may have either `provider` or `command`, not both. Validation error if both are present.

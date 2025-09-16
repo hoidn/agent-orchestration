@@ -1054,7 +1054,7 @@ providers:
     # Gemini CLI doesn't support model selection via CLI
 
   codex:
-    command: ["codex", "exec"]
+    command: ["codex", "exec", "--model", "${model}", "--dangerously-bypass-approvals-and-sandbox"]
     input_mode: "stdin"   # Read prompt from stdin
     defaults:
       model: "gpt-5"      # Example default; can be overridden if CLI supports it
@@ -1086,7 +1086,7 @@ Claude Code is invoked with `claude -p "prompt" --model <model>`. Available mode
 
 Model can also be set via `ANTHROPIC_MODEL` environment variable or `claude config set model`.
 
-Codex CLI is invoked with `codex exec` and reads the prompt from stdin. The orchestrator handles piping the composed prompt into stdin when `input_mode: "stdin"` is set for the provider template. Defaults such as model may be configured via provider defaults or the Codex CLI’s own configuration.
+Codex CLI is invoked with `codex exec --model ${model} --dangerously-bypass-approvals-and-sandbox` and reads the prompt from stdin. The orchestrator handles piping the composed prompt into stdin when `input_mode: "stdin"` is set for the provider template. The `--dangerously-bypass-approvals-and-sandbox` flag is required for fully autonomous operation.
 
 ### Provider Templates — Quick Reference
 
@@ -1094,7 +1094,7 @@ Codex CLI is invoked with `codex exec` and reads the prompt from stdin. The orch
 | --- | --- | --- | --- |
 | claude | `claude -p ${PROMPT} --model ${model}` | argv | Default model via provider defaults (e.g., `claude-sonnet-4-20250514`) or CLI config/env. |
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
-| codex | `codex exec` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Defaults (e.g., `model: gpt-5`) may be provided in provider defaults or via Codex CLI config. |
+| codex | `codex exec --model ${model} --dangerously-bypass-approvals-and-sandbox` | stdin | Reads prompt from stdin. The `--dangerously...` flag is required for fully autonomous operation. |
 
 Exit code mapping:
 - 0 = Success
