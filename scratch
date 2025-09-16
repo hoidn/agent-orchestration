@@ -1,0 +1,23 @@
+“Planning loops: pytest --collect-only -q must succeed; then commit the updated plan (fix_plan.md)
+
+  - Editable install vs fallback
+      - Keep the editable install, but add a clearly documented fallback if packaging isn’t ready:
+          - Editable path: pip install -e .
+          - Fallback: export PYTHONPATH=$(pwd); pytest -m "not e2e" -v
+  - Default test commands and markers
+      - “Full run (Hard Gate): pytest -m "not e2e" -v”
+      - “E2E (opt‑in): pytest -m e2e -v”
+      - “Register markers (e2e) in pytest.ini (when added) to silence marker warnings.”
+  @pytest.mark.e2e must skip. No network is assumed for default runs.”
+  - Git hygiene and ignores
+      - Remind: “Ensure .gitignore excludes runtime artifacts: .orchestrate/, RUN_ROOT/logs/, **/*.tmp, **/
+  *.task (if generated). Don’t commit state or logs.”
+  - One‑liner backpressure checklist
+      - End with a quick sequence: “Targeted tests → Full run (not e2e) → Commit with AT‑IDs.”
+
+  Suggested insertions (ready to paste)
+
+  - Setup (top):
+  - Testing:
+      - “Default Hard Gate: pytest -m "not e2e" -v”
+      - “If you see ‘0 tests collected’, add a smoke test (e.g., loader schema validation) before
