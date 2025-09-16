@@ -32,13 +32,24 @@ Ground rules (do these every loop):
 2) Search first. Use `ripgrep` patterns and outline findings. If an item exists but is incomplete, prefer finishing it over duplicating.
 3) Implement fully. No placeholders or stubs that merely satisfy trivial checks.
 4) Add/adjust tests and minimal example workflows to prove behavior. Prefer targeted tests that map 1:1 to the Acceptance Tests list.
-5) Run tests relevant to your change. If unrelated tests fail, either fix them within this loop (if very small) or record them in `fix_plan.md` with concrete reproduction steps. When reporting results, cite the Acceptance Test numbers covered (e.g., "AT-28, AT-33").
+5) **Comprehensive Testing (Hard Gate)**: After implementing your change and running any new targeted tests, you MUST run the **entire `pytest` suite** from the project root (`pytest -v`).
+   a. The entire suite MUST pass without any `FAILED` or `ERROR` statuses.
+   b. **Test collection itself MUST succeed.** An `ImportError` or any other collection error is a CRITICAL blocking failure that you must fix immediately.
+   c. An iteration is only considered successful if this full regression check passes cleanly.
+   When reporting results, cite the Acceptance Test numbers covered (e.g., "AT-28, AT-33").
 6) Update `fix_plan.md`: mark the item you addressed as done; add follow‑ups if you discovered edge cases or debt.
 7) Update `CLAUDE.md` with any new, brief run/build/test command or known quirk. Do not put runtime status into `CLAUDE.md`.
 8) Emit artifacts: logs, state snapshots, and—if applicable—`artifacts/<agent>/status_<step>.json`. Keep runtime state in `state.json` and `logs/` (not in docs).
 9) Reconcile spec vs. architecture: if behavior is underspecified in the spec but captured in `arch.md`, follow `arch.md`. If there is a conflict, prefer the spec for external contracts and propose an `arch.md` patch (record in `fix_plan.md`).
 10) Version control hygiene: after each loop, stage and commit all intended changes. Use a descriptive message including acceptance IDs and module scope. Do not commit runtime state/logs (e.g., `.orchestrate/runs/**`, `logs/**`). Always include `fix_plan.md` and any updated prompts/docs.
 11) **Project Hygiene**: All code, especially test runners and scripts, MUST assume the project is installed in editable mode (`pip install -e .`). Scripts MUST NOT manipulate `sys.path`. Tests MUST be runnable via standard tools like `pytest` from the project root. Refer to `CLAUDE.md` for setup instructions.
+12) **Refactoring Discipline**: If you move or rename a module, file, class, or function, you MUST treat it as a single, atomic operation within the loop. This requires:
+    a. Creating the new file/module structure (e.g., `orchestrator/variables/__init__.py`).
+    b. Moving the code to its new location.
+    c. **Searching the ENTIRE codebase** for all import statements and usages of the old path.
+    d. **Updating ALL affected import statements** to point to the new, correct path.
+    e. Deleting the old file if it is no longer needed.
+    This entire operation must be validated by the Comprehensive Testing gate below.
 
 
 Validation Boundary (must follow):
@@ -118,7 +129,8 @@ Loop Self‑Checklist (end of every loop):
 - Layer check done (loader vs executor) and justified.
 - Acceptance IDs quoted and limited (one area; 1–2 IDs max).
 - Backpressure present: unit + smallest integration, with expected pass/fail and remediation.
-- Evidence includes file:line pointers for presence/absence; no “assume missing”.
+- **Full `pytest` run from project root completed and passed without any errors or collection failures.**
+- Evidence includes file:line pointers for presence/absence; no "assume missing".
 - Scope stayed within a single module category; if not, capture deferral in `fix_plan.md`.
 
 Start here (task selection):
