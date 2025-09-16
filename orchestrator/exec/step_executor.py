@@ -12,6 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from orchestrator.workflow.types import Step, OutputCapture as OutputCaptureEnum
 from orchestrator.state.run_state import StepState
+from orchestrator.providers import TemplateResolver
 from .output_capture import OutputCapture, OutputCaptureMode, CaptureResult
 
 
@@ -33,7 +34,7 @@ class StepExecutor:
         self,
         workspace: Path,
         run_root: Path,
-        providers: Optional[Dict[str, Dict[str, Any]]] = None
+        providers: Optional[Dict[str, Any]] = None
     ):
         """Initialize step executor.
 
@@ -47,6 +48,7 @@ class StepExecutor:
         self.log_dir = run_root / "logs"
         self.log_dir.mkdir(parents=True, exist_ok=True)
         self.providers = providers or {}
+        self.template_resolver = TemplateResolver(self.providers, workspace) if providers else None
 
     def execute(
         self,
@@ -82,7 +84,60 @@ class StepExecutor:
             command = step.command
             stdin_input = None
         elif step.provider:
-            command, stdin_input = self._build_provider_command(step, context, loop_vars)
+            try:
+                command, stdin_input = self._build_provider_command(step, context, loop_vars)
+            except ValueError as e:
+                # Handle missing placeholders (AT-48)
+                error_msg = str(e)
+                if "Missing placeholders:" in error_msg:
+                    import ast
+                    # Extract placeholder list from error message
+                    placeholders_str = error_msg.split("Missing placeholders: ")[1]
+                    placeholders = ast.literal_eval(placeholders_str)
+                    state.status = "failed"
+                    state.exit_code = 2
+                    state.error = {
+                        "message": "Unresolved placeholders in provider command",
+                        "exit_code": 2,
+                        "context": {
+                            "missing_placeholders": placeholders
+                        }
+                    }
+                    return state, ExecutionResult(
+                        exit_code=2,
+                        stdout=b"",
+                        stderr=b"",
+                        duration_ms=0,
+                        error_context={"missing_placeholders": placeholders}
+                    )
+                else:
+                    # Other provider errors
+                    state.status = "failed"
+                    state.exit_code = 2
+                    state.error = {
+                        "message": str(e),
+                        "exit_code": 2
+                    }
+                    return state, ExecutionResult(
+                        exit_code=2,
+                        stdout=b"",
+                        stderr=b"",
+                        duration_ms=0
+                    )
+            except Exception as e:
+                # Handle other provider errors
+                state.status = "failed"
+                state.exit_code = 2
+                state.error = {
+                    "message": f"Provider error: {str(e)}",
+                    "exit_code": 2
+                }
+                return state, ExecutionResult(
+                    exit_code=2,
+                    stdout=b"",
+                    stderr=b"",
+                    duration_ms=0
+                )
         elif step.wait_for or step.for_each:
             # Other step types (wait_for, for_each) not implemented yet
             state.status = "failed"
@@ -247,7 +302,7 @@ class StepExecutor:
     def _build_provider_command(
         self,
         step: Step,
-        context: Dict[str, str],
+        context: Dict[str, Any],
         loop_vars: Optional[Dict[str, str]] = None
     ) -> Tuple[List[str], Optional[bytes]]:
         """Build command for provider step.
@@ -260,19 +315,26 @@ class StepExecutor:
         Returns:
             Tuple of (command, stdin_input)
         """
-        # For now, return a simple echo command for testing
-        # Full provider implementation will come later
-        if step.input_file:
-            input_path = self.workspace / step.input_file
-            if input_path.exists():
-                prompt = input_path.read_text()
+        if not self.template_resolver:
+            # Fallback for testing when no providers configured
+            if step.input_file:
+                input_path = self.workspace / step.input_file
+                if input_path.exists():
+                    prompt = input_path.read_text()
+                else:
+                    prompt = f"File not found: {step.input_file}"
             else:
-                prompt = f"File not found: {step.input_file}"
-        else:
-            prompt = "No input file specified"
+                prompt = "No input file specified"
+            return ["echo", prompt], None
 
-        # Simple test command that echoes the prompt
-        command = ["echo", prompt]
-        stdin_input = None
+        # Use template resolver for full provider support
+        command, stdin_input, error_context = self.template_resolver.build_provider_command(
+            step, context, loop_vars
+        )
+
+        # Handle missing placeholders (AT-48)
+        if error_context.get('missing_placeholders'):
+            # This will be caught by executor and result in exit code 2
+            raise ValueError(f"Missing placeholders: {error_context['missing_placeholders']}")
 
         return command, stdin_input

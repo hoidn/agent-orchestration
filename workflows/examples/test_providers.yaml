@@ -1,0 +1,58 @@
+# Test workflow for provider templates (AT-8, AT-9, AT-48-51)
+version: "1.1"
+name: "Provider Template Test"
+
+# Provider templates
+providers:
+  claude:
+    command: ["echo", "Claude:", "${PROMPT}", "--model", "${model}"]
+    defaults:
+      model: "claude-sonnet-4"
+    input_mode: "argv"
+
+  stdin_provider:
+    command: ["cat", "-"]  # Read from stdin
+    input_mode: "stdin"
+
+  dynamic:
+    command: ["echo", "Run:", "${run_id}", "Env:", "${env}"]
+    defaults:
+      env: "development"
+
+context:
+  project: "test-project"
+  environment: "staging"
+
+steps:
+  - name: TestArgvMode
+    provider: "claude"
+    provider_params:
+      model: "claude-opus"  # Override default
+    input_file: "test_prompt.txt"
+    output_capture: "text"
+
+  - name: TestStdinMode
+    provider: "stdin_provider"
+    input_file: "test_prompt.txt"
+    output_capture: "text"
+
+  - name: TestDynamicParams
+    provider: "dynamic"
+    provider_params:
+      run_id: "${run.id}"
+      env: "${context.environment}"  # Use context variable
+    output_capture: "text"
+
+  - name: TestMissingPlaceholder
+    provider: "dynamic"
+    # Missing run_id parameter - should fail with exit 2
+    provider_params:
+      env: "test"
+    output_capture: "text"
+    on:
+      failure:
+        goto: "HandleError"
+
+  - name: HandleError
+    command: ["echo", "Handled missing placeholder error"]
+    output_capture: "text"

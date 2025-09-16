@@ -29,4 +29,4 @@ Notes
 Don’ts
 - Don’t put runtime status or long logs in this file.
 - Don’t weaken DSL/spec strictness to make demos pass; align with `specs/`.
-
+- use run_tests.py:sys.path.insert(0, str(project_root)). Instead do a pip -e local install

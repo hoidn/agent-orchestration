@@ -79,24 +79,29 @@
 **Tests**: 17 unit tests in `tests/test_state.py` - all passing
 **Evidence**: Test `test_acceptance_at4_state_persistence` validates complete cycle
 
-### 7. ⬜ [AT-8/9] Provider Templates
-**Status**: Blocked - needs provider implementation
+### 7. ✅ [AT-8/9/48/49/50/51] Provider Templates
+**Status**: COMPLETED (2025-09-15)
 **Acceptance**: argv vs stdin modes work correctly
 **Spec**: `specs/providers.md`
 **DoD**:
-- [ ] Template + params merge
-- [ ] argv mode with ${PROMPT}
-- [ ] stdin mode without ${PROMPT}
-**Note**: Basic executor created but full provider support pending
+- [x] Template + params merge
+- [x] argv mode with ${PROMPT}
+- [x] stdin mode without ${PROMPT}
+- [x] Missing placeholders → exit 2
+- [x] stdin mode + ${PROMPT} → validation error
+- [x] Provider params substitution
+**Implementation**: `orchestrator/providers/` module with TemplateResolver
+**Tests**: 12 unit tests in `tests/test_providers.py` - all passing
 
-### 8. ⬜ [AT-48/49] Placeholder Validation
-**Status**: Blocked by #1
+### 8. ✅ [AT-48/49] Placeholder Validation
+**Status**: COMPLETED (2025-09-15)
 **Acceptance**: Missing placeholders fail correctly
 **Spec**: `specs/providers.md`
 **DoD**:
-- [ ] Missing placeholder → exit 2
-- [ ] stdin mode + ${PROMPT} → validation error
-- [ ] Error context includes missing_placeholders
+- [x] Missing placeholder → exit 2
+- [x] stdin mode + ${PROMPT} → validation error
+- [x] Error context includes missing_placeholders
+**Evidence**: Tests `test_acceptance_at48_missing_placeholders` and `test_acceptance_at49_stdin_mode_with_prompt_rejected` pass
 
 ### 9. ✅ [AT-22-27] Dependency Resolution
 **Status**: COMPLETED (2025-09-15)
@@ -179,6 +184,28 @@
 - Pydantic or custom validators for schema
 - Pytest for testing
 - Follow module structure from arch.md section 4
+
+### 2025-09-15 Loop 5: Provider Template Implementation
+**Acceptance Tests Completed**: AT-8, AT-9, AT-48, AT-49, AT-50, AT-51
+**Files Created**:
+- `orchestrator/providers/__init__.py` - Provider module exports
+- `orchestrator/providers/template_resolver.py` - TemplateResolver for command building
+- `tests/test_providers.py` - 12 comprehensive unit tests for providers
+- `workflows/examples/test_providers.yaml` - Example workflow demonstrating providers
+
+**Key Implementation Details**:
+- Template + defaults + provider_params merging (step params win)
+- argv mode: ${PROMPT} substituted into command arguments
+- stdin mode: prompt delivered via stdin, ${PROMPT} forbidden in template
+- Variable substitution in provider_params (AT-51)
+- Missing placeholders cause exit 2 with error.context.missing_placeholders
+- Invalid ${PROMPT} in stdin mode causes validation error
+- Escape sequences: $$ → $, $${ → ${
+- Provider execution integrated with StepExecutor
+
+**Test Results**: All 12 provider tests passing, total 87 tests passing
+
+**Next Priority**: Implement wait-for (AT-17-19) or for-each loops (AT-3)
 
 ## Evidence Log
 
@@ -275,4 +302,4 @@
 
 **Test Results**: All 18 dependency tests passing, total 75 tests passing
 
-**Next Priority**: Implement provider templates (AT-8/9) or wait-for (AT-17-19)
+**Next Priority**: Implement wait-for (AT-17-19) or for-each loops (AT-3)
