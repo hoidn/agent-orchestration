@@ -10,6 +10,7 @@ from typing import Any, Dict, Optional, Union
 from dataclasses import dataclass
 
 from .output_capture import OutputCapture, CaptureMode, CaptureResult
+from ..fsq.wait import WaitFor, WaitForConfig, WaitForResult
 
 
 @dataclass
@@ -155,3 +156,90 @@ class StepExecutor:
             duration_ms=duration_ms,
             error=error,
         )
+
+    def execute_wait_for(
+        self,
+        step_name: str,
+        wait_config: Dict[str, Any],
+    ) -> ExecutionResult:
+        """
+        Execute a wait_for step that polls for files.
+
+        Args:
+            step_name: Name of the step for logging
+            wait_config: Wait configuration dict with glob, timeout_sec, poll_ms, min_count
+
+        Returns:
+            ExecutionResult with wait operation results
+        """
+        # Extract wait configuration with defaults
+        glob_pattern = wait_config.get('glob', '')
+        timeout_sec = wait_config.get('timeout_sec', 300)
+        poll_ms = wait_config.get('poll_ms', 500)
+        min_count = wait_config.get('min_count', 1)
+
+        # Create wait configuration
+        config = WaitForConfig(
+            glob_pattern=glob_pattern,
+            timeout_sec=timeout_sec,
+            poll_ms=poll_ms,
+            min_count=min_count,
+            workspace=str(self.workspace)
+        )
+
+        # Execute wait operation
+        waiter = WaitFor(config)
+        wait_result = waiter.execute()
+
+        # Create a capture result for consistency with other step types
+        # Wait steps don't have stdout/stderr, but we can record the files found
+        capture_result = CaptureResult(
+            mode=CaptureMode.LINES,  # Use lines mode to store file list
+            output=None,
+            lines=wait_result.files if wait_result.files else [],
+            json_data=None,
+            truncated=False,
+            exit_code=wait_result.exit_code,
+            error=None,
+            debug=None
+        )
+
+        # If timed out, add error context (AT-18)
+        error = None
+        if wait_result.timed_out:
+            error = {
+                "type": "timeout",
+                "message": f"Wait timed out after {timeout_sec} seconds",
+                "context": {
+                    "timeout_sec": timeout_sec,
+                    "files_found": len(wait_result.files),
+                    "min_count_required": min_count
+                }
+            }
+
+        # Create result with wait-specific state (AT-19)
+        result = ExecutionResult(
+            step_name=step_name,
+            exit_code=wait_result.exit_code,
+            capture_result=capture_result,
+            duration_ms=wait_result.wait_duration_ms,
+            error=error
+        )
+
+        # Add wait-specific fields to the state dict
+        def to_wait_state_dict() -> Dict[str, Any]:
+            state = {
+                "exit_code": wait_result.exit_code,
+                "files": wait_result.files,
+                "wait_duration_ms": wait_result.wait_duration_ms,
+                "poll_count": wait_result.poll_count,
+                "timed_out": wait_result.timed_out
+            }
+            if error:
+                state["error"] = error
+            return state
+
+        # Override to_state_dict for wait results
+        result.to_state_dict = to_wait_state_dict
+
+        return result

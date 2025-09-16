@@ -87,13 +87,17 @@
    - Deterministic ordering preserved from resolver
    - Tests: Complete test suite in `test_dependency_injection.py` (11 tests passing)
 
+✅ **AT-17-19**: Wait-for functionality
+   - Implemented complete wait_for polling primitive in `orchestrator/fsq/wait.py`
+   - Blocks until files matching glob pattern found or timeout (AT-17)
+   - Returns exit code 124 on timeout with timed_out: true (AT-18)
+   - Records files, wait_duration_ms, poll_count in state (AT-19)
+   - Integration with step executor for workflow execution
+   - Tests: Complete test suite in `test_wait_for.py` (10 tests passing)
+
 ## Top-10 Priority Items (Next Loops)
 
-1. **AT-17-19**: Wait-for implementation
-   - Polling logic with timeout
-   - State tracking (duration_ms, poll_count, files)
-
-2. **AT-3,13**: For-each loops execution
+1. **AT-3,13**: For-each loops execution
    - Items_from pointer resolution
    - Loop scope variables
    - Loop execution with state tracking
