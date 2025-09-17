@@ -205,14 +205,16 @@
    - Tests: 18 tests passing in test_output_capture.py; full suite 223 tests passing
    - DoD: JSON overflow with allow_parse_error=true now behaves consistently with text/lines modes
 
-5. Resume command implementation — acceptance: AT‑4
-   - Rationale: Critical missing capability - resume command TODO at orchestrator/cli/main.py:137
-   - DoD: CLI resume command implemented, reads state.json, validates checksum, resumes from last incomplete step
-   - Tasks:
-     - Implement resume command in orchestrator/cli/commands/resume.py
-     - Add checksum validation for workflow integrity
-     - Handle state repair from backups if corrupted
-     - Add comprehensive tests for resume scenarios
+5. ✅ Resume command implementation — COMPLETED — acceptance: AT‑4
+   - Implemented complete CLI resume command in orchestrator/cli/commands/resume.py
+   - Added resume parameter support to WorkflowExecutor.execute() method
+   - Handles partial for-each loop resumption (skips completed iterations)
+   - Supports --repair flag for state recovery from backups
+   - Supports --force-restart flag to ignore state and start fresh
+   - Validates workflow checksum to detect modifications
+   - Tests: 8 comprehensive tests in test_resume_command.py all passing
+   - Full test suite: 231 tests passing (no regressions)
+   - DoD: Resume command fully functional; reads state.json, validates checksum, resumes from last incomplete step
 
 ## Backlog
 
@@ -240,5 +242,7 @@
 
 ## Next Loop Recommendation
 
-With output capture spill consistency fixed and tested (AT-15/AT-52), the next highest-priority item is:
-**Resume command implementation** — The CLI resume command is completely unimplemented (orchestrator/cli/main.py:137 has TODO), blocking users from resuming interrupted workflows despite comprehensive state tracking being in place.
+With resume command implementation complete (AT-4), the next highest-priority items are:
+1. **Observability improvements** — Debug logging and prompt audit trails for better debugging
+2. **Integration test suite** — Real provider mocks for end-to-end validation
+3. **E2E test improvements** — Currently minimal coverage, need comprehensive E2E scenarios

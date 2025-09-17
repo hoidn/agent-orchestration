@@ -80,7 +80,8 @@ class WorkflowExecutor:
         self.retry_delay_ms = retry_delay_ms
 
     def execute(self, run_id: Optional[str] = None, on_error: str = 'stop',
-                max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None) -> Dict[str, Any]:
+                max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None,
+                resume: bool = False) -> Dict[str, Any]:
         """
         Execute the workflow.
 
@@ -89,6 +90,7 @@ class WorkflowExecutor:
             on_error: Error handling mode ('stop' or 'continue')
             max_retries: Maximum retry attempts (overrides constructor value)
             retry_delay_ms: Retry delay in milliseconds (overrides constructor value)
+            resume: If True, skip already completed steps
 
         Returns:
             Final execution state
@@ -98,6 +100,9 @@ class WorkflowExecutor:
             self.max_retries = max_retries
         if retry_delay_ms is not None:
             self.retry_delay_ms = retry_delay_ms
+
+        # Store resume flag for nested methods
+        self.resume_mode = resume
         # Load current state
         run_state = self.state_manager.load()
 
@@ -110,6 +115,31 @@ class WorkflowExecutor:
 
             # Check if step should be executed
             step_name = step.get('name', f'step_{step_index}')
+
+            # Check if step is already completed (for resume)
+            if resume and 'steps' in state and step_name in state['steps']:
+                step_result = state['steps'][step_name]
+                # For for-each loops, check if it's an array of results
+                if isinstance(step_result, list):
+                    # Check if all iterations are complete
+                    all_complete = all(
+                        isinstance(iteration, dict) and
+                        iteration.get('status') in ['completed', 'skipped']
+                        for iteration in step_result
+                        if isinstance(iteration, dict)
+                    )
+                    if all_complete:
+                        logger.info(f"Skipping already completed for-each step: {step_name}")
+                        continue
+                    # Partially complete for-each will be handled by _execute_for_each
+                elif isinstance(step_result, dict):
+                    status = step_result.get('status')
+                    if status in ['completed', 'skipped']:
+                        logger.info(f"Skipping already {status} step: {step_name}")
+                        continue
+                    elif status == 'failed' and on_error == 'stop':
+                        logger.info(f"Step {step_name} previously failed, retrying")
+                        # Continue to retry the failed step
 
             # Check conditional execution (AT-37, AT-46, AT-47)
             if 'when' in step:
@@ -151,7 +181,7 @@ class WorkflowExecutor:
 
             # Execute based on step type
             if 'for_each' in step:
-                state = self._execute_for_each(step, state)
+                state = self._execute_for_each(step, state, resume=resume)
             elif 'wait_for' in step:
                 state = self._execute_wait_for(step, state)
             elif 'provider' in step:
@@ -169,7 +199,7 @@ class WorkflowExecutor:
 
         return state
 
-    def _execute_for_each(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_for_each(self, step: Dict[str, Any], state: Dict[str, Any], resume: bool = False) -> Dict[str, Any]:
         """
         Execute a for_each loop step.
         Implements AT-3: Dynamic for-each with items_from.
@@ -178,6 +208,7 @@ class WorkflowExecutor:
         Args:
             step: Step definition with for_each
             state: Current execution state
+            resume: If True, skip already completed iterations
 
         Returns:
             Updated state after loop execution
@@ -236,8 +267,40 @@ class WorkflowExecutor:
         # Format: steps.<LoopName>[i].<StepName>
         loop_results = []
 
-        # Execute loop iterations
-        for index, item in enumerate(items):
+        # Check for existing partial results (for resume)
+        start_index = 0
+        if resume and step_name in state['steps']:
+            existing_results = state['steps'][step_name]
+            if isinstance(existing_results, list):
+                # Count completed iterations
+                for i, iteration_result in enumerate(existing_results):
+                    if isinstance(iteration_result, dict):
+                        # Check if this iteration has all steps complete
+                        all_steps_complete = True
+                        for nested_step in loop_steps:
+                            nested_name = nested_step.get('name', f'step_{i}')
+                            iteration_key = f"{step_name}[{i}].{nested_name}"
+                            if iteration_key in state['steps']:
+                                nested_status = state['steps'][iteration_key].get('status')
+                                if nested_status not in ['completed', 'skipped']:
+                                    all_steps_complete = False
+                                    break
+                            else:
+                                all_steps_complete = False
+                                break
+
+                        if all_steps_complete:
+                            loop_results.append(iteration_result)
+                            start_index = i + 1
+                            logger.info(f"Skipping completed iteration {i} of {step_name}")
+                        else:
+                            # Start from this incomplete iteration
+                            start_index = i
+                            break
+
+        # Execute loop iterations (starting from start_index for resume)
+        for index in range(start_index, len(items)):
+            item = items[index]
             # Setup loop scope variables
             loop_context = {
                 'item': item,  # Current item

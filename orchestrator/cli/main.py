@@ -134,9 +134,8 @@ def main(args: Optional[list] = None) -> int:
     if parsed_args.command == 'run':
         return run_workflow(parsed_args)
     elif parsed_args.command == 'resume':
-        # TODO: Implement resume command
-        print(f"Resume command not yet implemented for run_id: {parsed_args.run_id}")
-        return 1
+        from orchestrator.cli.commands import resume_workflow
+        return resume_workflow(**vars(parsed_args))
     else:
         parser.print_help()
         return 1
