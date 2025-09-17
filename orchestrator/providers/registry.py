@@ -5,7 +5,7 @@ Implements provider template storage, lookup, and parameter merging per specs/pr
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 from pathlib import Path
 
 from .types import ProviderTemplate, InputMode
@@ -146,16 +146,17 @@ class ProviderRegistry:
     def merge_params(
         self,
         provider_name: str,
-        step_params: Optional[Dict[str, str]] = None
-    ) -> Dict[str, str]:
+        step_params: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
         """
         Merge provider defaults with step parameters.
 
         Step parameters override defaults per specs/providers.md.
+        Supports nested structures for AT-44.
 
         Args:
             provider_name: Provider name
-            step_params: Step-level provider parameters
+            step_params: Step-level provider parameters (can be nested)
 
         Returns:
             Merged parameters (step wins over defaults)
@@ -165,11 +166,47 @@ class ProviderRegistry:
             return step_params or {}
 
         # Start with defaults
-        merged = dict(provider.defaults)
+        merged = self._deep_copy_dict(provider.defaults)
 
-        # Overlay step params (step wins)
+        # Deep merge step params (step wins)
         if step_params:
-            merged.update(step_params)
+            merged = self._deep_merge(merged, step_params)
 
         logger.debug(f"Merged params for {provider_name}: {merged}")
         return merged
+
+    def _deep_copy_dict(self, source: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create a deep copy of a dictionary.
+
+        Args:
+            source: Source dictionary
+
+        Returns:
+            Deep copy of the dictionary
+        """
+        import copy
+        return copy.deepcopy(source)
+
+    def _deep_merge(self, base: Dict[str, Any], overlay: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Deep merge overlay dict into base dict.
+
+        Args:
+            base: Base dictionary
+            overlay: Overlay dictionary (takes precedence)
+
+        Returns:
+            Merged dictionary
+        """
+        result = self._deep_copy_dict(base)
+
+        for key, value in overlay.items():
+            if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+                # Recursively merge nested dicts
+                result[key] = self._deep_merge(result[key], value)
+            else:
+                # Overlay value takes precedence
+                result[key] = value
+
+        return result

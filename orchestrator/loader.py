@@ -4,7 +4,7 @@ import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set, Union, NoReturn
 import yaml
 
 
@@ -36,14 +36,22 @@ class WorkflowLoader:
             self._add_error(f"Failed to load workflow: {e}")
             self._exit_with_errors()
 
-        if not isinstance(workflow, dict):
+        if workflow is None or not isinstance(workflow, dict):
             self._add_error("Workflow must be a YAML object/dictionary")
             self._exit_with_errors()
+
+        # Type narrowing: at this point workflow is definitely Dict[str, Any]
+        assert isinstance(workflow, dict), "Type narrowing for workflow"
 
         # Version validation and feature gating
         version = workflow.get('version')
         if not version:
             self._add_error("'version' field is required")
+            # Use empty string as fallback to avoid None type issues
+            version = ""
+        elif not isinstance(version, str):
+            self._add_error(f"'version' field must be a string, got {type(version).__name__}")
+            version = ""
         elif version not in self.SUPPORTED_VERSIONS:
             self._add_error(f"Unsupported version '{version}'. Supported: {self.SUPPORTED_VERSIONS}")
 
@@ -73,10 +81,11 @@ class WorkflowLoader:
             'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps'
         }
 
-        # Strict unknown field rejection
-        for key in workflow.keys():
-            if key not in known_fields:
-                self._add_error(f"Unknown field '{key}' at version '{version}'")
+        # Strict unknown field rejection (skip if version is invalid/empty)
+        if version:
+            for key in workflow.keys():
+                if key not in known_fields:
+                    self._add_error(f"Unknown field '{key}' at version '{version}'")
 
         # Validate providers if present
         if 'providers' in workflow:
@@ -149,6 +158,11 @@ class WorkflowLoader:
             name = step.get('name')
             if not name:
                 self._add_error(f"Step {i} missing required 'name' field")
+                # Use fallback name for subsequent error messages
+                name = f"<step_{i}>"
+            elif not isinstance(name, str):
+                self._add_error(f"Step {i} name must be a string, got {type(name).__name__}")
+                name = f"<step_{i}>"
             elif name in step_names:
                 self._add_error(f"Duplicate step name '{name}'")
             else:
@@ -353,7 +367,7 @@ class WorkflowLoader:
         """Add validation error."""
         self.errors.append(ValidationError(message, path, exit_code))
 
-    def _exit_with_errors(self):
+    def _exit_with_errors(self) -> NoReturn:
         """Exit with validation errors."""
         for error in self.errors:
             print(f"Validation error: {error.message}", file=sys.stderr)

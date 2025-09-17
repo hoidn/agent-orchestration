@@ -297,7 +297,7 @@ class TestStepExecutor:
         """Test command execution with environment variables."""
         result = executor.execute_command(
             step_name="env_test",
-            command="echo $TEST_VAR",
+            command="printenv TEST_VAR",  # Use printenv which doesn't need shell expansion
             env={"TEST_VAR": "test_value"},
             output_capture=CaptureMode.TEXT,
         )
@@ -309,11 +309,11 @@ class TestStepExecutor:
         """Test handling of failed commands."""
         result = executor.execute_command(
             step_name="fail_test",
-            command="exit 42",
+            command="false",  # Use 'false' command which returns exit code 1
             output_capture=CaptureMode.TEXT,
         )
 
-        assert result.exit_code == 42
+        assert result.exit_code == 1
         assert result.error is None  # Normal non-zero exit, not an error
 
     def test_to_state_dict(self, executor):

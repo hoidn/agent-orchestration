@@ -205,7 +205,13 @@ steps:
             step_name = kwargs['step_name']
             command = kwargs['command']
 
-            if 'echo file1' in command:
+            # Handle both string and list commands
+            if isinstance(command, list):
+                command_str = ' '.join(command)
+            else:
+                command_str = command
+
+            if 'file1' in command_str:
                 # ListFiles step
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
@@ -226,7 +232,7 @@ steps:
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
                     mode=CaptureMode.TEXT,
-                    output=command,  # Echo back the command
+                    output=command_str,  # Echo back the command string
                     truncated=False
                 )
                 from orchestrator.exec.step_executor import ExecutionResult

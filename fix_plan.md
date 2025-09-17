@@ -142,24 +142,43 @@
    - Step-level retry configuration overrides global/CLI settings
    - Tests: Complete test suite in `test_retry_behavior.py` and `test_retry_integration.py` (15 tests passing)
 
+✅ **AT-37,46,47**: Conditional execution
+   - Implemented ConditionEvaluator in `orchestrator/workflow/conditions.py`
+   - Created VariableSubstitutor in `orchestrator/variables/substitution.py` for variable resolution
+   - AT-37: when.equals with string comparison and variable substitution
+   - AT-46: when.exists with POSIX glob pattern matching and path safety
+   - AT-47: when.not_exists as inverse of exists condition
+   - Integrated into WorkflowExecutor for both top-level steps and for-each loops
+   - False conditions result in step skipped with exit_code 0 and skipped: true
+   - Tests: Complete test suite in `test_conditional_execution.py` (18 tests passing)
+
+## Completed (Continued)
+
+✅ **AT-44**: Provider params variable substitution with nested structures
+   - Integrated VariableSubstitutor into provider params handling in `orchestrator/providers/executor.py`
+   - Updated provider types to support nested Dict[str, Any] structures
+   - Fixed workflow executor to properly call provider executor API (prepare_invocation + execute)
+   - Added deep merge support for nested defaults in `orchestrator/providers/registry.py`
+   - Created comprehensive test suite in `test_at44_provider_params_nested.py` (8 tests passing)
+   - Fixed integration issues with retry behavior tests
+   - Full test suite passing (200 tests)
+
+## Completed (Continued 2)
+
+✅ **Execution safety (argv mode, no shell=True)** — spec: dsl.md/providers.md; acceptance: AT‑8, AT‑9, AT‑50
+   - Replaced `shell=True` in StepExecutor with argv array execution using shlex.split() for security
+   - Both string and list command formats are supported
+   - String commands are parsed into argv arrays using shlex for proper quoting/escaping
+   - List commands are passed directly to subprocess.run() without shell
+   - Variable substitution works correctly with both formats
+   - Tests: Complete test suite in `test_execution_safety.py` (11 tests passing)
+   - DoD: All command/provider executions use safe argv mode; shell injection prevented
+
 ## Top-10 Priority Items (Next Loops)
-
-1. **AT-37,46,47**: Conditional execution
-    - when.equals/exists/not_exists semantics
-    - Conditional skip with false when → skipped status
-
-3. **AT-44**: Provider params variable substitution
-    - Support nested dicts/lists with proper substitution
 
 ## Refactor Track — Contract Hardening (Non‑optional)
 
-1. Execution safety (argv, no shell=True) — spec: dsl.md/providers.md; acceptance: AT‑8, AT‑9, AT‑50
-   - Rationale: Align process execution with argv semantics, reduce injection/quoting risk.
-   - DoD: All command/provider executions use argv lists; all provider/command tests pass unchanged.
-   - Tasks:
-     - Replace `shell=True` command paths with `subprocess.run([...])` argv forms.
-     - Normalize executor APIs to accept `List[str]` (and keep a safe string→argv adapter only where unavoidable).
-     - Update tests to assert argv behavior, not shell parsing.
+1. ✅ ~~Execution safety (argv, no shell=True)~~ — COMPLETED
 
 2. Loader error handling (library/CLI boundary) — spec: versioning.md/dsl.md (strict validation)
    - Rationale: Keep loader reusable; avoid process control inside library code.
@@ -206,16 +225,18 @@
 - Following ADR-03: Provider as managed black box
 - Loader/Executor separation per arch.md: validation vs runtime substitution
 - **CRITICAL**: Module structure per arch.md now being enforced:
-  - ✅ orchestrator/exec/* (output_capture.py, step_executor.py)
+  - ✅ orchestrator/exec/* (output_capture.py, step_executor.py, retry.py)
   - ✅ orchestrator/deps/* (resolver.py, injector.py)
   - ✅ orchestrator/providers/* (registry.py, executor.py, types.py)
-  - ✅ orchestrator/fsq/* (wait.py)
-  - ✅ orchestrator/workflow/* (executor.py, pointers.py)
+  - ✅ orchestrator/fsq/* (wait.py, queue.py)
+  - ✅ orchestrator/workflow/* (executor.py, pointers.py, conditions.py)
+  - ✅ orchestrator/variables/* (substitution.py) - NEW THIS LOOP
   - ✅ orchestrator/cli/* (main.py, commands/run.py)
-  - ✅ orchestrator/security/* (secrets.py) - NEW THIS LOOP
+  - ✅ orchestrator/security/* (secrets.py)
   - ✅ orchestrator/state.py
   - ✅ orchestrator/loader.py
 
 ## Next Loop Recommendation
 
-Implement queue management (AT-5,6) for inbox atomicity and user-driven task moves. This provides the foundation for inter-agent communication via filesystem queues.
+With execution safety completed, the next highest-priority item from the Refactor Track is:
+**Loader error handling (library/CLI boundary)** — The loader currently calls sys.exit() directly which makes it hard to use as a library. Should raise structured exceptions that the CLI can map to exit codes.

@@ -15,7 +15,9 @@ from ..providers.registry import ProviderRegistry
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
 from .pointers import PointerResolver
+from .conditions import ConditionEvaluator
 from ..security.secrets import SecretsManager
+from ..variables.substitution import VariableSubstitutor
 
 
 class WorkflowExecutor:
@@ -62,8 +64,10 @@ class WorkflowExecutor:
         # Initialize sub-executors
         self.step_executor = StepExecutor(workspace, logs_dir, self.secrets_manager)
         self.provider_executor = ProviderExecutor(workspace, self.provider_registry, self.secrets_manager)
-        self.dependency_resolver = DependencyResolver(workspace)
-        self.dependency_injector = DependencyInjector(workspace)
+        self.dependency_resolver = DependencyResolver(str(workspace))
+        self.dependency_injector = DependencyInjector(str(workspace))
+        self.condition_evaluator = ConditionEvaluator(workspace)
+        self.variable_substitutor = VariableSubstitutor()
 
         # Execution state
         self.current_step = 0
@@ -75,8 +79,8 @@ class WorkflowExecutor:
         self.max_retries = max_retries
         self.retry_delay_ms = retry_delay_ms
 
-    def execute(self, run_id: str = None, on_error: str = 'stop',
-                max_retries: int = None, retry_delay_ms: int = None) -> Dict[str, Any]:
+    def execute(self, run_id: Optional[str] = None, on_error: str = 'stop',
+                max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None) -> Dict[str, Any]:
         """
         Execute the workflow.
 
@@ -106,6 +110,44 @@ class WorkflowExecutor:
 
             # Check if step should be executed
             step_name = step.get('name', f'step_{step_index}')
+
+            # Check conditional execution (AT-37, AT-46, AT-47)
+            if 'when' in step:
+                # Build variables for condition evaluation
+                variables = self.variable_substitutor.build_variables(
+                    run_state=state,
+                    context=self.workflow.get('context', {})
+                )
+
+                # Evaluate condition
+                try:
+                    should_execute = self.condition_evaluator.evaluate(step['when'], variables)
+                except Exception as e:
+                    # Condition evaluation error - record and skip
+                    result = {
+                        'status': 'failed',
+                        'exit_code': 2,
+                        'error': {
+                            'message': f"Condition evaluation failed: {e}",
+                            'context': {'condition': step['when']}
+                        }
+                    }
+                    if 'steps' not in state:
+                        state['steps'] = {}
+                    state['steps'][step_name] = result
+                    continue
+
+                if not should_execute:
+                    # AT-37: Condition false -> step skipped with exit_code 0
+                    result = {
+                        'status': 'skipped',
+                        'exit_code': 0,
+                        'skipped': True
+                    }
+                    if 'steps' not in state:
+                        state['steps'] = {}
+                    state['steps'][step_name] = result
+                    continue
 
             # Execute based on step type
             if 'for_each' in step:
@@ -211,6 +253,42 @@ class WorkflowExecutor:
             for nested_step in loop_steps:
                 nested_name = nested_step.get('name', f'nested_{index}')
 
+                # Check conditional execution within loop (AT-37, AT-46, AT-47)
+                if 'when' in nested_step:
+                    # Build variables for condition evaluation (including loop scope)
+                    variables = self.variable_substitutor.build_variables(
+                        run_state=state,
+                        context=self.workflow.get('context', {}),
+                        loop_vars=loop_context.get('loop', {}),
+                        item=item
+                    )
+
+                    # Evaluate condition
+                    try:
+                        should_execute = self.condition_evaluator.evaluate(nested_step['when'], variables)
+                    except Exception as e:
+                        # Condition evaluation error
+                        result = {
+                            'status': 'failed',
+                            'exit_code': 2,
+                            'error': {
+                                'message': f"Condition evaluation failed: {e}",
+                                'context': {'condition': nested_step['when']}
+                            }
+                        }
+                        iteration_state[nested_name] = result
+                        continue
+
+                    if not should_execute:
+                        # Condition false -> step skipped
+                        result = {
+                            'status': 'skipped',
+                            'exit_code': 0,
+                            'skipped': True
+                        }
+                        iteration_state[nested_name] = result
+                        continue
+
                 # Create a modified context with loop variables
                 nested_context = self._create_loop_context(nested_step, loop_context, state)
 
@@ -276,11 +354,14 @@ class WorkflowExecutor:
         """
         # Substitute variables in command
         command = step['command']
-        if isinstance(command, list):
-            command = ' '.join(command)
 
-        # Apply variable substitution (simplified for this implementation)
-        command = self._substitute_variables(command, context, state)
+        # Apply variable substitution based on command type
+        if isinstance(command, list):
+            # For list commands, substitute each element individually
+            command = [self._substitute_variables(elem, context, state) for elem in command]
+        else:
+            # For string commands, substitute the entire string
+            command = self._substitute_variables(command, context, state)
 
         # Create retry policy for command steps (AT-21)
         retries_config = step.get('retries')
@@ -312,6 +393,14 @@ class WorkflowExecutor:
 
             # No retry needed or max retries reached
             break
+
+        # Ensure result is not None before calling to_state_dict()
+        if result is None:
+            return {
+                'status': 'failed',
+                'exit_code': 1,
+                'error': {'message': 'Command execution failed with no result'}
+            }
 
         return result.to_state_dict()
 
@@ -355,26 +444,106 @@ class WorkflowExecutor:
 
         # Execute with retries
         attempt = 0
-        result = None
+        result: Optional[Dict[str, Any]] = None
+
+        # Build context for provider parameter substitution (AT-44)
+        # This should include all variable namespaces
+        provider_context = self._create_provider_context(context, state)
+
+        # Import types
+        from ..providers.types import ProviderParams
+        from ..exec.output_capture import OutputCapture, CaptureResult
 
         while True:
-            # Execute provider
-            result = self.provider_executor.execute(
-                step_name=step.get('name', 'provider'),
-                provider_name=step['provider'],
-                prompt=prompt,
-                provider_params=step.get('provider_params', {}),
-                env=step.get('env'),
-                timeout_sec=step.get('timeout_sec'),
-                output_capture=step.get('output_capture', 'text'),
-                output_file=Path(step['output_file']) if 'output_file' in step else None,
-                allow_parse_error=step.get('allow_parse_error', False)
+            # Prepare provider invocation
+            params = ProviderParams(
+                params=step.get('provider_params', {}),
+                input_file=step.get('input_file'),
+                output_file=step.get('output_file')
             )
 
+            invocation, error = self.provider_executor.prepare_invocation(
+                provider_name=step['provider'],
+                params=params,
+                context=provider_context,
+                prompt_content=prompt,
+                env=step.get('env'),
+                secrets=step.get('secrets'),
+                timeout_sec=step.get('timeout_sec')
+            )
+
+            if error or invocation is None:
+                # Invocation preparation failed
+                return {
+                    'status': 'failed',
+                    'exit_code': 2,
+                    'error': error or {'message': 'Failed to create provider invocation'}
+                }
+
+            # Execute the prepared invocation
+            exec_result = self.provider_executor.execute(invocation)
+
+            # Capture output according to specified mode
+            capture_mode = step.get('output_capture', 'text')
+            allow_parse_error = step.get('allow_parse_error', False)
+            output_file = Path(step['output_file']) if 'output_file' in step else None
+
+            capturer = OutputCapture(
+                workspace=self.workspace,
+                logs_dir=self.state_manager.logs_dir if hasattr(self.state_manager, 'logs_dir') else None
+            )
+
+            # Convert mode string to CaptureMode enum
+            from ..exec.output_capture import CaptureMode
+            if capture_mode == 'text':
+                mode = CaptureMode.TEXT
+            elif capture_mode == 'lines':
+                mode = CaptureMode.LINES
+            else:
+                mode = CaptureMode.JSON
+
+            capture_result = capturer.capture(
+                stdout=exec_result.stdout,
+                stderr=exec_result.stderr,
+                step_name=step.get('name', 'provider'),
+                mode=mode,
+                output_file=output_file,
+                allow_parse_error=allow_parse_error,
+                exit_code=exec_result.exit_code
+            )
+
+            # Build result dict
+            result = {
+                'status': 'completed' if exec_result.exit_code == 0 else 'failed',
+                'exit_code': exec_result.exit_code,
+                'duration_ms': exec_result.duration_ms
+            }
+
+            # Add captured output
+            result.update(capture_result.to_state_dict())
+
+            # Add error info if present
+            if exec_result.error:
+                result['error'] = exec_result.error
+            elif exec_result.missing_placeholders:
+                result['error'] = {
+                    'message': 'Missing placeholders in provider template',
+                    'context': {
+                        'missing_placeholders': exec_result.missing_placeholders
+                    }
+                }
+            elif exec_result.invalid_prompt_placeholder:
+                result['error'] = {
+                    'message': 'Invalid ${PROMPT} placeholder in stdin mode',
+                    'context': {
+                        'invalid_prompt_placeholder': True
+                    }
+                }
+
             # Check if should retry
-            if retry_policy.should_retry(result.exit_code, attempt):
+            if retry_policy.should_retry(exec_result.exit_code, attempt):
                 if self.debug:
-                    print(f"Provider failed with exit code {result.exit_code}, retrying (attempt {attempt + 1}/{retry_policy.max_retries})")
+                    print(f"Provider failed with exit code {exec_result.exit_code}, retrying (attempt {attempt + 1}/{retry_policy.max_retries})")
                 retry_policy.wait()
                 attempt += 1
                 continue
@@ -382,7 +551,15 @@ class WorkflowExecutor:
             # No retry needed or max retries reached
             break
 
-        return result.to_state_dict()
+        # Ensure result is not None before returning
+        if result is None:
+            return {
+                'status': 'failed',
+                'exit_code': 1,
+                'error': {'message': 'Provider execution failed with no result'}
+            }
+
+        return result
 
     def _create_loop_context(
         self,
@@ -416,6 +593,43 @@ class WorkflowExecutor:
             **loop_context  # Loop vars override
         }
         return context
+
+    def _create_provider_context(
+        self,
+        context: Dict[str, Any],
+        state: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Create context for provider parameter substitution.
+
+        Ensures all variable namespaces are available for AT-44.
+
+        Args:
+            context: Current execution context
+            state: Current state
+
+        Returns:
+            Combined context for provider params
+        """
+        # Ensure we have all namespaces available
+        run_state = self.state_manager.load()
+        provider_context = {
+            'run': {
+                'id': run_state.run_id,
+                'timestamp_utc': run_state.started_at,
+                'root': str(self.state_manager.run_root) if hasattr(self.state_manager, 'run_root') else ''
+            },
+            'context': context.get('context', self.variables),
+            'steps': state.get('steps', {})
+        }
+
+        # Add loop variables if present
+        if 'loop' in context:
+            provider_context['loop'] = context['loop']
+        if 'item' in context:
+            provider_context['item'] = context['item']
+
+        return provider_context
 
     def _substitute_variables(
         self,

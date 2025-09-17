@@ -268,9 +268,14 @@ class TestProviderExecutor:
             }
         )
 
+        # Properly structured context with namespaces
         context = {
-            "run.timestamp": "20250115T120000Z",
-            "context.workspace": "/workspace"
+            "run": {
+                "timestamp": "20250115T120000Z"
+            },
+            "context": {
+                "workspace": "/workspace"
+            }
         }
 
         invocation, error = self.executor.prepare_invocation(

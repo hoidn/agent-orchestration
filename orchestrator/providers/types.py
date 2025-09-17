@@ -5,7 +5,7 @@ Defines data models for provider templates and parameters following specs/provid
 """
 
 from dataclasses import dataclass, field
-from typing import List, Dict, Optional, Literal
+from typing import List, Dict, Optional, Literal, Any
 from enum import Enum
 
 
@@ -23,12 +23,12 @@ class ProviderTemplate:
     Attributes:
         name: Provider identifier (e.g., 'claude', 'gemini')
         command: Command template array with placeholders
-        defaults: Default parameter values
+        defaults: Default parameter values (supports nested for AT-44)
         input_mode: How to deliver the prompt (argv or stdin)
     """
     name: str
     command: List[str]
-    defaults: Dict[str, str] = field(default_factory=dict)
+    defaults: Dict[str, Any] = field(default_factory=dict)
     input_mode: InputMode = InputMode.ARGV
 
     def validate(self) -> List[str]:
@@ -61,11 +61,11 @@ class ProviderParams:
     Parameters for provider invocation.
 
     Attributes:
-        params: Key-value parameter mapping
+        params: Parameter mapping (supports nested structures for AT-44)
         input_file: Optional file containing the prompt
         output_file: Optional file to capture stdout
     """
-    params: Dict[str, str] = field(default_factory=dict)
+    params: Dict[str, Any] = field(default_factory=dict)
     input_file: Optional[str] = None
     output_file: Optional[str] = None
 

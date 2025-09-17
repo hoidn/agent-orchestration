@@ -189,7 +189,7 @@ def run_workflow(args: Namespace) -> int:
 
         logger.info(f"Loading workflow: {workflow_path}")
         loader = WorkflowLoader(workspace)
-        workflow = loader.load(str(workflow_path))
+        workflow = loader.load(workflow_path)
 
         # Determine processed directory
         processed_dir = workspace / (workflow.get('processed_dir', 'processed'))
@@ -210,7 +210,7 @@ def run_workflow(args: Namespace) -> int:
             else:
                 # Default to RUN_ROOT/processed.zip
                 run_id = datetime.now().strftime("%Y%m%dT%H%M%SZ")
-                state_dir = Path(args.state_dir) if args.state_dir else workspace / '.orchestrate' / 'runs'
+                state_dir = workspace / '.orchestrate' / 'runs'
                 run_root = state_dir / run_id
                 archive_dest = run_root / 'processed.zip'
 
@@ -228,29 +228,28 @@ def run_workflow(args: Namespace) -> int:
         context = parse_context(args)
 
         # Initialize state manager
-        state_dir = Path(args.state_dir) if args.state_dir else workspace / '.orchestrate' / 'runs'
         state_manager = StateManager(
-            state_dir=state_dir,
+            workspace=workspace,
             backup_enabled=args.backup_state
         )
 
         # Create new run
-        run_state = state_manager.create_run(workflow, initial_context=context)
-        logger.info(f"Created new run: {run_state['run_id']}")
+        run_state = state_manager.initialize(workflow_path.name, context)
+        logger.info(f"Created new run: {run_state.run_id}")
 
         # Execute workflow
         executor = WorkflowExecutor(
             workflow=workflow,
             workspace=workspace,
             state_manager=state_manager,
-            logs_dir=state_manager.state_dir / 'logs',
+            logs_dir=state_manager.logs_dir,
             debug=args.debug if hasattr(args, 'debug') else False,
             max_retries=args.max_retries,
             retry_delay_ms=args.retry_delay
         )
 
         result = executor.execute(
-            run_id=run_state['run_id'],
+            run_id=run_state.run_id,
             on_error=args.on_error,
             max_retries=args.max_retries,
             retry_delay_ms=args.retry_delay

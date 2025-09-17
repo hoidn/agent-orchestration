@@ -36,7 +36,7 @@ class CaptureResult:
 
     def to_state_dict(self) -> Dict[str, Any]:
         """Convert to state.json format."""
-        result = {
+        result: Dict[str, Any] = {
             "exit_code": self.exit_code,
             "truncated": self.truncated,
         }

@@ -5,6 +5,8 @@ Implements basic command execution with output capture.
 
 import subprocess
 import os
+import shlex
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
@@ -57,7 +59,7 @@ class StepExecutor:
     def execute_command(
         self,
         step_name: str,
-        command: str,
+        command: Union[str, List[str]],
         cwd: Optional[Path] = None,
         env: Optional[Dict[str, str]] = None,
         secrets: Optional[List[str]] = None,
@@ -123,11 +125,20 @@ class StepExecutor:
         # Record start time
         start_time = time.time()
 
+        # Convert command to argv array if needed
+        if isinstance(command, str):
+            # Parse shell command into argv array using shlex for proper quoting/escaping
+            command_argv = shlex.split(command)
+        elif isinstance(command, list):
+            # Already an argv array
+            command_argv = command
+        else:
+            raise ValueError(f"Invalid command type: {type(command)}. Expected str or list.")
+
         try:
-            # Execute command
+            # Execute command using argv mode (no shell=True for security)
             result = subprocess.run(
-                command,
-                shell=True,
+                command_argv,
                 cwd=str(working_dir),
                 env=process_env,
                 capture_output=True,
@@ -268,7 +279,7 @@ class StepExecutor:
 
         # Add wait-specific fields to the state dict
         def to_wait_state_dict() -> Dict[str, Any]:
-            state = {
+            state: Dict[str, Any] = {
                 "exit_code": wait_result.exit_code,
                 "files": wait_result.files,
                 "wait_duration_ms": wait_result.wait_duration_ms,

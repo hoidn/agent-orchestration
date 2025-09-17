@@ -73,7 +73,7 @@ class RunState:
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict for JSON serialization."""
-        result = {
+        result: Dict[str, Any] = {
             "schema_version": self.schema_version,
             "run_id": self.run_id,
             "workflow_file": self.workflow_file,
@@ -82,24 +82,25 @@ class RunState:
             "updated_at": self.updated_at,
             "status": self.status,
             "context": self.context,
-            "steps": {}
+            "steps": {},
+            "for_each": {}
         }
 
-        # Convert step results
+        # Convert step results - type assert for type checker
+        steps_dict: Dict[str, Any] = result["steps"]
         for name, value in self.steps.items():
             if isinstance(value, StepResult):
-                result["steps"][name] = value.to_dict()
+                steps_dict[name] = value.to_dict()
             else:
-                result["steps"][name] = value
+                steps_dict[name] = value
 
-        # Convert for_each states
-        if self.for_each:
-            result["for_each"] = {}
-            for name, state in self.for_each.items():
-                if isinstance(state, ForEachState):
-                    result["for_each"][name] = state.to_dict()
-                else:
-                    result["for_each"][name] = state
+        # Convert for_each states - type assert for type checker
+        for_each_dict: Dict[str, Any] = result["for_each"]
+        for name, state in self.for_each.items():
+            if isinstance(state, ForEachState):
+                for_each_dict[name] = state.to_dict()
+            else:
+                for_each_dict[name] = state
 
         return result
 

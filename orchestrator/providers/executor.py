@@ -9,12 +9,13 @@ import logging
 import subprocess
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from dataclasses import dataclass
 
 from .types import ProviderTemplate, ProviderInvocation, InputMode, ProviderParams
 from .registry import ProviderRegistry
 from ..security.secrets import SecretsManager
+from ..variables.substitution import VariableSubstitutor
 
 
 logger = logging.getLogger(__name__)
@@ -88,7 +89,7 @@ class ProviderExecutor:
             }
 
         # Merge parameters (step params override defaults)
-        merged_params = self.registry.merge_params(provider_name, params.params)
+        merged_params = self.registry.merge_params(provider_name, params.params or {})
 
         # Substitute variables in provider_params values (AT-51)
         substituted_params, param_errors = self._substitute_params(merged_params, context)
@@ -234,47 +235,42 @@ class ProviderExecutor:
 
     def _substitute_params(
         self,
-        params: Dict[str, str],
-        context: Dict[str, str]
-    ) -> Tuple[Dict[str, str], List[str]]:
+        params: Dict[str, Any],
+        context: Dict[str, Any]
+    ) -> Tuple[Dict[str, Any], List[str]]:
         """
-        Substitute variables in provider parameters.
+        Substitute variables in provider parameters (AT-44).
+
+        Supports nested structures (dicts, lists) with full variable substitution.
 
         Args:
-            params: Provider parameters
-            context: Variable context
+            params: Provider parameters (can be nested dict/list)
+            context: Variable context with namespaces
 
         Returns:
             Tuple of (substituted_params, errors)
         """
-        import re
-
-        substituted = {}
+        substitutor = VariableSubstitutor()
         errors = []
-        var_pattern = re.compile(r'\$\{([^}]+)\}')
 
-        for key, value in params.items():
-            if not isinstance(value, str):
-                substituted[key] = value
-                continue
+        try:
+            # Use VariableSubstitutor for full nested structure support
+            substituted_result = substitutor.substitute(params, context)
+            # Ensure the result is a dict (since we passed in a dict)
+            if not isinstance(substituted_result, dict):
+                errors.append(f"Parameter substitution returned unexpected type: {type(substituted_result)}")
+                return params, errors
+            substituted = substituted_result
 
-            # Apply escapes first
-            processed = value.replace('$$', '\x00')  # Temp marker for literal $
-            processed = processed.replace('$${', '\x01{')  # Temp marker for literal ${
-
-            # Find all variables
-            matches = var_pattern.findall(processed)
-            for var in matches:
-                if var in context:
-                    processed = processed.replace(f"${{{var}}}", context[var])
-                else:
+            # Check for undefined variables
+            if substitutor.undefined_vars:
+                for var in substitutor.undefined_vars:
                     errors.append(f"Undefined variable in provider_params: ${{{var}}}")
 
-            # Restore escaped literals
-            processed = processed.replace('\x00', '$')
-            processed = processed.replace('\x01{', '${')
-
-            substituted[key] = processed
+        except ValueError as e:
+            # Catch any substitution errors
+            errors.append(str(e))
+            return params, errors  # Return original on error
 
         return substituted, errors
 
