@@ -24,6 +24,7 @@ At the start of each loop, declare:
 Subagents policy (context budget):
 - You may use up to 200 subagents for search, summarization, inventory, and planning.
 - Use at most 1 subagent for building/running tests/acceptance suites to avoid back‑pressure.
+- Use subagents for all testing, debugging, and verification-type tasks
 - Summaries should be concise; prefer file pointers and diffs over full content.
 
 Ground rules (do these every loop):
