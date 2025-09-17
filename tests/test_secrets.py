@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 from orchestrator.security.secrets import SecretsManager, SecretsContext, SecretsMaskingFilter
 from orchestrator.exec.step_executor import StepExecutor
 from orchestrator.loader import WorkflowLoader
+from orchestrator.exceptions import WorkflowValidationError
 
 
 class TestSecretsManager:
@@ -274,9 +275,9 @@ class TestWorkflowLoaderSecrets:
             yaml.dump(workflow, f)
 
         # Should fail validation
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             loader.load(workflow_path)
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
 
     def test_secrets_validation_rejects_empty_names(self, tmp_path):
         """Test that secret names cannot be empty."""
@@ -298,9 +299,9 @@ class TestWorkflowLoaderSecrets:
             yaml.dump(workflow, f)
 
         # Should fail validation
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             loader.load(workflow_path)
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
 
 
 # Integration test demonstrating full flow

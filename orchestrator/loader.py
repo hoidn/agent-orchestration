@@ -1,19 +1,11 @@
 """Workflow loader and strict DSL validation per specs/dsl.md."""
 
 import re
-import sys
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union, NoReturn
+from typing import Any, Dict, List, Optional, Set, Union
 import yaml
 
-
-@dataclass
-class ValidationError:
-    """Validation error with context."""
-    message: str
-    path: str = ""
-    exit_code: int = 2
+from orchestrator.exceptions import ValidationError, WorkflowValidationError
 
 
 class WorkflowLoader:
@@ -34,11 +26,11 @@ class WorkflowLoader:
                 workflow = yaml.safe_load(f)
         except Exception as e:
             self._add_error(f"Failed to load workflow: {e}")
-            self._exit_with_errors()
+            self._raise_validation_errors()
 
         if workflow is None or not isinstance(workflow, dict):
             self._add_error("Workflow must be a YAML object/dictionary")
-            self._exit_with_errors()
+            self._raise_validation_errors()
 
         # Type narrowing: at this point workflow is definitely Dict[str, Any]
         assert isinstance(workflow, dict), "Type narrowing for workflow"
@@ -69,7 +61,7 @@ class WorkflowLoader:
         self._validate_goto_targets(workflow)
 
         if self.errors:
-            self._exit_with_errors()
+            self._raise_validation_errors()
 
         return workflow
 
@@ -367,8 +359,6 @@ class WorkflowLoader:
         """Add validation error."""
         self.errors.append(ValidationError(message, path, exit_code))
 
-    def _exit_with_errors(self) -> NoReturn:
-        """Exit with validation errors."""
-        for error in self.errors:
-            print(f"Validation error: {error.message}", file=sys.stderr)
-        sys.exit(2)
+    def _raise_validation_errors(self):
+        """Raise WorkflowValidationError with accumulated errors."""
+        raise WorkflowValidationError(self.errors)

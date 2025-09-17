@@ -13,6 +13,7 @@ from typing import Dict, Any
 from argparse import Namespace
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -189,7 +190,13 @@ def run_workflow(args: Namespace) -> int:
 
         logger.info(f"Loading workflow: {workflow_path}")
         loader = WorkflowLoader(workspace)
-        workflow = loader.load(workflow_path)
+        try:
+            workflow = loader.load(workflow_path)
+        except WorkflowValidationError as e:
+            # Print validation errors to stderr
+            for error in e.errors:
+                logger.error(f"Validation error: {error.message}")
+            return e.exit_code
 
         # Determine processed directory
         processed_dir = workspace / (workflow.get('processed_dir', 'processed'))

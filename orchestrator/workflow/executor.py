@@ -413,6 +413,7 @@ class WorkflowExecutor:
         """
         Execute a provider step with variable substitution context.
         Implements AT-21: Provider steps retry on exit codes 1 and 124 by default.
+        Implements AT-28-35,53: Dependency injection with debug record.
 
         Args:
             step: Step definition
@@ -422,15 +423,78 @@ class WorkflowExecutor:
         Returns:
             Execution result as dict
         """
-        # Get prompt if specified
-        prompt = ""
-        if 'input_file' in step:
-            input_path = self.workspace / step['input_file']
-            if input_path.exists():
-                prompt = input_path.read_text()
+        # Initialize debug info dict for injection metadata
+        debug_info = {}
 
-        # Apply variable substitution to prompt
-        prompt = self._substitute_variables(prompt, context, state)
+        # Handle dependencies if specified (AT-22-27)
+        if 'depends_on' in step:
+            depends_on = step['depends_on']
+
+            # Build variables dict for substitution
+            substitution_vars = self._build_substitution_variables(context, state)
+
+            # Resolve dependencies using the correct API
+            resolution = self.dependency_resolver.resolve(
+                depends_on=depends_on,
+                variables=substitution_vars
+            )
+
+            # Check for validation errors (missing required dependencies)
+            if not resolution.is_valid:
+                # Missing required dependencies - exit code 2
+                return {
+                    'status': 'failed',
+                    'exit_code': 2,
+                    'error': {
+                        'type': 'dependency_validation',
+                        'message': 'Missing required dependencies',
+                        'context': {
+                            'missing_dependencies': resolution.errors
+                        }
+                    }
+                }
+
+            # Get all resolved files in deterministic order
+            all_files = resolution.files
+
+            # Apply dependency injection if configured (AT-28-35,53)
+            inject_config = depends_on.get('inject', False)
+            if inject_config:
+                # Get original prompt
+                prompt = ""
+                if 'input_file' in step:
+                    input_path = self.workspace / step['input_file']
+                    if input_path.exists():
+                        prompt = input_path.read_text()
+
+                # Apply variable substitution to prompt before injection
+                prompt = self._substitute_variables(prompt, context, state)
+
+                # Perform injection (use whether we had required deps)
+                has_required = 'required' in depends_on and len(depends_on['required']) > 0
+                injection_result = self.dependency_injector.inject(
+                    prompt=prompt,
+                    files=all_files,
+                    inject_config=inject_config,
+                    is_required=has_required
+                )
+
+                # Use the modified prompt
+                prompt = injection_result.modified_prompt
+
+                # Record truncation details if present (AT-35)
+                if injection_result.was_truncated and injection_result.truncation_details:
+                    debug_info['injection'] = injection_result.truncation_details
+        else:
+            # No dependencies - just get prompt normally
+            prompt = ""
+            if 'input_file' in step:
+                input_path = self.workspace / step['input_file']
+                if input_path.exists():
+                    prompt = input_path.read_text()
+
+            # Apply variable substitution to prompt
+            prompt = self._substitute_variables(prompt, context, state)
 
         # Create retry policy for provider steps (AT-21)
         # Providers use global max_retries or step-specific retries
@@ -559,6 +623,10 @@ class WorkflowExecutor:
                 'error': {'message': 'Provider execution failed with no result'}
             }
 
+        # Add debug info if present (AT-35: injection truncation metadata)
+        if debug_info:
+            result['debug'] = debug_info
+
         return result
 
     def _create_loop_context(
@@ -630,6 +698,40 @@ class WorkflowExecutor:
             provider_context['item'] = context['item']
 
         return provider_context
+
+    def _build_substitution_variables(self, context: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, str]:
+        """Build variables dict for dependency pattern substitution.
+
+        Args:
+            context: Context with run/context/loop namespaces
+            state: Current state
+
+        Returns:
+            Flattened dict of variable name to value for substitution
+        """
+        # Flatten the context structure for substitution
+        variables = {}
+
+        # Add run namespace
+        if 'run' in context:
+            for key, value in context['run'].items():
+                variables[f'run.{key}'] = str(value)
+
+        # Add context namespace
+        if 'context' in context:
+            for key, value in context['context'].items():
+                variables[f'context.{key}'] = str(value)
+
+        # Add loop namespace if present
+        if 'loop' in context:
+            for key, value in context['loop'].items():
+                variables[f'loop.{key}'] = str(value)
+
+        # Add item if present
+        if 'item' in context:
+            variables['item'] = str(context['item'])
+
+        return variables
 
     def _substitute_variables(
         self,

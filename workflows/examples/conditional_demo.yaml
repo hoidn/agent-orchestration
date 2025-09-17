@@ -1,0 +1,64 @@
+version: "1.1"
+name: "Conditional Execution Demo"
+description: |
+  Demonstrates conditional execution with when.equals, when.exists, and when.not_exists.
+  Tests AT-37, AT-46, AT-47.
+
+context:
+  environment: "development"
+  threshold: "10"
+
+steps:
+  # AT-37: when.equals - String comparison
+  - name: CheckEnvironment
+    command: ["echo", "Environment check"]
+    when:
+      equals:
+        left: "${context.environment}"
+        right: "production"
+    # This will be skipped because environment=development
+
+  - name: CreateTestFile
+    command: ["touch", "test.txt"]
+
+  # AT-46: when.exists - Check file existence
+  - name: ProcessIfExists
+    command: ["echo", "Processing test.txt"]
+    when:
+      exists: "test.txt"
+    # This will execute because test.txt was just created
+
+  # AT-47: when.not_exists - Check file absence
+  - name: CreateLockIfMissing
+    command: ["touch", "process.lock"]
+    when:
+      not_exists: "*.lock"
+    # This will execute on first run, skip on subsequent runs
+
+  # Conditional in for-each loop
+  - name: ProcessItems
+    for_each:
+      items: ["1", "5", "15", "8", "20"]
+      steps:
+        - name: ProcessHighValue
+          command: ["echo", "High value item: ${item}"]
+          when:
+            equals:
+              left: "${item}"
+              right: "15"
+          # Only item "15" will be processed
+
+  # Check with glob pattern
+  - name: CleanupIfNoTempFiles
+    command: ["echo", "No temp files to clean"]
+    when:
+      not_exists: "*.tmp"
+
+  # Multiple conditions in sequence
+  - name: CreateMarker
+    command: ["touch", "completed.marker"]
+
+  - name: FinalCheck
+    command: ["echo", "Workflow completed successfully"]
+    when:
+      exists: "completed.marker"

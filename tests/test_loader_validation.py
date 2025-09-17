@@ -6,6 +6,7 @@ import yaml
 from pathlib import Path
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.exceptions import WorkflowValidationError
 
 
 class TestLoaderValidation:
@@ -37,15 +38,15 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        # Should exit with code 2
-        with pytest.raises(SystemExit) as exc_info:
+        # Should raise WorkflowValidationError
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
 
         # Verify error message
         assert any("${env.*} namespace not allowed" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_at7_env_in_provider_params_rejected(self):
         """AT-7: ${env.*} rejected in provider_params."""
@@ -68,12 +69,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("${env.*} namespace not allowed" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_at10_provider_command_exclusivity(self):
         """AT-10: Provider/Command exclusivity - validation error when both present."""
@@ -94,12 +95,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("mutually exclusive" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_at36_wait_for_exclusivity(self):
         """AT-36: wait_for cannot be combined with command/provider/for_each."""
@@ -118,12 +119,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("wait_for cannot be combined" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_at38_absolute_path_rejected(self):
         """AT-38: Absolute paths rejected at validation."""
@@ -139,12 +140,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("absolute paths not allowed" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_at39_parent_escape_rejected(self):
         """AT-39: Parent directory traversal rejected."""
@@ -160,12 +161,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("parent directory traversal" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_at40_deprecated_override_rejected(self):
         """AT-40: Deprecated command_override usage rejected."""
@@ -181,12 +182,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("deprecated 'command_override' not supported" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_strict_unknown_fields_rejected(self):
         """Strict validation: unknown fields rejected."""
@@ -202,12 +203,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("Unknown field 'unknown_field'" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_goto_target_validation(self):
         """Goto targets must exist."""
@@ -227,12 +228,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("unknown target 'nonexistent_step'" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_version_gating_inject_requires_1_1_1(self):
         """depends_on.inject requires version 1.1.1."""
@@ -251,12 +252,12 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         assert any("inject requires version '1.1.1'" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     # Positive test cases
 

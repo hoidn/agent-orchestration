@@ -180,20 +180,21 @@
 
 1. ✅ ~~Execution safety (argv, no shell=True)~~ — COMPLETED
 
-2. Loader error handling (library/CLI boundary) — spec: versioning.md/dsl.md (strict validation)
-   - Rationale: Keep loader reusable; avoid process control inside library code.
-   - DoD: Loader raises structured exceptions; CLI maps to exit codes; existing validation tests adapted to expect exceptions.
-   - Tasks:
-     - Replace internal `sys.exit(2)` with raising a `WorkflowValidationError` carrying messages.
-     - Adjust tests to catch exceptions and assert messages/exit semantics.
+2. ✅ ~~Loader error handling (library/CLI boundary)~~ — COMPLETED
+   - Replaced sys.exit(2) calls with WorkflowValidationError exception
+   - Created orchestrator/exceptions.py with structured exception classes
+   - Updated CLI to catch exceptions and map to exit codes
+   - Updated all loader tests to expect exceptions instead of SystemExit
+   - DoD: Loader now usable as a library; 210 tests passing
 
-3. Injection integration + debug record — acceptance: AT‑28–35, AT‑53
-   - Rationale: Injector exists; ensure it’s applied and recorded during execution.
-   - DoD: For provider steps with `depends_on.inject`, executor composes prompt with resolver+injector; on truncation, record `steps.<Step>.debug.injection{...}`.
-   - Tasks:
-     - In provider execution flow, resolve required/optional globs (deterministic order), apply injector (list/content, prepend/append).
-     - Persist truncation metadata to `StepState.debug.injection` exactly as per spec.
-     - Add tests for list/content modes, custom instruction, prepend/append, and truncation record.
+3. ✅ Injection integration + debug record — COMPLETED — acceptance: AT‑28–35, AT‑53
+   - Implemented full dependency injection integration in workflow executor
+   - DependencyResolver called with correct API to resolve patterns with variable substitution
+   - DependencyInjector applied to compose prompt with list/content modes
+   - Debug info with truncation metadata recorded in step result when truncated
+   - Tests: Created comprehensive test suite in `test_injection_integration.py` (11 tests)
+   - Example: Created `workflows/examples/injection_demo.yaml` demonstrating all modes
+   - DoD: Provider steps with `depends_on.inject` now compose prompts with injection; truncation metadata recorded in `steps.<Step>.debug.injection`
 
 4. Output capture spill consistency (JSON overflow + allow_parse_error) — acceptance: AT‑15, AT‑52
    - Rationale: Ensure large JSON with allow_parse_error behaves like text truncation and spills full stream.

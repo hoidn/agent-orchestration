@@ -11,6 +11,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.providers import ProviderRegistry, ProviderExecutor
 from orchestrator.exec.step_executor import StepExecutor
 
@@ -119,13 +120,13 @@ class TestProviderIntegration:
         path = self.write_workflow(workflow)
 
         # Should fail validation
-        with pytest.raises(SystemExit) as exc_info:
+        with pytest.raises(WorkflowValidationError) as exc_info:
             self.loader.load(path)
 
-        assert exc_info.value.code == 2
+        assert exc_info.value.exit_code == 2
         # Check error mentions the issue
         assert any("${PROMPT} not allowed in stdin mode" in str(err.message)
-                  for err in self.loader.errors)
+                  for err in exc_info.value.errors)
 
     def test_at50_provider_without_prompt_placeholder(self):
         """AT-50: Provider without ${PROMPT} works correctly."""

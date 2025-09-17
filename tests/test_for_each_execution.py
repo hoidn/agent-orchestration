@@ -211,7 +211,7 @@ steps:
             else:
                 command_str = command
 
-            if 'file1' in command_str:
+            if step_name == 'ListFiles':
                 # ListFiles step
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
@@ -318,7 +318,10 @@ steps:
         def mock_execute_command(self, **kwargs):
             command = kwargs['command']
 
-            if 'tasks' in command:
+            # Convert command to string for checking
+            command_str = ' '.join(command) if isinstance(command, list) else command
+
+            if 'tasks' in command_str:
                 # GetData step
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
@@ -339,7 +342,7 @@ steps:
                 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
                 result = CaptureResult(
                     mode=CaptureMode.TEXT,
-                    output=command,
+                    output=command_str,
                     truncated=False
                 )
                 from orchestrator.exec.step_executor import ExecutionResult
