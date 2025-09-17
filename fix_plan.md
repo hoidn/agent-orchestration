@@ -188,13 +188,14 @@
    - DoD: Loader now usable as a library; 210 tests passing
 
 3. ✅ Injection integration + debug record — COMPLETED — acceptance: AT‑28–35, AT‑53
-   - Implemented full dependency injection integration in workflow executor
-   - DependencyResolver called with correct API to resolve patterns with variable substitution
-   - DependencyInjector applied to compose prompt with list/content modes
-   - Debug info with truncation metadata recorded in step result when truncated
-   - Tests: Created comprehensive test suite in `test_injection_integration.py` (11 tests)
-   - Example: Created `workflows/examples/injection_demo.yaml` demonstrating all modes
-   - DoD: Provider steps with `depends_on.inject` now compose prompts with injection; truncation metadata recorded in `steps.<Step>.debug.injection`
+   - Fixed API mismatch between DependencyResolver and WorkflowExecutor
+   - DependencyResolution now has `is_valid`, `files`, and `errors` properties
+   - Resolver returns validation state instead of raising ValueError
+   - Fixed prompt loading for dependencies without injection (AT-35)
+   - Fixed test setup to write workflow files to disk for StateManager
+   - Tests: All 11 tests in `test_injection_integration.py` passing
+   - Updated dependency resolution tests to match new API behavior
+   - DoD: Provider steps with `depends_on.inject` now compose prompts with injection; truncation metadata recorded in `steps.<Step>.debug.injection`; 222 tests passing
 
 4. Output capture spill consistency (JSON overflow + allow_parse_error) — acceptance: AT‑15, AT‑52
    - Rationale: Ensure large JSON with allow_parse_error behaves like text truncation and spills full stream.
@@ -239,5 +240,5 @@
 
 ## Next Loop Recommendation
 
-With execution safety completed, the next highest-priority item from the Refactor Track is:
-**Loader error handling (library/CLI boundary)** — The loader currently calls sys.exit() directly which makes it hard to use as a library. Should raise structured exceptions that the CLI can map to exit codes.
+With injection integration fully fixed and tested, the next highest-priority item is:
+**Output capture spill consistency (JSON overflow + allow_parse_error)** — Ensure large JSON with allow_parse_error behaves like text truncation and spills full stream to logs.

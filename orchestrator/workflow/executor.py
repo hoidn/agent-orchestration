@@ -426,6 +426,9 @@ class WorkflowExecutor:
         # Initialize debug info dict for injection metadata
         debug_info = {}
 
+        # Initialize prompt variable (will be set based on dependencies or input_file)
+        prompt = ""
+
         # Handle dependencies if specified (AT-22-27)
         if 'depends_on' in step:
             depends_on = step['depends_on']
@@ -457,19 +460,18 @@ class WorkflowExecutor:
             # Get all resolved files in deterministic order
             all_files = resolution.files
 
+            # Get original prompt (needed whether or not we inject)
+            if 'input_file' in step:
+                input_path = self.workspace / step['input_file']
+                if input_path.exists():
+                    prompt = input_path.read_text()
+
+            # Apply variable substitution to prompt
+            prompt = self._substitute_variables(prompt, context, state)
+
             # Apply dependency injection if configured (AT-28-35,53)
             inject_config = depends_on.get('inject', False)
             if inject_config:
-                # Get original prompt
-                prompt = ""
-                if 'input_file' in step:
-                    input_path = self.workspace / step['input_file']
-                    if input_path.exists():
-                        prompt = input_path.read_text()
-
-                # Apply variable substitution to prompt before injection
-                prompt = self._substitute_variables(prompt, context, state)
-
                 # Perform injection (use whether we had required deps)
                 has_required = 'required' in depends_on and len(depends_on['required']) > 0
                 injection_result = self.dependency_injector.inject(

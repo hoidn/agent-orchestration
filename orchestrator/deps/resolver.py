@@ -14,6 +14,21 @@ class DependencyResolution:
     optional_files: List[str]
     missing_required: List[str]
     patterns_used: Dict[str, List[str]]  # pattern -> matched files
+
+    @property
+    def is_valid(self) -> bool:
+        """True if no required dependencies are missing."""
+        return len(self.missing_required) == 0
+
+    @property
+    def files(self) -> List[str]:
+        """All resolved files in deterministic lexicographic order."""
+        return sorted(self.required_files + self.optional_files)
+
+    @property
+    def errors(self) -> List[str]:
+        """List of missing required dependencies."""
+        return self.missing_required
     
 
 class DependencyResolver:
@@ -68,14 +83,9 @@ class DependencyResolver:
         
         # Combine pattern tracking
         patterns_used = {**required_patterns_used, **optional_patterns_used}
-        
-        # Check for missing required files
-        if missing_required:
-            raise ValueError(
-                f"Missing required dependencies: {missing_required}. "
-                f"Exit code: 2, error.context.missing_dependencies: {missing_required}"
-            )
-            
+
+        # Return resolution with validation state
+        # Note: Caller (executor) checks is_valid and handles exit code 2
         return DependencyResolution(
             required_files=required_files,
             optional_files=optional_files,

@@ -12,20 +12,25 @@ class TestDependencyResolution:
     """Test dependency resolution with glob patterns."""
     
     def test_at22_missing_required_dependencies_fails(self):
-        """AT-22: Missing required dependencies fail with exit 2."""
+        """AT-22: Missing required dependencies fail with exit 2.
+
+        Note: The resolver returns validation state, executor handles exit code.
+        """
         with tempfile.TemporaryDirectory() as workspace:
             resolver = DependencyResolver(workspace)
-            
+
             depends_on = {
                 'required': ['missing_file.txt']
             }
-            
-            with pytest.raises(ValueError) as exc_info:
-                resolver.resolve(depends_on)
-            
-            assert "Missing required dependencies" in str(exc_info.value)
-            assert "missing_file.txt" in str(exc_info.value)
-            assert "Exit code: 2" in str(exc_info.value)
+
+            # Resolver returns resolution with validation state
+            result = resolver.resolve(depends_on)
+
+            # Check that validation fails
+            assert not result.is_valid
+            assert result.missing_required == ['missing_file.txt']
+            assert result.errors == ['missing_file.txt']
+            assert result.required_files == []
             
     def test_at23_posix_glob_matching(self):
         """AT-23: POSIX glob patterns match files correctly."""
@@ -138,23 +143,26 @@ class TestDependencyResolution:
             
     def test_at27_dependency_error_context(self):
         """AT-27: Dependency failures provide proper error context.
-        
+
         The error handler (on.failure) can catch these with exit code 2.
+        Note: The resolver returns validation state, executor handles exit code.
         """
         with tempfile.TemporaryDirectory() as workspace:
             resolver = DependencyResolver(workspace)
-            
+
             depends_on = {
                 'required': ['missing1.txt', 'missing2.txt']
             }
-            
-            with pytest.raises(ValueError) as exc_info:
-                resolver.resolve(depends_on)
-            
-            error_msg = str(exc_info.value)
-            assert "missing_dependencies" in error_msg
-            assert "missing1.txt" in error_msg
-            assert "missing2.txt" in error_msg
+
+            # Resolver returns resolution with validation state
+            result = resolver.resolve(depends_on)
+
+            # Check that validation fails with proper error context
+            assert not result.is_valid
+            assert 'missing1.txt' in result.missing_required
+            assert 'missing2.txt' in result.missing_required
+            assert len(result.missing_required) == 2
+            assert result.errors == result.missing_required
             
     def test_deterministic_ordering(self):
         """Files are returned in deterministic lexicographic order."""

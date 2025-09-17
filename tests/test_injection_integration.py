@@ -16,6 +16,14 @@ from orchestrator.providers.executor import ProviderExecutionResult
 from orchestrator.exceptions import WorkflowValidationError
 
 
+def create_workflow_file(workspace: Path, workflow: dict, filename: str = "test.yaml") -> str:
+    """Helper to create workflow file on disk for StateManager."""
+    workflow_path = workspace / filename
+    with open(workflow_path, 'w') as f:
+        yaml.dump(workflow, f)
+    return filename
+
+
 @pytest.fixture
 def temp_workspace():
     """Create temporary workspace directory."""
@@ -85,11 +93,12 @@ def test_at28_basic_injection(temp_workspace, mock_provider_registry):
             workflow_file = temp_workspace / 'test_workflow.yaml'
             workflow_file.write_text(yaml.dump(workflow))
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow, 'test_workflow.yaml')
             state_manager = StateManager(temp_workspace)
 
             # Initialize state
-            state_manager.initialize('test_workflow.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -162,9 +171,10 @@ def test_at29_list_mode_injection(temp_workspace, mock_provider_registry):
         with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow)
             state_manager = StateManager(temp_workspace)
-            state_manager.initialize('test.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -221,9 +231,10 @@ def test_at30_content_mode_injection(temp_workspace, mock_provider_registry):
         with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow)
             state_manager = StateManager(temp_workspace)
-            state_manager.initialize('test.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -279,9 +290,10 @@ def test_at31_custom_instruction(temp_workspace, mock_provider_registry):
         with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow)
             state_manager = StateManager(temp_workspace)
-            state_manager.initialize('test.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -335,9 +347,10 @@ def test_at32_append_position(temp_workspace, mock_provider_registry):
         with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow)
             state_manager = StateManager(temp_workspace)
-            state_manager.initialize('test.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -391,9 +404,10 @@ def test_at33_pattern_injection(temp_workspace, mock_provider_registry):
         with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow)
             state_manager = StateManager(temp_workspace)
-            state_manager.initialize('test.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -448,9 +462,10 @@ def test_at34_optional_file_injection(temp_workspace, mock_provider_registry):
         with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow)
             state_manager = StateManager(temp_workspace)
-            state_manager.initialize('test.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -502,9 +517,10 @@ def test_at35_no_injection_default(temp_workspace, mock_provider_registry):
         with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow)
             state_manager = StateManager(temp_workspace)
-            state_manager.initialize('test.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -571,18 +587,26 @@ def test_at53_injection_shorthand(temp_workspace, mock_provider_registry):
 
     injected_prompts = []
 
-    for workflow in [workflow1, workflow2]:
+    for i, workflow in enumerate([workflow1, workflow2]):
         with patch.object(mock_provider_registry, 'get') as mock_get:
             mock_get.return_value = mock_provider_registry._providers['claude']
 
             with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
                 mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
+                # Create workflow file and state manager
+                workflow_file = create_workflow_file(temp_workspace, workflow, f"test_{i}.yaml")
+                state_manager = StateManager(temp_workspace)
+                state_manager.initialize(workflow_file, {})
+
                 executor = WorkflowExecutor(
                     workflow=workflow,
                     workspace=temp_workspace,
-                    provider_registry=mock_provider_registry
+                    state_manager=state_manager
                 )
+
+                # Override provider registry
+                executor.provider_registry = mock_provider_registry
 
                 state = executor.execute()
 
@@ -627,9 +651,10 @@ def test_injection_truncation_debug_record(temp_workspace, mock_provider_registr
         with patch('orchestrator.providers.executor.subprocess.run') as mock_run:
             mock_run.return_value = Mock(returncode=0, stdout=b"OK", stderr=b"")
 
-            # Create state manager
+            # Create workflow file and state manager
+            workflow_file = create_workflow_file(temp_workspace, workflow)
             state_manager = StateManager(temp_workspace)
-            state_manager.initialize('test.yaml', {})
+            state_manager.initialize(workflow_file, {})
 
             # Execute workflow
             executor = WorkflowExecutor(
@@ -681,11 +706,19 @@ def test_dependency_validation_with_injection(temp_workspace, mock_provider_regi
     with patch.object(mock_provider_registry, 'get') as mock_get:
         mock_get.return_value = mock_provider_registry._providers['claude']
 
+        # Create workflow file and state manager
+        workflow_file = create_workflow_file(temp_workspace, workflow)
+        state_manager = StateManager(temp_workspace)
+        state_manager.initialize(workflow_file, {})
+
         executor = WorkflowExecutor(
             workflow=workflow,
             workspace=temp_workspace,
-            provider_registry=mock_provider_registry
+            state_manager=state_manager
         )
+
+        # Override provider registry
+        executor.provider_registry = mock_provider_registry
 
         state = executor.execute()
 
