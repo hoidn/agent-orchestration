@@ -209,6 +209,10 @@ class OutputCapture:
                 while len(truncated_output.encode('utf-8')) > self.TEXT_LIMIT_BYTES:
                     truncated_output = truncated_output[:-1]
 
+                # Write full output to logs (AT-52: spill consistency with text mode)
+                stdout_file = self.logs_dir / f"{step_name}.stdout"
+                stdout_file.write_bytes(raw_stdout)
+
                 return CaptureResult(
                     mode=CaptureMode.JSON,
                     output=truncated_output,

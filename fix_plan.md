@@ -197,28 +197,28 @@
    - Updated dependency resolution tests to match new API behavior
    - DoD: Provider steps with `depends_on.inject` now compose prompts with injection; truncation metadata recorded in `steps.<Step>.debug.injection`; 222 tests passing
 
-4. Output capture spill consistency (JSON overflow + allow_parse_error) — acceptance: AT‑15, AT‑52
-   - Rationale: Ensure large JSON with allow_parse_error behaves like text truncation and spills full stream.
-   - DoD: Overflow path writes full stdout to `logs/<Step>.stdout` and stores truncated text in state.
-   - Tasks:
-     - Unify spill logic between text truncation and JSON overflow fallback.
-     - Add regression test asserting presence and contents of `logs/<Step>.stdout`.
+4. ✅ Output capture spill consistency — COMPLETED — acceptance: AT‑15, AT‑52
+   - Fixed JSON buffer overflow with allow_parse_error to spill full stdout to logs
+   - Added log spilling at orchestrator/exec/output_capture.py:213-214
+   - Created regression test `test_at52_json_overflow_spills_to_logs`
+   - Unified spill logic: text truncation, lines overflow, and JSON overflow all write to logs/<Step>.stdout
+   - Tests: 18 tests passing in test_output_capture.py; full suite 223 tests passing
+   - DoD: JSON overflow with allow_parse_error=true now behaves consistently with text/lines modes
 
-5. Provider params substitution (nested) — acceptance: AT‑44
-   - Rationale: Centralize substitution with namespace/escape rules; support nested dicts/lists.
-   - DoD: Single substitution pass over strings in provider_params (recursively), honoring `${run|context|loop|steps.*}` and escapes; tests cover nested structures.
+5. Resume command implementation — acceptance: AT‑4
+   - Rationale: Critical missing capability - resume command TODO at orchestrator/cli/main.py:137
+   - DoD: CLI resume command implemented, reads state.json, validates checksum, resumes from last incomplete step
    - Tasks:
-     - Introduce a shared substitution utility; apply in provider params handling.
-     - Add tests for nested maps/arrays and pointer forms.
+     - Implement resume command in orchestrator/cli/commands/resume.py
+     - Add checksum validation for workflow integrity
+     - Handle state repair from backups if corrupted
+     - Add comprehensive tests for resume scenarios
 
 ## Backlog
 
-- AT-20,21: Timeouts and retries
-- AT-37,46,47: Conditional execution (when.equals/exists/not_exists)
-- AT-44: Provider params variable substitution
 - Observability: debug logging, prompt audit
-- Resume capability with checksum validation
 - Integration test suite with real provider mocks
+- E2E test improvements (currently minimal coverage)
 
 ## Architecture Alignment Notes
 
@@ -240,5 +240,5 @@
 
 ## Next Loop Recommendation
 
-With injection integration fully fixed and tested, the next highest-priority item is:
-**Output capture spill consistency (JSON overflow + allow_parse_error)** — Ensure large JSON with allow_parse_error behaves like text truncation and spills full stream to logs.
+With output capture spill consistency fixed and tested (AT-15/AT-52), the next highest-priority item is:
+**Resume command implementation** — The CLI resume command is completely unimplemented (orchestrator/cli/main.py:137 has TODO), blocking users from resuming interrupted workflows despite comprehensive state tracking being in place.

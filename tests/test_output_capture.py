@@ -164,6 +164,33 @@ class TestOutputCapture:
         assert result.debug is not None
         assert "json_parse_error" in result.debug
 
+    def test_at52_json_overflow_spills_to_logs(self, capture):
+        """AT-52: JSON overflow with allow_parse_error spills full stdout to logs (regression test)."""
+        # Create oversized data that triggers JSON buffer overflow
+        large_text = "not json " * (128 * 1024)  # ~1.2 MiB of text
+        stdout = large_text.encode('utf-8')
+
+        result = capture.capture(
+            stdout=stdout,
+            stderr=b"",
+            step_name="json_overflow_step",
+            mode=CaptureMode.JSON,
+            allow_parse_error=True,
+        )
+
+        # Verify result state
+        assert result.exit_code == 0
+        assert result.truncated is True
+        assert result.output is not None
+        assert len(result.output.encode('utf-8')) <= 8 * 1024
+        assert result.debug is not None
+        assert "JSON buffer overflow" in result.debug["json_parse_error"]
+
+        # CRITICAL: Verify full output was spilled to logs (AT-52 consistency)
+        logs_file = capture.logs_dir / "json_overflow_step.stdout"
+        assert logs_file.exists(), "JSON overflow must spill full stdout to logs"
+        assert logs_file.read_bytes() == stdout, "Spilled log must contain complete original output"
+
     def test_at45_text_capture_truncation(self, capture):
         """AT-45: Text mode truncates at 8 KiB and spills to logs."""
         # Create text larger than 8 KiB
