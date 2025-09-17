@@ -241,7 +241,12 @@ def run_workflow(args: Namespace) -> int:
         # Execute workflow
         executor = WorkflowExecutor(
             workflow=workflow,
-            state_manager=state_manager
+            workspace=workspace,
+            state_manager=state_manager,
+            logs_dir=state_manager.state_dir / 'logs',
+            debug=args.debug if hasattr(args, 'debug') else False,
+            max_retries=args.max_retries,
+            retry_delay_ms=args.retry_delay
         )
 
         result = executor.execute(

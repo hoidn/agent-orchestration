@@ -114,21 +114,42 @@
    - Tests: Complete test suite in `test_cli_safety.py` (15 tests passing)
    - Created executable script `orchestrate` for command-line usage
 
+✅ **AT-41,42,54,55**: Secrets handling implementation
+   - Implemented SecretsManager in `orchestrator/security/secrets.py` per arch.md module structure
+   - AT-41: Missing secrets cause exit 2 with missing_secrets context
+   - AT-42: Best-effort masking of secret values as '***' in logs and state
+   - AT-54: Secrets sourced exclusively from orchestrator environment
+   - AT-55: Step env overrides secrets when keys collide; still masked
+   - Empty strings count as present secrets
+   - Integrated into StepExecutor and ProviderExecutor
+   - Tests: Complete test suite in `test_secrets.py` (16 tests passing)
+
+✅ **AT-5,6**: Queue management implementation
+   - Implemented QueueManager in `orchestrator/fsq/queue.py` per arch.md module structure
+   - AT-5: Atomic inbox operations with *.tmp → rename() → *.task pattern
+   - AT-6: User-driven task lifecycle management (move to processed/failed with timestamps)
+   - Helper functions for clean_directory and archive_directory (used by CLI)
+   - Convenience functions: write_task, move_to_processed, move_to_failed
+   - Path safety validation ensures operations stay within WORKSPACE
+   - Tests: Complete test suite in `test_queue_operations.py` (20 tests passing)
+
+✅ **AT-20,21**: Timeouts and retries
+   - Implemented retry policy in `orchestrator/exec/retry.py` per arch.md module structure
+   - AT-20: Timeout enforcement with exit code 124 recording
+   - AT-21: Provider steps retry on exit codes 1/124 by default; commands only when retries field set
+   - RetryPolicy class with separate policies for providers vs commands
+   - Integration into WorkflowExecutor with retry loop and delay
+   - Step-level retry configuration overrides global/CLI settings
+   - Tests: Complete test suite in `test_retry_behavior.py` and `test_retry_integration.py` (15 tests passing)
+
 ## Top-10 Priority Items (Next Loops)
 
-1. **AT-41,42,54,55**: Secrets handling
-   - Environment composition
-   - Masking in logs/state
-   - Missing secrets error handling
-   - Tasks:
-     - Implement best‑effort secret value masking (exact value redaction → "***") across prompt audit, state.debug, and logs.
-     - Enforce precedence: step `env` overrides `secrets` when keys collide; still treat the key as secret for masking.
-     - Source only from orchestrator process environment; accept empty strings as present; record `missing_secrets` for absent names.
-     - Add tests covering: missing_secrets (AT‑41), masking behavior (AT‑42), source (AT‑54), and env vs secrets precedence (AT‑55).
+1. **AT-37,46,47**: Conditional execution
+    - when.equals/exists/not_exists semantics
+    - Conditional skip with false when → skipped status
 
-2. **AT-5,6**: Queue management
-    - Inbox atomicity (*.tmp → rename)
-    - User-driven moves to processed/failed
+3. **AT-44**: Provider params variable substitution
+    - Support nested dicts/lists with proper substitution
 
 ## Refactor Track — Contract Hardening (Non‑optional)
 
@@ -190,10 +211,11 @@
   - ✅ orchestrator/providers/* (registry.py, executor.py, types.py)
   - ✅ orchestrator/fsq/* (wait.py)
   - ✅ orchestrator/workflow/* (executor.py, pointers.py)
-  - ✅ orchestrator/cli/* (main.py, commands/run.py) - NEW THIS LOOP
+  - ✅ orchestrator/cli/* (main.py, commands/run.py)
+  - ✅ orchestrator/security/* (secrets.py) - NEW THIS LOOP
   - ✅ orchestrator/state.py
   - ✅ orchestrator/loader.py
 
 ## Next Loop Recommendation
 
-Implement secrets handling (AT-41,42,54,55) as it's needed for secure workflow execution and is a priority item. This provides the polling primitive needed for inter-agent communication.
+Implement queue management (AT-5,6) for inbox atomicity and user-driven task moves. This provides the foundation for inter-agent communication via filesystem queues.

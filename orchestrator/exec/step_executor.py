@@ -6,11 +6,12 @@ Implements basic command execution with output capture.
 import subprocess
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 
 from .output_capture import OutputCapture, CaptureMode, CaptureResult
 from ..fsq.wait import WaitFor, WaitForConfig, WaitForResult
+from ..security.secrets import SecretsManager, SecretsContext
 
 
 @dataclass
@@ -40,16 +41,18 @@ class StepExecutor:
     Handles command execution, environment setup, and result processing.
     """
 
-    def __init__(self, workspace: Path, logs_dir: Optional[Path] = None):
+    def __init__(self, workspace: Path, logs_dir: Optional[Path] = None, secrets_manager: Optional[SecretsManager] = None):
         """
         Initialize step executor.
 
         Args:
             workspace: Base workspace directory
             logs_dir: Directory for logs (default: workspace/logs)
+            secrets_manager: Manager for secrets handling and masking
         """
         self.workspace = workspace
         self.output_capture = OutputCapture(workspace, logs_dir)
+        self.secrets_manager = secrets_manager or SecretsManager()
 
     def execute_command(
         self,
@@ -57,6 +60,7 @@ class StepExecutor:
         command: str,
         cwd: Optional[Path] = None,
         env: Optional[Dict[str, str]] = None,
+        secrets: Optional[List[str]] = None,
         timeout_sec: Optional[int] = None,
         output_capture: CaptureMode = CaptureMode.TEXT,
         output_file: Optional[Path] = None,
@@ -70,6 +74,7 @@ class StepExecutor:
             command: Command to execute
             cwd: Working directory (default: workspace)
             env: Environment variables to add/override
+            secrets: List of secret env var names to validate and mask
             timeout_sec: Timeout in seconds
             output_capture: Capture mode (text/lines/json)
             output_file: Optional file to tee output to
@@ -83,10 +88,37 @@ class StepExecutor:
         # Setup working directory
         working_dir = cwd or self.workspace
 
-        # Setup environment
-        process_env = os.environ.copy()
-        if env:
-            process_env.update(env)
+        # Resolve secrets and setup environment (AT-41,42,54,55)
+        secrets_context = self.secrets_manager.resolve_secrets(
+            declared_secrets=secrets,
+            step_env=env
+        )
+
+        # Check for missing secrets (AT-41)
+        if secrets_context.missing_secrets:
+            error = {
+                "type": "missing_secrets",
+                "message": f"Missing required secrets: {', '.join(secrets_context.missing_secrets)}",
+                "context": {"missing_secrets": secrets_context.missing_secrets}
+            }
+            capture_result = CaptureResult(
+                mode=CaptureMode.TEXT,
+                output="",
+                lines=[],
+                json_data=None,
+                exit_code=2,
+                error=error
+            )
+            return ExecutionResult(
+                step_name=step_name,
+                exit_code=2,
+                capture_result=capture_result,
+                duration_ms=0,
+                error=error
+            )
+
+        # Use the composed environment from secrets resolution
+        process_env = secrets_context.child_env
 
         # Record start time
         start_time = time.time()
@@ -142,6 +174,14 @@ class StepExecutor:
             allow_parse_error=allow_parse_error,
             exit_code=exit_code,
         )
+
+        # Mask secrets in captured output (AT-42)
+        if capture_result.output:
+            capture_result.output = self.secrets_manager.mask_text(capture_result.output)
+        if capture_result.lines:
+            capture_result.lines = [self.secrets_manager.mask_text(line) for line in capture_result.lines]
+        if capture_result.json_data:
+            capture_result.json_data = self.secrets_manager.mask_dict(capture_result.json_data)
 
         # Override exit code if capture failed (e.g., JSON parse error)
         if capture_result.exit_code != 0:

@@ -69,7 +69,7 @@ class WorkflowLoader:
         """Validate top-level workflow fields."""
         # Known fields at version 1.1/1.1.1
         known_fields = {
-            'version', 'name', 'strict_flow', 'context', 'providers',
+            'version', 'name', 'strict_flow', 'context', 'providers', 'secrets',
             'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps'
         }
 
@@ -82,10 +82,26 @@ class WorkflowLoader:
         if 'providers' in workflow:
             self._validate_providers(workflow['providers'])
 
+        # Validate secrets if present
+        if 'secrets' in workflow:
+            self._validate_secrets(workflow['secrets'])
+
         # Path safety for directories
         for dir_field in ['inbox_dir', 'processed_dir', 'failed_dir']:
             if dir_field in workflow:
                 self._validate_path_safety(workflow[dir_field], dir_field)
+
+    def _validate_secrets(self, secrets: Any):
+        """Validate secrets configuration."""
+        if not isinstance(secrets, list):
+            self._add_error("'secrets' must be a list of environment variable names")
+            return
+
+        for i, secret in enumerate(secrets):
+            if not isinstance(secret, str):
+                self._add_error(f"'secrets[{i}]' must be a string")
+            elif not secret:
+                self._add_error(f"'secrets[{i}]' cannot be empty")
 
     def _validate_providers(self, providers: Dict[str, Any]):
         """Validate provider templates."""

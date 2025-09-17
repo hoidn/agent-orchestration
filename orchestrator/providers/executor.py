@@ -14,6 +14,7 @@ from dataclasses import dataclass
 
 from .types import ProviderTemplate, ProviderInvocation, InputMode, ProviderParams
 from .registry import ProviderRegistry
+from ..security.secrets import SecretsManager
 
 
 logger = logging.getLogger(__name__)
@@ -39,16 +40,18 @@ class ProviderExecutor:
     per specs/providers.md.
     """
 
-    def __init__(self, workspace: Path, registry: ProviderRegistry):
+    def __init__(self, workspace: Path, registry: ProviderRegistry, secrets_manager: Optional[SecretsManager] = None):
         """
         Initialize provider executor.
 
         Args:
             workspace: Base workspace directory
             registry: Provider registry for template lookup
+            secrets_manager: Manager for secrets handling and masking
         """
         self.workspace = workspace
         self.registry = registry
+        self.secrets_manager = secrets_manager or SecretsManager()
 
     def prepare_invocation(
         self,
@@ -57,6 +60,7 @@ class ProviderExecutor:
         context: Dict[str, str],
         prompt_content: Optional[str] = None,
         env: Optional[Dict[str, str]] = None,
+        secrets: Optional[List[str]] = None,
         timeout_sec: Optional[int] = None,
     ) -> Tuple[Optional[ProviderInvocation], Optional[Dict[str, Any]]]:
         """
@@ -68,6 +72,7 @@ class ProviderExecutor:
             context: Variable context for substitution
             prompt_content: Composed prompt content (from input_file + injection)
             env: Additional environment variables
+            secrets: List of secret env var names to validate
             timeout_sec: Execution timeout
 
         Returns:
@@ -117,12 +122,25 @@ class ProviderExecutor:
                 "context": {"missing_placeholders": missing_placeholders}
             }
 
+        # Resolve secrets and check for missing (AT-41,42,54,55)
+        secrets_context = self.secrets_manager.resolve_secrets(
+            declared_secrets=secrets,
+            step_env=env
+        )
+
+        if secrets_context.missing_secrets:
+            return None, {
+                "type": "missing_secrets",
+                "message": f"Missing required secrets: {', '.join(secrets_context.missing_secrets)}",
+                "context": {"missing_secrets": secrets_context.missing_secrets}
+            }
+
         invocation = ProviderInvocation(
             command=command,
             input_mode=provider.input_mode,
             prompt=prompt_content if provider.input_mode == InputMode.STDIN else None,
             output_file=params.output_file,
-            env=env or {},
+            env=secrets_context.child_env,  # Use composed environment
             timeout_sec=timeout_sec
         )
 

@@ -9,10 +9,13 @@ from typing import Any, Dict, List, Optional, Union
 
 from ..state import StateManager
 from ..exec.step_executor import StepExecutor, ExecutionResult
+from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
+from ..providers.registry import ProviderRegistry
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
 from .pointers import PointerResolver
+from ..security.secrets import SecretsManager
 
 
 class WorkflowExecutor:
@@ -27,7 +30,9 @@ class WorkflowExecutor:
         workspace: Path,
         state_manager: StateManager,
         logs_dir: Optional[Path] = None,
-        debug: bool = False
+        debug: bool = False,
+        max_retries: int = 0,
+        retry_delay_ms: int = 1000
     ):
         """
         Initialize workflow executor.
@@ -44,9 +49,19 @@ class WorkflowExecutor:
         self.state_manager = state_manager
         self.debug = debug
 
+        # Initialize secrets manager
+        self.secrets_manager = SecretsManager()
+
+        # Initialize provider registry (load from workflow providers if present)
+        self.provider_registry = ProviderRegistry()
+        if 'providers' in workflow:
+            errors = self.provider_registry.register_from_workflow(workflow['providers'])
+            if errors:
+                raise ValueError(f"Provider registration errors: {'; '.join(errors)}")
+
         # Initialize sub-executors
-        self.step_executor = StepExecutor(workspace, logs_dir)
-        self.provider_executor = ProviderExecutor(workspace, logs_dir)
+        self.step_executor = StepExecutor(workspace, logs_dir, self.secrets_manager)
+        self.provider_executor = ProviderExecutor(workspace, self.provider_registry, self.secrets_manager)
         self.dependency_resolver = DependencyResolver(workspace)
         self.dependency_injector = DependencyInjector(workspace)
 
@@ -54,15 +69,31 @@ class WorkflowExecutor:
         self.current_step = 0
         self.steps = workflow.get('steps', [])
         self.variables = workflow.get('variables', {})
-        self.secrets = workflow.get('secrets', {})
+        self.global_secrets = workflow.get('secrets', [])
 
-    def execute(self) -> Dict[str, Any]:
+        # Retry configuration
+        self.max_retries = max_retries
+        self.retry_delay_ms = retry_delay_ms
+
+    def execute(self, run_id: str = None, on_error: str = 'stop',
+                max_retries: int = None, retry_delay_ms: int = None) -> Dict[str, Any]:
         """
         Execute the workflow.
+
+        Args:
+            run_id: Run identifier
+            on_error: Error handling mode ('stop' or 'continue')
+            max_retries: Maximum retry attempts (overrides constructor value)
+            retry_delay_ms: Retry delay in milliseconds (overrides constructor value)
 
         Returns:
             Final execution state
         """
+        # Override retry config if provided
+        if max_retries is not None:
+            self.max_retries = max_retries
+        if retry_delay_ms is not None:
+            self.retry_delay_ms = retry_delay_ms
         # Load current state
         run_state = self.state_manager.load()
 
@@ -233,6 +264,7 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         """
         Execute a command step with variable substitution context.
+        Implements AT-21: Raw commands only retry when retries field is set.
 
         Args:
             step: Step definition
@@ -250,16 +282,36 @@ class WorkflowExecutor:
         # Apply variable substitution (simplified for this implementation)
         command = self._substitute_variables(command, context, state)
 
-        # Execute command
-        result = self.step_executor.execute_command(
-            step_name=step.get('name', 'command'),
-            command=command,
-            env=step.get('env'),
-            timeout_sec=step.get('timeout_sec'),
-            output_capture=step.get('output_capture', 'text'),
-            output_file=Path(step['output_file']) if 'output_file' in step else None,
-            allow_parse_error=step.get('allow_parse_error', False)
-        )
+        # Create retry policy for command steps (AT-21)
+        retries_config = step.get('retries')
+        retry_policy = RetryPolicy.for_command(retries_config)
+
+        # Execute with retries
+        attempt = 0
+        result = None
+
+        while True:
+            # Execute command
+            result = self.step_executor.execute_command(
+                step_name=step.get('name', 'command'),
+                command=command,
+                env=step.get('env'),
+                timeout_sec=step.get('timeout_sec'),
+                output_capture=step.get('output_capture', 'text'),
+                output_file=Path(step['output_file']) if 'output_file' in step else None,
+                allow_parse_error=step.get('allow_parse_error', False)
+            )
+
+            # Check if should retry
+            if retry_policy.should_retry(result.exit_code, attempt):
+                if self.debug:
+                    print(f"Command failed with exit code {result.exit_code}, retrying (attempt {attempt + 1}/{retry_policy.max_retries})")
+                retry_policy.wait()
+                attempt += 1
+                continue
+
+            # No retry needed or max retries reached
+            break
 
         return result.to_state_dict()
 
@@ -271,6 +323,7 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         """
         Execute a provider step with variable substitution context.
+        Implements AT-21: Provider steps retry on exit codes 1 and 124 by default.
 
         Args:
             step: Step definition
@@ -290,18 +343,44 @@ class WorkflowExecutor:
         # Apply variable substitution to prompt
         prompt = self._substitute_variables(prompt, context, state)
 
-        # Execute provider
-        result = self.provider_executor.execute(
-            step_name=step.get('name', 'provider'),
-            provider_name=step['provider'],
-            prompt=prompt,
-            provider_params=step.get('provider_params', {}),
-            env=step.get('env'),
-            timeout_sec=step.get('timeout_sec'),
-            output_capture=step.get('output_capture', 'text'),
-            output_file=Path(step['output_file']) if 'output_file' in step else None,
-            allow_parse_error=step.get('allow_parse_error', False)
-        )
+        # Create retry policy for provider steps (AT-21)
+        # Providers use global max_retries or step-specific retries
+        if 'retries' in step:
+            retry_policy = RetryPolicy.for_command(step['retries'])
+        else:
+            retry_policy = RetryPolicy.for_provider(
+                max_retries=self.max_retries,
+                delay_ms=self.retry_delay_ms
+            )
+
+        # Execute with retries
+        attempt = 0
+        result = None
+
+        while True:
+            # Execute provider
+            result = self.provider_executor.execute(
+                step_name=step.get('name', 'provider'),
+                provider_name=step['provider'],
+                prompt=prompt,
+                provider_params=step.get('provider_params', {}),
+                env=step.get('env'),
+                timeout_sec=step.get('timeout_sec'),
+                output_capture=step.get('output_capture', 'text'),
+                output_file=Path(step['output_file']) if 'output_file' in step else None,
+                allow_parse_error=step.get('allow_parse_error', False)
+            )
+
+            # Check if should retry
+            if retry_policy.should_retry(result.exit_code, attempt):
+                if self.debug:
+                    print(f"Provider failed with exit code {result.exit_code}, retrying (attempt {attempt + 1}/{retry_policy.max_retries})")
+                retry_policy.wait()
+                attempt += 1
+                continue
+
+            # No retry needed or max retries reached
+            break
 
         return result.to_state_dict()
 
