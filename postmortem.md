@@ -1,0 +1,2 @@
+- lint error correction isn't happening
+- might want a separate setup prompt or clearer instructions to skip those steps on all iterations except the first one
