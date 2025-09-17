@@ -77,6 +77,23 @@
 54. Secrets source: read exclusively from orchestrator environment; empty strings accepted
 55. Secrets + env precedence: `env` wins on conflicts; still masked as secret
 
+56. Strict flow stop: Non-zero exit halts run when no applicable goto and `on_error=stop` (default)
+57. on_error continue: With `--on-error continue`, run proceeds after non-zero exit
+58. Goto precedence: `on.success`/`on.failure` goto targets execute (including `_end`) before strict_flow applies
+59. Goto always ordering: `on.always` evaluated after success/failure handlers; ordering respected
+60. Wait-for integration: Engine executes `wait_for` steps and records `files`, `wait_duration_ms`, `poll_count`, `timed_out`; downstream steps run on success
+61. Wait-for path safety (runtime): absolute paths or `..` in `wait_for.glob` rejected with exit 2 and error context
+62. Wait-for symlink escape: matches whose real path escapes WORKSPACE are excluded; returned paths are relative to WORKSPACE
+63. Undefined variable in commands: referencing undefined `${run|context|steps|loop.*}` yields exit 2 with `error.context.undefined_vars` and no process execution
+64. `${run.root}` variable: resolves to `.orchestrate/runs/<run_id>` and is usable in paths/commands
+65. Loop scoping of `steps.*`: inside `for_each`, `${steps.<Name>.*}` refers only to the current iteration’s results
+66. `env` literal semantics: orchestrator does not substitute variables inside `env` values
+67. Tee on JSON parse failure: with `output_capture: json` and parse failure (`allow_parse_error: false`), `output_file` still receives full stdout while state/log limits apply
+68. Resume force-restart: `resume --force-restart` starts a new run (new `run_id`) and ignores existing state
+69. Debug backups: `--debug` produces `state.json.step_<Step>.bak` backups with rotation (keep last 3)
+70. Prompt audit & masking: with `--debug`, write `logs/<Step>.prompt.txt` containing composed prompt; known secret values masked as `***`
+71. Retries + on.failure goto: after exhausting retries, `on.failure.goto` triggers and control follows the target step
+
 ## Future Acceptance (v1.2)
 
 1. Success path: item moved to `processed/<ts>/...` per `success.move_to`.
