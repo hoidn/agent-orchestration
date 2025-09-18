@@ -65,6 +65,7 @@
 42. Secrets masking: secret values masked as `***` where feasible
 43. Loop state indexing: results stored as `steps.<LoopName>[i].<StepName>`
 44. Provider params substitution: variable substitution supported in `provider_params`
+   - Undefined variables in provider_params: If `provider_params` contain undefined variables (including within nested dicts/lists), invocation preparation fails with `error.type: "substitution_error"` and `error.context.errors` lists all unresolved variable paths; no invocation is executed.
 45. STDOUT capture threshold: `text` > 8 KiB truncates state and spills to logs
 46. When exists: `when.exists` true when ≥1 match exists
 47. When not_exists: `when.not_exists` true when 0 matches exist
@@ -73,6 +74,7 @@
 50. Provider argv without `${PROMPT}`: runs and does not pass prompt via argv
 51. Provider params substitution: supports `${run|context|loop|steps.*}`
 52. Output tee semantics: `output_file` receives full stdout while limits apply to state/logs
+   - Path substitution in tee: Variable substitution (including `${run.root}`) is applied to `output_file` before writing; the fully resolved path receives the full stdout regardless of truncation/JSON-parse behavior.
 53. Injection shorthand: `inject:true` ≡ `{mode:"list", position:"prepend"}`
 54. Secrets source: read exclusively from orchestrator environment; empty strings accepted
 55. Secrets + env precedence: `env` wins on conflicts; still masked as secret
@@ -85,14 +87,22 @@
 61. Wait-for path safety (runtime): absolute paths or `..` in `wait_for.glob` rejected with exit 2 and error context
 62. Wait-for symlink escape: matches whose real path escapes WORKSPACE are excluded; returned paths are relative to WORKSPACE
 63. Undefined variable in commands: referencing undefined `${run|context|steps|loop.*}` yields exit 2 with `error.context.undefined_vars` and no process execution
+   - Multiple undefineds (string): For string commands, if multiple placeholders are undefined, `error.context.undefined_vars` includes all unique unresolved variable paths; `error.context.substituted_command` is present (single-element list) showing best-effort substitution with unresolved tokens left intact.
+   - Multiple undefineds (list): For list commands, unresolved placeholders across separate tokens are all reported in `error.context.undefined_vars`; `error.context.substituted_command` lists all tokens after best-effort substitution.
+   - Determinism: `error.context.undefined_vars` ordering is deterministic (e.g., sorted ascending) for reproducibility.
 64. `${run.root}` variable: resolves to `.orchestrate/runs/<run_id>` and is usable in paths/commands
+   - Applies in commands, provider_params, and output_file; resolved value is persisted in state (see 72).
 65. Loop scoping of `steps.*`: inside `for_each`, `${steps.<Name>.*}` refers only to the current iteration’s results
 66. `env` literal semantics: orchestrator does not substitute variables inside `env` values
 67. Tee on JSON parse failure: with `output_capture: json` and parse failure (`allow_parse_error: false`), `output_file` still receives full stdout while state/log limits apply
 68. Resume force-restart: `resume --force-restart` starts a new run (new `run_id`) and ignores existing state
+   - Resume skip (steps): With `resume`, already completed or skipped steps are not re-executed; state remains unchanged for those steps and run proceeds without error.
+   - Resume skip (for_each): With `resume`, completed iterations are not re-executed; incomplete iterations continue; state retains both array and flattened forms per (43); no errors are thrown.
 69. Debug backups: `--debug` produces `state.json.step_<Step>.bak` backups with rotation (keep last 3)
 70. Prompt audit & masking: with `--debug`, write `logs/<Step>.prompt.txt` containing composed prompt; known secret values masked as `***`
 71. Retries + on.failure goto: after exhausting retries, `on.failure.goto` triggers and control follows the target step
+
+72. Provider state persistence: after executing a provider step, `steps.<Name>` is persisted to `state.json` with `exit_code`, captured output per mode, and any `error`/`debug` fields; after reload (`state_manager.load()`), the provider result is present and unchanged.
 
 ## Future Acceptance (v1.2)
 

@@ -178,6 +178,9 @@ def test_at44_undefined_variables_in_nested():
     assert "undefined.var" in errors[0]
 
 
+    
+
+
 def test_at44_escape_sequences_in_nested():
     """AT-44: Escape sequences work in nested structures."""
     executor = ProviderExecutor(Path("/tmp"), ProviderRegistry())

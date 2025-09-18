@@ -174,6 +174,22 @@
    - Tests: Complete test suite in `test_execution_safety.py` (11 tests passing)
    - DoD: All command/provider executions use safe argv mode; shell injection prevented
 
+## Completed (Continued 4)
+
+✅ **AT-56,57,58,59: Error handling and control flow** — COMPLETED — acceptance: AT-56, AT-57, AT-58, AT-59
+   - AT-56: Strict flow stop - non-zero exit halts run when no applicable goto and on_error=stop (default)
+   - AT-57: on_error continue - With --on-error continue, run proceeds after non-zero exit
+   - AT-58: Goto precedence - on.success/on.failure goto targets execute before strict_flow applies
+   - AT-59: Goto always ordering - on.always evaluated after success/failure handlers, ordering respected
+   - Implemented complete control flow in orchestrator/workflow/executor.py with _handle_control_flow() method
+   - Fixed critical YAML parsing bug: 'on' key was being converted to boolean True
+   - Created custom PreservingLoader to prevent automatic boolean conversion
+   - Fixed infinite loop issue with conditional execution
+   - Handled for-each loop results (lists) vs regular steps (dicts) in control flow
+   - Tests: 8 comprehensive tests in test_at56_at57_error_handling.py all passing
+   - Full test suite: 254 tests passing (no regressions)
+   - DoD: Error handling and control flow fully functional per specifications
+
 ## Top-10 Priority Items (Next Loops)
 
 ## Refactor Track — Contract Hardening (Non‑optional)
@@ -279,7 +295,11 @@
 
 ## Next Loop Recommendation
 
-With resume command implementation complete (AT-4), the next highest-priority items are:
-1. **Observability improvements** — Debug logging and prompt audit trails for better debugging
-2. **Integration test suite** — Real provider mocks for end-to-end validation
-3. **E2E test improvements** — Currently minimal coverage, need comprehensive E2E scenarios
+With error handling (AT-56/57/58/59) complete, the next highest-priority items are:
+1. **AT-60: Wait-for integration** — Engine executes wait_for steps and records files, wait_duration_ms, poll_count, timed_out
+2. **AT-61,62: Wait-for path safety** — Runtime validation and symlink escape protection
+3. **AT-66: Env literal semantics** — No variable substitution in env values
+4. **AT-67: Tee on JSON parse failure** — output_file still receives full stdout on JSON parse errors
+5. **AT-68: Resume force-restart** — --force-restart flag functionality
+6. **AT-69,70: Debug features** — Debug backups and prompt audit
+7. **AT-71: Retries + on.failure goto** — After exhausting retries, on.failure.goto triggers

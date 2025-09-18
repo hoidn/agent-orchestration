@@ -4,6 +4,7 @@ Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 """
 
 import copy
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
@@ -18,6 +19,8 @@ from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
 from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
+
+logger = logging.getLogger(__name__)
 
 
 class WorkflowExecutor:
@@ -109,8 +112,10 @@ class WorkflowExecutor:
         # Convert to dict format for internal processing
         state = run_state.to_dict()
 
-        # Execute steps sequentially
-        for step_index, step in enumerate(self.steps):
+        # Execute steps with control flow support
+        step_index = 0
+        while step_index < len(self.steps):
+            step = self.steps[step_index]
             self.current_step = step_index
 
             # Check if step should be executed
@@ -130,12 +135,14 @@ class WorkflowExecutor:
                     )
                     if all_complete:
                         logger.info(f"Skipping already completed for-each step: {step_name}")
+                        step_index += 1
                         continue
                     # Partially complete for-each will be handled by _execute_for_each
                 elif isinstance(step_result, dict):
                     status = step_result.get('status')
                     if status in ['completed', 'skipped']:
                         logger.info(f"Skipping already {status} step: {step_name}")
+                        step_index += 1
                         continue
                     elif status == 'failed' and on_error == 'stop':
                         logger.info(f"Step {step_name} previously failed, retrying")
@@ -165,6 +172,7 @@ class WorkflowExecutor:
                     if 'steps' not in state:
                         state['steps'] = {}
                     state['steps'][step_name] = result
+                    step_index += 1
                     continue
 
                 if not should_execute:
@@ -177,6 +185,7 @@ class WorkflowExecutor:
                     if 'steps' not in state:
                         state['steps'] = {}
                     state['steps'][step_name] = result
+                    step_index += 1
                     continue
 
             # Execute based on step type
@@ -211,7 +220,124 @@ class WorkflowExecutor:
                 )
                 self.state_manager.update_step(step_name, step_result)
 
+            # Handle control flow after step execution (AT-56, AT-57, AT-58)
+            next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+
+            if next_step == '_end':
+                # Special target to end workflow successfully
+                break
+            elif next_step == '_stop':
+                # Stop execution due to error with strict_flow
+                return state
+            elif isinstance(next_step, int):
+                # Jump to specific step index
+                step_index = next_step
+            else:
+                # Continue to next step
+                step_index += 1
+
         return state
+
+    def _handle_control_flow(self, step: Dict[str, Any], state: Dict[str, Any],
+                            step_name: str, current_index: int, on_error: str) -> Any:
+        """
+        Handle control flow after step execution.
+
+        Implements:
+        - AT-56: Strict flow stop - non-zero exit halts run when no goto and on_error=stop
+        - AT-57: on_error continue - with --on-error continue, run proceeds after non-zero
+        - AT-58: Goto precedence - on.success/failure execute before strict_flow applies
+        - AT-59: Goto always ordering - on.always evaluated after success/failure handlers
+
+        Returns:
+            - '_end': terminate workflow successfully
+            - '_stop': stop workflow due to error
+            - int: jump to specific step index
+            - None: continue to next step
+        """
+        # Get step result
+        step_result = state.get('steps', {}).get(step_name, {})
+
+        # Handle for-each loops (which return a list of results)
+        if isinstance(step_result, list):
+            # For for-each loops, control flow doesn't apply to individual iterations
+            # The loop as a whole is considered successful if it completes
+            return None  # Continue to next step
+
+        # Handle regular steps (which return a dict)
+        if not isinstance(step_result, dict):
+            return None  # No result yet, continue
+
+        exit_code = step_result.get('exit_code', 0)
+
+        # Check if step was skipped (conditional execution)
+        if step_result.get('skipped'):
+            return None  # Continue to next step
+
+        # AT-58, AT-59: Check on.success/on.failure handlers first, then on.always (with precedence)
+        if 'on' in step:
+            handlers = step['on']
+            goto_target = None
+
+            # Determine which handler applies based on exit code
+            if exit_code == 0 and 'success' in handlers:
+                if 'goto' in handlers['success']:
+                    goto_target = handlers['success']['goto']
+            elif exit_code != 0 and 'failure' in handlers:
+                if 'goto' in handlers['failure']:
+                    goto_target = handlers['failure']['goto']
+
+            # AT-59: on.always evaluated after success/failure and overrides them
+            if 'always' in handlers:
+                if 'goto' in handlers['always']:
+                    goto_target = handlers['always']['goto']
+
+            # If we found a goto target, use it
+            if goto_target:
+                return self._resolve_goto_target(goto_target)
+
+        # AT-56, AT-57: Apply strict_flow and on_error behavior
+        # Only if no goto handler was found
+        if exit_code != 0:
+            strict_flow = self.workflow.get('strict_flow', True)
+
+            if strict_flow and on_error == 'stop':
+                # AT-56: Strict flow stop - halt on non-zero exit
+                logger.error(f"Step '{step_name}' failed with exit code {exit_code}. "
+                           f"Stopping execution (strict_flow=true, on_error=stop)")
+                return '_stop'
+            elif on_error == 'continue':
+                # AT-57: Continue despite error
+                logger.warning(f"Step '{step_name}' failed with exit code {exit_code}. "
+                             f"Continuing execution (on_error=continue)")
+                return None
+
+        # Default: continue to next step
+        return None
+
+    def _resolve_goto_target(self, target: str) -> Any:
+        """
+        Resolve a goto target to a step index or special value.
+
+        Args:
+            target: Target step name or '_end'
+
+        Returns:
+            - '_end' for workflow termination
+            - int for step index
+            - None if target not found (should not happen if validation passed)
+        """
+        if target == '_end':
+            return '_end'
+
+        # Find step index by name
+        for i, step in enumerate(self.steps):
+            if step.get('name') == target:
+                return i
+
+        # This should not happen if validation passed
+        logger.error(f"Goto target '{target}' not found")
+        return None
 
     def _execute_for_each(self, step: Dict[str, Any], state: Dict[str, Any], resume: bool = False) -> Dict[str, Any]:
         """

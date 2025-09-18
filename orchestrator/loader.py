@@ -8,6 +8,27 @@ import yaml
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
 
 
+class PreservingLoader(yaml.SafeLoader):
+    """Custom YAML loader that preserves string keys like 'on' instead of converting to bool."""
+    pass
+
+
+# Override the implicit resolver for boolean values to prevent 'on' from being converted to True
+# This removes the implicit tag resolvers that convert strings like 'on', 'off', 'yes', 'no' to booleans
+PreservingLoader.yaml_implicit_resolvers = dict(PreservingLoader.yaml_implicit_resolvers)
+if 'o' in PreservingLoader.yaml_implicit_resolvers:
+    # Remove resolvers that start with 'o' (which would catch 'on', 'off')
+    PreservingLoader.yaml_implicit_resolvers['o'] = [
+        (tag, regexp) for tag, regexp in PreservingLoader.yaml_implicit_resolvers['o']
+        if tag != 'tag:yaml.org,2002:bool'
+    ]
+if 'O' in PreservingLoader.yaml_implicit_resolvers:
+    PreservingLoader.yaml_implicit_resolvers['O'] = [
+        (tag, regexp) for tag, regexp in PreservingLoader.yaml_implicit_resolvers['O']
+        if tag != 'tag:yaml.org,2002:bool'
+    ]
+
+
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
@@ -23,7 +44,7 @@ class WorkflowLoader:
         """Load and validate workflow YAML."""
         try:
             with open(workflow_path, 'r') as f:
-                workflow = yaml.safe_load(f)
+                workflow = yaml.load(f, Loader=PreservingLoader)
         except Exception as e:
             self._add_error(f"Failed to load workflow: {e}")
             self._raise_validation_errors()
