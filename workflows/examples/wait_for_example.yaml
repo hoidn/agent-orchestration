@@ -1,11 +1,9 @@
 version: "1.1"
 name: "wait-for-example"
-description: "Example workflow demonstrating wait_for functionality"
 
 steps:
   - name: CreateInbox
     command: ["mkdir", "-p", "inbox/test"]
-    description: "Create inbox directory"
 
   - name: WaitForTask
     wait_for:
@@ -13,8 +11,6 @@ steps:
       timeout_sec: 10
       poll_ms: 500
       min_count: 1
-    description: "Wait for a task file to appear (will timeout for demo)"
 
   - name: ReportTimeout
     command: ["echo", "Wait operation completed or timed out"]
-    description: "Report completion"

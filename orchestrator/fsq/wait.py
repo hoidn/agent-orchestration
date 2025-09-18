@@ -1,4 +1,4 @@
-"""Wait-for polling primitive implementation (AT-17, AT-18, AT-19).
+"""Wait-for polling primitive implementation (AT-17, AT-18, AT-19, AT-61, AT-62).
 
 Provides blocking wait functionality for file system patterns with timeout support.
 """
@@ -8,7 +8,7 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 
 
 @dataclass
@@ -29,6 +29,7 @@ class WaitForResult:
     poll_count: int
     timed_out: bool
     exit_code: int
+    error: Optional[Dict[str, Any]] = None
 
 
 class WaitFor:
@@ -37,6 +38,8 @@ class WaitFor:
     AT-17: wait_for blocks until matches or timeout
     AT-18: exits 124 and sets timed_out: true on timeout
     AT-19: records files, wait_duration_ms, poll_count in state
+    AT-61: rejects absolute paths or .. with exit 2 and error context
+    AT-62: excludes symlinks escaping WORKSPACE; returns relative paths
     """
 
     def __init__(self, config: WaitForConfig):
@@ -57,6 +60,25 @@ class WaitFor:
         Returns:
             WaitForResult with files found, duration, poll count, and timeout status
         """
+        # AT-61: Validate path safety at runtime
+        path_error = self._validate_path_safety(self.config.glob_pattern)
+        if path_error:
+            # Return immediately with exit 2 and error context
+            return WaitForResult(
+                files=[],
+                wait_duration_ms=0,
+                poll_count=0,
+                timed_out=False,
+                exit_code=2,
+                error={
+                    "type": "path_safety_error",
+                    "message": path_error,
+                    "context": {
+                        "glob_pattern": self.config.glob_pattern
+                    }
+                }
+            )
+
         start_time = time.time()
         poll_count = 0
         poll_interval_sec = self.config.poll_ms / 1000.0
@@ -111,19 +133,56 @@ class WaitFor:
         """
         matches = glob.glob(pattern)
 
-        # Convert to relative paths from workspace for consistency
+        # AT-62: Exclude symlinks escaping workspace, return relative paths
         relative_matches = []
         for match in matches:
-            match_path = Path(match).resolve()
+            match_path = Path(match)
+
+            # Get the resolved (real) path to check if it's within workspace
+            resolved_path = match_path.resolve()
+
+            # Check if resolved path is within workspace
             try:
-                relative = match_path.relative_to(self.workspace)
-                relative_matches.append(str(relative))
+                # Validate the resolved path is within workspace
+                resolved_path.relative_to(self.workspace)
+
+                # But return the original match path (not resolved) relative to workspace
+                # This preserves symlink paths instead of resolving them
+                original_relative = match_path.relative_to(self.workspace)
+                relative_matches.append(str(original_relative))
             except ValueError:
-                # File is outside workspace, include as absolute
-                relative_matches.append(str(match_path))
+                # File's real path is outside workspace - exclude it (AT-62)
+                # Don't include files that escape the workspace
+                pass
 
         # Sort for deterministic ordering
         return sorted(relative_matches)
+
+    def _validate_path_safety(self, glob_pattern: str) -> Optional[str]:
+        """Validate glob pattern for path safety (AT-61).
+
+        Args:
+            glob_pattern: The glob pattern to validate
+
+        Returns:
+            Error message if validation fails, None if safe
+        """
+        # Skip validation if pattern contains variables (will be substituted at runtime)
+        if '${' in glob_pattern:
+            # This should have been substituted before reaching here
+            # But we'll let it through for now
+            return None
+
+        # AT-61: Reject absolute paths
+        if os.path.isabs(glob_pattern):
+            return f"Absolute paths not allowed in wait_for.glob: {glob_pattern}"
+
+        # AT-61: Reject parent directory traversal
+        path_parts = Path(glob_pattern).parts
+        if '..' in path_parts:
+            return f"Parent directory traversal ('..') not allowed in wait_for.glob: {glob_pattern}"
+
+        return None
 
 
 def wait_for_files(

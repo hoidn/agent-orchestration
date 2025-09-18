@@ -1,0 +1,16 @@
+version: "1.1"
+name: "test-wait"
+
+steps:
+  - name: CreateTestFile
+    command: ["touch", "ready.task"]
+
+  - name: WaitForTask
+    wait_for:
+      glob: "*.task"
+      timeout_sec: 5
+      poll_ms: 100
+      min_count: 1
+
+  - name: ReportSuccess
+    command: ["echo", "Found task file"]

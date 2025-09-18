@@ -199,6 +199,21 @@ class WorkflowExecutor:
                 if 'steps' not in state:
                     state['steps'] = {}
                 state['steps'][step_name] = result
+
+                # Update state manager (persist to disk) - AT-72
+                from ..state import StepResult
+                step_result = StepResult(
+                    status='completed' if result.get('exit_code') == 0 else 'failed',
+                    exit_code=result.get('exit_code', 0),
+                    duration_ms=result.get('duration_ms', 0),
+                    output=result.get('output'),
+                    lines=result.get('lines'),
+                    json=result.get('json'),
+                    error=result.get('error'),
+                    truncated=result.get('truncated', False),
+                    debug=result.get('debug')  # Include debug fields for injection metadata
+                )
+                self.state_manager.update_step(step_name, step_result)
             elif 'command' in step:
                 result = self._execute_command(step, state)
                 # Store result in state
@@ -1086,8 +1101,45 @@ class WorkflowExecutor:
 
     # Stub implementations for other step types
     def _execute_wait_for(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute wait_for step (already implemented in fsq module)."""
-        # This would integrate with fsq.wait.WaitFor
+        """Execute wait_for step and record results in state (AT-60)."""
+        step_name = step['name']
+        wait_config = step.get('wait_for', {})
+
+        # Call the StepExecutor to execute the wait_for
+        result = self.step_executor.execute_wait_for(step_name, wait_config)
+
+        # Get the wait-specific state dict (has custom to_state_dict method)
+        step_result = result.to_state_dict()
+
+        # Add status field based on exit code
+        step_result['status'] = 'completed' if result.exit_code == 0 else 'failed'
+
+        # Update state with the result
+        state['steps'][step_name] = step_result
+
+        # Persist to state manager
+        from ..state import StepResult
+        if result.exit_code == 0:
+            status = 'completed'
+        else:
+            status = 'failed'
+
+        state_result = StepResult(
+            status=status,
+            exit_code=step_result.get('exit_code', 0),
+            duration_ms=step_result.get('wait_duration_ms', 0),
+            # Add the wait_for specific fields to the state
+            files=step_result.get('files', []),
+            wait_duration_ms=step_result.get('wait_duration_ms', 0),
+            poll_count=step_result.get('poll_count', 0),
+            timed_out=step_result.get('timed_out', False)
+        )
+
+        if step_result.get('error'):
+            state_result.error = step_result['error']
+
+        self.state_manager.update_step(step_name, state_result)
+
         return state
 
     def _execute_provider(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:

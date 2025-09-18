@@ -35,6 +35,11 @@ class StepResult:
     error: Optional[Dict[str, Any]] = None
     debug: Optional[Dict[str, Any]] = None
     skipped: bool = False
+    # Wait-for specific fields (AT-60)
+    files: Optional[List[str]] = None
+    wait_duration_ms: Optional[int] = None
+    poll_count: Optional[int] = None
+    timed_out: Optional[bool] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict, omitting None values."""

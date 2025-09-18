@@ -255,9 +255,9 @@ class StepExecutor:
             debug=None
         )
 
-        # If timed out, add error context (AT-18)
-        error = None
-        if wait_result.timed_out:
+        # Handle errors from wait_for (AT-18 for timeout, AT-61 for path safety)
+        error = wait_result.error  # May be set by path safety check
+        if not error and wait_result.timed_out:
             error = {
                 "type": "timeout",
                 "message": f"Wait timed out after {timeout_sec} seconds",

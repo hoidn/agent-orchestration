@@ -237,6 +237,75 @@ class TestOutputCapture:
         assert output_file.exists()
         assert output_file.read_bytes() == stdout
 
+    def test_at67_tee_on_json_parse_failure(self, capture, temp_workspace):
+        """AT-67: Tee on JSON parse failure - output_file still receives full stdout when JSON parsing fails."""
+        # Test with invalid JSON that will fail to parse
+        invalid_json = b"{ invalid json content }"
+        output_file = temp_workspace / "output.txt"
+
+        # Test without allow_parse_error (should fail with exit 2)
+        result = capture.capture(
+            stdout=invalid_json,
+            stderr=b"",
+            step_name="test_step",
+            mode=CaptureMode.JSON,
+            output_file=output_file,
+            allow_parse_error=False,
+        )
+
+        # Should fail with exit code 2
+        assert result.exit_code == 2
+        assert result.error is not None
+        assert result.error["type"] == "json_parse_error"
+
+        # But output_file should still have received the full stdout
+        assert output_file.exists()
+        assert output_file.read_bytes() == invalid_json
+
+        # Test with truncated JSON that will fail to parse
+        large_invalid_json = b"{ " + b"x" * (8 * 1024) + b" not valid json"
+        output_file2 = temp_workspace / "output2.txt"
+
+        result2 = capture.capture(
+            stdout=large_invalid_json,
+            stderr=b"",
+            step_name="test_step2",
+            mode=CaptureMode.JSON,
+            output_file=output_file2,
+            allow_parse_error=False,
+        )
+
+        # Should fail with exit code 2
+        assert result2.exit_code == 2
+        assert result2.error is not None
+        assert result2.error["type"] == "json_parse_error"
+
+        # output_file should have full content even though parsing failed
+        assert output_file2.exists()
+        assert output_file2.read_bytes() == large_invalid_json
+
+        # Test with JSON buffer overflow (>1 MiB)
+        oversized_json = b"[" + b"1," * (512 * 1024) + b"2]"  # Over 1 MiB
+        output_file3 = temp_workspace / "output3.txt"
+
+        result3 = capture.capture(
+            stdout=oversized_json,
+            stderr=b"",
+            step_name="test_step3",
+            mode=CaptureMode.JSON,
+            output_file=output_file3,
+            allow_parse_error=False,
+        )
+
+        # Should fail with exit code 2 due to buffer overflow
+        assert result3.exit_code == 2
+        assert result3.error is not None
+        assert result3.error["type"] == "json_overflow"
+
+        # output_file should still have the full content
+        assert output_file3.exists()
+        assert output_file3.read_bytes() == oversized_json
+
     def test_stderr_capture(self, capture):
         """Stderr is always written to logs when non-empty."""
         stdout = b"stdout content"

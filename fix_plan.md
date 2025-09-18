@@ -47,6 +47,12 @@
    - State repair from backups
    - Tests: Full test suite in `test_state_manager.py` (10 tests passing)
 
+✅ **AT-67**: Tee on JSON parse failure
+   - When `output_capture: json` fails to parse and `allow_parse_error: false`, `output_file` still receives full stdout while state/log limits apply
+   - Implementation already correct: tee happens before mode-specific processing in `output_capture.py:118-119`
+   - Test: Added comprehensive test `test_at67_tee_on_json_parse_failure` covering parse errors and buffer overflows
+   - Verified with 3 test cases: invalid JSON, large invalid JSON, and buffer overflow scenarios
+
 ✅ **AT-43**: Loop state indexing - Results stored as `steps.<LoopName>[i].<StepName>`
    - Implemented in StateManager.update_loop_step()
    - Test: `test_at4_loop_state_indexing`
@@ -87,13 +93,16 @@
    - Deterministic ordering preserved from resolver
    - Tests: Complete test suite in `test_dependency_injection.py` (11 tests passing)
 
-✅ **AT-17-19**: Wait-for functionality
+✅ **AT-17-19,60-62**: Wait-for functionality with path safety
    - Implemented complete wait_for polling primitive in `orchestrator/fsq/wait.py`
-   - Blocks until files matching glob pattern found or timeout (AT-17)
-   - Returns exit code 124 on timeout with timed_out: true (AT-18)
-   - Records files, wait_duration_ms, poll_count in state (AT-19)
+   - AT-17: Blocks until files matching glob pattern found or timeout
+   - AT-18: Returns exit code 124 on timeout with timed_out: true
+   - AT-19: Records files, wait_duration_ms, poll_count in state
+   - AT-60: Engine executes wait_for steps and records all fields; downstream steps run on success
+   - AT-61: Runtime path safety - absolute paths or .. in wait_for.glob rejected with exit 2
+   - AT-62: Symlinks escaping WORKSPACE are excluded; returned paths are relative
    - Integration with step executor for workflow execution
-   - Tests: Complete test suite in `test_wait_for.py` (10 tests passing)
+   - Tests: Complete test suites in `test_wait_for.py` (10 tests), `test_at60_wait_for_integration.py` (4 tests), `test_at61_at62_wait_for_path_safety.py` (6 tests)
 
 ✅ **AT-3,13**: For-each loops execution
    - Items_from pointer resolution implemented in `orchestrator/workflow/pointers.py`
@@ -277,9 +286,16 @@
    - Full test suite: 259 tests passing (no regressions)
    - DoD: Environment variables maintain literal values including ${...} patterns as required by spec
 
+✅ **AT-72: Provider state persistence** — COMPLETED — acceptance: AT-72
+   - Provider results are properly persisted to state.json after execution
+   - State persistence includes exit_code, captured output per mode, and any error/debug fields
+   - State is preserved through reload (state_manager.load())
+   - Tests: Complete test suite in test_at72_provider_state_persistence.py (3 tests)
+   - Full test suite: 272 tests passing (no regressions)
+   - DoD: Provider execution results are fully persistent and recoverable from state.json
+
 ## Backlog
-- AT-60-62: Wait-for integration improvements
-- AT-67-71: Debug features (tee on JSON parse failure, debug backups, prompt audit)
+- AT-68-71: Debug features (resume force-restart, debug backups, prompt audit)
 - Observability: debug logging, prompt audit
 - Integration test suite with real provider mocks
 - E2E test improvements (currently minimal coverage)
@@ -302,13 +318,42 @@
   - ✅ orchestrator/state.py
   - ✅ orchestrator/loader.py
 
+✅ **AT-60: Wait-for integration** — COMPLETED — acceptance: AT-60
+   - Implemented complete wait_for step execution in WorkflowExecutor._execute_wait_for()
+   - Calls StepExecutor.execute_wait_for() which uses the fsq.wait.WaitFor module
+   - Records all required fields: files, wait_duration_ms, poll_count, timed_out
+   - Added wait_for specific fields to StepResult dataclass in state.py
+   - State is persisted to state.json atomically via StateManager
+   - Downstream steps can run on success and access wait_for results via variables
+   - Tests: 4 comprehensive integration tests in test_at60_wait_for_integration.py all passing
+   - Full test suite: 263 tests passing (no regressions)
+   - DoD: Engine executes wait_for steps and properly records all metrics to state
+
+✅ **AT-61,62: Wait-for path safety** — COMPLETED — acceptance: AT-61, AT-62
+   - AT-61: Runtime validation in WaitFor.execute() rejects absolute paths and .. with exit 2
+   - AT-62: Symlinks escaping WORKSPACE excluded; paths returned relative to WORKSPACE
+   - Added _validate_path_safety() method to check glob patterns at runtime
+   - Modified _find_matching_files() to exclude symlinks that resolve outside workspace
+   - Preserves original symlink paths (not resolved) for symlinks within workspace
+   - Error context includes path_safety_error type with glob_pattern detail
+   - Tests: 6 comprehensive tests in test_at61_at62_wait_for_path_safety.py all passing
+   - Full test suite: 269 tests passing (no regressions)
+   - DoD: Wait-for enforces path safety at runtime and properly handles symlinks
+
+✅ **AT-72: Provider state persistence** — COMPLETED — acceptance: AT-72
+   - Provider step results are now persisted to state.json with all fields
+   - Added state_manager.update_step() call after provider execution in WorkflowExecutor
+   - Persistence includes: exit_code, captured output per mode, error, and debug fields
+   - After reload (state_manager.load()), provider results remain present and unchanged
+   - Fixed critical bug where provider results were only stored in memory but not persisted to disk
+   - Tests: 3 comprehensive tests in test_at72_provider_state_persistence.py all passing
+   - Full test suite: 272 tests passing (no regressions)
+   - DoD: Provider steps persist state correctly just like command steps
+
 ## Next Loop Recommendation
 
-With error handling (AT-56/57/58/59) complete, the next highest-priority items are:
-1. **AT-60: Wait-for integration** — Engine executes wait_for steps and records files, wait_duration_ms, poll_count, timed_out
-2. **AT-61,62: Wait-for path safety** — Runtime validation and symlink escape protection
-3. **AT-66: Env literal semantics** — No variable substitution in env values
-4. **AT-67: Tee on JSON parse failure** — output_file still receives full stdout on JSON parse errors
-5. **AT-68: Resume force-restart** — --force-restart flag functionality
-6. **AT-69,70: Debug features** — Debug backups and prompt audit
-7. **AT-71: Retries + on.failure goto** — After exhausting retries, on.failure.goto triggers
+With provider state persistence (AT-72) complete, the next highest-priority items are:
+1. **AT-67: Tee on JSON parse failure** — output_file still receives full stdout on JSON parse errors
+2. **AT-68: Resume force-restart** — --force-restart flag functionality (partial implementation exists)
+3. **AT-69,70: Debug features** — Debug backups and prompt audit with masking
+4. **AT-71: Retries + on.failure goto** — After exhausting retries, on.failure.goto triggers
