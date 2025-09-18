@@ -1,5 +1,14 @@
 # Fix Plan - Multi-Agent Orchestrator Implementation
 
+## Status Summary
+- **Core Acceptance Tests**: 68/72 completed (94.4%)
+- **E2E Validation Tests**: 0/3 completed (0%)
+- **Test Suite**: 273 tests passing
+- **Estimated Iterations to Full Completion**:
+  - 4 iterations for AT-68 through AT-71
+  - 2-3 iterations for E2E-01 through E2E-03
+  - **Total: 6-7 iterations**
+
 ## Completed
 
 ✅ **AT-1,2,45,52**: Output capture modes (text/lines/json) with truncation
@@ -294,11 +303,32 @@
    - Full test suite: 272 tests passing (no regressions)
    - DoD: Provider execution results are fully persistent and recoverable from state.json
 
+## Priority Order (Updated)
+
+### Phase 1: Core Acceptance Tests (4 remaining of 72)
+1. **AT-68: Resume force-restart** — Verify/test --force-restart flag (partially implemented)
+2. **AT-69: Debug backups** — Enable state backups with --debug flag (infrastructure exists)
+3. **AT-70: Prompt audit & masking** — Log prompts with secret masking (not implemented)
+4. **AT-71: Retries + goto** — Integration of retry exhaustion with on.failure.goto (not implemented)
+
+### Phase 2: E2E Validation Tests (Non-normative, release gate)
+5. **E2E-01: Test Presence** — Create basic e2e test infrastructure
+   - pytest marker already registered in pyproject.toml
+   - Need at least one @pytest.mark.e2e test that skips gracefully
+   - Guard with ORCHESTRATE_E2E env var or CLI availability checks
+6. **E2E-02: Claude Provider E2E** — Real argv mode test with claude CLI
+   - Test claude provider with ${PROMPT} in argv mode
+   - Create simple prompt, verify execution and output capture
+   - Skip if claude not available or ORCHESTRATE_E2E not set
+7. **E2E-03: Codex Provider E2E** — Real stdin mode test with codex CLI
+   - Test codex provider with stdin mode prompt delivery
+   - Verify execution and artifact creation
+   - Skip if codex not available or ORCHESTRATE_E2E not set
+
 ## Backlog
-- AT-68-71: Debug features (resume force-restart, debug backups, prompt audit)
-- Observability: debug logging, prompt audit
-- Integration test suite with real provider mocks
-- E2E test improvements (currently minimal coverage)
+- Additional E2E scenarios (loops, dependencies, error recovery)
+- Performance benchmarks
+- Documentation improvements
 
 ## Architecture Alignment Notes
 
