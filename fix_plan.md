@@ -266,9 +266,18 @@
    - Full test suite: 246 tests passing (no regressions)
    - DoD: Inside for_each, ${steps.<Name>.*} refers only to current iteration's results; outer steps are undefined
 
+## Completed (Continued 4)
+
+✅ **AT-66: env literal semantics** — COMPLETED — acceptance: AT-66
+   - Environment variables are passed literally without ${} variable substitution
+   - Verified behavior is already correctly implemented in WorkflowExecutor
+   - Step env values passed directly to step_executor and provider_executor unchanged
+   - Works correctly for command steps, provider steps, for_each loops, and with secrets
+   - Created comprehensive test suite in test_at66_env_literal_semantics.py (5 tests)
+   - Full test suite: 259 tests passing (no regressions)
+   - DoD: Environment variables maintain literal values including ${...} patterns as required by spec
+
 ## Backlog
-- AT-66: env literal semantics (no variable substitution)
-- AT-56-59: Control flow (strict_flow, on_error, goto precedence)
 - AT-60-62: Wait-for integration improvements
 - AT-67-71: Debug features (tee on JSON parse failure, debug backups, prompt audit)
 - Observability: debug logging, prompt audit

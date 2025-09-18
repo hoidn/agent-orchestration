@@ -1,0 +1,42 @@
+# Example workflow demonstrating AT-66: env literal semantics
+# Environment variable values are passed literally without variable substitution
+
+version: "1.1"
+
+context:
+  demo_value: "context-value"
+
+steps:
+  - name: setup
+    command: "echo 'Initial setup'"
+    output_capture: text
+
+  - name: env_literal_demo
+    command: |
+      echo "MY_VAR1=$MY_VAR1"
+      echo "MY_VAR2=$MY_VAR2"
+      echo "MY_VAR3=$MY_VAR3"
+    env:
+      # These will be passed literally - no substitution occurs
+      MY_VAR1: "${steps.setup.output}"        # Literal: ${steps.setup.output}
+      MY_VAR2: "${context.demo_value}"        # Literal: ${context.demo_value}
+      MY_VAR3: "prefix-${run.root}-suffix"    # Literal: prefix-${run.root}-suffix
+    output_capture: text
+
+  - name: for_each_env_demo
+    for_each:
+      items: ["first", "second"]
+      steps:
+        - name: loop_command
+          command: |
+            echo "LOOP_INDEX=$LOOP_INDEX"
+            echo "ITEM_VALUE=$ITEM_VALUE"
+          env:
+            # Even in loops, env vars are literal
+            LOOP_INDEX: "${loop.index}"    # Literal: ${loop.index}
+            ITEM_VALUE: "${item}"           # Literal: ${item}
+
+# Expected behavior:
+# The env vars will contain the literal strings with ${...} patterns,
+# not the substituted values. This ensures scripts and programs receive
+# the exact env values as specified, without orchestrator interference.
