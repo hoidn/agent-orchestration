@@ -67,6 +67,7 @@ class RunState:
     started_at: str
     updated_at: str
     status: StateStatus
+    run_root: Optional[str] = None  # Path to .orchestrate/runs/<run_id>
     context: Dict[str, Any] = field(default_factory=dict)
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
@@ -85,6 +86,10 @@ class RunState:
             "steps": {},
             "for_each": {}
         }
+
+        # Include run_root if set
+        if self.run_root:
+            result["run_root"] = self.run_root
 
         # Convert step results - type assert for type checker
         steps_dict: Dict[str, Any] = result["steps"]
@@ -121,6 +126,7 @@ class RunState:
             started_at=data["started_at"],
             updated_at=data["updated_at"],
             status=data["status"],
+            run_root=data.get("run_root"),  # Optional, may not be present in older states
             context=data.get("context", {}),
             steps=data.get("steps", {}),
             for_each=for_each
@@ -209,6 +215,7 @@ class StateManager:
             started_at=now,
             updated_at=now,
             status="running",
+            run_root=str(self.run_root),  # Store run_root path
             context=context or {}
         )
 

@@ -197,6 +197,20 @@ class WorkflowExecutor:
                     state['steps'] = {}
                 state['steps'][step_name] = result
 
+                # Update state manager (persist to disk)
+                from ..state import StepResult
+                step_result = StepResult(
+                    status='completed' if result.get('exit_code') == 0 else 'failed',
+                    exit_code=result.get('exit_code', 0),
+                    duration_ms=result.get('duration_ms', 0),
+                    output=result.get('output'),
+                    lines=result.get('lines'),
+                    json=result.get('json'),
+                    error=result.get('error'),
+                    truncated=result.get('truncated', False)
+                )
+                self.state_manager.update_step(step_name, step_result)
+
         return state
 
     def _execute_for_each(self, step: Dict[str, Any], state: Dict[str, Any], resume: bool = False) -> Dict[str, Any]:
@@ -353,7 +367,8 @@ class WorkflowExecutor:
                         continue
 
                 # Create a modified context with loop variables
-                nested_context = self._create_loop_context(nested_step, loop_context, state)
+                # AT-65: Pass iteration_state to ensure loop scoping of steps.* variables
+                nested_context = self._create_loop_context(nested_step, loop_context, iteration_state)
 
                 # Execute the nested step based on its type
                 if 'command' in nested_step:
@@ -406,6 +421,7 @@ class WorkflowExecutor:
         """
         Execute a command step with variable substitution context.
         Implements AT-21: Raw commands only retry when retries field is set.
+        Implements AT-63: Undefined variable detection with error context.
 
         Args:
             step: Step definition
@@ -418,13 +434,72 @@ class WorkflowExecutor:
         # Substitute variables in command
         command = step['command']
 
-        # Apply variable substitution based on command type
-        if isinstance(command, list):
-            # For list commands, substitute each element individually
-            command = [self._substitute_variables(elem, context, state) for elem in command]
-        else:
-            # For string commands, substitute the entire string
-            command = self._substitute_variables(command, context, state)
+        # Build variables from all sources
+        # AT-65: Use context's steps for loop scoping (contains only current iteration)
+        scoped_state = state.copy()
+        if 'steps' in context:
+            # Inside loop: use scoped steps from context (current iteration only)
+            scoped_state['steps'] = context['steps']
+
+        variables = self.variable_substitutor.build_variables(
+            run_state=scoped_state,
+            context=context.get('context', {}),
+            loop_vars=context.get('loop'),
+            item=context.get('item')
+        )
+
+        # Add any custom loop variables (e.g., from for_each with "as: filename")
+        # These come directly in the context, not under any namespace
+        for key, value in context.items():
+            if key not in ['run', 'context', 'steps', 'loop', 'item']:
+                # This is likely a custom loop variable
+                variables[key] = value
+
+        # Apply variable substitution with error tracking (AT-63)
+        try:
+            if isinstance(command, list):
+                # For list commands, substitute each element individually
+                substituted_command = []
+                for elem in command:
+                    substituted_elem = self.variable_substitutor.substitute(elem, variables)
+                    substituted_command.append(substituted_elem)
+                command = substituted_command
+            else:
+                # For string commands, substitute the entire string
+                command = self.variable_substitutor.substitute(command, variables)
+        except ValueError as e:
+            # AT-63: Undefined variable detected, return error without executing
+            undefined_vars = list(self.variable_substitutor.undefined_vars)
+
+            # Build substituted command for error context (best effort with undefined vars)
+            try:
+                # Try substituting without tracking undefined to show what we could substitute
+                if isinstance(step['command'], list):
+                    substituted_cmd = []
+                    for elem in step['command']:
+                        # Substitute without error tracking
+                        subst = self.variable_substitutor.substitute(elem, variables, track_undefined=False)
+                        substituted_cmd.append(subst)
+                else:
+                    substituted_cmd = self.variable_substitutor.substitute(
+                        step['command'], variables, track_undefined=False
+                    )
+            except:
+                substituted_cmd = step['command']
+
+            return {
+                'exit_code': 2,
+                'error': {
+                    'type': 'undefined_variables',
+                    'message': f'Undefined variables in command: {", ".join(undefined_vars)}',
+                    'context': {
+                        'undefined_vars': undefined_vars,
+                        'substituted_command': substituted_cmd if isinstance(substituted_cmd, list) else [substituted_cmd]
+                    }
+                },
+                'output': '',
+                'duration_ms': 0
+            }
 
         # Create retry policy for command steps (AT-21)
         retries_config = step.get('retries')
@@ -435,6 +510,12 @@ class WorkflowExecutor:
         result = None
 
         while True:
+            # Apply variable substitution to output_file if present
+            output_file = None
+            if 'output_file' in step:
+                output_file_str = self.variable_substitutor.substitute(step['output_file'], variables)
+                output_file = Path(output_file_str)
+
             # Execute command
             result = self.step_executor.execute_command(
                 step_name=step.get('name', 'command'),
@@ -442,7 +523,7 @@ class WorkflowExecutor:
                 env=step.get('env'),
                 timeout_sec=step.get('timeout_sec'),
                 output_capture=step.get('output_capture', 'text'),
-                output_file=Path(step['output_file']) if 'output_file' in step else None,
+                output_file=output_file,
                 allow_parse_error=step.get('allow_parse_error', False)
             )
 
@@ -530,7 +611,27 @@ class WorkflowExecutor:
                     prompt = input_path.read_text()
 
             # Apply variable substitution to prompt
-            prompt = self._substitute_variables(prompt, context, state)
+            # Build variables for substitution
+            # AT-65: Use context's steps for loop scoping (contains only current iteration)
+            scoped_state = state.copy()
+            if 'steps' in context:
+                # Inside loop: use scoped steps from context (current iteration only)
+                scoped_state['steps'] = context['steps']
+
+            variables = self.variable_substitutor.build_variables(
+                run_state=scoped_state,
+                context=context.get('context', {}),
+                loop_vars=context.get('loop'),
+                item=context.get('item')
+            )
+
+            # Add any custom loop variables
+            for key, value in context.items():
+                if key not in ['run', 'context', 'steps', 'loop', 'item']:
+                    variables[key] = value
+
+            # Substitute variables in the prompt
+            prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
 
             # Apply dependency injection if configured (AT-28-35,53)
             inject_config = depends_on.get('inject', False)
@@ -559,7 +660,27 @@ class WorkflowExecutor:
                     prompt = input_path.read_text()
 
             # Apply variable substitution to prompt
-            prompt = self._substitute_variables(prompt, context, state)
+            # Build variables for substitution
+            # AT-65: Use context's steps for loop scoping (contains only current iteration)
+            scoped_state = state.copy()
+            if 'steps' in context:
+                # Inside loop: use scoped steps from context (current iteration only)
+                scoped_state['steps'] = context['steps']
+
+            variables = self.variable_substitutor.build_variables(
+                run_state=scoped_state,
+                context=context.get('context', {}),
+                loop_vars=context.get('loop'),
+                item=context.get('item')
+            )
+
+            # Add any custom loop variables
+            for key, value in context.items():
+                if key not in ['run', 'context', 'steps', 'loop', 'item']:
+                    variables[key] = value
+
+            # Substitute variables in the prompt
+            prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
 
         # Create retry policy for provider steps (AT-21)
         # Providers use global max_retries or step-specific retries
@@ -615,7 +736,12 @@ class WorkflowExecutor:
             # Capture output according to specified mode
             capture_mode = step.get('output_capture', 'text')
             allow_parse_error = step.get('allow_parse_error', False)
-            output_file = Path(step['output_file']) if 'output_file' in step else None
+
+            # Apply variable substitution to output_file if present
+            output_file = None
+            if 'output_file' in step:
+                output_file_str = self.variable_substitutor.substitute(step['output_file'], variables)
+                output_file = Path(output_file_str)
 
             capturer = OutputCapture(
                 workspace=self.workspace,
@@ -698,15 +824,16 @@ class WorkflowExecutor:
         self,
         step: Dict[str, Any],
         loop_context: Dict[str, Any],
-        state: Dict[str, Any]
+        iteration_state: Dict[str, Any]
     ) -> Dict[str, Any]:
         """
         Create variable substitution context for a loop iteration.
+        Implements AT-65: Inside for_each, ${steps.<Name>.*} refers only to current iteration.
 
         Args:
             step: Step being executed
-            loop_context: Loop-specific variables
-            state: Current state
+            loop_context: Loop-specific variables (item, loop.index, loop.total)
+            iteration_state: Current iteration's step results only
 
         Returns:
             Combined context dictionary
@@ -716,13 +843,15 @@ class WorkflowExecutor:
         run_state = self.state_manager.load()
         run_metadata = {
             'id': run_state.run_id,
+            'root': run_state.run_root,  # Include run.root for AT-64
             'timestamp_utc': run_state.started_at
         }
 
+        # AT-65: Use iteration_state for steps.* variables to ensure loop scoping
         context = {
             'run': run_metadata,
             'context': self.variables,
-            'steps': state.get('steps', {}),
+            'steps': iteration_state,  # Only current iteration's results
             **loop_context  # Loop vars override
         }
         return context
@@ -750,7 +879,7 @@ class WorkflowExecutor:
             'run': {
                 'id': run_state.run_id,
                 'timestamp_utc': run_state.started_at,
-                'root': str(self.state_manager.run_root) if hasattr(self.state_manager, 'run_root') else ''
+                'root': run_state.run_root or ''  # Use run_root from state
             },
             'context': context.get('context', self.variables),
             'steps': state.get('steps', {})
@@ -798,42 +927,6 @@ class WorkflowExecutor:
 
         return variables
 
-    def _substitute_variables(
-        self,
-        text: str,
-        context: Dict[str, Any],
-        state: Dict[str, Any]
-    ) -> str:
-        """
-        Perform variable substitution in text.
-
-        Args:
-            text: Text with ${var} placeholders
-            context: Variable context
-            state: Current state
-
-        Returns:
-            Text with variables substituted
-        """
-        import re
-
-        def replacer(match):
-            var_path = match.group(1)
-            # Simple dot notation traversal
-            parts = var_path.split('.')
-            value = context
-
-            for part in parts:
-                if isinstance(value, dict) and part in value:
-                    value = value[part]
-                else:
-                    # Variable not found, leave as-is
-                    return match.group(0)
-
-            return str(value)
-
-        # Replace ${var.path} patterns
-        return re.sub(r'\$\{([^}]+)\}', replacer, text)
 
     def _record_step_error(
         self,
@@ -873,8 +966,10 @@ class WorkflowExecutor:
 
     def _execute_provider(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute provider step without loop context."""
-        return self._execute_provider_with_context(step, {}, state)
+        context = {'context': state.get('context', {})}
+        return self._execute_provider_with_context(step, context, state)
 
     def _execute_command(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute command step without loop context."""
-        return self._execute_command_with_context(step, {}, state)
+        context = {'context': state.get('context', {})}
+        return self._execute_command_with_context(step, context, state)

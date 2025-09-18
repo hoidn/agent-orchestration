@@ -216,8 +216,45 @@
    - Full test suite: 231 tests passing (no regressions)
    - DoD: Resume command fully functional; reads state.json, validates checksum, resumes from last incomplete step
 
-## Backlog
+## Completed (Continued 3)
 
+6. **AT-63: Undefined variable handling** — COMPLETED — acceptance: AT-63
+   - Integrated VariableSubstitutor properly into WorkflowExecutor command execution
+   - Added error detection with exit code 2 and error.context.undefined_vars
+   - Prevents command execution when undefined variables detected (safety feature)
+   - Fixed custom loop variable handling (e.g., for_each with "as: filename")
+   - Added state manager persistence for command steps
+   - Tests: 5 comprehensive tests in test_at63_undefined_variables.py all passing
+   - Full test suite: 236 tests passing (no regressions)
+   - DoD: Undefined variables in commands yield exit 2 with proper error context; no process execution occurs
+
+## Completed (Continued 3)
+
+✅ **AT-64: ${run.root} variable support** — COMPLETED — acceptance: AT-64
+   - Added run_root field to RunState dataclass with proper serialization
+   - StateManager now persists run_root path (.orchestrate/runs/<run_id>) in state.json
+   - WorkflowExecutor properly uses run_root from state for variable substitution
+   - Variable substitution extended to handle output_file paths
+   - Fixed context passing to ensure variables work in both command and provider execution
+   - Created comprehensive test suite in test_at64_run_root_variable.py (5 tests)
+   - Full test suite: 241 tests passing (no regressions)
+   - DoD: ${run.root} variable resolves to .orchestrate/runs/<run_id> and is usable in commands, paths, and provider params
+
+✅ **AT-65: Loop scoping of steps.* variables** — COMPLETED — acceptance: AT-65
+   - Modified _create_loop_context() to pass iteration_state instead of full state (orchestrator/workflow/executor.py:371, 809)
+   - Updated context creation to include only current iteration's step results (line 835)
+   - Fixed variable building in _execute_command_with_context() to use scoped steps from context (lines 438-449)
+   - Fixed variable building in _execute_provider_with_context() for both stdin/argv modes (lines 609-620, 652-663)
+   - Created comprehensive test suite in test_at65_loop_scoping.py (5 tests)
+   - Tests verify: current iteration isolation, outer steps undefined in loops, iteration independence, nested step references
+   - Full test suite: 246 tests passing (no regressions)
+   - DoD: Inside for_each, ${steps.<Name>.*} refers only to current iteration's results; outer steps are undefined
+
+## Backlog
+- AT-66: env literal semantics (no variable substitution)
+- AT-56-59: Control flow (strict_flow, on_error, goto precedence)
+- AT-60-62: Wait-for integration improvements
+- AT-67-71: Debug features (tee on JSON parse failure, debug backups, prompt audit)
 - Observability: debug logging, prompt audit
 - Integration test suite with real provider mocks
 - E2E test improvements (currently minimal coverage)
