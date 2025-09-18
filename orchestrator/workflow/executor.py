@@ -257,6 +257,47 @@ class WorkflowExecutor:
 
         return state
 
+    def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
+        """
+        Write prompt to audit log with secrets masking.
+
+        AT-70: With --debug, composed prompt text is written to logs/<Step>.prompt.txt
+        with known secret values masked.
+
+        Args:
+            step_name: Name of the step
+            prompt_text: The composed prompt text to audit
+            secrets: List of secret names to resolve and mask
+            env: Environment variables that may override secrets
+        """
+        if not self.state_manager.logs_dir:
+            return
+
+        # Get the secrets manager to mask known secrets
+        secrets_manager = self.step_executor.secrets_manager
+
+        # Resolve secrets to get their values tracked for masking
+        if secrets or env:
+            secrets_context = secrets_manager.resolve_secrets(
+                declared_secrets=secrets,
+                step_env=env
+            )
+            # Note: The resolve call adds the secret values to the manager's masked_values set
+
+        # Mask known secrets in the prompt
+        masked_prompt = secrets_manager.mask_text(prompt_text)
+
+        # Write to logs/<Step>.prompt.txt
+        prompt_file = self.state_manager.logs_dir / f"{step_name}.prompt.txt"
+        prompt_file.parent.mkdir(parents=True, exist_ok=True)
+
+        try:
+            prompt_file.write_text(masked_prompt)
+        except Exception as e:
+            # Log but don't fail if we can't write the audit file
+            if self.debug:
+                print(f"Warning: Could not write prompt audit for {step_name}: {e}")
+
     def _handle_control_flow(self, step: Dict[str, Any], state: Dict[str, Any],
                             step_name: str, current_index: int, on_error: str) -> Any:
         """
@@ -801,6 +842,10 @@ class WorkflowExecutor:
                 # Record truncation details if present (AT-35)
                 if injection_result.was_truncated and injection_result.truncation_details:
                     debug_info['injection'] = injection_result.truncation_details
+
+            # AT-70: Prompt audit with debug mode (after injection if applicable)
+            if self.debug and prompt:
+                self._write_prompt_audit(step.get('name', 'provider'), prompt, step.get('secrets'), step.get('env'))
         else:
             # No dependencies - just get prompt normally
             prompt = ""
@@ -831,6 +876,10 @@ class WorkflowExecutor:
 
             # Substitute variables in the prompt
             prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
+
+        # AT-70: Prompt audit with debug mode (when no dependencies)
+        if self.debug and prompt:
+            self._write_prompt_audit(step.get('name', 'provider'), prompt, step.get('secrets'), step.get('env'))
 
         # Create retry policy for provider steps (AT-21)
         # Providers use global max_retries or step-specific retries

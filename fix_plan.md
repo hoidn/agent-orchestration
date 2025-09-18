@@ -1,13 +1,13 @@
 # Fix Plan - Multi-Agent Orchestrator Implementation
 
 ## Status Summary
-- **Core Acceptance Tests**: 69/72 completed (95.8%)
+- **Core Acceptance Tests**: 70/72 completed (97.2%)
 - **E2E Validation Tests**: 0/3 completed (0%)
-- **Test Suite**: 279 tests passing
+- **Test Suite**: 283 tests passing
 - **Estimated Iterations to Full Completion**:
-  - 3 iterations for AT-68, AT-70, AT-71
+  - 2 iterations for AT-68, AT-71
   - 2-3 iterations for E2E-01 through E2E-03
-  - **Total: 5-6 iterations**
+  - **Total: 4-5 iterations**
 
 ## Completed
 
@@ -313,12 +313,21 @@
    - Full test suite: 279 tests passing (no regressions)
    - DoD: Debug backups working exactly as specified with rotation
 
+✅ **AT-70: Prompt audit & masking** — COMPLETED — acceptance: AT-70
+   - With --debug, composed prompt text is written to logs/<Step>.prompt.txt
+   - Known secret values are masked as '***' in the audit file
+   - Works with both provider steps with and without dependency injection
+   - Implemented in WorkflowExecutor._write_prompt_audit() method
+   - Integrates with SecretsManager for masking secret values
+   - Tests: Complete test suite in test_at70_prompt_audit.py (4 tests passing)
+   - Full test suite: 283 tests passing (no regressions)
+   - DoD: Prompt audit logs created in debug mode with proper masking
+
 ## Priority Order (Updated)
 
-### Phase 1: Core Acceptance Tests (3 remaining of 72)
+### Phase 1: Core Acceptance Tests (2 remaining of 72)
 1. **AT-68: Resume force-restart** — Verify/test --force-restart flag (partially implemented)
-2. **AT-70: Prompt audit & masking** — Log prompts with secret masking (not implemented)
-3. **AT-71: Retries + goto** — Integration of retry exhaustion with on.failure.goto (not implemented)
+2. **AT-71: Retries + goto** — Integration of retry exhaustion with on.failure.goto (not implemented)
 
 ### Phase 2: E2E Validation Tests (Non-normative, release gate)
 5. **E2E-01: Test Presence** — Create basic e2e test infrastructure
@@ -391,8 +400,8 @@
 
 ## Next Loop Recommendation
 
-With debug backups (AT-69) complete, the next highest-priority items are:
-1. **AT-70: Prompt audit & masking** — Log prompts to logs/<Step>.prompt.txt with secret masking (builds on existing masking infrastructure)
-2. **AT-68: Resume force-restart** — Verify/test --force-restart flag functionality (partial implementation exists)
-3. **AT-71: Retries + on.failure goto** — After exhausting retries, on.failure.goto should trigger
-4. **E2E-01: Test presence** — Create at least one E2E test that skips gracefully when CLIs unavailable
+With prompt audit (AT-70) complete, the next highest-priority items are:
+1. **AT-68: Resume force-restart** — Verify/test --force-restart flag functionality (partial implementation exists)
+2. **AT-71: Retries + on.failure goto** — After exhausting retries, on.failure.goto should trigger
+3. **E2E-01: Test presence** — Create at least one E2E test that skips gracefully when CLIs unavailable
+4. **E2E-02 & E2E-03: Provider E2E tests** — Real CLI tests for claude and codex providers
