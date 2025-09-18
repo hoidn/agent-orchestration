@@ -129,9 +129,19 @@ def resume_workflow(
             return 1
 
     if force_restart:
-        # Start fresh with new run (ignore existing state)
-        print(f"Force restarting workflow (ignoring existing state for run {run_id})")
-        # Reset state to initial
+        # AT-68: Start a NEW run with a NEW run_id (ignore existing state)
+        import uuid
+        new_run_id = uuid.uuid4().hex
+        print(f"Force restarting workflow with new run ID: {new_run_id}")
+        print(f"(Ignoring existing state from run {run_id})")
+
+        # Create a new StateManager with the new run_id
+        state_manager = StateManager(
+            workspace=workspace_dir,
+            run_id=new_run_id,
+            backup_enabled=backup_state,
+            debug=debug
+        )
         state_manager.initialize(
             workflow_file=str(workflow_path),
             context=workflow.get('context', {})
@@ -175,14 +185,15 @@ def resume_workflow(
         debug=debug
     )
 
-    # Execute workflow (executor should resume from where it left off)
+    # Execute workflow
     try:
+        # AT-68: For force_restart, we start fresh without resume flag
         result = executor.execute(
             run_id=run_id,
             on_error=on_error,
             max_retries=max_retries,
             retry_delay_ms=retry_delay_ms,
-            resume=True  # Signal that this is a resume operation
+            resume=not force_restart  # Don't resume if force_restart
         )
 
         final_status = result.get('status', 'unknown')

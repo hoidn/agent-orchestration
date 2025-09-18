@@ -1,13 +1,12 @@
 # Fix Plan - Multi-Agent Orchestrator Implementation
 
 ## Status Summary
-- **Core Acceptance Tests**: 70/72 completed (97.2%)
+- **Core Acceptance Tests**: 72/72 completed (100%)
 - **E2E Validation Tests**: 0/3 completed (0%)
-- **Test Suite**: 283 tests passing
+- **Test Suite**: 290 tests passing
 - **Estimated Iterations to Full Completion**:
-  - 2 iterations for AT-68, AT-71
   - 2-3 iterations for E2E-01 through E2E-03
-  - **Total: 4-5 iterations**
+  - **Total: 2-3 iterations**
 
 ## Completed
 
@@ -323,11 +322,25 @@
    - Full test suite: 283 tests passing (no regressions)
    - DoD: Prompt audit logs created in debug mode with proper masking
 
-## Priority Order (Updated)
+## Completed (Continued 5)
 
-### Phase 1: Core Acceptance Tests (2 remaining of 72)
-1. **AT-68: Resume force-restart** — Verify/test --force-restart flag (partially implemented)
-2. **AT-71: Retries + goto** — Integration of retry exhaustion with on.failure.goto (not implemented)
+✅ **AT-68: Resume force-restart** — COMPLETED — acceptance: AT-68
+   - `resume --force-restart` starts a NEW run with a new run_id and ignores existing state
+   - Modified orchestrator/cli/commands/resume.py to create new StateManager with new run_id
+   - Force restart proceeds even if workflow has been modified (skips checksum validation)
+   - Execute called with resume=False flag when force_restart=True
+   - Tests: 3 comprehensive tests in test_at68_resume_force_restart.py all passing
+   - Full test suite: 290 tests passing (no regressions)
+   - DoD: Force restart functionality works exactly as specified in AT-68
+
+✅ **AT-71: Retries + on.failure goto** — COMPLETED — acceptance: AT-71
+   - After exhausting retries, `on.failure.goto` triggers and control follows the target step
+   - Already working correctly in WorkflowExecutor._handle_control_flow()
+   - Added support for integer shorthand in RetryPolicy.for_command() (handles `retries: 2` format)
+   - Works for both command steps and provider steps with default retry policy
+   - Tests: 4 comprehensive tests in test_at71_retries_goto.py all passing
+   - Full test suite: 290 tests passing (no regressions)
+   - DoD: Retry exhaustion properly triggers failure goto handlers as specified
 
 ### Phase 2: E2E Validation Tests (Non-normative, release gate)
 5. **E2E-01: Test Presence** — Create basic e2e test infrastructure
@@ -400,8 +413,8 @@
 
 ## Next Loop Recommendation
 
-With prompt audit (AT-70) complete, the next highest-priority items are:
-1. **AT-68: Resume force-restart** — Verify/test --force-restart flag functionality (partial implementation exists)
-2. **AT-71: Retries + on.failure goto** — After exhausting retries, on.failure.goto should trigger
-3. **E2E-01: Test presence** — Create at least one E2E test that skips gracefully when CLIs unavailable
-4. **E2E-02 & E2E-03: Provider E2E tests** — Real CLI tests for claude and codex providers
+All 72 core acceptance tests are now complete! The next priorities are:
+1. **E2E-01: Test presence** — Create at least one E2E test that skips gracefully when CLIs unavailable
+2. **E2E-02 & E2E-03: Provider E2E tests** — Real CLI tests for claude and codex providers
+3. **Documentation updates** — Update README and CHANGELOG with the completed features
+4. **Release preparation** — Tag version v1.1.1 once E2E tests are in place

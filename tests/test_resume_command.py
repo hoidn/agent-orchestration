@@ -182,10 +182,10 @@ def test_at4_resume_force_restart(temp_workspace, partial_run_state):
                 force_restart=True
             )
 
-        # Verify executor was called with resume=True
+        # AT-68: Verify executor was called with resume=False for force_restart
         mock_executor.execute.assert_called_once()
         call_kwargs = mock_executor.execute.call_args.kwargs
-        assert call_kwargs.get('resume') == True
+        assert call_kwargs.get('resume') == False
 
     assert result == 0
 

@@ -49,8 +49,13 @@ class RetryPolicy:
             # No retries for commands by default
             return cls(max_retries=0)
 
-        max_retries = retries_config.get('max', 0)
-        delay_ms = retries_config.get('delay_ms', 1000)
+        # Handle both dict format and integer shorthand
+        if isinstance(retries_config, int):
+            max_retries = retries_config
+            delay_ms = 1000
+        else:
+            max_retries = retries_config.get('max', 0)
+            delay_ms = retries_config.get('delay_ms', 1000)
 
         # Commands with retries set also consider 1 and 124 retryable
         return cls(
