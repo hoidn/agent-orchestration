@@ -104,6 +104,55 @@
 
 72. Provider state persistence: after executing a provider step, `steps.<Name>` is persisted to `state.json` with `exit_code`, captured output per mode, and any `error`/`debug` fields; after reload (`state_manager.load()`), the provider result is present and unchanged.
 
+## Supplemental: E2E Validation (Non‑Normative)
+
+Status: Non‑normative, process/release gate. These items validate the presence and minimal viability of end‑to‑end tests using real provider CLIs. They must be segregated from the main suite and skipped by default when CLIs/secrets are unavailable. See `docs/ci-e2e.md` for suggested CI wiring.
+
+- E2E-01 E2E Test Presence (Process Gate)
+  - Scope: Repository hygiene and release readiness.
+  - Preconditions: None.
+  - Procedure:
+    - Verify that `pyproject.toml` registers a `e2e` pytest marker.
+    - Verify at least one test is decorated with `@pytest.mark.e2e` and collected by `pytest -m e2e`.
+    - Verify E2E tests skip gracefully when required CLIs are absent (e.g., `shutil.which("claude")`/`shutil.which("codex")` is None) or when a guard env such as `ORCHESTRATE_E2E` is not set.
+  - Expected:
+    - At least one E2E test exists and is discoverable via `-m e2e`.
+    - Default CI (without CLIs/secrets) collects but skips E2E tests without failing.
+    - A dedicated CI job can run `pytest -v -m e2e` successfully in an environment with CLIs configured.
+
+- E2E-02 Claude Provider (argv mode) Minimal Flow
+  - Scope: Real CLI invocation using argv prompt delivery via `${PROMPT}`.
+  - Preconditions: `claude` CLI available on PATH and authorized.
+  - Procedure:
+    - In a temporary workspace, write a workflow that defines a `claude` provider template with `command: ["claude","-p","${PROMPT}","--model","${model}"]`, `input_mode: "argv"`, and a valid `defaults.model`.
+    - Create `prompts/ping.md` with a short prompt (e.g., "Reply with OK").
+    - Add a single step `GenerateWithClaude` using `provider: "claude"`, `input_file: "prompts/ping.md"`, `output_file: "artifacts/architect/execution_log.txt"`, `output_capture: "text"`.
+    - Run `orchestrate run <workflow.yaml>`.
+  - Expected:
+    - Run status `completed` in state.
+    - Step exit_code `0`; state captures non‑empty output or a `logs/GenerateWithClaude.stdout` file exists.
+    - `artifacts/architect/execution_log.txt` exists and is non‑empty.
+  - Skip conditions: If `claude` not in PATH, or `ORCHESTRATE_E2E` not set, mark test skipped.
+
+- E2E-03 Codex Provider (stdin mode) Minimal Flow
+  - Scope: Real CLI invocation using stdin prompt delivery.
+  - Preconditions: `codex` CLI available on PATH and authorized.
+  - Procedure:
+    - In a temporary workspace, write a workflow that defines a `codex` provider template with `command: ["codex","exec","--model","${model}","--dangerously-bypass-approvals-and-sandbox"]`, `input_mode: "stdin"`, and a valid `defaults.model`.
+    - Create `prompts/ping.md` with a short prompt (e.g., "Print OK and exit").
+    - Add a single step `PingWithCodex` using `provider: "codex"`, `input_file: "prompts/ping.md"`, `output_file: "artifacts/engineer/execution_log.txt"`, `output_capture: "text"`.
+    - Run `orchestrate run <workflow.yaml>`.
+  - Expected:
+    - Run status `completed` in state.
+    - Step exit_code `0`; state captures non‑empty output or a `logs/PingWithCodex.stdout` file exists.
+    - `artifacts/engineer/execution_log.txt` exists and is non‑empty.
+  - Skip conditions: If `codex` not in PATH, or `ORCHESTRATE_E2E` not set, mark test skipped.
+
+Notes
+- These E2E items avoid content‑specific assertions to reduce brittleness; they assert only exit status and artifact presence.
+- All normative DSL/behavioral guarantees remain covered by the main acceptance list using unit/integration tests with fakes/mocks.
+- CI segregation is required to keep default PR runs deterministic and fast.
+
 ## Future Acceptance (v1.2)
 
 1. Success path: item moved to `processed/<ts>/...` per `success.move_to`.

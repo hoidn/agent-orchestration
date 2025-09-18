@@ -77,6 +77,7 @@ These tests are slow and require network access. They are essential for final va
     ```bash
     pytest -v -m e2e
     ```
+    CI job example and guidance: see `docs/ci-e2e.md`.
 
 ### 3. Testing & Validation Workflow (Backpressure)
 
@@ -133,4 +134,3 @@ Don’ts
 
 One‑liner backpressure checklist
 - Targeted tests → Full run (not e2e) → Commit with AT‑IDs
-
