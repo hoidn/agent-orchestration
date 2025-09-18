@@ -77,6 +77,7 @@ These tests are slow and require network access. They are essential for final va
     ```bash
     pytest -v -m e2e
     ```
+  See `tests/README.md` for full E2E guidance and `specs/examples/e2e.md` for narrative examples.
     CI job example and guidance: see `docs/ci-e2e.md`.
 
 ### 3. Testing & Validation Workflow (Backpressure)

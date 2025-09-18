@@ -235,9 +235,11 @@ def run_workflow(args: Namespace) -> int:
         context = parse_context(args)
 
         # Initialize state manager
+        # AT-69: --debug implies backup_enabled
         state_manager = StateManager(
             workspace=workspace,
-            backup_enabled=args.backup_state
+            backup_enabled=args.backup_state,
+            debug=args.debug if hasattr(args, 'debug') else False
         )
 
         # Create new run

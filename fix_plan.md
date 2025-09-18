@@ -1,13 +1,13 @@
 # Fix Plan - Multi-Agent Orchestrator Implementation
 
 ## Status Summary
-- **Core Acceptance Tests**: 68/72 completed (94.4%)
+- **Core Acceptance Tests**: 69/72 completed (95.8%)
 - **E2E Validation Tests**: 0/3 completed (0%)
-- **Test Suite**: 273 tests passing
+- **Test Suite**: 279 tests passing
 - **Estimated Iterations to Full Completion**:
-  - 4 iterations for AT-68 through AT-71
+  - 3 iterations for AT-68, AT-70, AT-71
   - 2-3 iterations for E2E-01 through E2E-03
-  - **Total: 6-7 iterations**
+  - **Total: 5-6 iterations**
 
 ## Completed
 
@@ -303,13 +303,22 @@
    - Full test suite: 272 tests passing (no regressions)
    - DoD: Provider execution results are fully persistent and recoverable from state.json
 
+✅ **AT-69: Debug backups** — COMPLETED — acceptance: AT-69
+   - --debug flag enables state backups (implies backup_enabled=True in StateManager)
+   - StateManager creates state.json.step_<Step>.bak files before each step execution
+   - Backup rotation keeps only last 3 backups
+   - WorkflowExecutor calls backup_state() before each step when debug=True
+   - Handles both regular steps and steps within for_each loops (with indexed names)
+   - Tests: Complete test suite in test_at69_debug_backups.py (6 tests passing)
+   - Full test suite: 279 tests passing (no regressions)
+   - DoD: Debug backups working exactly as specified with rotation
+
 ## Priority Order (Updated)
 
-### Phase 1: Core Acceptance Tests (4 remaining of 72)
+### Phase 1: Core Acceptance Tests (3 remaining of 72)
 1. **AT-68: Resume force-restart** — Verify/test --force-restart flag (partially implemented)
-2. **AT-69: Debug backups** — Enable state backups with --debug flag (infrastructure exists)
-3. **AT-70: Prompt audit & masking** — Log prompts with secret masking (not implemented)
-4. **AT-71: Retries + goto** — Integration of retry exhaustion with on.failure.goto (not implemented)
+2. **AT-70: Prompt audit & masking** — Log prompts with secret masking (not implemented)
+3. **AT-71: Retries + goto** — Integration of retry exhaustion with on.failure.goto (not implemented)
 
 ### Phase 2: E2E Validation Tests (Non-normative, release gate)
 5. **E2E-01: Test Presence** — Create basic e2e test infrastructure
@@ -382,8 +391,8 @@
 
 ## Next Loop Recommendation
 
-With provider state persistence (AT-72) complete, the next highest-priority items are:
-1. **AT-67: Tee on JSON parse failure** — output_file still receives full stdout on JSON parse errors
-2. **AT-68: Resume force-restart** — --force-restart flag functionality (partial implementation exists)
-3. **AT-69,70: Debug features** — Debug backups and prompt audit with masking
-4. **AT-71: Retries + on.failure goto** — After exhausting retries, on.failure.goto triggers
+With debug backups (AT-69) complete, the next highest-priority items are:
+1. **AT-70: Prompt audit & masking** — Log prompts to logs/<Step>.prompt.txt with secret masking (builds on existing masking infrastructure)
+2. **AT-68: Resume force-restart** — Verify/test --force-restart flag functionality (partial implementation exists)
+3. **AT-71: Retries + on.failure goto** — After exhausting retries, on.failure.goto should trigger
+4. **E2E-01: Test presence** — Create at least one E2E test that skips gracefully when CLIs unavailable

@@ -54,7 +54,8 @@ def resume_workflow(
         return 1
 
     # Initialize state manager with existing run_id
-    state_manager = StateManager(workspace=workspace_dir, run_id=run_id, backup_enabled=backup_state)
+    # AT-69: debug implies backup_enabled
+    state_manager = StateManager(workspace=workspace_dir, run_id=run_id, backup_enabled=backup_state, debug=debug)
 
     try:
         # Load existing state

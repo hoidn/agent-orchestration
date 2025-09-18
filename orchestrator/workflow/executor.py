@@ -188,6 +188,10 @@ class WorkflowExecutor:
                     step_index += 1
                     continue
 
+            # AT-69: Create backup before step execution if debug enabled
+            if self.debug:
+                self.state_manager.backup_state(step_name)
+
             # Execute based on step type
             if 'for_each' in step:
                 state = self._execute_for_each(step, state, resume=resume)
@@ -510,6 +514,11 @@ class WorkflowExecutor:
                 # Create a modified context with loop variables
                 # AT-65: Pass iteration_state to ensure loop scoping of steps.* variables
                 nested_context = self._create_loop_context(nested_step, loop_context, iteration_state)
+
+                # AT-69: Create backup for loop steps if debug enabled
+                if self.debug:
+                    backup_name = f"{step_name}[{index}].{nested_name}"
+                    self.state_manager.backup_state(backup_name)
 
                 # Execute the nested step based on its type
                 if 'command' in nested_step:

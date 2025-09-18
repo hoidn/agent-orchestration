@@ -118,6 +118,16 @@ def create_parser() -> argparse.ArgumentParser:
         action='store_true',
         help='Ignore existing state and start new run'
     )
+    resume_parser.add_argument(
+        '--debug',
+        action='store_true',
+        help='Enable debug logging and state backups'
+    )
+    resume_parser.add_argument(
+        '--backup-state',
+        action='store_true',
+        help='Backup state before each step'
+    )
 
     return parser
 
