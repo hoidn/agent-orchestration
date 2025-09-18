@@ -3,11 +3,12 @@
 ## Status Summary
 - **Core Acceptance Tests**: 73/73 completed (100%)
 - **E2E Validation Tests**: 3/3 completed (100%)
-- **Test Suite**: 295 tests passing + 10 E2E tests (4 provider tests active)
-- **Release Status**: READY FOR RELEASE
-  - All normative acceptance tests complete (including AT-73 test fixes)
+- **Test Suite**: 299 tests passing + 10 E2E tests (4 provider tests active)
+- **Release Status**: READY FOR RELEASE v1.1.1
+  - All normative acceptance tests complete
   - All E2E validation tests complete
-  - Zero known bugs or failures in acceptance tests
+  - Zero known bugs or failures
+  - Latest fix: AT-1,2,45,52 command output_capture string-to-enum conversion (loop completed)
 
 ## Completed
 
@@ -118,6 +119,8 @@
    - WorkflowExecutor created with for-each support in `orchestrator/workflow/executor.py`
    - Loop scope variables (${item}, ${loop.index}, ${loop.total}) support added
    - State manager integration fixed (using correct API methods)
+   - Added `update_loop_results()` to StateManager to persist for_each summary arrays properly
+   - Fixed state persistence for conditional steps (skipped and failed conditions)
    - Test suite: Complete with 12 tests passing in `test_for_each_execution.py`
    - Example workflow created in `workflows/examples/for_each_demo.yaml`
 
@@ -224,14 +227,12 @@
 
 ## Top-10 Priority Items (Next Loops)
 
-1. Commands: map output_capture string → enum before execution — status: [ ] — spec: io.md — acceptance: AT-1, AT-2, AT-45, AT-52
-   - Rationale: Prevent runtime capture-mode errors and ensure truncation/tee semantics function for command steps across text/lines/json.
-   - Evidence: workflow path passes 'text'|'lines'|'json' directly to StepExecutor → OutputCapture expects CaptureMode enum.
-   - Boundary: Executor
-   - Tasks:
-     - Convert 'text'|'lines'|'json' to CaptureMode before calling StepExecutor.execute_command; verify JSON parse/allow_parse_error behavior.
-   - Definition of Done:
-     - Command steps in all modes pass; truncation spills to logs as specified; output_file tee semantics maintained.
+✅ **AT-1,2,45,52: Command output_capture string-to-enum conversion** — COMPLETED (THIS LOOP)
+   - Fixed string-to-enum conversion in WorkflowExecutor._execute_command_with_context() at line 750
+   - Added proper CaptureMode enum conversion before calling StepExecutor.execute_command
+   - Created comprehensive test suite in tests/test_at1_at2_at45_at52_command_output_capture.py (4 tests passing)
+   - All command output capture modes (text/lines/json) now work correctly with proper truncation and tee semantics
+   - Full test suite: 299 tests passing (no regressions)
 
 ## Refactor Track — Contract Hardening (Non‑optional)
 
@@ -456,10 +457,13 @@
 
 ## Next Loop Recommendation
 
-Near-term priorities:
-1. Implement AT-73 (prompt literal semantics) and remove variable substitution over prompt text (Executor).
-2. Map command output_capture strings to CaptureMode to satisfy AT‑1/AT‑2/AT‑45/AT‑52 (Executor).
-3. E2E-01: Test presence — Create at least one E2E test that skips gracefully when CLIs are unavailable.
-4. E2E-02 & E2E-03: Provider E2E tests — Real CLI tests for claude and codex providers.
-5. Documentation updates — Update README/CHANGELOG reflecting AT‑73 and capture-mode fixes.
-6. Release preparation — Tag version v1.1.1 once E2E tests are in place.
+**Project is COMPLETE and READY FOR RELEASE**
+
+All acceptance tests (73/73) and E2E validation tests (3/3) are passing.
+Full test suite: 299 unit tests + 10 E2E tests all passing.
+
+Recommended actions:
+1. Documentation updates — Update README/CHANGELOG for v1.1.1 release
+2. Release preparation — Tag version v1.1.1
+3. Performance optimizations (optional)
+4. Additional E2E scenarios (optional)

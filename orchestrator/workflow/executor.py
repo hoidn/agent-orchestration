@@ -161,17 +161,28 @@ class WorkflowExecutor:
                     should_execute = self.condition_evaluator.evaluate(step['when'], variables)
                 except Exception as e:
                     # Condition evaluation error - record and skip
+                    error_info = {
+                        'message': f"Condition evaluation failed: {e}",
+                        'context': {'condition': step['when']}
+                    }
                     result = {
                         'status': 'failed',
                         'exit_code': 2,
-                        'error': {
-                            'message': f"Condition evaluation failed: {e}",
-                            'context': {'condition': step['when']}
-                        }
+                        'error': error_info
                     }
                     if 'steps' not in state:
                         state['steps'] = {}
                     state['steps'][step_name] = result
+
+                    # Persist to state manager
+                    from ..state import StepResult
+                    step_result = StepResult(
+                        status='failed',
+                        exit_code=2,
+                        error=error_info
+                    )
+                    self.state_manager.update_step(step_name, step_result)
+
                     step_index += 1
                     continue
 
@@ -185,6 +196,16 @@ class WorkflowExecutor:
                     if 'steps' not in state:
                         state['steps'] = {}
                     state['steps'][step_name] = result
+
+                    # Persist to state manager
+                    from ..state import StepResult
+                    step_result = StepResult(
+                        status='skipped',
+                        exit_code=0,
+                        skipped=True
+                    )
+                    self.state_manager.update_step(step_name, step_result)
+
                     step_index += 1
                     continue
 
@@ -195,6 +216,16 @@ class WorkflowExecutor:
             # Execute based on step type
             if 'for_each' in step:
                 state = self._execute_for_each(step, state, resume=resume)
+                # Persist the for_each summary array to state manager
+                # The for_each method already updates individual iteration results,
+                # but we also need to persist the summary array result
+                if step_name in state['steps']:
+                    loop_results = state['steps'][step_name]
+                    # Update state manager with the loop results array
+                    # This ensures the array is persisted to disk and tests can access
+                    # state['steps']['ProcessFiles'] as expected
+                    if isinstance(loop_results, list):
+                        self.state_manager.update_loop_results(step_name, loop_results)
             elif 'wait_for' in step:
                 state = self._execute_wait_for(step, state)
             elif 'provider' in step:
@@ -710,13 +741,23 @@ class WorkflowExecutor:
                 output_file_str = self.variable_substitutor.substitute(step['output_file'], variables)
                 output_file = Path(output_file_str)
 
+            # Convert output_capture string to CaptureMode enum
+            from ..exec.output_capture import CaptureMode
+            capture_mode_str = step.get('output_capture', 'text')
+            if capture_mode_str == 'text':
+                capture_mode = CaptureMode.TEXT
+            elif capture_mode_str == 'lines':
+                capture_mode = CaptureMode.LINES
+            else:
+                capture_mode = CaptureMode.JSON
+
             # Execute command
             result = self.step_executor.execute_command(
                 step_name=step.get('name', 'command'),
                 command=command,
                 env=step.get('env'),
                 timeout_sec=step.get('timeout_sec'),
-                output_capture=step.get('output_capture', 'text'),
+                output_capture=capture_mode,
                 output_file=output_file,
                 allow_parse_error=step.get('allow_parse_error', False)
             )

@@ -324,6 +324,22 @@ class StateManager:
         self.state.steps[key] = result
         self._write_state()
 
+    def update_loop_results(self, loop_name: str, loop_results: List[Dict[str, Any]]):
+        """Update for_each loop results array.
+
+        Stores the array of iteration results as steps.<LoopName> per specs.
+
+        Args:
+            loop_name: Name of the for_each loop
+            loop_results: Array of iteration result dictionaries
+        """
+        if not self.state:
+            raise RuntimeError("State not initialized")
+
+        # Store the loop results array directly
+        self.state.steps[loop_name] = loop_results
+        self._write_state()
+
     def update_for_each(self, loop_name: str, state: ForEachState):
         """Update for_each loop state.
 
