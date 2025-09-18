@@ -108,6 +108,8 @@ For E2E execution guidance, see `tests/README.md` and informative narratives in 
 
 73. Prompt literal contents: `input_file` contents are read and passed literally; the orchestrator must not substitute variables inside file contents. Dependency injection may modify the composed prompt in-memory without mutating the source file.
 
+74. E2E test observability: When `ORCHESTRATE_E2E_VERBOSE=1` is set, E2E tests display real-time agent I/O including composed prompts, command executions, and agent responses; test output includes clear section headers and maintains readability while showing diagnostic information.
+
 ## Supplemental: E2E Validation (Non‑Normative)
 
 Status: Non‑normative, process/release gate. These items validate the presence and minimal viability of end‑to‑end tests using real provider CLIs. They must be segregated from the main suite and skipped by default when CLIs/secrets are unavailable. See `docs/ci-e2e.md` for suggested CI wiring.

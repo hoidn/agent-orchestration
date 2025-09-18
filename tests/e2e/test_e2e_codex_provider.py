@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from tests.e2e.conftest import skip_if_no_e2e, skip_if_no_cli
+from tests.e2e.reporter import reporter
 
 
 @pytest.mark.e2e
@@ -52,14 +53,15 @@ steps:
     # Create artifacts directory
     (e2e_workspace / "artifacts" / "engineer").mkdir(parents=True, exist_ok=True)
 
-    # Run the workflow
+    # Start reporting
+    reporter.section("E2E-03: Codex Provider Test (stdin mode)")
+
+    # Run the workflow with reporting
     orchestrate_path = Path(__file__).parent.parent.parent / "orchestrate"
-    result = subprocess.run(
-        ["python", str(orchestrate_path), "run", str(workflow_path)],
-        capture_output=True,
-        text=True,
-        cwd=str(e2e_workspace),
-        env={**os.environ, "ORCHESTRATE_E2E": "1"}  # Ensure E2E is enabled
+    result = reporter.run_workflow_with_reporting(
+        orchestrate_path=orchestrate_path,
+        workflow_path=workflow_path,
+        workspace=e2e_workspace
     )
 
     # Expected outcomes per E2E-03:
@@ -78,6 +80,9 @@ steps:
             break
 
     assert run_id, f"Run ID not found in output. stdout: {result.stdout}, stderr: {result.stderr}"
+
+    # Inspect run artifacts
+    reporter.inspect_run_artifacts(e2e_workspace, run_id, "PingWithCodex")
 
     # Check state file in the correct location
     state_file = e2e_workspace / ".orchestrate" / "runs" / run_id / "state.json"
@@ -105,6 +110,9 @@ steps:
     artifact_file = e2e_workspace / "artifacts" / "engineer" / "execution_log.txt"
     assert artifact_file.exists(), "Artifact file should exist"
     assert artifact_file.read_text().strip(), "Artifact file should be non-empty"
+
+    # Display created artifacts
+    reporter.artifacts(e2e_workspace)
 
 
 @pytest.mark.e2e
@@ -154,13 +162,15 @@ steps:
     workflow_path = e2e_workspace / "workflows" / "codex_injection.yaml"
     workflow_path.write_text(workflow_content)
 
-    # Run the workflow
+    # Start reporting
+    reporter.section("E2E-03: Codex Provider Test with Injection")
+
+    # Run the workflow with reporting
     orchestrate_path = Path(__file__).parent.parent.parent / "orchestrate"
-    result = subprocess.run(
-        ["python", str(orchestrate_path), "run", str(workflow_path)],
-        capture_output=True,
-        text=True,
-        cwd=str(e2e_workspace)
+    result = reporter.run_workflow_with_reporting(
+        orchestrate_path=orchestrate_path,
+        workflow_path=workflow_path,
+        workspace=e2e_workspace
     )
 
     assert result.returncode == 0, f"Workflow should execute successfully: {result.stderr}"

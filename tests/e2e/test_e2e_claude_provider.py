@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from tests.e2e.conftest import skip_if_no_e2e, skip_if_no_cli
+from tests.e2e.reporter import reporter
 
 
 @pytest.mark.e2e
@@ -54,14 +55,15 @@ steps:
     # Create artifacts directory
     (e2e_workspace / "artifacts" / "architect").mkdir(parents=True, exist_ok=True)
 
-    # Run the workflow
+    # Start reporting
+    reporter.section("E2E-02: Claude Provider Test (argv mode)")
+
+    # Run the workflow with reporting
     orchestrate_path = Path(__file__).parent.parent.parent / "orchestrate"
-    result = subprocess.run(
-        ["python", str(orchestrate_path), "run", str(workflow_path)],
-        capture_output=True,
-        text=True,
-        cwd=str(e2e_workspace),
-        env={**os.environ, "ORCHESTRATE_E2E": "1"}  # Ensure E2E is enabled
+    result = reporter.run_workflow_with_reporting(
+        orchestrate_path=orchestrate_path,
+        workflow_path=workflow_path,
+        workspace=e2e_workspace
     )
 
     # Expected outcomes per E2E-02:
@@ -77,6 +79,9 @@ steps:
     run_id_match = re.search(r"Created new run: ([a-zA-Z0-9\-]+)", result.stderr)
     assert run_id_match, f"Could not find run ID in output: {result.stderr}"
     run_id = run_id_match.group(1)
+
+    # Inspect run artifacts
+    reporter.inspect_run_artifacts(e2e_workspace, run_id, "GenerateWithClaude")
 
     # Check state file in run-specific directory
     state_file = e2e_workspace / ".orchestrate" / "runs" / run_id / "state.json"
@@ -104,6 +109,9 @@ steps:
     artifact_file = e2e_workspace / "artifacts" / "architect" / "execution_log.txt"
     assert artifact_file.exists(), "Artifact file should exist"
     assert artifact_file.read_text().strip(), "Artifact file should be non-empty"
+
+    # Display created artifacts
+    reporter.artifacts(e2e_workspace)
 
 
 @pytest.mark.e2e
@@ -143,13 +151,15 @@ steps:
     workflow_path = e2e_workspace / "workflows" / "claude_params.yaml"
     workflow_path.write_text(workflow_content)
 
-    # Run the workflow
+    # Start reporting
+    reporter.section("E2E-02: Claude Provider Test with Parameters")
+
+    # Run the workflow with reporting
     orchestrate_path = Path(__file__).parent.parent.parent / "orchestrate"
-    result = subprocess.run(
-        ["python", str(orchestrate_path), "run", str(workflow_path)],
-        capture_output=True,
-        text=True,
-        cwd=str(e2e_workspace)
+    result = reporter.run_workflow_with_reporting(
+        orchestrate_path=orchestrate_path,
+        workflow_path=workflow_path,
+        workspace=e2e_workspace
     )
 
     assert result.returncode == 0, f"Workflow should execute successfully: {result.stderr}"
