@@ -40,6 +40,99 @@ Best practices:
 - Use `inbox/` for agent work queues; keep lifecycle explicit in steps.
 - Prefer `depends_on` + `inject` over shell-concatenated prompts.
 
+## Templating Prompts (Informative)
+
+The orchestrator does not substitute variables inside file contents (see specs/variables.md). To generate a concrete prompt from a template, create it in a prior step, then reference the generated file via `input_file`.
+
+### Option A: envsubst for `$VAR`/`${VAR}` tokens
+
+Template (prompts/template.md):
+```
+Hello $AUTHOR,
+Build $BUILD_ID for project $PROJECT.
+```
+
+Workflow steps:
+```yaml
+steps:
+  - name: PreparePrompt
+    command:
+      - bash
+      - -lc
+      - |
+        set -euo pipefail
+        export PROJECT='${context.project}' BUILD_ID='${context.build_id}' AUTHOR='${context.author}'
+        mkdir -p temp
+        envsubst '$PROJECT $BUILD_ID $AUTHOR' < prompts/template.md > temp/prompt_${context.build_id}.md
+
+  - name: AskClaude
+    provider: claude
+    provider_params: { model: "claude-sonnet-4-20250514" }
+    input_file: "temp/prompt_${context.build_id}.md"
+    output_capture: text
+```
+
+Notes:
+- Passing an explicit list to envsubst (e.g., `$PROJECT $BUILD_ID $AUTHOR`) avoids accidental replacement of other `$…` tokens.
+- Keep prompts/ on disk generic; generate concrete prompts in temp/.
+
+### Option B: Tiny reusable script (Python string.Template)
+
+Script (scripts/subst.py):
+```python
+#!/usr/bin/env python3
+import argparse, os, sys
+from string import Template
+
+p = argparse.ArgumentParser()
+p.add_argument("--in", dest="src", required=True)
+p.add_argument("--out", dest="dst", required=True)
+p.add_argument("kv", nargs="*")  # KEY=VALUE pairs
+args = p.parse_args()
+
+vars = {}
+for pair in args.kv:
+    if "=" not in pair:
+        sys.exit(f"Invalid KV: {pair}")
+    k,v = pair.split("=",1)
+    vars[k] = v
+
+with open(args.src, "r", encoding="utf-8") as f:
+    text = f.read()
+
+out = Template(text).safe_substitute(vars)
+os.makedirs(os.path.dirname(args.dst), exist_ok=True)
+with open(args.dst, "w", encoding="utf-8") as f:
+    f.write(out)
+```
+
+Workflow steps:
+```yaml
+steps:
+  - name: PreparePrompt
+    command:
+      - python3
+      - scripts/subst.py
+      - --in
+      - prompts/template.md
+      - --out
+      - temp/prompt_${context.build_id}.md
+      - PROJECT=${context.project}
+      - BUILD_ID=${context.build_id}
+      - AUTHOR=${context.author}
+
+  - name: AskClaude
+    provider: claude
+    provider_params: { model: "claude-sonnet-4-20250514" }
+    input_file: "temp/prompt_${context.build_id}.md"
+    output_capture: text
+```
+
+Why this pattern:
+- Complies with literal file semantics (no engine substitution in file contents).
+- Keeps templates reusable; moves concrete data binding to a pre-step.
+- Works with argv and stdin providers (Codex reads the prompt from stdin; the pattern is the same).
+
 ## QA Verdict Pattern (non‑normative)
 
 - Prompt and schema:
@@ -55,4 +148,3 @@ Best practices:
 
 Notes:
 - These patterns keep control flow deterministic without parsing prose. They complement (but do not depend on) the planned v1.3 hooks (`output_schema`, `output_require`).
-

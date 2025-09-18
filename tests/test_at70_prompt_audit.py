@@ -37,8 +37,10 @@ steps:
     output_capture: text
 """)
 
-        # Write prompt that will contain the secret through variable substitution
-        prompt_file.write_text("Testing with context: ${context.api_key}")
+        # Write prompt that will contain the secret directly (to test masking)
+        # AT-73: Variables in prompt files are NOT substituted, so if we want to test masking,
+        # the secret value needs to be literally in the file
+        prompt_file.write_text("Testing with context: super-secret-value-123")
 
         # Run orchestrator with debug mode
         from orchestrator.loader import WorkflowLoader
@@ -172,10 +174,10 @@ steps:
     output_capture: text
 """)
 
-        # Write prompt with multiple secrets via context
+        # Write prompt with multiple secrets directly (AT-73: no variable substitution)
         prompt_file.write_text("""
-API Key: ${context.key}
-Database: ${context.db}
+API Key: api-secret-456
+Database: database-pwd-789
 Regular text here
 """)
 

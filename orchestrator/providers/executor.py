@@ -303,21 +303,21 @@ class ProviderExecutor:
             processed = token.replace('$$', '\x00')  # Temp marker for literal $
             processed = processed.replace('$${', '\x01{')  # Temp marker for literal ${
 
-            # Handle ${PROMPT} specially
-            if "${PROMPT}" in processed:
+            # Check for ${PROMPT} before substituting other variables
+            # AT-73: Prompt content is literal and should not be scanned for variables
+            has_prompt = "${PROMPT}" in processed
+
+            if has_prompt:
                 if provider.input_mode == InputMode.STDIN:
                     # AT-49: ${PROMPT} not allowed in stdin mode
                     invalid_prompt = True
                     logger.error(f"Provider '{provider.name}': ${{PROMPT}} not allowed in stdin mode")
-                elif prompt:
-                    processed = processed.replace("${PROMPT}", prompt)
-                # If no prompt in argv mode, that's allowed (AT-50)
 
-            # Substitute other placeholders
+            # Substitute non-PROMPT placeholders first (before injecting literal prompt)
             for match in var_pattern.finditer(processed):
                 var = match.group(1)
                 if var == "PROMPT":
-                    continue  # Already handled
+                    continue  # Handle separately to avoid scanning prompt content
 
                 # Check provider params first
                 if var in params:
@@ -328,6 +328,11 @@ class ProviderExecutor:
                 else:
                     # AT-48: Missing placeholder
                     missing.add(var)
+
+            # Now substitute ${PROMPT} with literal prompt content (AT-73)
+            # This happens AFTER other substitutions to avoid scanning prompt for variables
+            if has_prompt and provider.input_mode != InputMode.STDIN and prompt:
+                processed = processed.replace("${PROMPT}", prompt)
 
             # Restore escaped literals
             processed = processed.replace('\x00', '$')

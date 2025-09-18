@@ -1,13 +1,13 @@
 # Fix Plan - Multi-Agent Orchestrator Implementation
 
 ## Status Summary
-- **Core Acceptance Tests**: 72/72 completed (100%)
+- **Core Acceptance Tests**: 73/73 completed (100%)
 - **E2E Validation Tests**: 3/3 completed (100%)
-- **Test Suite**: 290 tests passing + 10 E2E tests (4 provider tests active)
+- **Test Suite**: 295 tests passing + 10 E2E tests (4 provider tests active)
 - **Release Status**: READY FOR RELEASE
-  - All normative acceptance tests complete
+  - All normative acceptance tests complete (including AT-73 test fixes)
   - All E2E validation tests complete
-  - Zero known bugs or failures
+  - Zero known bugs or failures in acceptance tests
 
 ## Completed
 
@@ -208,19 +208,23 @@
    - Full test suite: 254 tests passing (no regressions)
    - DoD: Error handling and control flow fully functional per specifications
 
+## Completed (Continued 6)
+
+✅ **AT-73: Prompt literal contents** — COMPLETED — acceptance: AT-73
+   - input_file contents are read and passed literally without variable substitution
+   - Removed variable substitution from prompt text in orchestrator/workflow/executor.py:827,880
+   - Fixed provider executor to not scan prompt content for variables after ${PROMPT} substitution
+   - Updated AT-70 tests to expect literal prompt content (masking still works on actual secrets)
+   - Fixed test infrastructure issues in test_at73_prompt_literal_contents.py:
+     - Fixed stdin mode test double-encode bug (handle bytes properly)
+     - Fixed loop context test workflow structure (steps inside for_each)
+     - Fixed prompt capture for argv mode (capture from command array)
+   - Tests: Complete test suite in test_at73_prompt_literal_contents.py (5 tests ALL passing)
+   - DoD: input_file contents are passed literally; ${...} patterns preserved in prompts
+
 ## Top-10 Priority Items (Next Loops)
 
-1. Providers: prompt literal semantics (no substitution of input_file contents) — status: [ ] — spec: io.md, variables.md — acceptance: AT-73
-   - Rationale: Ensure the engine reads prompt files literally per spec, avoiding unintended mutation and preserving reproducibility/auditability.
-   - Evidence: orchestrator/workflow/executor.py:857–879 substitutes variables inside prompt text read from input_file.
-   - Boundary: Executor
-   - Tasks:
-     - Remove variable substitution over prompt text; keep depends_on injection in-memory and prompt audit with masking.
-     - Add tests for AT-73 in argv and stdin modes: prompt body remains literal; with injection enabled, prompt body remains unchanged and injected material appears.
-   - Definition of Done:
-     - Steps using input_file receive literal content (e.g., "${context.project}" not resolved in body); prompt audit written with masked secrets.
-
-2. Commands: map output_capture string → enum before execution — status: [ ] — spec: io.md — acceptance: AT-1, AT-2, AT-45, AT-52
+1. Commands: map output_capture string → enum before execution — status: [ ] — spec: io.md — acceptance: AT-1, AT-2, AT-45, AT-52
    - Rationale: Prevent runtime capture-mode errors and ensure truncation/tee semantics function for command steps across text/lines/json.
    - Evidence: workflow path passes 'text'|'lines'|'json' directly to StepExecutor → OutputCapture expects CaptureMode enum.
    - Boundary: Executor

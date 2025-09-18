@@ -257,7 +257,8 @@ class WorkflowExecutor:
 
         # Update run status to completed when workflow finishes successfully
         self.state_manager.update_status('completed')
-        return state
+        # Return the updated state
+        return self.state_manager.load().to_dict()
 
     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
         """
@@ -823,8 +824,9 @@ class WorkflowExecutor:
                 if key not in ['run', 'context', 'steps', 'loop', 'item']:
                     variables[key] = value
 
-            # Substitute variables in the prompt
-            prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
+            # AT-73: Do NOT substitute variables in prompt text (input_file contents are literal)
+            # The spec states: "input_file: read literal contents; no substitution inside file contents"
+            # prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
 
             # Apply dependency injection if configured (AT-28-35,53)
             inject_config = depends_on.get('inject', False)
@@ -876,8 +878,9 @@ class WorkflowExecutor:
                 if key not in ['run', 'context', 'steps', 'loop', 'item']:
                     variables[key] = value
 
-            # Substitute variables in the prompt
-            prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
+            # AT-73: Do NOT substitute variables in prompt text (input_file contents are literal)
+            # The spec states: "input_file: read literal contents; no substitution inside file contents"
+            # prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
 
         # AT-70: Prompt audit with debug mode (when no dependencies)
         if self.debug and prompt:
