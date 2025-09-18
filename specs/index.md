@@ -24,6 +24,7 @@ Status: Normative master. This index defines scope, versioning, conformance, and
   - Security and Path Safety: `security.md`
   - Versioning and Migration: `versioning.md`
   - Acceptance Tests: `acceptance/index.md`
+  - Examples (informative): `examples/` (see `examples/e2e.md`); E2E execution guide: `../tests/README.md`
 
 - Out of scope
   - Concurrency/parallel blocks, while loops, complex expressions, event-driven triggers (beyond polling via wait_for).

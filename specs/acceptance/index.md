@@ -1,5 +1,7 @@
 # Acceptance Tests (Normative)
 
+For E2E execution guidance, see `tests/README.md` and informative narratives in `specs/examples/e2e.md`.
+
 - Conformance areas
   - DSL validation: version gating, mutual exclusivity, `goto` target validation, strict unknown-field rejection.
   - Variable substitution: namespaces, escapes, undefined variable handling.
