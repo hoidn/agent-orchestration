@@ -243,7 +243,7 @@ def run_workflow(args: Namespace) -> int:
         )
 
         # Create new run
-        run_state = state_manager.initialize(workflow_path.name, context)
+        run_state = state_manager.initialize(str(workflow_path.relative_to(workspace)), context)
         logger.info(f"Created new run: {run_state.run_id}")
 
         # Execute workflow

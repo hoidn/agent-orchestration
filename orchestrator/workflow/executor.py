@@ -255,6 +255,8 @@ class WorkflowExecutor:
                 # Continue to next step
                 step_index += 1
 
+        # Update run status to completed when workflow finishes successfully
+        self.state_manager.update_status('completed')
         return state
 
     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:

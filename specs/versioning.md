@@ -122,3 +122,16 @@ Planned acceptance:
 | 1.1.1 | `depends_on.inject` (list/content/none), injection truncation recording | Workflows must declare `version: "1.1.1"` to use `inject`. |
 | 1.2 (planned) | `for_each.on_item_complete` declarative per‑item lifecycle (move_to on success/failure) | Opt‑in; path safety and substitution apply. State gains per‑iteration `lifecycle` fields; state schema will bump accordingly when released. |
 | 1.3 (planned) | JSON output validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |
+## Provider Token Variables (v1.2 planned)
+
+Status: Planned future feature. Opt‑in, version‑gated.
+
+Purpose:
+- Enable referencing `${run.*}`, `${context.*}`, `${loop.*}`, and `${steps.*}` directly in provider command template tokens (argv or stdin mode, as applicable) in addition to `${PROMPT}` and `${<provider_param>}`.
+
+Version gating:
+- Requires `version: "1.2"` or higher. Using these namespaces inside template tokens at lower versions is not required by this spec and may be rejected at validation time by implementations that choose to enforce it.
+
+Notes:
+- Provider params substitution (including nested structures) remains available in v1.1 / v1.1.1 (AT‑44).
+- File contents (`input_file`) continue to be read literally in all versions; variable substitution is not performed inside file contents.

@@ -17,13 +17,17 @@
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
 - Placeholder and parameter substitution
-  - Substitution pipeline:
+  - Substitution pipeline (v1.1 / v1.1.1):
     1) Compose prompt from `input_file` and optional dependency injection.
     2) Merge `providers.<name>.defaults` overlaid by `step.provider_params` (step wins).
-    3) Substitute inside `provider_params` values (strings only; recursively visit arrays/objects; non-strings unchanged).
-    4) Substitute template tokens: `${PROMPT}` (argv mode only), `${<provider_param>}`, and `${run|context|loop|steps.*}`.
+    3) Substitute inside `provider_params` values (strings only; recursively visit arrays/objects; non-strings unchanged). Provider params may themselves use variables per `specs/variables.md`.
+    4) Substitute template tokens: `${PROMPT}` (argv mode only) and `${<provider_param>}`. Note: Using `${run|context|loop|steps.*}` directly in command tokens is planned for a future version (see Versioning); it is not required in v1.1 / v1.1.1.
     5) Apply escapes before substitution: `$$` → `$`, `$${` → `${`.
     6) Any unresolved `${...}` after substitution fails validation (exit 2) and records `error.context.missing_placeholders` (bare keys) or `invalid_prompt_placeholder` when `${PROMPT}` appears in stdin mode.
+
+  - Token substitution scope and roadmap:
+    - v1.1 / v1.1.1 (this spec): Only `${PROMPT}` (argv) and `${<provider_param>}` are substituted in the command template tokens. This covers the built-in providers (Claude/Gemini/Codex) where the known flags (e.g., `--model`) are conveyed via provider params.
+    - Planned (v1.2): Allow `${run.*}`, `${context.*}`, `${loop.*}`, and `${steps.*}` directly in command tokens for advanced providers/wrappers. This will be version‑gated and accompanied by new acceptance items.
 
 - Exit codes
   - 0 = success

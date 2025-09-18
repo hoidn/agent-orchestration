@@ -174,21 +174,19 @@ class ProviderExecutor:
         try:
             # Prepare stdin if needed
             stdin_input = None
-            stdin_pipe = None
             if invocation.input_mode == InputMode.STDIN and invocation.prompt:
                 stdin_input = invocation.prompt.encode('utf-8')
-                stdin_pipe = subprocess.PIPE
 
             logger.debug(f"Executing command: {invocation.command}")
             if invocation.input_mode == InputMode.STDIN:
                 logger.debug(f"Using stdin mode, prompt size: {len(invocation.prompt or '')} bytes")
 
             # Execute command
+            # Note: We use 'input' parameter for stdin content, not both 'stdin' and 'input'
             result = subprocess.run(
                 invocation.command,
                 cwd=str(working_dir),
                 env=process_env,
-                stdin=stdin_pipe,
                 input=stdin_input,
                 capture_output=True,
                 timeout=invocation.timeout_sec,

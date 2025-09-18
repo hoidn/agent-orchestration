@@ -106,6 +106,8 @@ For E2E execution guidance, see `tests/README.md` and informative narratives in 
 
 72. Provider state persistence: after executing a provider step, `steps.<Name>` is persisted to `state.json` with `exit_code`, captured output per mode, and any `error`/`debug` fields; after reload (`state_manager.load()`), the provider result is present and unchanged.
 
+73. Prompt literal contents: `input_file` contents are read and passed literally; the orchestrator must not substitute variables inside file contents. Dependency injection may modify the composed prompt in-memory without mutating the source file.
+
 ## Supplemental: E2E Validation (Non‑Normative)
 
 Status: Non‑normative, process/release gate. These items validate the presence and minimal viability of end‑to‑end tests using real provider CLIs. They must be segregated from the main suite and skipped by default when CLIs/secrets are unavailable. See `docs/ci-e2e.md` for suggested CI wiring.
