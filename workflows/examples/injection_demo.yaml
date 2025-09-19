@@ -5,10 +5,8 @@ version: "1.1.1"
 
 providers:
   - name: claude
-    command: ["claude", "--model", "${model}", "-p", "${PROMPT}"]
+    command: ["claude", "-p", "${PROMPT}"]  # Basic form, or add --model ${model} if needed
     input_mode: "argv"
-    defaults:
-      model: "claude-sonnet-3.5"
 
 steps:
   # AT-28,53: Basic injection with shorthand (inject: true)

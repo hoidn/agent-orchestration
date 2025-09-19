@@ -43,8 +43,9 @@
   - When `timeout_sec` is set, the orchestrator enforces it: sends a graceful termination signal and then a hard kill after a short grace period. Records exit code `124` and timeout context in state.
 
 - Examples
-  - Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-sonnet-4-20250514" }`.
-  - Codex CLI: `command: ["codex","exec","--model","${model}","--dangerously-bypass-approvals-and-sandbox"]`, `input_mode: 'stdin'` (prompt via stdin).
+  - Claude (basic): `command: ["claude","-p","${PROMPT}"]` - simplest form, uses CLI's default model
+  - Claude (with model): `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-3-5-sonnet-20241022" }` - optionally specify model
+  - Codex CLI: `command: ["codex","exec","--dangerously-bypass-approvals-and-sandbox"]`, `input_mode: 'stdin'` (prompt via stdin).
 
 ## Direct CLI Integration (details)
 

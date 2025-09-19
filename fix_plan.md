@@ -466,6 +466,14 @@
   - Tests: 9 tests in test_at74_e2e_observability.py all passing
   - Full test suite: 308 tests passing (299 + 9 new)
 
+✅ **Provider Documentation Updates** — COMPLETED
+  - Updated `specs/providers.md` with clearer Claude CLI examples
+  - Added basic form: `["claude", "-p", "${PROMPT}"]` as primary example
+  - Clarified that `--model` is optional but supported
+  - Removed `--max-tokens` from examples (never used in practice)
+  - Created example workflows showing both basic and model-specific usage
+  - Fixed example workflows to use correct Claude CLI syntax
+
 ## Next Loop Recommendation
 
 **Project was COMPLETE for v1.1.1 (73/73 tests passing)**

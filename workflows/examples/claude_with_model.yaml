@@ -1,0 +1,26 @@
+# Example: Claude provider with model selection
+# Shows how to optionally specify a model
+
+version: "1.1"
+name: claude_model_example
+
+providers:
+  claude:
+    command: ["claude", "-p", "${PROMPT}", "--model", "${model}"]
+    input_mode: argv
+    defaults:
+      model: "claude-3-5-sonnet-20241022"  # Can be overridden per step
+
+steps:
+  - name: CodeReview
+    provider: claude
+    input_file: prompts/review_code.md
+    output_capture: text
+    # Uses default model from provider
+
+  - name: QuickCheck
+    provider: claude
+    input_file: prompts/quick_check.md
+    provider_params:
+      model: "claude-3-5-haiku-20241022"  # Override with faster model
+    output_capture: text
