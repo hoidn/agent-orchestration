@@ -1,0 +1,56 @@
+# Example workflow demonstrating AT-70: Prompt audit with debug mode
+# Run with: ./orchestrate run workflows/examples/prompt_audit_demo.yaml --debug
+#
+# When run with --debug, this will create:
+# - .orchestrate/runs/<run_id>/logs/AnalyzeDesign.prompt.txt
+# - .orchestrate/runs/<run_id>/logs/ImplementFeature.prompt.txt
+#
+# These audit files will contain the composed prompts with any secrets masked as '***'
+
+version: "1.1.1"
+
+providers:
+  architect:
+    command: ["echo", "Architect response: ${PROMPT}"]
+    input_mode: "argv"
+    defaults:
+      model: "test-model"
+
+  engineer:
+    command: ["cat"]  # Just echo back the stdin
+    input_mode: "stdin"
+    defaults:
+      model: "test-model"
+
+steps:
+  - name: PrepareDesignDocs
+    command: |
+      mkdir -p artifacts/architect
+      echo "System architecture design" > artifacts/architect/design.md
+      echo "API specification" > artifacts/architect/api.md
+    output_capture: text
+
+  - name: AnalyzeDesign
+    provider: architect
+    input_file: prompts/analyze.md
+    secrets: ["OPENAI_API_KEY"]  # If this env var exists, it will be masked
+    env:
+      PROJECT_NAME: "MyProject"  # This won't be masked unless also in secrets
+    output_capture: text
+
+  - name: PreparePrompt
+    command: |
+      mkdir -p prompts
+      echo "Implement based on: ${context.feature_name}" > prompts/implement.md
+    output_capture: text
+
+  - name: ImplementFeature
+    provider: engineer
+    input_file: prompts/implement.md
+    depends_on:
+      required: ["artifacts/architect/*.md"]
+      inject:
+        mode: "list"
+        instruction: "Use these architecture documents as reference:"
+        position: "prepend"
+    output_capture: text

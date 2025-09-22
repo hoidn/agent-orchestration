@@ -1,0 +1,16 @@
+# Test workflow for AT-7 and AT-10 validation
+version: "1.1"
+name: "validation test"
+
+steps:
+  - name: valid_command_step
+    command: ["echo", "This is valid"]
+
+  # This would fail AT-7 (env namespace not allowed):
+  # - name: invalid_env_usage
+  #   command: ["echo", "${env.HOME}"]
+
+  # This would fail AT-10 (provider/command exclusivity):
+  # - name: invalid_both
+  #   provider: "claude"
+  #   command: ["echo", "test"]

@@ -1,0 +1,35 @@
+version: "1.1"
+name: "Retry Demo Workflow"
+description: "Demonstrates retry behavior for AT-20, AT-21"
+
+providers:
+  echo_provider:
+    template: "echo ${PROMPT}"
+    defaults:
+      model: "test"
+
+steps:
+  # Provider step with retry on failure
+  - name: ProviderWithRetry
+    provider: echo_provider
+    input_file: test_prompt.txt
+    output_capture: text
+
+  # Command without retries (should fail immediately)
+  - name: CommandNoRetry
+    command: "false"
+    output_capture: text
+
+  # Command with explicit retries
+  - name: CommandWithRetry
+    command: "echo 'Testing retry'"
+    retries:
+      max: 2
+      delay_ms: 100
+    output_capture: text
+
+  # Timeout example
+  - name: TimeoutStep
+    command: "sleep 10"
+    timeout_sec: 1
+    output_capture: text

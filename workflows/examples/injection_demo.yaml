@@ -1,0 +1,101 @@
+# Example workflow demonstrating dependency injection (v1.1.1 feature)
+# AT-28-35,53: Dependency injection with various modes and configurations
+
+version: "1.1.1"
+
+providers:
+  - name: claude
+    command: ["claude", "-p", "${PROMPT}"]  # Basic form, or add --model ${model} if needed
+    input_mode: "argv"
+
+steps:
+  # AT-28,53: Basic injection with shorthand (inject: true)
+  - name: basic_injection
+    provider: claude
+    input_file: "prompts/implement.md"
+    depends_on:
+      required:
+        - "artifacts/architect/*.md"
+      inject: true  # Shorthand for {mode: "list", position: "prepend"}
+    output_capture: text
+
+  # AT-29,31: List mode with custom instruction
+  - name: list_with_instruction
+    provider: claude
+    input_file: "prompts/review.md"
+    depends_on:
+      required:
+        - "src/**/*.py"
+      optional:
+        - "tests/*.py"
+      inject:
+        mode: "list"
+        instruction: "Review the following Python files for issues:"
+        position: "prepend"
+    output_capture: lines
+
+  # AT-30: Content mode injection
+  - name: content_injection
+    provider: claude
+    input_file: "prompts/analyze.md"
+    depends_on:
+      required:
+        - "data/metrics.json"
+        - "data/report.csv"
+      inject:
+        mode: "content"
+        instruction: "Analyze the following data files:"
+    output_capture: json
+
+  # AT-32: Append position injection
+  - name: append_injection
+    provider: claude
+    input_file: "prompts/task.md"
+    depends_on:
+      optional:
+        - "docs/references/*.md"
+      inject:
+        mode: "list"
+        instruction: "Additional reference materials:"
+        position: "append"
+    output_capture: text
+
+  # AT-34: Optional dependencies with injection
+  - name: optional_deps
+    provider: claude
+    input_file: "prompts/generic.md"
+    depends_on:
+      required:
+        - "config.yaml"
+      optional:
+        - "config.override.yaml"  # May not exist
+        - "config.local.yaml"     # May not exist
+      inject:
+        mode: "content"
+    output_capture: text
+
+  # AT-35: Dependencies without injection
+  - name: no_injection
+    provider: claude
+    input_file: "prompts/standalone.md"
+    depends_on:
+      required:
+        - "artifacts/*.json"
+      # No inject field - dependencies are validated but not injected
+    output_capture: json
+
+  # Variable substitution in dependency patterns
+  - name: dynamic_deps
+    provider: claude
+    input_file: "prompts/process.md"
+    depends_on:
+      required:
+        - "outputs/${context.phase}/*.md"  # Variable substitution
+      inject:
+        mode: "list"
+        instruction: "Process these ${context.phase} phase outputs:"
+    output_capture: text
+
+# Usage:
+# orchestrate run workflows/examples/injection_demo.yaml \
+#   --context phase=design

@@ -1,0 +1,17 @@
+# Example: Basic Claude provider usage
+# Shows the simplest form that works with claude CLI
+
+version: "1.1"
+name: claude_basic_example
+
+providers:
+  claude:
+    command: ["claude", "-p", "${PROMPT}"]
+    input_mode: argv
+
+steps:
+  - name: GenerateDocumentation
+    provider: claude
+    input_file: prompts/document_request.md
+    output_file: artifacts/documentation.md
+    output_capture: text

@@ -1,0 +1,6 @@
+version: "1.1"
+name: bad_processed
+processed_dir: /tmp/outside_workspace
+steps:
+  - name: test
+    command: ["echo", "test"]
