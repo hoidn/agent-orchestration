@@ -33,6 +33,7 @@ class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
     SUPPORTED_VERSIONS = {"1.1", "1.1.1"}
+    SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
 
     def __init__(self, workspace: Path):
@@ -211,6 +212,10 @@ class WorkflowLoader:
                 if field in step:
                     self._validate_path_safety(step[field], f"step '{name}' {field}")
 
+            # Validate deterministic artifact contracts
+            if 'expected_outputs' in step:
+                self._validate_expected_outputs(step['expected_outputs'], name)
+
             # Validate wait_for exclusivity (AT-36)
             if 'wait_for' in step:
                 self._validate_wait_for(step, name)
@@ -298,6 +303,53 @@ class WorkflowLoader:
         conflicts = [f for f in exclusive_fields if f in step]
         if conflicts:
             self._add_error(f"Step '{name}': wait_for cannot be combined with {conflicts}")
+
+    def _validate_expected_outputs(self, expected_outputs: Any, step_name: str):
+        """Validate expected_outputs contract entries."""
+        if not isinstance(expected_outputs, list):
+            self._add_error(f"Step '{step_name}': expected_outputs must be a list")
+            return
+
+        for i, spec in enumerate(expected_outputs):
+            context = f"Step '{step_name}': expected_outputs[{i}]"
+            if not isinstance(spec, dict):
+                self._add_error(f"{context} must be a dictionary")
+                continue
+
+            if 'path' not in spec:
+                self._add_error(f"{context} missing required 'path'")
+            elif not isinstance(spec['path'], str):
+                self._add_error(f"{context} 'path' must be a string")
+            else:
+                self._validate_path_safety(spec['path'], f"{context} path")
+
+            if 'type' not in spec:
+                self._add_error(f"{context} missing required 'type'")
+            elif not isinstance(spec['type'], str):
+                self._add_error(f"{context} 'type' must be a string")
+            elif spec['type'] not in self.SUPPORTED_OUTPUT_TYPES:
+                self._add_error(
+                    f"{context} invalid expected_outputs type '{spec['type']}'"
+                )
+
+            if 'under' in spec:
+                if not isinstance(spec['under'], str):
+                    self._add_error(f"{context} 'under' must be a string")
+                else:
+                    self._validate_path_safety(spec['under'], f"{context} under")
+
+            if 'allowed' in spec:
+                if not isinstance(spec['allowed'], list):
+                    self._add_error(f"{context} 'allowed' must be a list")
+
+            if spec.get('type') == 'enum' and 'allowed' not in spec:
+                self._add_error(f"{context} enum type requires 'allowed'")
+
+            if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
+                self._add_error(f"{context} 'must_exist_target' must be a boolean")
+
+            if 'required' in spec and not isinstance(spec['required'], bool):
+                self._add_error(f"{context} 'required' must be a boolean")
 
     def _validate_when_condition(self, when: Any, step_name: str):
         """Validate when condition structure."""

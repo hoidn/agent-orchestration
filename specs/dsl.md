@@ -21,6 +21,13 @@
     - `output_file: string`
     - `output_capture: text|lines|json` (default text)
     - `allow_parse_error: boolean` (json mode only)
+    - `expected_outputs: ExpectedOutput[]` (optional deterministic artifact contracts)
+      - `path: string` (required, relative file written by the step)
+      - `type: enum|integer|float|bool|relpath` (required)
+      - `allowed: string[]` (required when `type: enum`)
+      - `under: string` (optional root for `relpath` target validation)
+      - `must_exist_target: boolean` (optional, `relpath` only)
+      - `required: boolean` (optional, default true)
   # Future (v1.3): JSON output validation (opt-in, version-gated)
   # Only valid when `version: "1.3"` or higher AND `output_capture: json` AND `allow_parse_error` is false
   - `output_schema?: string`                         # Path to JSON Schema under WORKSPACE; variables allowed

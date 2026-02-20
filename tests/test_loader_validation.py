@@ -381,3 +381,91 @@ class TestLoaderValidation:
 
         # Should load without errors
         assert len(result["steps"]) == 2
+
+    def test_expected_outputs_valid_shape(self):
+        """expected_outputs with required fields loads successfully."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "expected outputs valid",
+            "steps": [{
+                "name": "DraftPlan",
+                "provider": "codex",
+                "expected_outputs": [
+                    {
+                        "path": "state/plan_path.txt",
+                        "type": "relpath",
+                        "under": "docs/plans",
+                        "must_exist_target": True
+                    }
+                ]
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        result = self.loader.load(path)
+        assert result["steps"][0]["expected_outputs"][0]["type"] == "relpath"
+
+    def test_expected_outputs_missing_required_keys(self):
+        """expected_outputs entries must include path and type."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "missing keys",
+            "steps": [{
+                "name": "DraftPlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{"path": "state/plan_path.txt"}]
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("missing required 'type'" in str(err.message) for err in exc_info.value.errors)
+
+    def test_expected_outputs_invalid_type(self):
+        """expected_outputs type must be one of supported values."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "bad type",
+            "steps": [{
+                "name": "DraftPlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "path": "state/plan_path.txt",
+                    "type": "string"
+                }]
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("invalid expected_outputs type 'string'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_expected_outputs_under_rejects_parent_escape(self):
+        """expected_outputs under must satisfy path safety checks."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "bad under",
+            "steps": [{
+                "name": "DraftPlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "path": "state/plan_path.txt",
+                    "type": "relpath",
+                    "under": "../outside"
+                }]
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("parent directory traversal" in str(err.message) for err in exc_info.value.errors)
