@@ -140,3 +140,53 @@ def test_provider_step_persists_artifacts_when_contract_is_valid(tmp_path: Path)
     assert result["exit_code"] == 0
     assert result["status"] == "completed"
     assert result["artifacts"] == {"review_decision": "APPROVE"}
+
+
+def test_provider_failure_preserves_original_error_and_skips_contract(tmp_path: Path):
+    """Provider execution failures must not be replaced by contract_violation errors."""
+    workflow = {
+        "version": "1.1.1",
+        "name": "provider-contract-failure-preserve",
+        "steps": [{
+            "name": "Review",
+            "provider": "codex",
+            "expected_outputs": [{
+                "name": "review_decision",
+                "path": "state/review_decision.txt",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    executor.provider_executor.prepare_invocation = lambda *args, **kwargs: (SimpleNamespace(), None)
+
+    def _failing_execute(_invocation):
+        return SimpleNamespace(
+            exit_code=1,
+            stdout=b"provider failed",
+            stderr=b"boom",
+            duration_ms=1,
+            error={"type": "execution_failed", "message": "Provider execution failed"},
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.execute = _failing_execute
+
+    state = executor.execute(on_error="continue")
+    result = state["steps"]["Review"]
+
+    assert result["exit_code"] == 1
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "execution_failed"
+    assert "artifacts" not in result
+    assert result["error"]["type"] != "contract_violation"

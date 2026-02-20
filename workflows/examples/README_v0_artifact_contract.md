@@ -39,7 +39,7 @@ Optional dry-run check:
 
 ```bash
 cd ~/Documents/agent-orchestration
-orchestrate run workflows/examples/backlog_plan_execute_v0.yaml --dry-run
+python -m orchestrator run workflows/examples/backlog_plan_execute_v0.yaml --dry-run
 ```
 
 ## Known Limitations (v0)

@@ -40,7 +40,7 @@
   - When `timeout_sec` is set, the orchestrator enforces it: sends a graceful termination signal and then a hard kill after a short grace period. Records exit code `124` and timeout context in state.
 
 - Examples
-  - Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-sonnet-4-20250514" }`.
+- Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-opus-4-6" }`.
 - Codex CLI: `command: ["codex","exec","--model","${model}","--config","reasoning_effort=${reasoning_effort}"]`, `input_mode: 'stdin'` (prompt via stdin).
 
 ## Direct CLI Integration (details)
@@ -51,7 +51,7 @@ providers:
   claude:
     command: ["claude", "-p", "${PROMPT}", "--model", "${model}"]
     defaults:
-      model: "claude-sonnet-4-20250514"
+      model: "claude-opus-4-6"
   gemini:
     command: ["gemini", "-p", "${PROMPT}"]
   codex:
@@ -116,7 +116,7 @@ steps:
 
 | Provider | Command template | Input mode | Notes |
 | --- | --- | --- | --- |
-| claude | `claude -p ${PROMPT} --model ${model}` | argv | Default model via provider defaults (e.g., `claude-sonnet-4-20250514`) or CLI config/env. |
+| claude | `claude -p ${PROMPT} --model ${model}` | argv | Default model via provider defaults (e.g., `claude-opus-4-6`) or CLI config/env. |
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
 | codex | `codex exec --model ${model} --config reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.3-codex`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). |
 

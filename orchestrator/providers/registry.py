@@ -38,7 +38,7 @@ class ProviderRegistry:
             "claude": ProviderTemplate(
                 name="claude",
                 command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
-                defaults={"model": "claude-sonnet-4-20250514"},
+                defaults={"model": "claude-opus-4-6"},
                 input_mode=InputMode.ARGV
             ),
             "gemini": ProviderTemplate(

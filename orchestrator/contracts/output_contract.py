@@ -137,14 +137,14 @@ def _parse_output_value(
 
     if value_type == "bool":
         lowered = raw_value.lower()
-        if lowered in {"true", "1", "yes"}:
+        if lowered == "true":
             return True, None
-        if lowered in {"false", "0", "no"}:
+        if lowered == "false":
             return False, None
         return None, ContractViolation(
             type="invalid_bool",
-            message="Output value is not a valid boolean literal",
-            context={"value": raw_value},
+            message="Output value is not a valid boolean literal (expected true|false)",
+            context={"value": raw_value, "allowed": ["true", "false"]},
         )
 
     if value_type == "relpath":

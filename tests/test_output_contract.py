@@ -83,6 +83,31 @@ def test_validate_expected_outputs_relpath_escape_or_under_violation(tmp_path: P
     assert "path_escape" in violation_types or "outside_under_root" in violation_types
 
 
+def test_validate_expected_outputs_relpath_symlink_escape_violation(tmp_path: Path):
+    """Symlink targets escaping workspace are rejected by canonical path checks."""
+    (tmp_path / "state").mkdir()
+    (tmp_path / "artifacts").mkdir()
+    outside_target = tmp_path.parent / "outside-target.md"
+    outside_target.write_text("outside\n")
+    link_path = tmp_path / "artifacts" / "link.md"
+    link_path.symlink_to(outside_target)
+    (tmp_path / "state" / "plan_pointer.txt").write_text("artifacts/link.md\n")
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_expected_outputs(
+            [{
+                "name": "plan_path",
+                "path": "state/plan_pointer.txt",
+                "type": "relpath",
+                "under": "artifacts",
+                "must_exist_target": True,
+            }],
+            workspace=tmp_path,
+        )
+
+    assert any(v["type"] == "path_escape" for v in exc_info.value.violations)
+
+
 def test_validate_expected_outputs_missing_non_required_file_is_allowed(tmp_path: Path):
     """Missing files are ignored when required is explicitly false."""
     specs = [{
@@ -94,6 +119,18 @@ def test_validate_expected_outputs_missing_non_required_file_is_allowed(tmp_path
 
     artifacts = validate_expected_outputs(specs, workspace=tmp_path)
     assert artifacts == {}
+
+
+def test_validate_expected_outputs_rejects_non_strict_bool_tokens(tmp_path: Path):
+    """Only true/false bool tokens are accepted."""
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "approved.txt").write_text("1\n")
+    specs = [{"name": "approved_flag", "path": "state/approved.txt", "type": "bool"}]
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_expected_outputs(specs, workspace=tmp_path)
+
+    assert any(v["type"] == "invalid_bool" for v in exc_info.value.violations)
 
 
 def test_validate_expected_outputs_rejects_duplicate_artifact_names(tmp_path: Path):

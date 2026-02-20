@@ -25,6 +25,7 @@
       - `name: string` (required artifact key exposed as `steps.<Step>.artifacts.<name>`)
       - `path: string` (required, relative file written by the step)
       - `type: enum|integer|float|bool|relpath` (required)
+      - `bool` token policy: only `true`/`false` (case-insensitive)
       - `allowed: string[]` (required when `type: enum`)
       - `under: string` (optional root for `relpath` target validation)
       - `must_exist_target: boolean` (optional, `relpath` only)

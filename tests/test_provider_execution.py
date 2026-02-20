@@ -37,7 +37,7 @@ class TestProviderRegistry:
         assert claude.name == "claude"
         assert claude.input_mode == InputMode.ARGV
         assert "${PROMPT}" in " ".join(claude.command)
-        assert claude.defaults.get("model") == "claude-sonnet-4-20250514"
+        assert claude.defaults.get("model") == "claude-opus-4-6"
 
         # Check codex template (stdin mode)
         codex = registry.get("codex")
@@ -89,7 +89,7 @@ class TestProviderRegistry:
 
         # Get claude with defaults
         defaults = registry.merge_params("claude", None)
-        assert defaults["model"] == "claude-sonnet-4-20250514"
+        assert defaults["model"] == "claude-opus-4-6"
 
         # Override with step params
         step_params = {"model": "claude-3-5-sonnet"}
