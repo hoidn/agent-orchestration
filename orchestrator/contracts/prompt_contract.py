@@ -1,0 +1,31 @@
+"""Prompt rendering for deterministic output contract instructions."""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+
+def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
+    """Render a stable prompt suffix describing required output artifacts."""
+    lines: List[str] = [
+        "## Output Contract",
+        "Write the following artifacts exactly as specified.",
+        "Each artifact file must contain only the value for that artifact.",
+    ]
+
+    for spec in expected_outputs:
+        lines.append(f"- name: {spec['name']}")
+        lines.append(f"  path: {spec['path']}")
+        lines.append(f"  type: {spec['type']}")
+
+        if "allowed" in spec:
+            allowed_values = ", ".join(str(value) for value in spec["allowed"])
+            lines.append(f"  allowed: {allowed_values}")
+        if "under" in spec:
+            lines.append(f"  under: {spec['under']}")
+        if spec.get("must_exist_target"):
+            lines.append("  must_exist_target: true")
+        if spec.get("required") is False:
+            lines.append("  required: false")
+
+    return "\n".join(lines) + "\n"

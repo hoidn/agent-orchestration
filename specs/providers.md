@@ -14,6 +14,7 @@
 - Prompt composition
   - Read `input_file` literally.
   - Apply dependency injection in-memory if `depends_on.inject` is enabled (see `dependencies.md`).
+  - If the step defines `expected_outputs` and `inject_output_contract` is not `false`, append a deterministic `Output Contract` suffix describing required artifacts (`name`, `path`, `type`, optional constraints).
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
 - Placeholder and parameter substitution

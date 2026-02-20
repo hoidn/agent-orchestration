@@ -16,6 +16,7 @@ from ..providers.registry import ProviderRegistry
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
 from ..contracts.output_contract import OutputContractError, validate_expected_outputs
+from ..contracts.prompt_contract import render_output_contract_block
 from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
 from ..security.secrets import SecretsManager
@@ -892,9 +893,6 @@ class WorkflowExecutor:
                 if injection_result.was_truncated and injection_result.truncation_details:
                     debug_info['injection'] = injection_result.truncation_details
 
-            # AT-70: Prompt audit with debug mode (after injection if applicable)
-            if self.debug and prompt:
-                self._write_prompt_audit(step.get('name', 'provider'), prompt, step.get('secrets'), step.get('env'))
         else:
             # No dependencies - just get prompt normally
             prompt = ""
@@ -926,6 +924,9 @@ class WorkflowExecutor:
             # AT-73: Do NOT substitute variables in prompt text (input_file contents are literal)
             # The spec states: "input_file: read literal contents; no substitution inside file contents"
             # prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
+
+        # Deterministic output contract prompt suffix (provider steps only).
+        prompt = self._apply_output_contract_prompt_suffix(step, prompt)
 
         # AT-70: Prompt audit with debug mode (when no dependencies)
         if self.debug and prompt:
@@ -1097,6 +1098,22 @@ class WorkflowExecutor:
         enriched_result = dict(result)
         enriched_result['artifacts'] = artifacts
         return enriched_result
+
+    def _apply_output_contract_prompt_suffix(self, step: Dict[str, Any], prompt: str) -> str:
+        """Append deterministic output contract instructions to provider prompts."""
+        expected_outputs = step.get('expected_outputs')
+        if not expected_outputs:
+            return prompt
+
+        if step.get('inject_output_contract', True) is False:
+            return prompt
+
+        contract_block = render_output_contract_block(expected_outputs)
+        if not prompt:
+            return contract_block
+        if prompt.endswith("\n"):
+            return f"{prompt}\n{contract_block}"
+        return f"{prompt}\n\n{contract_block}"
 
     def _create_loop_context(
         self,
