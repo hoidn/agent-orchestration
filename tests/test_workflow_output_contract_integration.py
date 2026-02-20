@@ -25,6 +25,7 @@ def test_command_step_fails_when_expected_output_missing(tmp_path: Path):
             "name": "DraftPlan",
             "command": ["bash", "-lc", "echo done"],
             "expected_outputs": [{
+                "name": "plan_pointer",
                 "path": "state/plan_pointer.txt",
                 "type": "relpath",
                 "under": "docs/plans",
@@ -63,6 +64,7 @@ def test_command_step_persists_artifacts_when_contract_is_valid(tmp_path: Path):
                 "printf '# plan\\n' > docs/plans/plan-a.md",
             ],
             "expected_outputs": [{
+                "name": "plan_pointer",
                 "path": "state/plan_pointer.txt",
                 "type": "relpath",
                 "under": "docs/plans",
@@ -99,6 +101,7 @@ def test_provider_step_persists_artifacts_when_contract_is_valid(tmp_path: Path)
             "name": "Review",
             "provider": "codex",
             "expected_outputs": [{
+                "name": "review_decision",
                 "path": "state/review_decision.txt",
                 "type": "enum",
                 "allowed": ["APPROVE", "REVISE"],

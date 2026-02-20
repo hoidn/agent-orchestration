@@ -392,6 +392,7 @@ class TestLoaderValidation:
                 "provider": "codex",
                 "expected_outputs": [
                     {
+                        "name": "plan_path",
                         "path": "state/plan_path.txt",
                         "type": "relpath",
                         "under": "docs/plans",
@@ -413,7 +414,7 @@ class TestLoaderValidation:
             "steps": [{
                 "name": "DraftPlan",
                 "command": ["echo", "ok"],
-                "expected_outputs": [{"path": "state/plan_path.txt"}]
+                "expected_outputs": [{"name": "plan_path", "path": "state/plan_path.txt"}]
             }]
         }
 
@@ -433,6 +434,7 @@ class TestLoaderValidation:
                 "name": "DraftPlan",
                 "command": ["echo", "ok"],
                 "expected_outputs": [{
+                    "name": "plan_path",
                     "path": "state/plan_path.txt",
                     "type": "string"
                 }]
@@ -456,6 +458,7 @@ class TestLoaderValidation:
                 "name": "DraftPlan",
                 "command": ["echo", "ok"],
                 "expected_outputs": [{
+                    "name": "plan_path",
                     "path": "state/plan_path.txt",
                     "type": "relpath",
                     "under": "../outside"
@@ -469,3 +472,68 @@ class TestLoaderValidation:
 
         assert exc_info.value.exit_code == 2
         assert any("parent directory traversal" in str(err.message) for err in exc_info.value.errors)
+
+    def test_expected_outputs_missing_name(self):
+        """expected_outputs entries must define explicit artifact names."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "missing name",
+            "steps": [{
+                "name": "DraftPlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "path": "state/plan_path.txt",
+                    "type": "relpath"
+                }]
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("missing required 'name'" in str(err.message) for err in exc_info.value.errors)
+
+    def test_inject_output_contract_requires_boolean(self):
+        """inject_output_contract must be a boolean when present."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "bad inject flag",
+            "steps": [{
+                "name": "DraftPlan",
+                "provider": "codex",
+                "inject_output_contract": "false"
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("'inject_output_contract' must be a boolean" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_expected_outputs_name_must_be_unique(self):
+        """Duplicate expected_outputs names are rejected."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "dup names",
+            "steps": [{
+                "name": "DraftPlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [
+                    {"name": "plan_path", "path": "state/a.txt", "type": "relpath"},
+                    {"name": "plan_path", "path": "state/b.txt", "type": "relpath"},
+                ],
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("duplicate artifact name 'plan_path'" in str(err.message)
+                  for err in exc_info.value.errors)

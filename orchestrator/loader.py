@@ -216,6 +216,9 @@ class WorkflowLoader:
             if 'expected_outputs' in step:
                 self._validate_expected_outputs(step['expected_outputs'], name)
 
+            if 'inject_output_contract' in step and not isinstance(step['inject_output_contract'], bool):
+                self._add_error(f"Step '{name}': 'inject_output_contract' must be a boolean")
+
             # Validate wait_for exclusivity (AT-36)
             if 'wait_for' in step:
                 self._validate_wait_for(step, name)
@@ -310,11 +313,23 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': expected_outputs must be a list")
             return
 
+        seen_names: Set[str] = set()
         for i, spec in enumerate(expected_outputs):
             context = f"Step '{step_name}': expected_outputs[{i}]"
             if not isinstance(spec, dict):
                 self._add_error(f"{context} must be a dictionary")
                 continue
+
+            if 'name' not in spec:
+                self._add_error(f"{context} missing required 'name'")
+            elif not isinstance(spec['name'], str):
+                self._add_error(f"{context} 'name' must be a string")
+            elif not spec['name'].strip():
+                self._add_error(f"{context} 'name' cannot be empty")
+            elif spec['name'] in seen_names:
+                self._add_error(f"{context} duplicate artifact name '{spec['name']}'")
+            else:
+                seen_names.add(spec['name'])
 
             if 'path' not in spec:
                 self._add_error(f"{context} missing required 'path'")

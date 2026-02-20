@@ -37,12 +37,29 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
     resolved_workspace = workspace.resolve()
     artifacts: Dict[str, Any] = {}
     violations: List[ContractViolation] = []
+    seen_names: set[str] = set()
 
     for spec in expected_outputs:
         spec_path = str(spec.get("path", ""))
         output_file = _resolve_workspace_path(resolved_workspace, spec_path)
-        artifact_key = _artifact_key(spec_path)
+        artifact_name = str(spec.get("name", "")).strip()
         required = spec.get("required", True)
+
+        if not artifact_name:
+            violations.append(ContractViolation(
+                type="missing_artifact_name",
+                message="Expected output contract is missing required artifact name",
+                context={"path": spec_path},
+            ))
+            continue
+        if artifact_name in seen_names:
+            violations.append(ContractViolation(
+                type="duplicate_artifact_name",
+                message="Expected output contract contains duplicate artifact names",
+                context={"name": artifact_name, "path": spec_path},
+            ))
+            continue
+        seen_names.add(artifact_name)
 
         if output_file is None:
             violations.append(ContractViolation(
@@ -74,7 +91,7 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
             violations.append(violation)
             continue
 
-        artifacts[artifact_key] = parsed_value
+        artifacts[artifact_name] = parsed_value
 
     if violations:
         raise OutputContractError(violations)
@@ -213,7 +230,3 @@ def _is_within(path: Path, root: Path) -> bool:
         return True
     except ValueError:
         return False
-
-
-def _artifact_key(spec_path: str) -> str:
-    return Path(spec_path).stem

@@ -23,11 +23,12 @@ def test_validate_expected_outputs_parses_supported_types(tmp_path: Path):
     (tmp_path / "docs" / "plans" / "plan-a.md").write_text("# plan\n")
 
     specs = [
-        {"path": "state/decision.txt", "type": "enum", "allowed": ["APPROVE", "REVISE"]},
-        {"path": "state/count.txt", "type": "integer"},
-        {"path": "state/score.txt", "type": "float"},
-        {"path": "state/approved.txt", "type": "bool"},
+        {"name": "review_outcome", "path": "state/decision.txt", "type": "enum", "allowed": ["APPROVE", "REVISE"]},
+        {"name": "failure_count", "path": "state/count.txt", "type": "integer"},
+        {"name": "quality_score", "path": "state/score.txt", "type": "float"},
+        {"name": "approved_flag", "path": "state/approved.txt", "type": "bool"},
         {
+            "name": "plan_path",
             "path": "state/plan_pointer.txt",
             "type": "relpath",
             "under": "docs/plans",
@@ -37,17 +38,17 @@ def test_validate_expected_outputs_parses_supported_types(tmp_path: Path):
 
     artifacts = validate_expected_outputs(specs, workspace=tmp_path)
     assert artifacts == {
-        "decision": "APPROVE",
-        "count": 7,
-        "score": 0.82,
-        "approved": True,
-        "plan_pointer": "docs/plans/plan-a.md",
+        "review_outcome": "APPROVE",
+        "failure_count": 7,
+        "quality_score": 0.82,
+        "approved_flag": True,
+        "plan_path": "docs/plans/plan-a.md",
     }
 
 
 def test_validate_expected_outputs_missing_file_raises_violation(tmp_path: Path):
     """Missing required output file returns a contract violation."""
-    specs = [{"path": "state/decision.txt", "type": "enum", "allowed": ["APPROVE"]}]
+    specs = [{"name": "decision", "path": "state/decision.txt", "type": "enum", "allowed": ["APPROVE"]}]
 
     with pytest.raises(OutputContractError) as exc_info:
         validate_expected_outputs(specs, workspace=tmp_path)
@@ -59,7 +60,7 @@ def test_validate_expected_outputs_invalid_enum_raises_violation(tmp_path: Path)
     """Enum validation fails when file value is outside the allowed set."""
     (tmp_path / "state").mkdir()
     (tmp_path / "state" / "decision.txt").write_text("MAYBE\n")
-    specs = [{"path": "state/decision.txt", "type": "enum", "allowed": ["APPROVE", "REVISE"]}]
+    specs = [{"name": "decision", "path": "state/decision.txt", "type": "enum", "allowed": ["APPROVE", "REVISE"]}]
 
     with pytest.raises(OutputContractError) as exc_info:
         validate_expected_outputs(specs, workspace=tmp_path)
@@ -74,9 +75,38 @@ def test_validate_expected_outputs_relpath_escape_or_under_violation(tmp_path: P
 
     with pytest.raises(OutputContractError) as exc_info:
         validate_expected_outputs(
-            [{"path": "state/plan_pointer.txt", "type": "relpath", "under": "docs/plans"}],
+            [{"name": "plan_pointer", "path": "state/plan_pointer.txt", "type": "relpath", "under": "docs/plans"}],
             workspace=tmp_path,
         )
 
     violation_types = {v["type"] for v in exc_info.value.violations}
     assert "path_escape" in violation_types or "outside_under_root" in violation_types
+
+
+def test_validate_expected_outputs_missing_non_required_file_is_allowed(tmp_path: Path):
+    """Missing files are ignored when required is explicitly false."""
+    specs = [{
+        "name": "optional_plan",
+        "path": "state/optional_plan_pointer.txt",
+        "type": "relpath",
+        "required": False,
+    }]
+
+    artifacts = validate_expected_outputs(specs, workspace=tmp_path)
+    assert artifacts == {}
+
+
+def test_validate_expected_outputs_rejects_duplicate_artifact_names(tmp_path: Path):
+    """Explicit artifact names must be unique within a step contract."""
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "a.txt").write_text("1\n")
+    (tmp_path / "state" / "b.txt").write_text("2\n")
+    specs = [
+        {"name": "value", "path": "state/a.txt", "type": "integer"},
+        {"name": "value", "path": "state/b.txt", "type": "integer"},
+    ]
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_expected_outputs(specs, workspace=tmp_path)
+
+    assert any(v["type"] == "duplicate_artifact_name" for v in exc_info.value.violations)
