@@ -34,6 +34,7 @@ class StepResult:
     text: Optional[str] = None
     error: Optional[Dict[str, Any]] = None
     debug: Optional[Dict[str, Any]] = None
+    artifacts: Optional[Dict[str, Any]] = None
     skipped: bool = False
     # Wait-for specific fields (AT-60)
     files: Optional[List[str]] = None

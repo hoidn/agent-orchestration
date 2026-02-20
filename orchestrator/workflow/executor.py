@@ -15,6 +15,7 @@ from ..providers.executor import ProviderExecutor
 from ..providers.registry import ProviderRegistry
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
+from ..contracts.output_contract import OutputContractError, validate_expected_outputs
 from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
 from ..security.secrets import SecretsManager
@@ -246,7 +247,8 @@ class WorkflowExecutor:
                     json=result.get('json'),
                     error=result.get('error'),
                     truncated=result.get('truncated', False),
-                    debug=result.get('debug')  # Include debug fields for injection metadata
+                    debug=result.get('debug'),  # Include debug fields for injection metadata
+                    artifacts=result.get('artifacts')
                 )
                 self.state_manager.update_step(step_name, step_result)
             elif 'command' in step:
@@ -266,7 +268,8 @@ class WorkflowExecutor:
                     lines=result.get('lines'),
                     json=result.get('json'),
                     error=result.get('error'),
-                    truncated=result.get('truncated', False)
+                    truncated=result.get('truncated', False),
+                    artifacts=result.get('artifacts')
                 )
                 self.state_manager.update_step(step_name, step_result)
 
@@ -631,7 +634,8 @@ class WorkflowExecutor:
                     lines=result.get('lines'),
                     json=result.get('json'),
                     error=result.get('error'),
-                    truncated=result.get('truncated', False)
+                    truncated=result.get('truncated', False),
+                    artifacts=result.get('artifacts')
                 )
                 self.state_manager.update_loop_step(step_name, i, nested_name, step_result)
 
@@ -781,7 +785,7 @@ class WorkflowExecutor:
                 'error': {'message': 'Command execution failed with no result'}
             }
 
-        return result.to_state_dict()
+        return self._apply_expected_outputs_contract(step, result.to_state_dict())
 
     def _execute_provider_with_context(
         self,
@@ -1063,7 +1067,36 @@ class WorkflowExecutor:
         if debug_info:
             result['debug'] = debug_info
 
-        return result
+        return self._apply_expected_outputs_contract(step, result)
+
+    def _apply_expected_outputs_contract(self, step: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate expected_outputs artifacts and attach parsed values to step result."""
+        expected_outputs = step.get('expected_outputs')
+        if not expected_outputs:
+            return result
+
+        if result.get('exit_code', 0) != 0:
+            # Only enforce contract after a successful process/provider execution.
+            return result
+
+        try:
+            artifacts = validate_expected_outputs(expected_outputs, workspace=self.workspace)
+        except OutputContractError as contract_error:
+            failed_result = dict(result)
+            failed_result['status'] = 'failed'
+            failed_result['exit_code'] = 2
+            failed_result['error'] = {
+                'type': 'contract_violation',
+                'message': 'Expected output contract validation failed',
+                'context': {
+                    'violations': contract_error.violations
+                }
+            }
+            return failed_result
+
+        enriched_result = dict(result)
+        enriched_result['artifacts'] = artifacts
+        return enriched_result
 
     def _create_loop_context(
         self,
