@@ -49,9 +49,12 @@ class ProviderRegistry:
             ),
             "codex": ProviderTemplate(
                 name="codex",
-                command=["codex", "exec", "--model", "${model}",
+                command=[
+                        "codex", "exec",
+                        "--model", "${model}",
+                        "--config", "reasoning_effort=${reasoning_effort}",
                         "--dangerously-bypass-approvals-and-sandbox"],
-                defaults={"model": "gpt-5"},
+                defaults={"model": "gpt-5.3-codex", "reasoning_effort": "high"},
                 input_mode=InputMode.STDIN
             )
         }
