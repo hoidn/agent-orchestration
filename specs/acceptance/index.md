@@ -7,6 +7,7 @@
   - Injection (v1.1.1): modes, default instruction, prepend/append position, truncation record.
   - IO capture: modes, limits, tee semantics, JSON parse behavior and `allow_parse_error`.
   - Providers: argv vs stdin, placeholder validation, unresolved placeholders, parameter merge.
+  - Deterministic artifact contracts: `expected_outputs` validation, typed parsing, contract violation handling, and prompt suffix injection controls.
   - Wait-for: exclusivity, timeout semantics, state metrics.
   - State integrity: atomic writes, backups, resume/repair, checksum.
   - CLI safety: `--clean-processed` & `--archive-processed` constraints.
@@ -76,6 +77,15 @@
 53. Injection shorthand: `inject:true` ≡ `{mode:"list", position:"prepend"}`
 54. Secrets source: read exclusively from orchestrator environment; empty strings accepted
 55. Secrets + env precedence: `env` wins on conflicts; still masked as secret
+56. `expected_outputs` schema: loader rejects missing `name|path|type`, invalid `type`, duplicate `name`, and invalid `inject_output_contract` type
+57. Output contract success: validated values persist under `steps.<Step>.artifacts.<name>` with typed parsing (`enum|integer|float|bool|relpath`)
+58. Output contract required/optional: missing file fails by default; `required:false` allows omission without populating artifact key
+59. Output contract sequencing: contract validation runs only when execution exit code is `0`
+60. Output contract preserves execution failures: non-zero execution results are not replaced by contract errors
+61. Contract violation shape: failed step exposes `error.type:"contract_violation"` and `error.context.violations[]`
+62. Provider prompt contract suffix: provider steps with `expected_outputs` append deterministic `Output Contract` block by default
+63. Prompt suffix opt-out: `inject_output_contract:false` disables provider suffix injection
+64. Command compatibility: command steps accept `inject_output_contract` with no behavior change
 
 ## Future Acceptance (v1.2)
 

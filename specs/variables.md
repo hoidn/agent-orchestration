@@ -4,6 +4,7 @@
   - Run: `${run.id}`, `${run.root}`, `${run.timestamp_utc}`
   - Loop: `${item}`, `${loop.index}`, `${loop.total}`
   - Step results: `${steps.<name>.exit_code}`, `${steps.<name>.output|lines|json}`, `${steps.<name>.duration_ms}`
+  - Contract artifacts: `${steps.<name>.artifacts.<artifact_name>}`
   - Context: `${context.<key>}`
 
 - Where variables are substituted

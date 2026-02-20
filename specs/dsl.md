@@ -25,14 +25,16 @@
       - `name: string` (required artifact key exposed as `steps.<Step>.artifacts.<name>`)
       - `path: string` (required, relative file written by the step)
       - `type: enum|integer|float|bool|relpath` (required)
-      - `bool` token policy: only `true`/`false` (case-insensitive)
+      - `bool` token policy: case-insensitive `true|false|1|0|yes|no`
       - `allowed: string[]` (required when `type: enum`)
       - `under: string` (optional root for `relpath` target validation)
       - `must_exist_target: boolean` (optional, `relpath` only)
       - `required: boolean` (optional, default true; when false, missing file is allowed)
       - Runtime enforcement runs only when the step process exits with code `0`.
       - Path checks are canonicalized (`resolve`) and must remain under WORKSPACE.
-    - `inject_output_contract: boolean` (optional, provider steps only; default true)
+    - `inject_output_contract: boolean` (optional; default true)
+      - Consumed only by provider steps to control prompt suffix injection.
+      - Accepted on non-provider steps as a compatibility no-op.
   # Future (v1.3): JSON output validation (opt-in, version-gated)
   # Only valid when `version: "1.3"` or higher AND `output_capture: json` AND `allow_parse_error` is false
   - `output_schema?: string`                         # Path to JSON Schema under WORKSPACE; variables allowed

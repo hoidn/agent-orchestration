@@ -16,6 +16,14 @@
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
   - `when` false → `skipped` with `exit_code: 0` and no process execution.
+  - Step results may include `output`, `lines`, `json`, `text`, `error`, `debug`, and `artifacts`.
+  - `artifacts` is a map of typed values parsed from `expected_outputs` and is available at `steps.<Step>.artifacts`.
+
+- Output contract failure shape
+  - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:
+    - non-zero `exit_code` (currently `2`)
+    - `error.type: "contract_violation"`
+    - `error.context.violations: []` describing individual contract violations
 
 - Loop state representation
   - Per-iteration indexing: `steps.<LoopName>[i].<StepName>` stores step results for each iteration.
@@ -59,6 +67,10 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
         "command": ["echo", "hello"],
         "cwd": "/workspace",
         "env_count": 42
+      },
+      "artifacts": {
+        "plan_path": "docs/plans/plan-a.md",
+        "review_score": 82
       }
     }
   },
