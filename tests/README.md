@@ -31,6 +31,24 @@ pytest -v -m e2e tests/e2e/test_end_to_end_flow.py
 pytest -v -m "e2e and not requires_secrets"
 ```
 
+## Artifact-Contract Prototype Selectors
+
+Use these selectors for the deterministic handoff prototype (`expected_outputs`, contract validation, prompt injection, and example loops):
+
+```bash
+pytest tests/test_loader_validation.py -k "expected_outputs or inject_output_contract" -v
+pytest tests/test_output_contract.py -v
+pytest tests/test_workflow_output_contract_integration.py -v
+pytest tests/test_prompt_contract_injection.py -v
+pytest tests/test_workflow_examples_v0.py -v
+```
+
+Runtime-focused smoke selector:
+
+```bash
+pytest tests/test_workflow_examples_v0.py -k runtime -v
+```
+
 ## Recommended Workflow
 1) Local development: default to unit/integration (`pytest -m "not e2e" -v`).
 2) Before merging a feature that touches orchestration flow or provider integration, run E2E locally (with required secrets).
@@ -43,4 +61,3 @@ pytest -v -m "e2e and not requires_secrets"
 
 ## Examples
 - Narrative E2E examples with YAML workflows live in `specs/examples/e2e.md` (informative). Use those flows as references when authoring new E2E tests.
-
