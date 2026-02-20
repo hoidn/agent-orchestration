@@ -1,0 +1,66 @@
+version: "1.1.1"
+name: "test-fix-loop-v0"
+context:
+  max_cycles: "3"
+steps:
+  - name: InitializeFixCycle
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && printf '0\n' > state/fix_cycle.txt"
+    expected_outputs:
+      - name: fix_cycle
+        path: state/fix_cycle.txt
+        type: integer
+
+  - name: RunTests
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && if [ -f state/fixed.marker ]; then printf '0\n' > state/test_fail_count.txt; else printf '2\n' > state/test_fail_count.txt; fi"
+    expected_outputs:
+      - name: failed_count
+        path: state/test_fail_count.txt
+        type: integer
+
+  - name: TestsGate
+    command:
+      - bash
+      - -lc
+      - "test \"$(cat state/test_fail_count.txt)\" -eq 0"
+    on:
+      success:
+        goto: _end
+      failure:
+        goto: FixIssues
+
+  - name: FixIssues
+    provider: claude
+    expected_outputs:
+      - name: fix_patch_path
+        path: state/fix_patch_path.txt
+        type: relpath
+        under: artifacts/fixes
+        must_exist_target: true
+    on:
+      success:
+        goto: IncrementFixCycle
+
+  - name: IncrementFixCycle
+    command:
+      - bash
+      - -lc
+      - "c=$(cat state/fix_cycle.txt); printf '%s\n' \"$((c+1))\" > state/fix_cycle.txt"
+    expected_outputs:
+      - name: fix_cycle
+        path: state/fix_cycle.txt
+        type: integer
+
+  - name: FixCycleGate
+    command:
+      - bash
+      - -lc
+      - "test \"$(cat state/fix_cycle.txt)\" -lt \"${context.max_cycles}\""
+    on:
+      success:
+        goto: RunTests

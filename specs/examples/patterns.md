@@ -56,3 +56,22 @@ Best practices:
 Notes:
 - These patterns keep control flow deterministic without parsing prose. They complement (but do not depend on) the planned v1.3 hooks (`output_schema`, `output_require`).
 
+## v0 Artifact-Contract Workflow Patterns
+
+New prototype workflows using deterministic file-based handoff contracts:
+
+- `workflows/examples/backlog_plan_execute_v0.yaml`
+  - Pattern: `docs/backlog -> select item -> draft plan -> execute plan -> optional review loop`.
+  - Deterministic handoff uses `expected_outputs` and `steps.<Step>.artifacts.<name>`.
+- `workflows/examples/test_fix_loop_v0.yaml`
+  - Pattern: `run tests -> gate -> fix -> retry` with a max-cycle guard.
+  - Gate uses artifact file `state/test_fail_count.txt` parsed as integer.
+- `workflows/examples/unit_of_work_plus_test_fix_v0.yaml`
+  - Pattern: complete a unit of work, then enter a test-fix stabilization loop.
+  - Demonstrates composing sub-workflow style behavior with explicit state artifacts.
+
+Contract notes:
+
+- Prefer file-based artifacts over stdout JSON parsing for phase handoff.
+- Use explicit `expected_outputs[].name` keys for downstream references.
+- Contract validation runs only for successful step executions.

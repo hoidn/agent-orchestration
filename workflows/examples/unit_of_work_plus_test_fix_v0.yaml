@@ -1,0 +1,75 @@
+version: "1.1.1"
+name: "unit-of-work-plus-test-fix-v0"
+context:
+  max_cycles: "3"
+steps:
+  - name: ExecuteUnitOfWork
+    provider: codex
+    expected_outputs:
+      - name: unit_result_path
+        path: state/unit_result_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+
+  - name: InitializePostTestCycle
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && printf '0\n' > state/post_test_cycle.txt"
+    expected_outputs:
+      - name: post_test_cycle
+        path: state/post_test_cycle.txt
+        type: integer
+
+  - name: RunPostWorkTests
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && if [ -f state/post_fixed.marker ]; then printf '0\n' > state/post_failed_count.txt; else printf '1\n' > state/post_failed_count.txt; fi"
+    expected_outputs:
+      - name: failed_count
+        path: state/post_failed_count.txt
+        type: integer
+
+  - name: PostWorkGate
+    command:
+      - bash
+      - -lc
+      - "test \"$(cat state/post_failed_count.txt)\" -eq 0"
+    on:
+      success:
+        goto: _end
+      failure:
+        goto: FixPostWorkIssues
+
+  - name: FixPostWorkIssues
+    provider: claude
+    expected_outputs:
+      - name: post_fix_path
+        path: state/post_fix_path.txt
+        type: relpath
+        under: artifacts/fixes
+        must_exist_target: true
+    on:
+      success:
+        goto: IncrementPostTestCycle
+
+  - name: IncrementPostTestCycle
+    command:
+      - bash
+      - -lc
+      - "c=$(cat state/post_test_cycle.txt); printf '%s\n' \"$((c+1))\" > state/post_test_cycle.txt"
+    expected_outputs:
+      - name: post_test_cycle
+        path: state/post_test_cycle.txt
+        type: integer
+
+  - name: PostCycleGate
+    command:
+      - bash
+      - -lc
+      - "test \"$(cat state/post_test_cycle.txt)\" -lt \"${context.max_cycles}\""
+    on:
+      success:
+        goto: RunPostWorkTests

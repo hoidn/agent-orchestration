@@ -1,0 +1,122 @@
+version: "1.1.1"
+name: "backlog-plan-execute-v0"
+context:
+  enable_review: "false"
+  max_review_cycles: "2"
+steps:
+  - name: SelectBacklogItem
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && ls docs/backlog/*.md | head -n1 > state/backlog_item_path.txt"
+    expected_outputs:
+      - name: backlog_item_path
+        path: state/backlog_item_path.txt
+        type: relpath
+        under: docs/backlog
+        must_exist_target: true
+
+  - name: DraftPlan
+    provider: codex
+    expected_outputs:
+      - name: plan_path
+        path: state/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+
+  - name: ExecutePlan
+    provider: claude
+    expected_outputs:
+      - name: execution_log_path
+        path: state/execution_log_path.txt
+        type: relpath
+        under: artifacts/execution
+        must_exist_target: true
+
+  - name: InitializeReviewCycle
+    when:
+      equals:
+        left: "${context.enable_review}"
+        right: "true"
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && printf '0\n' > state/review_cycle.txt"
+    expected_outputs:
+      - name: review_cycle
+        path: state/review_cycle.txt
+        type: integer
+
+  - name: ReviewPlan
+    when:
+      equals:
+        left: "${context.enable_review}"
+        right: "true"
+    provider: codex
+    expected_outputs:
+      - name: review_decision
+        path: state/review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]
+      - name: review_score
+        path: state/review_score.txt
+        type: integer
+
+  - name: ReviewGate
+    when:
+      equals:
+        left: "${context.enable_review}"
+        right: "true"
+    command:
+      - bash
+      - -lc
+      - "test \"$(cat state/review_decision.txt)\" = \"APPROVE\""
+    on:
+      success:
+        goto: _end
+      failure:
+        goto: ApplyReviewFixes
+
+  - name: ApplyReviewFixes
+    when:
+      equals:
+        left: "${context.enable_review}"
+        right: "true"
+    provider: claude
+    expected_outputs:
+      - name: fix_log_path
+        path: state/fix_log_path.txt
+        type: relpath
+        under: artifacts/fixes
+        must_exist_target: true
+    on:
+      success:
+        goto: IncrementReviewCycle
+
+  - name: IncrementReviewCycle
+    when:
+      equals:
+        left: "${context.enable_review}"
+        right: "true"
+    command:
+      - bash
+      - -lc
+      - "c=$(cat state/review_cycle.txt); printf '%s\n' \"$((c+1))\" > state/review_cycle.txt"
+    expected_outputs:
+      - name: review_cycle
+        path: state/review_cycle.txt
+        type: integer
+
+  - name: ReviewCycleGate
+    when:
+      equals:
+        left: "${context.enable_review}"
+        right: "true"
+    command:
+      - bash
+      - -lc
+      - "test \"$(cat state/review_cycle.txt)\" -lt \"${context.max_review_cycles}\""
+    on:
+      success:
+        goto: ReviewPlan
