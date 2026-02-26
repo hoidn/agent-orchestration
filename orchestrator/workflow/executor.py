@@ -1098,6 +1098,13 @@ class WorkflowExecutor:
             }
             return failed_result
 
+        # Some workflows intentionally keep on-disk pointer files as the single source of truth.
+        # In that mode, we still validate expected_outputs but avoid duplicating artifact values
+        # into state.json under steps.<Step>.artifacts.
+        persist_artifacts = step.get('persist_artifacts_in_state', True)
+        if not persist_artifacts:
+            return dict(result)
+
         enriched_result = dict(result)
         enriched_result['artifacts'] = artifacts
         return enriched_result

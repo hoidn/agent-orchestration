@@ -21,9 +21,20 @@ from orchestrator.workflow.executor import WorkflowExecutor
 logger = logging.getLogger(__name__)
 
 
-def parse_context(args: Namespace) -> Dict[str, str]:
-    """Parse context variables from command line arguments."""
-    context = {}
+def parse_context(args: Namespace, workflow_context: Dict[str, Any] | None = None) -> Dict[str, str]:
+    """Parse context variables from workflow defaults and command line arguments.
+
+    Precedence:
+    1. workflow_context defaults
+    2. --context key=value arguments
+    3. --context-file JSON values
+    """
+    context: Dict[str, str] = {}
+
+    # Start with workflow-level defaults so ${context.*} works without CLI overrides.
+    if workflow_context:
+        for key, value in workflow_context.items():
+            context[str(key)] = str(value)
 
     # Parse context from key=value pairs
     if args.context:
@@ -232,7 +243,7 @@ def run_workflow(args: Namespace) -> int:
             return 0
 
         # Parse context
-        context = parse_context(args)
+        context = parse_context(args, workflow_context=workflow.get('context', {}))
 
         # Initialize state manager
         # AT-69: --debug implies backup_enabled

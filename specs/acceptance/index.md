@@ -77,7 +77,7 @@
 53. Injection shorthand: `inject:true` ≡ `{mode:"list", position:"prepend"}`
 54. Secrets source: read exclusively from orchestrator environment; empty strings accepted
 55. Secrets + env precedence: `env` wins on conflicts; still masked as secret
-56. `expected_outputs` schema: loader rejects missing `name|path|type`, invalid `type`, duplicate `name`, and invalid `inject_output_contract` type
+56. `expected_outputs` schema: loader rejects missing `name|path|type`, invalid `type`, duplicate `name`, invalid `inject_output_contract` type, and invalid `persist_artifacts_in_state` type
 57. Output contract success: validated values persist under `steps.<Step>.artifacts.<name>` with typed parsing (`enum|integer|float|bool|relpath`)
 58. Output contract required/optional: missing file fails by default; `required:false` allows omission without populating artifact key
 59. Output contract sequencing: contract validation runs only when execution exit code is `0`
@@ -86,6 +86,7 @@
 62. Provider prompt contract suffix: provider steps with `expected_outputs` append deterministic `Output Contract` block by default
 63. Prompt suffix opt-out: `inject_output_contract:false` disables provider suffix injection
 64. Command compatibility: command steps accept `inject_output_contract` with no behavior change
+65. Artifact mirror opt-out: `persist_artifacts_in_state:false` still enforces `expected_outputs` but omits `steps.<Step>.artifacts` from `state.json`
 
 ## Future Acceptance (v1.2)
 

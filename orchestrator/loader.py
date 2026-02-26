@@ -219,6 +219,9 @@ class WorkflowLoader:
             if 'inject_output_contract' in step and not isinstance(step['inject_output_contract'], bool):
                 self._add_error(f"Step '{name}': 'inject_output_contract' must be a boolean")
 
+            if 'persist_artifacts_in_state' in step and not isinstance(step['persist_artifacts_in_state'], bool):
+                self._add_error(f"Step '{name}': 'persist_artifacts_in_state' must be a boolean")
+
             # Validate wait_for exclusivity (AT-36)
             if 'wait_for' in step:
                 self._validate_wait_for(step, name)

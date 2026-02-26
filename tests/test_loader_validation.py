@@ -515,6 +515,32 @@ class TestLoaderValidation:
         assert any("'inject_output_contract' must be a boolean" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_persist_artifacts_in_state_requires_boolean(self):
+        """persist_artifacts_in_state must be a boolean when present."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "bad persist flag",
+            "steps": [{
+                "name": "SelectBacklogItem",
+                "command": ["echo", "ok"],
+                "persist_artifacts_in_state": "false",
+                "expected_outputs": [{
+                    "name": "backlog_item_path",
+                    "path": "state/backlog_item_path.txt",
+                    "type": "relpath",
+                    "under": "docs/backlog",
+                }],
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("'persist_artifacts_in_state' must be a boolean" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_expected_outputs_name_must_be_unique(self):
         """Duplicate expected_outputs names are rejected."""
         workflow = {

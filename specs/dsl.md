@@ -22,7 +22,7 @@
     - `output_capture: text|lines|json` (default text)
     - `allow_parse_error: boolean` (json mode only)
     - `expected_outputs: ExpectedOutput[]` (optional deterministic artifact contracts)
-      - `name: string` (required artifact key exposed as `steps.<Step>.artifacts.<name>`)
+      - `name: string` (required artifact key; exposed at `steps.<Step>.artifacts.<name>` when artifact persistence is enabled)
       - `path: string` (required, relative file written by the step)
       - `type: enum|integer|float|bool|relpath` (required)
       - `bool` token policy: case-insensitive `true|false|1|0|yes|no`
@@ -32,6 +32,10 @@
       - `required: boolean` (optional, default true; when false, missing file is allowed)
       - Runtime enforcement runs only when the step process exits with code `0`.
       - Path checks are canonicalized (`resolve`) and must remain under WORKSPACE.
+    - `persist_artifacts_in_state: boolean` (optional; default true)
+      - When true (default), validated `expected_outputs` are mirrored into `steps.<Step>.artifacts` in `state.json`.
+      - When false, `expected_outputs` are still fully validated, but artifact values are not duplicated into `state.json`.
+      - Use this when on-disk files (for example `state/*.txt` pointers) are the intended single source of truth.
     - `inject_output_contract: boolean` (optional; default true)
       - Consumed only by provider steps to control prompt suffix injection.
       - Accepted on non-provider steps as a compatibility no-op.

@@ -17,7 +17,7 @@
   - Step `status`: `pending | running | completed | failed | skipped`.
   - `when` false → `skipped` with `exit_code: 0` and no process execution.
   - Step results may include `output`, `lines`, `json`, `text`, `error`, `debug`, and `artifacts`.
-  - `artifacts` is a map of typed values parsed from `expected_outputs` and is available at `steps.<Step>.artifacts`.
+  - `artifacts` is a map of typed values parsed from `expected_outputs` and is available at `steps.<Step>.artifacts` when `persist_artifacts_in_state` is not set to `false`.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:

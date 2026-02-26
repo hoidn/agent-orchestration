@@ -92,6 +92,50 @@ def test_command_step_persists_artifacts_when_contract_is_valid(tmp_path: Path):
     assert persisted["artifacts"] == {"plan_pointer": "docs/plans/plan-a.md"}
 
 
+def test_command_step_can_disable_artifact_persistence_in_state(tmp_path: Path):
+    """expected_outputs can be validated without duplicating artifact values in state.json."""
+    workflow = {
+        "version": "1.1.1",
+        "name": "contract-valid-no-persist",
+        "steps": [{
+            "name": "SelectBacklogItem",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p state docs/backlog && "
+                "printf 'docs/backlog/item-001.md\\n' > state/backlog_item_path.txt && "
+                "printf '# item\\n' > docs/backlog/item-001.md",
+            ],
+            "persist_artifacts_in_state": False,
+            "expected_outputs": [{
+                "name": "backlog_item_path",
+                "path": "state/backlog_item_path.txt",
+                "type": "relpath",
+                "under": "docs/backlog",
+                "must_exist_target": True,
+            }],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+    result = state["steps"]["SelectBacklogItem"]
+
+    assert result["exit_code"] == 0
+    assert result["status"] == "completed"
+    assert "artifacts" not in result
+
+    persisted = state_manager.load().to_dict()["steps"]["SelectBacklogItem"]
+    assert "artifacts" not in persisted
+
+
 def test_provider_step_persists_artifacts_when_contract_is_valid(tmp_path: Path):
     """Provider steps are also gated by expected_outputs and persist artifacts."""
     workflow = {
@@ -119,7 +163,7 @@ def test_provider_step_persists_artifacts_when_contract_is_valid(tmp_path: Path)
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
     executor.provider_executor.prepare_invocation = lambda *args, **kwargs: (SimpleNamespace(), None)
 
-    def _fake_execute(_invocation):
+    def _fake_execute(_invocation, **_kwargs):
         (tmp_path / "state").mkdir(exist_ok=True)
         (tmp_path / "state" / "review_decision.txt").write_text("APPROVE\n")
         return SimpleNamespace(
@@ -169,7 +213,7 @@ def test_provider_failure_preserves_original_error_and_skips_contract(tmp_path: 
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
     executor.provider_executor.prepare_invocation = lambda *args, **kwargs: (SimpleNamespace(), None)
 
-    def _failing_execute(_invocation):
+    def _failing_execute(_invocation, **_kwargs):
         return SimpleNamespace(
             exit_code=1,
             stdout=b"provider failed",

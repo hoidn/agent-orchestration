@@ -213,6 +213,92 @@ steps:
             'file_key': 'file_value'
         })
 
+    def test_parse_context_merges_workflow_defaults(self):
+        """Workflow context defaults should be present without CLI inputs."""
+        args = MagicMock()
+        args.context = None
+        args.context_file = None
+
+        context = parse_context(args, workflow_context={
+            'max_review_cycles': 3,
+            'stage': 'A',
+        })
+
+        self.assertEqual(context, {
+            'max_review_cycles': '3',
+            'stage': 'A',
+        })
+
+    def test_parse_context_cli_overrides_workflow_defaults(self):
+        """CLI/context-file values override workflow context defaults."""
+        context_file = self.workspace / 'context.json'
+        context_file.write_text(json.dumps({
+            'stage': 'C'
+        }))
+
+        args = MagicMock()
+        args.context = ['max_review_cycles=5']
+        args.context_file = str(context_file)
+
+        context = parse_context(args, workflow_context={
+            'max_review_cycles': '3',
+            'stage': 'A',
+        })
+
+        self.assertEqual(context, {
+            'max_review_cycles': '5',
+            'stage': 'C',
+        })
+
+    @patch('orchestrator.cli.commands.run.WorkflowExecutor')
+    @patch('orchestrator.cli.commands.run.StateManager')
+    @patch('orchestrator.cli.commands.run.WorkflowLoader')
+    def test_run_workflow_passes_merged_context_to_state(self, mock_loader, mock_state, mock_executor):
+        """run_workflow should initialize state with workflow context defaults plus CLI overrides."""
+        mock_loader.return_value.load.return_value = {
+            'version': '1.1',
+            'name': 'test',
+            'context': {
+                'max_review_cycles': '3',
+                'mode': 'default',
+            },
+            'steps': [],
+        }
+
+        mock_state_inst = MagicMock()
+        mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
+        mock_state.return_value = mock_state_inst
+
+        mock_executor_inst = MagicMock()
+        mock_executor_inst.execute.return_value = True
+        mock_executor.return_value = mock_executor_inst
+
+        args = MagicMock()
+        args.workflow = str(self.workflow_file)
+        args.context = ['mode=cli']
+        args.context_file = None
+        args.clean_processed = False
+        args.archive_processed = None
+        args.dry_run = False
+        args.debug = False
+        args.quiet = False
+        args.verbose = False
+        args.log_level = 'info'
+        args.backup_state = False
+        args.state_dir = None
+        args.on_error = 'stop'
+        args.max_retries = 0
+        args.retry_delay = 1000
+
+        result = run_workflow(args)
+
+        self.assertEqual(result, 0)
+        call_args, _ = mock_state_inst.initialize.call_args
+        self.assertEqual(call_args[1], {
+            'max_review_cycles': '3',
+            'mode': 'cli',
+        })
+
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
     @patch('orchestrator.cli.commands.run.WorkflowLoader')

@@ -57,7 +57,7 @@ def _run_with_mocked_providers(
     def _prepare_invocation(*args, **kwargs):
         return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
 
-    def _execute(_invocation):
+    def _execute(_invocation, **_kwargs):
         step_name = provider_sequence[call_index["value"]]
         call_index["value"] += 1
         provider_writers[step_name](workspace)
@@ -113,7 +113,7 @@ def test_backlog_plan_execute_v0_runtime(tmp_path: Path):
 
     assert state["status"] == "completed"
     assert state["__provider_calls"] == 2
-    assert state["steps"]["SelectBacklogItem"]["artifacts"]["backlog_item_path"] == "docs/backlog/item-001.md"
+    assert "artifacts" not in state["steps"]["SelectBacklogItem"]
     assert state["steps"]["DraftPlan"]["artifacts"]["plan_path"] == "docs/plans/plan-item-001.md"
     assert state["steps"]["ExecutePlan"]["artifacts"]["execution_log_path"] == "artifacts/execution/run.log"
 
