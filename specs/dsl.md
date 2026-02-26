@@ -8,9 +8,16 @@
   - Queue defaults: `inbox_dir`, `processed_dir`, `failed_dir`, `task_extension` (see `queue.md`).
   - `context`: key/value map available via `${context.*}` (see `variables.md`).
   - `artifacts`: map of named artifact contracts (v1.2+).
-    - `pointer: string` (required relative path to canonical pointer file, usually under `state/`)
-    - `type: enum|integer|float|bool|relpath` (required; currently `relpath` is the primary dataflow use case)
-    - Optional constraints: `allowed`, `under`, `must_exist_target`
+    - `kind: relpath|scalar` (optional; default `relpath`)
+    - `type: enum|integer|float|bool|relpath` (required)
+    - `kind: relpath`:
+      - requires `type: relpath`
+      - requires `pointer: string` (canonical pointer file path, usually under `state/`)
+      - optional constraints: `under`, `must_exist_target`
+    - `kind: scalar`:
+      - supports only `type: enum|integer|float|bool`
+      - forbids `pointer`, `under`, and `must_exist_target`
+    - `allowed: string[]` required for enum artifacts
   - `steps`: ordered list of step objects.
 
 - Step schema (consolidated; MVP + v1.1.1)
@@ -48,6 +55,10 @@
       - Provider steps only: controls automatic consumed-artifact prompt block injection for steps with `consumes`.
     - `consumes_injection_position: prepend|append` (optional; default `prepend`; v1.2+)
       - Provider steps only: controls where the consumed-artifact block is placed relative to prompt body.
+    - `prompt_consumes: string[]` (optional; v1.2+)
+      - Provider steps only: subset of `consumes[*].artifact` that should be injected into prompt text.
+      - If omitted, all resolved consumed artifacts are injected (backward-compatible default).
+      - If `[]`, no consumed-artifacts prompt block is injected.
   # Future (v1.3): JSON output validation (opt-in, version-gated)
   # Only valid when `version: "1.3"` or higher AND `output_capture: json` AND `allow_parse_error` is false
   - `output_schema?: string`                         # Path to JSON Schema under WORKSPACE; variables allowed
@@ -69,7 +80,10 @@
       - `producers: string[]` (optional producer step-name filter)
       - `policy: latest_successful` (MVP)
       - `freshness: any|since_last_consume` (default `any`)
-      - runtime preflight: resolve selected artifact version, materialize canonical pointer file, fail with `contract_violation` (exit 2) when missing/stale
+      - runtime preflight:
+        - `kind: relpath` artifacts materialize selected value to canonical pointer file
+        - `kind: scalar` artifacts skip pointer-file writes and use typed value directly
+        - fail with `contract_violation` (exit 2) when missing/stale/type-invalid
   - Control:
     - `timeout_sec: number` (applies to provider/command; exit 124 on timeout)
     - `retries: { max: number, delay_ms?: number }`
@@ -95,7 +109,7 @@
   - Deprecated `command_override` is not supported and must be rejected by the loader/validator.
   - Version gating:
     - `depends_on.inject` requires `version: "1.1.1"` or higher.
-    - `artifacts`, `publishes`, `consumes`, `inject_consumes`, and `consumes_injection_position` require `version: "1.2"` or higher.
+    - `artifacts`, `publishes`, `consumes`, `inject_consumes`, `consumes_injection_position`, and `prompt_consumes` require `version: "1.2"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.
@@ -124,11 +138,12 @@ context: { [key: string]: any } # Optional key/value map available via ${context
 # v1.2+: canonical artifact contracts for publish/consume dataflow
 artifacts:                      # Optional
   <artifact-name>:
-    pointer: string             # Relative pointer-file path, e.g. state/execution_log_path.txt
+    kind: relpath|scalar        # Optional, default relpath
     type: string                # enum|integer|float|bool|relpath
+    pointer: string             # Required for kind=relpath; forbidden for kind=scalar
     allowed: string[]           # enum only
-    under: string               # relpath only (optional)
-    must_exist_target: boolean  # relpath only (optional)
+    under: string               # kind=relpath only (optional)
+    must_exist_target: boolean  # kind=relpath only (optional)
 
 # Provider templates available to steps
 providers:                      # Optional

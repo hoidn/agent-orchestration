@@ -17,11 +17,14 @@
     - Benefits: DRY, glob support, maintainability, generic prompts.
 
 - v1.2 additions (artifact dataflow contracts)
-  - Top-level `artifacts` registry for canonical pointer contracts.
+  - Top-level `artifacts` registry with `kind: relpath|scalar` contracts.
+    - `relpath` (default) retains canonical pointer-file materialization.
+    - `scalar` supports typed values (`enum|integer|float|bool`) without pointer-file indirection.
   - Step-level `publishes` and `consumes` for producer/consumer linkage.
   - Provider prompt convenience controls for consume dataflow:
     - `inject_consumes` (default true)
     - `consumes_injection_position` (`prepend|append`, default `prepend`)
+    - `prompt_consumes` (optional subset of consumes to inject into prompt)
   - Runtime enforcement:
     - publication ledger in state (`artifact_versions`)
     - consume preflight (`latest_successful`) with optional freshness (`since_last_consume`)
@@ -130,6 +133,6 @@ Planned acceptance:
 | --- | --- | --- |
 | 1.1 | Baseline DSL; providers (argv/stdin), `wait_for`, `depends_on` (required/optional), `when` (equals/exists/not_exists), retries/timeouts, strict path safety | State schema initially 1.1.1 (separate track). Unknown DSL fields rejected. |
 | 1.1.1 | `depends_on.inject` (list/content/none), injection truncation recording | Workflows must declare `version: "1.1.1"` to use `inject`. |
-| 1.2 | `artifacts`, `publishes`, `consumes` dataflow contracts with runtime publish/consume enforcement | Keeps `expected_outputs` as file-validation primitive and adds provenance/freshness guarantees for downstream consumers. |
+| 1.2 | `artifacts(kind=relpath|scalar)`, `publishes`, `consumes`, `prompt_consumes` with runtime publish/consume enforcement | Keeps `expected_outputs` as file-validation primitive; adds provenance/freshness guarantees plus optional prompt-noise reduction and scalar consume flow. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | 1.3 (planned) | JSON output validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

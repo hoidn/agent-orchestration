@@ -25,6 +25,25 @@ steps:
       - artifact: execution_log
         from: execution_log_path
 
+  - name: RunChecks
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p state
+        if [ -f state/fixed.marker ]; then
+          printf '0\n' > state/failed_count.txt
+        else
+          printf '1\n' > state/failed_count.txt
+        fi
+    expected_outputs:
+      - name: failed_count
+        path: state/failed_count.txt
+        type: integer
+    publishes:
+      - artifact: failed_count
+        from: failed_count
+
   - name: ReviewPlan
     provider: codex
     consumes:
@@ -32,6 +51,11 @@ steps:
         producers: ["ExecutePlan", "FixIssues"]
         policy: latest_successful
         freshness: any
+      - artifact: failed_count
+        producers: ["RunChecks"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["execution_log"]
     inject_consumes: true
     consumes_injection_position: prepend
     expected_outputs:
@@ -83,7 +107,7 @@ steps:
       - 'test "$(cat state/review_cycle.txt)" -lt "${context.max_review_cycles}"'
     on:
       success:
-        goto: ReviewPlan
+        goto: RunChecks
       failure:
         goto: _end
 
@@ -93,3 +117,6 @@ artifacts:
     type: relpath
     under: artifacts/work
     must_exist_target: true
+  failed_count:
+    kind: scalar
+    type: integer

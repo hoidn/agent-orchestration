@@ -102,6 +102,11 @@
 92. v1.2 provider consumes position: `consumes_injection_position: append` places consumed-artifacts block after prompt body
 93. v1.2 consumes prompt provenance: injected values must match resolved consume selection (latest publication under producer/policy filters)
 94. v1.2 loader guardrail: reject steps that combine `publishes` with `persist_artifacts_in_state:false`
+95. v1.2 prompt consume scope: `prompt_consumes` injects only listed consumed artifacts
+96. v1.2 prompt consume back-compat: omitting `prompt_consumes` injects all resolved consumed artifacts
+97. v1.2 prompt consume suppression: `prompt_consumes: []` injects no consumed-artifacts block
+98. v1.2 scalar artifact schema: `artifacts.<name>.kind: scalar` supports `enum|integer|float|bool` and rejects relpath-only fields
+99. v1.2 scalar runtime consume: scalar consume preflight enforces freshness without pointer-file materialization
 
 ## Future Acceptance (v1.2)
 

@@ -184,7 +184,8 @@ def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
     captured_prompts: list[dict[str, str]] = []
 
     def _write_review_decision(ws: Path) -> None:
-        decision = "REVISE" if review_calls["count"] == 0 else "APPROVE"
+        failed_count = int((ws / "state" / "failed_count.txt").read_text().strip())
+        decision = "APPROVE" if failed_count == 0 else "REVISE"
         review_calls["count"] += 1
         (ws / "state").mkdir(parents=True, exist_ok=True)
         (ws / "state" / "review_decision.txt").write_text(f"{decision}\n")
@@ -199,8 +200,11 @@ def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
             "ExecutePlan": lambda ws: _write_relpath_artifact(
                 ws, "state/execution_log_path.txt", "artifacts/work/execute.log", "execute\n"
             ),
-            "FixIssues": lambda ws: _write_relpath_artifact(
-                ws, "state/execution_log_path.txt", "artifacts/work/fix.log", "fix\n"
+            "FixIssues": lambda ws: (
+                _write_relpath_artifact(
+                    ws, "state/execution_log_path.txt", "artifacts/work/fix.log", "fix\n"
+                ),
+                (ws / "state" / "fixed.marker").write_text("fixed\n"),
             ),
             "ReviewPlan": _write_review_decision,
         },
@@ -216,8 +220,15 @@ def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
 
     consumes = state.get("artifact_consumes", {}).get("ReviewPlan", {})
     assert consumes.get("execution_log") == 2
+    assert consumes.get("failed_count") == 2
+
+    scalar_versions = state.get("artifact_versions", {}).get("failed_count", [])
+    assert [entry["producer"] for entry in scalar_versions] == ["RunChecks", "RunChecks"]
+    assert [entry["value"] for entry in scalar_versions] == [1, 0]
 
     review_prompts = [entry["prompt"] for entry in captured_prompts if entry["step"] == "ReviewPlan"]
     assert len(review_prompts) == 2
     assert "- execution_log: artifacts/work/execute.log" in review_prompts[0]
     assert "- execution_log: artifacts/work/fix.log" in review_prompts[1]
+    assert "- failed_count:" not in review_prompts[0]
+    assert "- failed_count:" not in review_prompts[1]
