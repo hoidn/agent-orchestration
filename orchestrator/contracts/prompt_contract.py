@@ -31,7 +31,7 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_consumed_artifacts_block(consumed: Dict[str, str]) -> str:
+def render_consumed_artifacts_block(consumed: Dict[str, Any]) -> str:
     """Render a stable prompt block describing resolved consumed artifacts."""
     lines: List[str] = ["## Consumed Artifacts"]
     for name in sorted(consumed.keys()):

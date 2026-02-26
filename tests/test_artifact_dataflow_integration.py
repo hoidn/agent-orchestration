@@ -40,6 +40,15 @@ def _artifact_registry() -> dict:
     }
 
 
+def _scalar_artifact_registry() -> dict:
+    return {
+        "failed_count": {
+            "kind": "scalar",
+            "type": "integer",
+        }
+    }
+
+
 def _publish_step(name: str, target_relpath: str) -> dict:
     return {
         "name": name,
@@ -62,6 +71,28 @@ def _publish_step(name: str, target_relpath: str) -> dict:
             }
         ],
         "publishes": [{"artifact": "execution_log", "from": "execution_log_path"}],
+    }
+
+
+def _publish_scalar_step(name: str, value: int) -> dict:
+    return {
+        "name": name,
+        "command": [
+            "bash",
+            "-lc",
+            (
+                "mkdir -p state && "
+                f"printf '{value}\\n' > state/failed_count.txt"
+            ),
+        ],
+        "expected_outputs": [
+            {
+                "name": "failed_count",
+                "path": "state/failed_count.txt",
+                "type": "integer",
+            }
+        ],
+        "publishes": [{"artifact": "failed_count", "from": "failed_count"}],
     }
 
 
@@ -208,3 +239,72 @@ def test_consume_missing_producer_output_fails_with_contract_violation(tmp_path:
 
     assert review["exit_code"] == 2
     assert review["error"]["type"] == "contract_violation"
+
+
+def test_scalar_publish_records_typed_value(tmp_path: Path):
+    """Scalar artifact publish stores typed value (integer) in publication ledger."""
+    workflow = {
+        "version": "1.2",
+        "name": "scalar-publish-ledger",
+        "artifacts": _scalar_artifact_registry(),
+        "steps": [
+            _publish_scalar_step("RunChecks", 3),
+        ],
+    }
+
+    _final, persisted = _run_workflow(tmp_path, workflow)
+    versions = persisted.get("artifact_versions", {}).get("failed_count", [])
+
+    assert len(versions) == 1
+    assert versions[0]["version"] == 1
+    assert versions[0]["producer"] == "RunChecks"
+    assert versions[0]["value"] == 3
+    assert isinstance(versions[0]["value"], int)
+
+
+def test_scalar_consume_enforces_freshness(tmp_path: Path):
+    """Scalar consumes honor since_last_consume freshness using published versions."""
+    workflow = {
+        "version": "1.2",
+        "name": "scalar-consume-freshness",
+        "artifacts": _scalar_artifact_registry(),
+        "steps": [
+            _publish_scalar_step("RunChecks", 2),
+            {
+                "name": "ReviewA",
+                "consumes": [
+                    {
+                        "artifact": "failed_count",
+                        "producers": ["RunChecks"],
+                        "policy": "latest_successful",
+                        "freshness": "since_last_consume",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo review-a"],
+            },
+            {
+                "name": "ReviewB",
+                "consumes": [
+                    {
+                        "artifact": "failed_count",
+                        "producers": ["RunChecks"],
+                        "policy": "latest_successful",
+                        "freshness": "since_last_consume",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo review-b"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+    review_a = state["steps"]["ReviewA"]
+    review_b = state["steps"]["ReviewB"]
+
+    assert review_a["exit_code"] == 0
+    assert review_b["exit_code"] == 2
+    assert review_b["error"]["type"] == "contract_violation"
+    assert review_b["error"]["context"]["reason"] == "stale_artifact"
+
+    consumes = persisted.get("artifact_consumes", {}).get("ReviewA", {})
+    assert consumes.get("failed_count") == 1
