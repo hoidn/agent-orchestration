@@ -16,7 +16,10 @@ from ..providers.registry import ProviderRegistry
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
 from ..contracts.output_contract import OutputContractError, validate_expected_outputs
-from ..contracts.prompt_contract import render_output_contract_block
+from ..contracts.prompt_contract import (
+    render_consumed_artifacts_block,
+    render_output_contract_block,
+)
 from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
 from ..security.secrets import SecretsManager
@@ -115,6 +118,7 @@ class WorkflowExecutor:
         state = run_state.to_dict()
         state.setdefault('artifact_versions', {})
         state.setdefault('artifact_consumes', {})
+        state['_resolved_consumes'] = {}
 
         # Execute steps with control flow support
         step_index = 0
@@ -471,6 +475,10 @@ class WorkflowExecutor:
         if not isinstance(artifact_consumes, dict):
             artifact_consumes = {}
             state['artifact_consumes'] = artifact_consumes
+        resolved_consumes = state.setdefault('_resolved_consumes', {})
+        if not isinstance(resolved_consumes, dict):
+            resolved_consumes = {}
+            state['_resolved_consumes'] = resolved_consumes
 
         step_consumes = artifact_consumes.setdefault(step_name, {})
         if not isinstance(step_consumes, dict):
@@ -480,6 +488,8 @@ class WorkflowExecutor:
         if not isinstance(global_consumes, dict):
             global_consumes = {}
             artifact_consumes['__global__'] = global_consumes
+        step_resolved_consumes: Dict[str, str] = {}
+        resolved_consumes[step_name] = step_resolved_consumes
 
         for consume in consumes:
             if not isinstance(consume, dict):
@@ -575,6 +585,7 @@ class WorkflowExecutor:
 
             step_consumes[artifact_name] = selected_version
             global_consumes[artifact_name] = selected_version
+            step_resolved_consumes[artifact_name] = selected_value
 
         self._persist_dataflow_state(state)
         return None
@@ -1209,6 +1220,14 @@ class WorkflowExecutor:
             # The spec states: "input_file: read literal contents; no substitution inside file contents"
             # prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
 
+        # Inject resolved consumes into provider prompt when requested.
+        prompt = self._apply_consumes_prompt_injection(
+            step,
+            step.get('name', f'step_{self.current_step}'),
+            prompt,
+            state,
+        )
+
         # Deterministic output contract prompt suffix (provider steps only).
         prompt = self._apply_output_contract_prompt_suffix(step, prompt)
 
@@ -1408,6 +1427,52 @@ class WorkflowExecutor:
         if prompt.endswith("\n"):
             return f"{prompt}\n{contract_block}"
         return f"{prompt}\n\n{contract_block}"
+
+    def _apply_consumes_prompt_injection(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        prompt: str,
+        state: Dict[str, Any],
+    ) -> str:
+        """Inject resolved consume values into provider prompts (v1.2)."""
+        if step.get('inject_consumes', True) is False:
+            return prompt
+
+        consumes = step.get('consumes')
+        if not isinstance(consumes, list) or not consumes:
+            return prompt
+
+        resolved_consumes = state.get('_resolved_consumes', {})
+        if not isinstance(resolved_consumes, dict):
+            return prompt
+
+        step_consumed_values = resolved_consumes.get(step_name, {})
+        if not isinstance(step_consumed_values, dict) or not step_consumed_values:
+            return prompt
+
+        consumed_values: Dict[str, str] = {}
+        for key, value in step_consumed_values.items():
+            if isinstance(key, str) and isinstance(value, str):
+                consumed_values[key] = value
+
+        if not consumed_values:
+            return prompt
+
+        consumes_block = render_consumed_artifacts_block(consumed_values)
+        position = step.get('consumes_injection_position', 'prepend')
+        if position == 'append':
+            if not prompt:
+                return consumes_block
+            if prompt.endswith("\n"):
+                return f"{prompt}\n{consumes_block}"
+            return f"{prompt}\n\n{consumes_block}"
+
+        if not prompt:
+            return consumes_block
+        if prompt.startswith("\n"):
+            return f"{consumes_block}{prompt}"
+        return f"{consumes_block}\n{prompt}"
 
     def _create_loop_context(
         self,

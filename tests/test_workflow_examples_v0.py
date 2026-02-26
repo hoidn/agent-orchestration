@@ -46,6 +46,7 @@ def _run_with_mocked_providers(
     workflow_relpath: str,
     provider_sequence: list[str],
     provider_writers: dict[str, Callable[[Path], None]],
+    captured_prompts: list[dict[str, str]] | None = None,
 ) -> dict:
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
@@ -56,6 +57,10 @@ def _run_with_mocked_providers(
     call_index = {"value": 0}
 
     def _prepare_invocation(*args, **kwargs):
+        if captured_prompts is not None:
+            prompt = kwargs.get("prompt_content", "") or ""
+            step_name = provider_sequence[call_index["value"]] if call_index["value"] < len(provider_sequence) else ""
+            captured_prompts.append({"step": step_name, "prompt": prompt})
         return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
 
     def _execute(_invocation, **_kwargs):
@@ -176,6 +181,7 @@ def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
     )
 
     review_calls = {"count": 0}
+    captured_prompts: list[dict[str, str]] = []
 
     def _write_review_decision(ws: Path) -> None:
         decision = "REVISE" if review_calls["count"] == 0 else "APPROVE"
@@ -188,6 +194,7 @@ def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
         workflow_path=workflow_path,
         workflow_relpath=workflow_relpath,
         provider_sequence=["ExecutePlan", "ReviewPlan", "FixIssues", "ReviewPlan"],
+        captured_prompts=captured_prompts,
         provider_writers={
             "ExecutePlan": lambda ws: _write_relpath_artifact(
                 ws, "state/execution_log_path.txt", "artifacts/work/execute.log", "execute\n"
@@ -209,3 +216,8 @@ def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
 
     consumes = state.get("artifact_consumes", {}).get("ReviewPlan", {})
     assert consumes.get("execution_log") == 2
+
+    review_prompts = [entry["prompt"] for entry in captured_prompts if entry["step"] == "ReviewPlan"]
+    assert len(review_prompts) == 2
+    assert "- execution_log: artifacts/work/execute.log" in review_prompts[0]
+    assert "- execution_log: artifacts/work/fix.log" in review_prompts[1]

@@ -43,6 +43,10 @@
     - `inject_output_contract: boolean` (optional; default true)
       - Consumed only by provider steps to control prompt suffix injection.
       - Accepted on non-provider steps as a compatibility no-op.
+    - `inject_consumes: boolean` (optional; default true; v1.2+)
+      - Provider steps only: controls automatic consumed-artifact prompt block injection for steps with `consumes`.
+    - `consumes_injection_position: prepend|append` (optional; default `prepend`; v1.2+)
+      - Provider steps only: controls where the consumed-artifact block is placed relative to prompt body.
   # Future (v1.3): JSON output validation (opt-in, version-gated)
   # Only valid when `version: "1.3"` or higher AND `output_capture: json` AND `allow_parse_error` is false
   - `output_schema?: string`                         # Path to JSON Schema under WORKSPACE; variables allowed
@@ -89,7 +93,7 @@
   - Deprecated `command_override` is not supported and must be rejected by the loader/validator.
   - Version gating:
     - `depends_on.inject` requires `version: "1.1.1"` or higher.
-    - `artifacts`, `publishes`, and `consumes` require `version: "1.2"` or higher.
+    - `artifacts`, `publishes`, `consumes`, `inject_consumes`, and `consumes_injection_position` require `version: "1.2"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.

@@ -29,3 +29,12 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
             lines.append("  required: false")
 
     return "\n".join(lines) + "\n"
+
+
+def render_consumed_artifacts_block(consumed: Dict[str, str]) -> str:
+    """Render a stable prompt block describing resolved consumed artifacts."""
+    lines: List[str] = ["## Consumed Artifacts"]
+    for name in sorted(consumed.keys()):
+        lines.append(f"- {name}: {consumed[name]}")
+    lines.append("Read these files before acting.")
+    return "\n".join(lines) + "\n"

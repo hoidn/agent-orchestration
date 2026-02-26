@@ -97,6 +97,10 @@
 87. v1.2 runtime freshness: `since_last_consume` fails on stale artifact version
 88. v1.2 runtime materialization: successful consume writes selected value to canonical artifact pointer file
 89. v1.2 runtime failure shape: missing/stale consume preflight fails with `exit_code:2` and `error.type:"contract_violation"` before step process execution
+90. v1.2 provider consumes injection: provider steps with `consumes` inject deterministic `Consumed Artifacts` block by default
+91. v1.2 provider consumes opt-out: `inject_consumes:false` disables consumed-artifacts prompt injection
+92. v1.2 provider consumes position: `consumes_injection_position: append` places consumed-artifacts block after prompt body
+93. v1.2 consumes prompt provenance: injected values must match resolved consume selection (latest publication under producer/policy filters)
 
 ## Future Acceptance (v1.2)
 

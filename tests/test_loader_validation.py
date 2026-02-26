@@ -786,3 +786,85 @@ class TestLoaderValidation:
         assert exc_info.value.exit_code == 2
         assert any("consumes producer 'FixIssues' does not publish artifact 'execution_log'" in str(err.message)
                    for err in exc_info.value.errors)
+
+    def test_v12_inject_consumes_requires_boolean(self):
+        """inject_consumes must be a boolean when present."""
+        workflow = {
+            "version": "1.2",
+            "name": "bad-inject-consumes",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                }],
+                "inject_consumes": "true",
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("'inject_consumes' must be a boolean" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_consumes_injection_position_must_be_prepend_or_append(self):
+        """consumes_injection_position only supports prepend|append."""
+        workflow = {
+            "version": "1.2",
+            "name": "bad-consumes-position",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                }],
+                "consumes_injection_position": "middle",
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consumes_injection_position must be 'prepend' or 'append'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_consumes_injection_position_requires_v1_2(self):
+        """consumes injection controls are version-gated to v1.2+."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "position-gated",
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes_injection_position": "prepend",
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consumes_injection_position requires version '1.2'" in str(err.message)
+                   for err in exc_info.value.errors)

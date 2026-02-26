@@ -18,6 +18,7 @@ This runbook documents the prototype workflows that use deterministic file-based
 - Each phase writes required artifacts to files under `state/` or `artifacts/`.
 - Each producing step declares `expected_outputs` with explicit `name`.
 - Downstream logic consumes values from `steps.<Step>.artifacts.<name>`.
+- In `version: "1.2"` workflows, provider steps with `consumes` automatically inject a deterministic `Consumed Artifacts` prompt block (unless `inject_consumes: false`).
 
 ## Verification Commands
 
@@ -46,6 +47,5 @@ python -m orchestrator run workflows/examples/backlog_plan_execute_v0.yaml --dry
 
 ## Known Limitations (v0)
 
-- Prompt-level behavior is still prompt-authored; this prototype only enforces deterministic file outputs.
 - Loop control uses existing `on.*.goto` and shell gates (no new control-flow DSL primitives yet).
 - Exit-code taxonomy for contract failures is currently implementation-defined; consumers should gate on non-zero plus `error.type == "contract_violation"`.

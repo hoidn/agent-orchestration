@@ -32,6 +32,8 @@ steps:
         producers: ["ExecutePlan", "FixIssues"]
         policy: latest_successful
         freshness: any
+    inject_consumes: true
+    consumes_injection_position: prepend
     expected_outputs:
       - name: review_decision
         path: state/review_decision.txt

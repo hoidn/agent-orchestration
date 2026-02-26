@@ -243,6 +243,26 @@ class WorkflowLoader:
                 else:
                     self._validate_consumes(step['consumes'], name)
 
+            if 'inject_consumes' in step:
+                if version != "1.2":
+                    self._add_error(f"Step '{name}': inject_consumes requires version '1.2'")
+                elif not isinstance(step['inject_consumes'], bool):
+                    self._add_error(f"Step '{name}': 'inject_consumes' must be a boolean")
+
+            if 'consumes_injection_position' in step:
+                if version != "1.2":
+                    self._add_error(f"Step '{name}': consumes_injection_position requires version '1.2'")
+                else:
+                    position = step['consumes_injection_position']
+                    if not isinstance(position, str):
+                        self._add_error(
+                            f"Step '{name}': consumes_injection_position must be 'prepend' or 'append'"
+                        )
+                    elif position not in {'prepend', 'append'}:
+                        self._add_error(
+                            f"Step '{name}': consumes_injection_position must be 'prepend' or 'append'"
+                        )
+
             # Validate wait_for exclusivity (AT-36)
             if 'wait_for' in step:
                 self._validate_wait_for(step, name)

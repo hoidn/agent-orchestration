@@ -14,6 +14,9 @@
 - Prompt composition
   - Read `input_file` literally.
   - Apply dependency injection in-memory if `depends_on.inject` is enabled (see `dependencies.md`).
+  - For `version: "1.2"` provider steps with `consumes`, inject a deterministic `Consumed Artifacts` block by default using resolved consume values from preflight (not prompt-authored paths).
+    - Disable with `inject_consumes: false`.
+    - Position with `consumes_injection_position: prepend|append` (default `prepend`).
   - If the step defines `expected_outputs` and `inject_output_contract` is not `false`, append a deterministic `Output Contract` suffix describing required artifacts (`name`, `path`, `type`, optional constraints).
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 

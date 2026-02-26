@@ -19,6 +19,9 @@
 - v1.2 additions (artifact dataflow contracts)
   - Top-level `artifacts` registry for canonical pointer contracts.
   - Step-level `publishes` and `consumes` for producer/consumer linkage.
+  - Provider prompt convenience controls for consume dataflow:
+    - `inject_consumes` (default true)
+    - `consumes_injection_position` (`prepend|append`, default `prepend`)
   - Runtime enforcement:
     - publication ledger in state (`artifact_versions`)
     - consume preflight (`latest_successful`) with optional freshness (`since_last_consume`)
