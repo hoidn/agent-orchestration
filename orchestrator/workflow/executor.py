@@ -396,6 +396,10 @@ class WorkflowExecutor:
                 },
             )
 
+        artifacts_registry = self.workflow.get('artifacts', {})
+        if not isinstance(artifacts_registry, dict):
+            artifacts_registry = {}
+
         artifact_versions = state.setdefault('artifact_versions', {})
         if not isinstance(artifact_versions, dict):
             artifact_versions = {}
@@ -422,6 +426,25 @@ class WorkflowExecutor:
                 )
 
             value = artifacts[output_name]
+            artifact_spec = artifacts_registry.get(artifact_name, {})
+            if isinstance(artifact_spec, dict) and artifact_spec.get('type') == 'enum':
+                allowed = artifact_spec.get('allowed')
+                if (
+                    not isinstance(value, str)
+                    or not isinstance(allowed, list)
+                    or value not in allowed
+                ):
+                    return self._contract_violation_result(
+                        "Publish contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "invalid_enum_value",
+                            "value": value,
+                            "allowed": allowed if isinstance(allowed, list) else [],
+                        },
+                    )
+
             versions = artifact_versions.setdefault(artifact_name, [])
             if not isinstance(versions, list):
                 versions = []
@@ -602,7 +625,12 @@ class WorkflowExecutor:
                 elif artifact_type == 'bool':
                     valid_scalar_value = isinstance(selected_value, bool)
                 elif artifact_type == 'enum':
-                    valid_scalar_value = isinstance(selected_value, str)
+                    allowed = artifact_spec.get('allowed') if isinstance(artifact_spec, dict) else None
+                    valid_scalar_value = (
+                        isinstance(selected_value, str)
+                        and isinstance(allowed, list)
+                        and selected_value in allowed
+                    )
                 else:
                     valid_scalar_value = isinstance(selected_value, (int, float, bool, str))
 
@@ -939,14 +967,22 @@ class WorkflowExecutor:
                     backup_name = f"{step_name}[{index}].{nested_name}"
                     self.state_manager.backup_state(backup_name)
 
-                # Execute the nested step based on its type
-                if 'command' in nested_step:
-                    result = self._execute_command_with_context(nested_step, nested_context, state)
-                elif 'provider' in nested_step:
-                    result = self._execute_provider_with_context(nested_step, nested_context, state)
+                consume_error = self._enforce_consumes_contract(nested_step, nested_name, state)
+                if consume_error is not None:
+                    result = consume_error
                 else:
-                    # Other step types within loops
-                    result = {'exit_code': 0, 'skipped': True}
+                    # Execute the nested step based on its type
+                    if 'command' in nested_step:
+                        result = self._execute_command_with_context(nested_step, nested_context, state)
+                    elif 'provider' in nested_step:
+                        result = self._execute_provider_with_context(nested_step, nested_context, state)
+                    else:
+                        # Other step types within loops
+                        result = {'exit_code': 0, 'skipped': True}
+
+                    publish_error = self._record_published_artifacts(nested_step, nested_name, result, state)
+                    if publish_error is not None:
+                        result = publish_error
 
                 # Store in iteration state
                 iteration_state[nested_name] = result
@@ -1329,10 +1365,7 @@ class WorkflowExecutor:
                 }
 
             # Execute the prepared invocation
-            exec_result = self.provider_executor.execute(
-                invocation,
-                stream_output=self.debug
-            )
+            exec_result = self._execute_provider_invocation(invocation)
 
             # Capture output according to specified mode
             capture_mode = step.get('output_capture', 'text')
@@ -1420,6 +1453,16 @@ class WorkflowExecutor:
             result['debug'] = debug_info
 
         return self._apply_expected_outputs_contract(step, result)
+
+    def _execute_provider_invocation(self, invocation: Any) -> Any:
+        """Execute provider invocation with backward-compatible call shape."""
+        execute_fn = self.provider_executor.execute
+        try:
+            return execute_fn(invocation, stream_output=self.debug)
+        except TypeError as exc:
+            if "unexpected keyword argument 'stream_output'" not in str(exc):
+                raise
+            return execute_fn(invocation)
 
     def _apply_expected_outputs_contract(self, step: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
         """Validate expected_outputs artifacts and attach parsed values to step result."""

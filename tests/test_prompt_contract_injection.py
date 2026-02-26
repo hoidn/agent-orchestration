@@ -786,6 +786,54 @@ def test_prompt_consumes_empty_list_injects_no_consumed_artifacts_block(tmp_path
     assert captured["prompt"] == original_prompt
 
 
+def test_provider_execute_falls_back_when_stream_output_kwarg_unsupported(tmp_path: Path):
+    """Workflow executor should support custom execute(invocation) call shape without kwargs."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "review.md").write_text("Review implementation.\n")
+
+    workflow = {
+        "version": "1.1.1",
+        "name": "provider-exec-compat",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "provider": "mock_provider",
+            "input_file": "prompts/review.md",
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    def _prepare_invocation(*args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt="Review implementation.\n"), None
+
+    def _execute_without_kwargs(_invocation):
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute_without_kwargs
+
+    state = executor.execute()
+    assert state["steps"]["Review"]["exit_code"] == 0
+
+
 def test_provider_prompt_injection_renders_scalar_consumed_value(tmp_path: Path):
     """Scalar consumed artifacts render their values in provider prompt injection."""
     (tmp_path / "prompts").mkdir()

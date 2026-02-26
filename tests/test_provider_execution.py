@@ -7,6 +7,7 @@ substitution, and error handling.
 
 import pytest
 import tempfile
+import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import subprocess
@@ -18,6 +19,7 @@ from orchestrator.providers import (
     ProviderExecutor,
     InputMode,
 )
+from orchestrator.providers.types import ProviderInvocation
 
 
 class TestProviderRegistry:
@@ -382,3 +384,38 @@ class TestProviderExecutor:
         # Check escapes were processed
         assert "${literal}" in invocation.command  # $${ -> ${
         assert "$100" in invocation.command  # $$ -> $
+
+    def test_streaming_capture_waits_for_reader_threads(self):
+        """Streaming capture should return complete stdout even with slow pipe readers."""
+        payload = "x" * 9000
+        invocation = ProviderInvocation(
+            command=["python", "-c", f"import sys; sys.stdout.write('{payload}')"],
+            input_mode=InputMode.ARGV,
+            prompt=None,
+            output_file=None,
+            env=None,
+            timeout_sec=10,
+        )
+
+        def _slow_stream_pipe(pipe, buffer, out_stream):
+            if pipe is None:
+                return
+            output = out_stream.buffer if hasattr(out_stream, "buffer") else out_stream
+            while True:
+                chunk = pipe.read(4096)
+                if not chunk:
+                    break
+                buffer.extend(chunk)
+                time.sleep(1.2)
+                try:
+                    output.write(chunk)
+                    output.flush()
+                except Exception:
+                    pass
+
+        with patch.object(self.executor, "_stream_pipe", side_effect=_slow_stream_pipe):
+            result = self.executor.execute(invocation, stream_output=True)
+
+        assert result.exit_code == 0
+        assert len(result.stdout) == len(payload)
+        assert result.stdout == payload.encode("utf-8")

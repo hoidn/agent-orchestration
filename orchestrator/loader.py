@@ -78,6 +78,9 @@ class WorkflowLoader:
             self._add_error("'steps' field is required and must not be empty")
         else:
             self._validate_steps(steps, version, workflow.get('artifacts'))
+            if version == "1.2":
+                all_steps = self._collect_all_steps(steps)
+                self._validate_dataflow_cross_references(all_steps, workflow.get('artifacts'))
 
         # Validate goto targets
         self._validate_goto_targets(workflow)
@@ -169,13 +172,11 @@ class WorkflowLoader:
             return
 
         step_names = set()
-        step_defs: List[Dict[str, Any]] = []
 
         for i, step in enumerate(steps):
             if not isinstance(step, dict):
                 self._add_error(f"Step {i} must be a dictionary")
                 continue
-            step_defs.append(step)
 
             # Name is required and must be unique
             name = step.get('name')
@@ -309,8 +310,23 @@ class WorkflowLoader:
             if 'on' in step:
                 self._validate_on_handlers(step['on'], name)
 
-        if version == "1.2":
-            self._validate_dataflow_cross_references(step_defs, artifacts_registry)
+    def _collect_all_steps(self, steps: List[Any]) -> List[Dict[str, Any]]:
+        """Collect all step definitions from top-level and nested for_each blocks."""
+        collected: List[Dict[str, Any]] = []
+        if not isinstance(steps, list):
+            return collected
+
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            collected.append(step)
+            for_each = step.get('for_each')
+            if isinstance(for_each, dict):
+                nested = for_each.get('steps')
+                if isinstance(nested, list):
+                    collected.extend(self._collect_all_steps(nested))
+
+        return collected
 
     def _validate_for_each(self, for_each: Any, step_name: str, version: str, artifacts_registry: Optional[Any] = None):
         """Validate for_each loop configuration."""
@@ -678,7 +694,6 @@ class WorkflowLoader:
         registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
 
         publishes_by_step: Dict[str, Set[str]] = {}
-        step_names: Set[str] = set()
 
         for step in steps:
             if not isinstance(step, dict):
@@ -687,7 +702,6 @@ class WorkflowLoader:
             if not isinstance(step_name, str):
                 continue
 
-            step_names.add(step_name)
             published_artifacts: Set[str] = set()
 
             expected_by_name = self._get_expected_output_map(step)
@@ -732,7 +746,8 @@ class WorkflowLoader:
 
                     published_artifacts.add(artifact_name)
 
-            publishes_by_step[step_name] = published_artifacts
+            existing = publishes_by_step.setdefault(step_name, set())
+            existing.update(published_artifacts)
 
         for step in steps:
             if not isinstance(step, dict):

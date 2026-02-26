@@ -993,6 +993,60 @@ class TestLoaderValidation:
         assert any("prompt_consumes artifact 'plan' must appear in consumes" in str(err.message)
                    for err in exc_info.value.errors)
 
+    def test_v12_consumes_producer_can_reference_top_level_from_for_each_nested_step(self):
+        """Nested for_each consumes may reference producers declared at top-level."""
+        workflow = {
+            "version": "1.2",
+            "name": "for-each-cross-scope-producer",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [
+                {
+                    "name": "Produce",
+                    "command": ["bash", "-lc", "echo produce"],
+                    "expected_outputs": [
+                        {
+                            "name": "execution_log_path",
+                            "path": "state/execution_log_path.txt",
+                            "type": "relpath",
+                            "under": "artifacts/work",
+                        }
+                    ],
+                    "publishes": [{"artifact": "execution_log", "from": "execution_log_path"}],
+                },
+                {
+                    "name": "Loop",
+                    "for_each": {
+                        "items": ["one"],
+                        "steps": [
+                            {
+                                "name": "ConsumeInLoop",
+                                "command": ["bash", "-lc", "echo consume"],
+                                "consumes": [
+                                    {
+                                        "artifact": "execution_log",
+                                        "producers": ["Produce"],
+                                        "policy": "latest_successful",
+                                        "freshness": "any",
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+
+        assert loaded["name"] == "for-each-cross-scope-producer"
+
     def test_v12_artifact_kind_scalar_accepts_non_relpath_types(self):
         """kind:scalar supports scalar output types without pointer-file requirements."""
         workflow = {

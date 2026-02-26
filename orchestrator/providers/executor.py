@@ -237,8 +237,8 @@ class ProviderExecutor:
 
             try:
                 exit_code = process.wait(timeout=invocation.timeout_sec)
-                stdout_thread.join(timeout=1.0)
-                stderr_thread.join(timeout=1.0)
+                stdout_thread.join()
+                stderr_thread.join()
 
                 duration_ms = int((time.time() - start_time) * 1000)
                 return ProviderExecutionResult(
@@ -250,8 +250,8 @@ class ProviderExecutor:
             except subprocess.TimeoutExpired:
                 process.kill()
                 process.wait()
-                stdout_thread.join(timeout=1.0)
-                stderr_thread.join(timeout=1.0)
+                stdout_thread.join()
+                stderr_thread.join()
 
                 duration_ms = int((time.time() - start_time) * 1000)
                 return ProviderExecutionResult(

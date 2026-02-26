@@ -308,3 +308,148 @@ def test_scalar_consume_enforces_freshness(tmp_path: Path):
 
     consumes = persisted.get("artifact_consumes", {}).get("ReviewA", {})
     assert consumes.get("failed_count") == 1
+
+
+def test_for_each_nested_publish_records_artifact_versions(tmp_path: Path):
+    """Nested loop steps that publish must record artifact versions for downstream consumers."""
+    workflow = {
+        "version": "1.2",
+        "name": "for-each-publish-dataflow",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            {
+                "name": "LoopPublish",
+                "for_each": {
+                    "items": ["one"],
+                    "steps": [
+                        {
+                            "name": "ProduceInLoop",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                (
+                                    "mkdir -p state artifacts/work && "
+                                    "printf 'artifacts/work/from-loop.md\\n' > state/execution_log_path.txt && "
+                                    "printf 'from loop\\n' > artifacts/work/from-loop.md"
+                                ),
+                            ],
+                            "expected_outputs": [
+                                {
+                                    "name": "execution_log_path",
+                                    "path": "state/execution_log_path.txt",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ],
+                            "publishes": [{"artifact": "execution_log", "from": "execution_log_path"}],
+                        }
+                    ],
+                },
+            },
+            {
+                "name": "ReviewAfterLoop",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ProduceInLoop"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "command": ["bash", "-lc", "cat state/execution_log_path.txt"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+
+    assert state["steps"]["ReviewAfterLoop"]["exit_code"] == 0
+    assert state["steps"]["ReviewAfterLoop"]["output"].strip() == "artifacts/work/from-loop.md"
+
+    versions = persisted.get("artifact_versions", {}).get("execution_log", [])
+    assert len(versions) == 1
+    assert versions[0]["producer"] == "ProduceInLoop"
+
+
+def test_for_each_nested_consume_enforces_contracts(tmp_path: Path):
+    """Nested loop steps should enforce consume freshness constraints per iteration."""
+    workflow = {
+        "version": "1.2",
+        "name": "for-each-consume-dataflow",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            _publish_step("ExecutePlan", "artifacts/work/exec-plan.md"),
+            {
+                "name": "LoopReview",
+                "for_each": {
+                    "items": ["one", "two"],
+                    "steps": [
+                        {
+                            "name": "ReviewInLoop",
+                            "consumes": [
+                                {
+                                    "artifact": "execution_log",
+                                    "producers": ["ExecutePlan"],
+                                    "policy": "latest_successful",
+                                    "freshness": "since_last_consume",
+                                }
+                            ],
+                            "command": ["bash", "-lc", "echo run-review"],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    state, _persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+    review_0 = state["steps"]["LoopReview[0].ReviewInLoop"]
+    review_1 = state["steps"]["LoopReview[1].ReviewInLoop"]
+
+    assert review_0["exit_code"] == 0
+    assert review_1["exit_code"] == 2
+    assert review_1["error"]["type"] == "contract_violation"
+    assert review_1["error"]["context"]["reason"] == "stale_artifact"
+
+
+def test_enum_registry_allowed_is_enforced_at_publish_boundary(tmp_path: Path):
+    """Registry enum constraints must reject published values outside allowed set."""
+    workflow = {
+        "version": "1.2",
+        "name": "enum-registry-enforcement",
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE"],
+            }
+        },
+        "steps": [
+            {
+                "name": "WriteDecision",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'REVISE\\n' > state/review_decision.txt",
+                ],
+                "expected_outputs": [
+                    {
+                        "name": "review_decision",
+                        "path": "state/review_decision.txt",
+                        "type": "enum",
+                        "allowed": ["APPROVE", "REVISE"],
+                    }
+                ],
+                "publishes": [{"artifact": "review_decision", "from": "review_decision"}],
+            }
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+    decision_step = state["steps"]["WriteDecision"]
+
+    assert decision_step["exit_code"] == 2
+    assert decision_step["error"]["type"] == "contract_violation"
+    assert decision_step["error"]["context"]["reason"] == "invalid_enum_value"
+    assert persisted.get("artifact_versions", {}).get("review_decision", []) == []
