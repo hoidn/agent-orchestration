@@ -77,6 +77,8 @@ class RunState:
     context: Dict[str, Any] = field(default_factory=dict)
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
+    artifact_versions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
+    artifact_consumes: Dict[str, Dict[str, int]] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict for JSON serialization."""
@@ -90,7 +92,9 @@ class RunState:
             "status": self.status,
             "context": self.context,
             "steps": {},
-            "for_each": {}
+            "for_each": {},
+            "artifact_versions": self.artifact_versions,
+            "artifact_consumes": self.artifact_consumes,
         }
 
         # Include run_root if set
@@ -135,7 +139,9 @@ class RunState:
             run_root=data.get("run_root"),  # Optional, may not be present in older states
             context=data.get("context", {}),
             steps=data.get("steps", {}),
-            for_each=for_each
+            for_each=for_each,
+            artifact_versions=data.get("artifact_versions", {}),
+            artifact_consumes=data.get("artifact_consumes", {}),
         )
 
 
@@ -352,6 +358,19 @@ class StateManager:
             raise RuntimeError("State not initialized")
 
         self.state.for_each[loop_name] = state
+        self._write_state()
+
+    def update_dataflow_state(
+        self,
+        artifact_versions: Dict[str, List[Dict[str, Any]]],
+        artifact_consumes: Dict[str, Dict[str, int]],
+    ):
+        """Update v1.2 artifact dataflow state."""
+        if not self.state:
+            raise RuntimeError("State not initialized")
+
+        self.state.artifact_versions = artifact_versions
+        self.state.artifact_consumes = artifact_consumes
         self._write_state()
 
     def update_status(self, status: StateStatus):

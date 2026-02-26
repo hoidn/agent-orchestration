@@ -16,17 +16,24 @@
     - After: declare files once in `depends_on`; orchestrator injects into the prompt.
     - Benefits: DRY, glob support, maintainability, generic prompts.
 
-- v1.2 planned (declarative per-item lifecycle)
+- v1.2 additions (artifact dataflow contracts)
+  - Top-level `artifacts` registry for canonical pointer contracts.
+  - Step-level `publishes` and `consumes` for producer/consumer linkage.
+  - Runtime enforcement:
+    - publication ledger in state (`artifact_versions`)
+    - consume preflight (`latest_successful`) with optional freshness (`since_last_consume`)
+    - deterministic contract failures (`exit_code: 2`, `error.type: "contract_violation"`).
+
+- Planned future (declarative per-item lifecycle)
   - `for_each.on_item_complete` with `success.move_to` / `failure.move_to` directories.
-  - Version-gated: requires `version: "1.2"` or higher; otherwise validation error.
-  - See acceptance items for timing, path safety, variable substitution, idempotency on resume.
+  - Version gating and rollout details are deferred until feature implementation.
 
-## Declarative Task Lifecycle for for_each (v1.2)
+## Declarative Task Lifecycle for for_each (Planned)
 
-Status: Planned future feature. Opt‑in, version‑gated. Does not change MVP defaults.
+Status: Planned future feature. Opt‑in, version-gated. Does not change current defaults.
 
 Version gating:
-- Requires `version: "1.2"` or higher. Using `on_item_complete` at lower versions is a validation error (exit code 2).
+- To be finalized at implementation time.
 
 Purpose:
 - Reduce boilerplate by declaratively moving a per‑item task file after an iteration completes, based on item success/failure.
@@ -120,5 +127,6 @@ Planned acceptance:
 | --- | --- | --- |
 | 1.1 | Baseline DSL; providers (argv/stdin), `wait_for`, `depends_on` (required/optional), `when` (equals/exists/not_exists), retries/timeouts, strict path safety | State schema initially 1.1.1 (separate track). Unknown DSL fields rejected. |
 | 1.1.1 | `depends_on.inject` (list/content/none), injection truncation recording | Workflows must declare `version: "1.1.1"` to use `inject`. |
-| 1.2 (planned) | `for_each.on_item_complete` declarative per‑item lifecycle (move_to on success/failure) | Opt‑in; path safety and substitution apply. State gains per‑iteration `lifecycle` fields; state schema will bump accordingly when released. |
+| 1.2 | `artifacts`, `publishes`, `consumes` dataflow contracts with runtime publish/consume enforcement | Keeps `expected_outputs` as file-validation primitive and adds provenance/freshness guarantees for downstream consumers. |
+| future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | 1.3 (planned) | JSON output validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

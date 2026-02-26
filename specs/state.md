@@ -12,6 +12,9 @@
   - `context`: key/value map
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
+  - v1.2 runtime dataflow fields:
+    - `artifact_versions`: `{artifact_name: [{version, value, producer, step_index}, ...]}`
+    - `artifact_consumes`: `{consumer_step: {artifact_name: last_consumed_version}}` with optional `__global__` aggregate entry
 
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
@@ -54,6 +57,24 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
   "updated_at": "2025-01-15T14:35:47Z",
   "status": "running",
   "context": { "key": "value" },
+  "artifact_versions": {
+    "execution_log": [
+      {
+        "version": 1,
+        "value": "artifacts/work/latest-execution-log.md",
+        "producer": "ExecutePlan",
+        "step_index": 2
+      }
+    ]
+  },
+  "artifact_consumes": {
+    "ReviewImplVsPlan": {
+      "execution_log": 1
+    },
+    "__global__": {
+      "execution_log": 1
+    }
+  },
   "steps": {
     "StepName": {
       "status": "completed",

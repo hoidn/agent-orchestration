@@ -31,6 +31,10 @@
   - Secrets are sourced from the orchestrator environment and masked in logs. See `security.md` for normative rules.
   - The `${env.*}` namespace is disallowed in workflows; the loader must reject such references.
 
+- v1.2 artifact consume materialization
+  - Before a step with `consumes` executes, orchestrator resolves the selected artifact version and writes its value to the artifact registry pointer file (for example `state/execution_log_path.txt`).
+  - This is runtime contract enforcement, not variable substitution.
+
 ## Dynamic Content Pattern
 
 To include dynamic content in files, use a pre-processing step:

@@ -6,6 +6,8 @@ This runbook documents the prototype workflows that use deterministic file-based
 
 - `workflows/examples/backlog_plan_execute_v0.yaml`
   - Pattern: backlog item selection -> plan draft -> plan execution -> optional review loop.
+- `workflows/examples/backlog_plan_execute_v1_2_dataflow.yaml`
+  - Pattern: execute -> review -> fix loop with explicit v1.2 artifact publish/consume guarantees.
 - `workflows/examples/test_fix_loop_v0.yaml`
   - Pattern: run tests -> gate on failure count -> fix -> retry until pass/max cycles.
 - `workflows/examples/unit_of_work_plus_test_fix_v0.yaml`

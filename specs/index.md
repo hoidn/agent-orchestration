@@ -1,9 +1,9 @@
-# Multi-Agent Orchestration — Master Spec (v1.1 + v1.1.1)
+# Multi-Agent Orchestration — Master Spec (v1.1 + v1.1.1 + v1.2)
 
 Status: Normative master. This index defines scope, versioning, conformance, and the module map with stable links to sub-specs. The DSL version and the state schema version are distinct by design.
 
 - Versioning
-  - DSL: v1.1 baseline; v1.1.1 adds dependency injection. v1.2 and v1.3 are planned, version-gated.
+  - DSL: v1.1 baseline; v1.1.1 adds dependency injection; v1.2 adds artifact publish/consume dataflow contracts. v1.3 remains planned.
   - State schema: `schema_version: "1.1.1"`.
   - Validation is strict: unknown fields are rejected at the declared DSL `version`.
 
@@ -36,7 +36,7 @@ Status: Normative master. This index defines scope, versioning, conformance, and
 
 ## Executive Summary
 
-Versioning note: This specification defines the v1.1 baseline and includes the v1.1.1 additions for dependency injection. The state schema uses `schema_version: "1.1.1"`. Workflows written against v1.1 (without injection) remain valid. The workflow DSL `version:` and the state `schema_version` follow separate version tracks by design. DSL validation is strict: unknown fields are rejected. Workflows that use `depends_on.inject` MUST set `version: "1.1.1"` (or higher); v1.1 workflows must not include `inject`.
+Versioning note: This specification defines the v1.1 baseline and includes v1.1.1 dependency injection and v1.2 artifact dataflow contracts (`artifacts`, `publishes`, `consumes`). The state schema uses `schema_version: "1.1.1"`. Workflows written against v1.1 remain valid. The workflow DSL `version:` and the state `schema_version` follow separate version tracks by design. DSL validation is strict: unknown fields are rejected. Workflows that use `depends_on.inject` MUST set `version: "1.1.1"` (or higher), and workflows that use dataflow contracts MUST set `version: "1.2"` (or higher).
 
 This system executes deterministic, sequential workflows described in YAML, including raw shell commands and LLM CLI invocations. Agents coordinate via filesystem queues (`inbox/`, `processed/`, `failed/`). Steps capture outputs as text, lines arrays, or JSON, with deterministic control flow (conditions, goto) and for-each loops. Provider prompts are composed from `input_file` plus optional dependency injection.
 

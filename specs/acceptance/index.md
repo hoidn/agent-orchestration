@@ -87,6 +87,16 @@
 63. Prompt suffix opt-out: `inject_output_contract:false` disables provider suffix injection
 64. Command compatibility: command steps accept `inject_output_contract` with no behavior change
 65. Artifact mirror opt-out: `persist_artifacts_in_state:false` still enforces `expected_outputs` but omits `steps.<Step>.artifacts` from `state.json`
+80. v1.2 loader gating: top-level `artifacts` rejected below `version: "1.2"`
+81. v1.2 loader gating: step `publishes`/`consumes` rejected below `version: "1.2"`
+82. v1.2 publish contract: `publishes.from` must reference local `expected_outputs.name`
+83. v1.2 publish contract: `publishes` pointer/type must match artifact registry contract
+84. v1.2 consume contract: producer filters must reference steps that publish requested artifact
+85. v1.2 runtime publish ledger: successful publisher appends deterministic version record under `artifact_versions`
+86. v1.2 runtime consume policy: `latest_successful` resolves newest matching artifact publication
+87. v1.2 runtime freshness: `since_last_consume` fails on stale artifact version
+88. v1.2 runtime materialization: successful consume writes selected value to canonical artifact pointer file
+89. v1.2 runtime failure shape: missing/stale consume preflight fails with `exit_code:2` and `error.type:"contract_violation"` before step process execution
 
 ## Future Acceptance (v1.2)
 

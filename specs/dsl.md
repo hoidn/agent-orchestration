@@ -1,12 +1,16 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1" or "1.1.1"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", or "1.2"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
   - Queue defaults: `inbox_dir`, `processed_dir`, `failed_dir`, `task_extension` (see `queue.md`).
   - `context`: key/value map available via `${context.*}` (see `variables.md`).
+  - `artifacts`: map of named artifact contracts (v1.2+).
+    - `pointer: string` (required relative path to canonical pointer file, usually under `state/`)
+    - `type: enum|integer|float|bool|relpath` (required; currently `relpath` is the primary dataflow use case)
+    - Optional constraints: `allowed`, `under`, `must_exist_target`
   - `steps`: ordered list of step objects.
 
 - Step schema (consolidated; MVP + v1.1.1)
@@ -49,6 +53,17 @@
       - `type?: string`                              # One of: string|number|boolean|array|object|null
   - Environment & secrets: see `security.md`.
   - Dependencies: `depends_on: { required[], optional[], inject }` (see `dependencies.md`).
+  - Dataflow (v1.2+):
+    - `publishes`: list of `{ artifact, from }`
+      - `artifact`: artifact name from top-level `artifacts`
+      - `from`: local `expected_outputs.name` produced by the same step
+      - runtime: on successful step, publication appends a new artifact version record
+    - `consumes`: list of contracts
+      - `artifact`: artifact name from top-level `artifacts`
+      - `producers: string[]` (optional producer step-name filter)
+      - `policy: latest_successful` (MVP)
+      - `freshness: any|since_last_consume` (default `any`)
+      - runtime preflight: resolve selected artifact version, materialize canonical pointer file, fail with `contract_violation` (exit 2) when missing/stale
   - Control:
     - `timeout_sec: number` (applies to provider/command; exit 124 on timeout)
     - `retries: { max: number, delay_ms?: number }`
@@ -72,6 +87,9 @@
   - `for_each` is a block form and cannot be combined with `provider`/`command`/`wait_for` on the same step.
   - `goto` targets must reference an existing step name or `_end`. Unknown targets are a validation error (exit code 2) reported at workflow load time.
   - Deprecated `command_override` is not supported and must be rejected by the loader/validator.
+  - Version gating:
+    - `depends_on.inject` requires `version: "1.1.1"` or higher.
+    - `artifacts`, `publishes`, and `consumes` require `version: "1.2"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.
@@ -96,6 +114,15 @@ version: string                 # Workflow DSL version (e.g., "1.1"); independen
 name: string                    # Human-friendly name
 strict_flow: boolean            # Default: true; non-zero exit halts unless on.failure.goto present
 context: { [key: string]: any } # Optional key/value map available via ${context.*}
+
+# v1.2+: canonical artifact contracts for publish/consume dataflow
+artifacts:                      # Optional
+  <artifact-name>:
+    pointer: string             # Relative pointer-file path, e.g. state/execution_log_path.txt
+    type: string                # enum|integer|float|bool|relpath
+    allowed: string[]           # enum only
+    under: string               # relpath only (optional)
+    must_exist_target: boolean  # relpath only (optional)
 
 # Provider templates available to steps
 providers:                      # Optional

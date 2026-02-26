@@ -1,0 +1,93 @@
+version: "1.2"
+name: "backlog-plan-execute-v1-2-dataflow"
+context:
+  max_review_cycles: "2"
+steps:
+  - name: InitializeReviewCycle
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && printf '0\n' > state/review_cycle.txt"
+    expected_outputs:
+      - name: review_cycle
+        path: state/review_cycle.txt
+        type: integer
+
+  - name: ExecutePlan
+    provider: codex
+    expected_outputs:
+      - name: execution_log_path
+        path: state/execution_log_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_log
+        from: execution_log_path
+
+  - name: ReviewPlan
+    provider: codex
+    consumes:
+      - artifact: execution_log
+        producers: ["ExecutePlan", "FixIssues"]
+        policy: latest_successful
+        freshness: any
+    expected_outputs:
+      - name: review_decision
+        path: state/review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]
+
+  - name: ReviewGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/review_decision.txt)" = "APPROVE"'
+    on:
+      success:
+        goto: _end
+      failure:
+        goto: FixIssues
+
+  - name: FixIssues
+    provider: codex
+    expected_outputs:
+      - name: execution_log_path
+        path: state/execution_log_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_log
+        from: execution_log_path
+    on:
+      success:
+        goto: IncrementReviewCycle
+
+  - name: IncrementReviewCycle
+    command:
+      - bash
+      - -lc
+      - 'c=$(cat state/review_cycle.txt); printf "%s\n" "$((c+1))" > state/review_cycle.txt'
+    expected_outputs:
+      - name: review_cycle
+        path: state/review_cycle.txt
+        type: integer
+
+  - name: ReviewCycleGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/review_cycle.txt)" -lt "${context.max_review_cycles}"'
+    on:
+      success:
+        goto: ReviewPlan
+      failure:
+        goto: _end
+
+artifacts:
+  execution_log:
+    pointer: state/execution_log_path.txt
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true

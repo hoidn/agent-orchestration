@@ -563,3 +563,226 @@ class TestLoaderValidation:
         assert exc_info.value.exit_code == 2
         assert any("duplicate artifact name 'plan_path'" in str(err.message)
                   for err in exc_info.value.errors)
+
+    def test_v12_artifacts_rejected_in_v1_1_1(self):
+        """Top-level artifacts are version-gated to v1.2+."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "artifacts-gated",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                    "must_exist_target": True,
+                }
+            },
+            "steps": [{
+                "name": "step1",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("artifacts requires version '1.2'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_artifacts_schema_accepts_in_v1_2(self):
+        """Top-level artifacts schema is accepted in v1.2."""
+        workflow = {
+            "version": "1.2",
+            "name": "artifacts-ok",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                    "must_exist_target": True,
+                }
+            },
+            "steps": [{
+                "name": "step1",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        result = self.loader.load(path)
+        assert result["version"] == "1.2"
+        assert "artifacts" in result
+        assert "execution_log" in result["artifacts"]
+
+    def test_v12_publishes_rejected_in_v1_1_1(self):
+        """Step publishes are version-gated to v1.2+."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "publishes-gated",
+            "steps": [{
+                "name": "ExecutePlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "execution_log_path",
+                    "path": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }],
+                "publishes": [{
+                    "artifact": "execution_log",
+                    "from": "execution_log_path",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("publishes requires version '1.2'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_consumes_rejected_in_v1_1_1(self):
+        """Step consumes are version-gated to v1.2+."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "consumes-gated",
+            "steps": [{
+                "name": "Review",
+                "command": ["echo", "ok"],
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "producers": ["ExecutePlan", "FixIssues"],
+                    "policy": "latest_successful",
+                    "freshness": "since_last_consume",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consumes requires version '1.2'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_publishes_from_must_reference_expected_output_name(self):
+        """publishes.from must reference a local expected_outputs artifact key."""
+        workflow = {
+            "version": "1.2",
+            "name": "bad-from",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "ExecutePlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "execution_log_path",
+                    "path": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }],
+                "publishes": [{
+                    "artifact": "execution_log",
+                    "from": "missing_output_name",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("publishes.from 'missing_output_name' not found in expected_outputs" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_publishes_pointer_must_match_registry_pointer(self):
+        """publishes target expected_outputs path must match registry pointer path."""
+        workflow = {
+            "version": "1.2",
+            "name": "bad-pointer",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "ExecutePlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "execution_log_path",
+                    "path": "state/some_other_pointer.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }],
+                "publishes": [{
+                    "artifact": "execution_log",
+                    "from": "execution_log_path",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("publishes pointer mismatch for artifact 'execution_log'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_consumes_producers_must_publish_artifact(self):
+        """consumes.producers entries must reference steps that publish that artifact."""
+        workflow = {
+            "version": "1.2",
+            "name": "bad-producers",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "ExecutePlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "execution_log_path",
+                    "path": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }],
+                "publishes": [{
+                    "artifact": "execution_log",
+                    "from": "execution_log_path",
+                }],
+            }, {
+                "name": "Review",
+                "command": ["echo", "ok"],
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "producers": ["FixIssues"],
+                    "policy": "latest_successful",
+                    "freshness": "any",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consumes producer 'FixIssues' does not publish artifact 'execution_log'" in str(err.message)
+                   for err in exc_info.value.errors)

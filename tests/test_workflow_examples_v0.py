@@ -11,6 +11,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 
 EXAMPLE_FILES = [
     "backlog_plan_execute_v0.yaml",
+    "backlog_plan_execute_v1_2_dataflow.yaml",
     "test_fix_loop_v0.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
 ]
@@ -166,3 +167,45 @@ def test_unit_of_work_plus_test_fix_v0_runtime(tmp_path: Path):
     assert state["steps"]["ExecuteUnitOfWork"]["artifacts"]["unit_result_path"] == "artifacts/work/unit-result.md"
     assert state["steps"]["RunPostWorkTests"]["artifacts"]["failed_count"] == 0
     assert state["steps"]["FixPostWorkIssues"]["artifacts"]["post_fix_path"] == "artifacts/fixes/post-fix.patch"
+
+
+def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
+    """v1.2 example enforces publish/consume lineage across execute/fix/review loop."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "backlog_plan_execute_v1_2_dataflow.yaml"
+    )
+
+    review_calls = {"count": 0}
+
+    def _write_review_decision(ws: Path) -> None:
+        decision = "REVISE" if review_calls["count"] == 0 else "APPROVE"
+        review_calls["count"] += 1
+        (ws / "state").mkdir(parents=True, exist_ok=True)
+        (ws / "state" / "review_decision.txt").write_text(f"{decision}\n")
+
+    state = _run_with_mocked_providers(
+        workspace=workspace,
+        workflow_path=workflow_path,
+        workflow_relpath=workflow_relpath,
+        provider_sequence=["ExecutePlan", "ReviewPlan", "FixIssues", "ReviewPlan"],
+        provider_writers={
+            "ExecutePlan": lambda ws: _write_relpath_artifact(
+                ws, "state/execution_log_path.txt", "artifacts/work/execute.log", "execute\n"
+            ),
+            "FixIssues": lambda ws: _write_relpath_artifact(
+                ws, "state/execution_log_path.txt", "artifacts/work/fix.log", "fix\n"
+            ),
+            "ReviewPlan": _write_review_decision,
+        },
+    )
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 4
+    assert state["steps"]["ReviewPlan"]["artifacts"]["review_decision"] == "APPROVE"
+
+    versions = state.get("artifact_versions", {}).get("execution_log", [])
+    assert [entry["producer"] for entry in versions] == ["ExecutePlan", "FixIssues"]
+    assert [entry["value"] for entry in versions] == ["artifacts/work/execute.log", "artifacts/work/fix.log"]
+
+    consumes = state.get("artifact_consumes", {}).get("ReviewPlan", {})
+    assert consumes.get("execution_log") == 2

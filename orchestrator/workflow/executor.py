@@ -113,6 +113,8 @@ class WorkflowExecutor:
 
         # Convert to dict format for internal processing
         state = run_state.to_dict()
+        state.setdefault('artifact_versions', {})
+        state.setdefault('artifact_consumes', {})
 
         # Execute steps with control flow support
         step_index = 0
@@ -215,6 +217,37 @@ class WorkflowExecutor:
             if self.debug:
                 self.state_manager.backup_state(step_name)
 
+            consume_error = self._enforce_consumes_contract(step, step_name, state)
+            if consume_error is not None:
+                if 'steps' not in state:
+                    state['steps'] = {}
+                state['steps'][step_name] = consume_error
+
+                from ..state import StepResult
+                step_result = StepResult(
+                    status='failed',
+                    exit_code=consume_error.get('exit_code', 2),
+                    error=consume_error.get('error'),
+                    output=consume_error.get('output'),
+                    duration_ms=consume_error.get('duration_ms', 0),
+                    truncated=consume_error.get('truncated', False),
+                    lines=consume_error.get('lines'),
+                    json=consume_error.get('json'),
+                    artifacts=consume_error.get('artifacts'),
+                )
+                self.state_manager.update_step(step_name, step_result)
+
+                next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                if next_step == '_end':
+                    break
+                if next_step == '_stop':
+                    return state
+                if isinstance(next_step, int):
+                    step_index = next_step
+                else:
+                    step_index += 1
+                continue
+
             # Execute based on step type
             if 'for_each' in step:
                 state = self._execute_for_each(step, state, resume=resume)
@@ -232,6 +265,9 @@ class WorkflowExecutor:
                 state = self._execute_wait_for(step, state)
             elif 'provider' in step:
                 result = self._execute_provider(step, state)
+                publish_error = self._record_published_artifacts(step, step_name, result, state)
+                if publish_error is not None:
+                    result = publish_error
                 # Store result in state
                 if 'steps' not in state:
                     state['steps'] = {}
@@ -254,6 +290,9 @@ class WorkflowExecutor:
                 self.state_manager.update_step(step_name, step_result)
             elif 'command' in step:
                 result = self._execute_command(step, state)
+                publish_error = self._record_published_artifacts(step, step_name, result, state)
+                if publish_error is not None:
+                    result = publish_error
                 # Store result in state
                 if 'steps' not in state:
                     state['steps'] = {}
@@ -294,6 +333,251 @@ class WorkflowExecutor:
         self.state_manager.update_status('completed')
         # Return the updated state
         return self.state_manager.load().to_dict()
+
+    def _contract_violation_result(self, message: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Build a standardized contract_violation failure result."""
+        return {
+            'status': 'failed',
+            'exit_code': 2,
+            'duration_ms': 0,
+            'output': '',
+            'error': {
+                'type': 'contract_violation',
+                'message': message,
+                'context': context or {},
+            },
+        }
+
+    def _persist_dataflow_state(self, state: Dict[str, Any]) -> None:
+        """Persist artifact dataflow fields to state.json."""
+        artifact_versions = state.get('artifact_versions', {})
+        artifact_consumes = state.get('artifact_consumes', {})
+
+        if not isinstance(artifact_versions, dict):
+            artifact_versions = {}
+            state['artifact_versions'] = artifact_versions
+        if not isinstance(artifact_consumes, dict):
+            artifact_consumes = {}
+            state['artifact_consumes'] = artifact_consumes
+
+        self.state_manager.update_dataflow_state(artifact_versions, artifact_consumes)
+
+    def _record_published_artifacts(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        result: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Record artifact publications for successful steps."""
+        publishes = step.get('publishes')
+        if not publishes:
+            return None
+        if result.get('exit_code', 0) != 0:
+            return None
+        if not isinstance(publishes, list):
+            return self._contract_violation_result(
+                "Publish contract invalid",
+                {"step": step_name, "reason": "publishes_not_list"},
+            )
+
+        artifacts = result.get('artifacts')
+        if not isinstance(artifacts, dict):
+            return self._contract_violation_result(
+                "Publish contract failed",
+                {
+                    "step": step_name,
+                    "reason": "missing_result_artifacts",
+                    "hint": "publishes requires expected_outputs artifacts persisted in step result",
+                },
+            )
+
+        artifact_versions = state.setdefault('artifact_versions', {})
+        if not isinstance(artifact_versions, dict):
+            artifact_versions = {}
+            state['artifact_versions'] = artifact_versions
+
+        for publish in publishes:
+            if not isinstance(publish, dict):
+                continue
+
+            artifact_name = publish.get('artifact')
+            output_name = publish.get('from')
+            if not isinstance(artifact_name, str) or not isinstance(output_name, str):
+                continue
+
+            if output_name not in artifacts:
+                return self._contract_violation_result(
+                    "Publish contract failed",
+                    {
+                        "step": step_name,
+                        "artifact": artifact_name,
+                        "reason": "missing_artifact_output",
+                        "from": output_name,
+                    },
+                )
+
+            value = artifacts[output_name]
+            versions = artifact_versions.setdefault(artifact_name, [])
+            if not isinstance(versions, list):
+                versions = []
+                artifact_versions[artifact_name] = versions
+
+            max_version = 0
+            for entry in versions:
+                if isinstance(entry, dict):
+                    entry_version = entry.get('version', 0)
+                    if isinstance(entry_version, int) and entry_version > max_version:
+                        max_version = entry_version
+
+            versions.append(
+                {
+                    'version': max_version + 1,
+                    'value': value,
+                    'producer': step_name,
+                    'step_index': self.current_step,
+                }
+            )
+
+        self._persist_dataflow_state(state)
+        return None
+
+    def _enforce_consumes_contract(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        state: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve and enforce consumes contracts before step execution."""
+        consumes = step.get('consumes')
+        if not consumes:
+            return None
+        if not isinstance(consumes, list):
+            return self._contract_violation_result(
+                "Consume contract invalid",
+                {"step": step_name, "reason": "consumes_not_list"},
+            )
+
+        artifacts_registry = self.workflow.get('artifacts', {})
+        if not isinstance(artifacts_registry, dict):
+            artifacts_registry = {}
+
+        artifact_versions = state.setdefault('artifact_versions', {})
+        if not isinstance(artifact_versions, dict):
+            artifact_versions = {}
+            state['artifact_versions'] = artifact_versions
+
+        artifact_consumes = state.setdefault('artifact_consumes', {})
+        if not isinstance(artifact_consumes, dict):
+            artifact_consumes = {}
+            state['artifact_consumes'] = artifact_consumes
+
+        step_consumes = artifact_consumes.setdefault(step_name, {})
+        if not isinstance(step_consumes, dict):
+            step_consumes = {}
+            artifact_consumes[step_name] = step_consumes
+        global_consumes = artifact_consumes.setdefault('__global__', {})
+        if not isinstance(global_consumes, dict):
+            global_consumes = {}
+            artifact_consumes['__global__'] = global_consumes
+
+        for consume in consumes:
+            if not isinstance(consume, dict):
+                continue
+
+            artifact_name = consume.get('artifact')
+            if not isinstance(artifact_name, str):
+                continue
+
+            candidates = artifact_versions.get(artifact_name, [])
+            if not isinstance(candidates, list):
+                candidates = []
+
+            producers = consume.get('producers', [])
+            if isinstance(producers, list) and producers:
+                producer_set = {p for p in producers if isinstance(p, str)}
+                candidates = [
+                    c for c in candidates
+                    if isinstance(c, dict) and c.get('producer') in producer_set
+                ]
+            else:
+                candidates = [c for c in candidates if isinstance(c, dict)]
+
+            if not candidates:
+                return self._contract_violation_result(
+                    "Consume contract failed",
+                    {
+                        "step": step_name,
+                        "artifact": artifact_name,
+                        "reason": "no_published_versions",
+                    },
+                )
+
+            # v1.2 MVP supports latest_successful policy only.
+            selected = max(
+                candidates,
+                key=lambda entry: entry.get('version', 0) if isinstance(entry.get('version'), int) else 0,
+            )
+            selected_version = selected.get('version', 0)
+            if not isinstance(selected_version, int):
+                return self._contract_violation_result(
+                    "Consume contract failed",
+                    {
+                        "step": step_name,
+                        "artifact": artifact_name,
+                        "reason": "invalid_selected_version",
+                    },
+                )
+
+            freshness = consume.get('freshness', 'any')
+            last_consumed = global_consumes.get(artifact_name, 0)
+            if not isinstance(last_consumed, int):
+                last_consumed = 0
+
+            if freshness == 'since_last_consume' and selected_version <= last_consumed:
+                return self._contract_violation_result(
+                    "Consume contract failed",
+                    {
+                        "step": step_name,
+                        "artifact": artifact_name,
+                        "reason": "stale_artifact",
+                        "selected_version": selected_version,
+                        "last_consumed_version": last_consumed,
+                    },
+                )
+
+            artifact_spec = artifacts_registry.get(artifact_name, {})
+            pointer = artifact_spec.get('pointer') if isinstance(artifact_spec, dict) else None
+            if not isinstance(pointer, str) or not pointer:
+                return self._contract_violation_result(
+                    "Consume contract failed",
+                    {
+                        "step": step_name,
+                        "artifact": artifact_name,
+                        "reason": "missing_registry_pointer",
+                    },
+                )
+
+            selected_value = selected.get('value')
+            if not isinstance(selected_value, str):
+                return self._contract_violation_result(
+                    "Consume contract failed",
+                    {
+                        "step": step_name,
+                        "artifact": artifact_name,
+                        "reason": "invalid_selected_value",
+                    },
+                )
+
+            pointer_path = self.workspace / pointer
+            pointer_path.parent.mkdir(parents=True, exist_ok=True)
+            pointer_path.write_text(f"{selected_value}\n")
+
+            step_consumes[artifact_name] = selected_version
+            global_consumes[artifact_name] = selected_version
+
+        self._persist_dataflow_state(state)
+        return None
 
     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
         """

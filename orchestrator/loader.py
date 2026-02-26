@@ -32,7 +32,7 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
 
@@ -77,7 +77,7 @@ class WorkflowLoader:
         if not steps:
             self._add_error("'steps' field is required and must not be empty")
         else:
-            self._validate_steps(steps, version)
+            self._validate_steps(steps, version, workflow.get('artifacts'))
 
         # Validate goto targets
         self._validate_goto_targets(workflow)
@@ -92,7 +92,8 @@ class WorkflowLoader:
         # Known fields at version 1.1/1.1.1
         known_fields = {
             'version', 'name', 'strict_flow', 'context', 'providers', 'secrets',
-            'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps'
+            'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps',
+            'artifacts'
         }
 
         # Strict unknown field rejection (skip if version is invalid/empty)
@@ -113,6 +114,12 @@ class WorkflowLoader:
         for dir_field in ['inbox_dir', 'processed_dir', 'failed_dir']:
             if dir_field in workflow:
                 self._validate_path_safety(workflow[dir_field], dir_field)
+
+        if 'artifacts' in workflow:
+            if version != "1.2":
+                self._add_error("artifacts requires version '1.2'")
+            else:
+                self._validate_artifacts_registry(workflow['artifacts'])
 
     def _validate_secrets(self, secrets: Any):
         """Validate secrets configuration."""
@@ -155,18 +162,20 @@ class WorkflowLoader:
                 if config['input_mode'] not in ['argv', 'stdin']:
                     self._add_error(f"Provider '{name}' input_mode must be 'argv' or 'stdin'")
 
-    def _validate_steps(self, steps: List[Any], version: str):
+    def _validate_steps(self, steps: List[Any], version: str, artifacts_registry: Optional[Any] = None):
         """Validate step definitions."""
         if not isinstance(steps, list):
             self._add_error("'steps' must be a list")
             return
 
         step_names = set()
+        step_defs: List[Dict[str, Any]] = []
 
         for i, step in enumerate(steps):
             if not isinstance(step, dict):
                 self._add_error(f"Step {i} must be a dictionary")
                 continue
+            step_defs.append(step)
 
             # Name is required and must be unique
             name = step.get('name')
@@ -190,7 +199,7 @@ class WorkflowLoader:
                 # for_each is exclusive with execution fields
                 if exec_count > 0:
                     self._add_error(f"Step '{name}': for_each cannot be combined with {execution_fields}")
-                self._validate_for_each(step['for_each'], name, version)
+                self._validate_for_each(step['for_each'], name, version, artifacts_registry)
             elif exec_count > 1:
                 # AT-10: Mutual exclusivity
                 present = [f for f in execution_fields if f in step]
@@ -222,6 +231,18 @@ class WorkflowLoader:
             if 'persist_artifacts_in_state' in step and not isinstance(step['persist_artifacts_in_state'], bool):
                 self._add_error(f"Step '{name}': 'persist_artifacts_in_state' must be a boolean")
 
+            if 'publishes' in step:
+                if version != "1.2":
+                    self._add_error(f"Step '{name}': publishes requires version '1.2'")
+                else:
+                    self._validate_publishes(step['publishes'], name)
+
+            if 'consumes' in step:
+                if version != "1.2":
+                    self._add_error(f"Step '{name}': consumes requires version '1.2'")
+                else:
+                    self._validate_consumes(step['consumes'], name)
+
             # Validate wait_for exclusivity (AT-36)
             if 'wait_for' in step:
                 self._validate_wait_for(step, name)
@@ -234,7 +255,10 @@ class WorkflowLoader:
             if 'on' in step:
                 self._validate_on_handlers(step['on'], name)
 
-    def _validate_for_each(self, for_each: Any, step_name: str, version: str):
+        if version == "1.2":
+            self._validate_dataflow_cross_references(step_defs, artifacts_registry)
+
+    def _validate_for_each(self, for_each: Any, step_name: str, version: str, artifacts_registry: Optional[Any] = None):
         """Validate for_each loop configuration."""
         if not isinstance(for_each, dict):
             self._add_error(f"Step '{step_name}': for_each must be a dictionary")
@@ -253,7 +277,7 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': for_each missing required 'steps'")
         else:
             # Recursively validate nested steps
-            self._validate_steps(for_each['steps'], version)
+            self._validate_steps(for_each['steps'], version, artifacts_registry)
 
     def _validate_dependencies(self, depends_on: Any, step_name: str, version: str):
         """Validate dependency configuration."""
@@ -445,6 +469,227 @@ class WorkflowLoader:
         # Reject parent directory traversal
         if '..' in Path(path).parts:
             self._add_error(f"{context}: parent directory traversal ('..') not allowed")
+
+    def _validate_artifacts_registry(self, artifacts: Any):
+        """Validate top-level artifacts registry (v1.2)."""
+        if not isinstance(artifacts, dict):
+            self._add_error("'artifacts' must be a dictionary")
+            return
+
+        for artifact_name, spec in artifacts.items():
+            context = f"artifacts.{artifact_name}"
+            if not isinstance(artifact_name, str) or not artifact_name.strip():
+                self._add_error(f"{context}: artifact name must be a non-empty string")
+                continue
+
+            if not isinstance(spec, dict):
+                self._add_error(f"{context} must be a dictionary")
+                continue
+
+            pointer = spec.get('pointer')
+            if pointer is None:
+                self._add_error(f"{context} missing required 'pointer'")
+            elif not isinstance(pointer, str):
+                self._add_error(f"{context} 'pointer' must be a string")
+            else:
+                self._validate_path_safety(pointer, f"{context}.pointer")
+
+            output_type = spec.get('type')
+            if output_type is None:
+                self._add_error(f"{context} missing required 'type'")
+            elif not isinstance(output_type, str):
+                self._add_error(f"{context} 'type' must be a string")
+            elif output_type not in self.SUPPORTED_OUTPUT_TYPES:
+                self._add_error(f"{context} invalid type '{output_type}'")
+
+            if 'under' in spec:
+                if not isinstance(spec['under'], str):
+                    self._add_error(f"{context} 'under' must be a string")
+                else:
+                    self._validate_path_safety(spec['under'], f"{context}.under")
+
+            if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
+                self._add_error(f"{context} 'must_exist_target' must be a boolean")
+
+            if output_type == 'enum' and 'allowed' not in spec:
+                self._add_error(f"{context} enum type requires 'allowed'")
+            if 'allowed' in spec and not isinstance(spec['allowed'], list):
+                self._add_error(f"{context} 'allowed' must be a list")
+
+    def _validate_publishes(self, publishes: Any, step_name: str):
+        """Validate step publishes list (v1.2)."""
+        if not isinstance(publishes, list):
+            self._add_error(f"Step '{step_name}': publishes must be a list")
+            return
+
+        for i, entry in enumerate(publishes):
+            context = f"Step '{step_name}': publishes[{i}]"
+            if not isinstance(entry, dict):
+                self._add_error(f"{context} must be a dictionary")
+                continue
+
+            artifact = entry.get('artifact')
+            if artifact is None:
+                self._add_error(f"{context} missing required 'artifact'")
+            elif not isinstance(artifact, str) or not artifact.strip():
+                self._add_error(f"{context} 'artifact' must be a non-empty string")
+
+            output_name = entry.get('from')
+            if output_name is None:
+                self._add_error(f"{context} missing required 'from'")
+            elif not isinstance(output_name, str) or not output_name.strip():
+                self._add_error(f"{context} 'from' must be a non-empty string")
+
+    def _validate_consumes(self, consumes: Any, step_name: str):
+        """Validate step consumes list (v1.2)."""
+        if not isinstance(consumes, list):
+            self._add_error(f"Step '{step_name}': consumes must be a list")
+            return
+
+        allowed_policies = {'latest_successful'}
+        allowed_freshness = {'any', 'since_last_consume'}
+
+        for i, entry in enumerate(consumes):
+            context = f"Step '{step_name}': consumes[{i}]"
+            if not isinstance(entry, dict):
+                self._add_error(f"{context} must be a dictionary")
+                continue
+
+            artifact = entry.get('artifact')
+            if artifact is None:
+                self._add_error(f"{context} missing required 'artifact'")
+            elif not isinstance(artifact, str) or not artifact.strip():
+                self._add_error(f"{context} 'artifact' must be a non-empty string")
+
+            if 'producers' in entry:
+                producers = entry['producers']
+                if not isinstance(producers, list):
+                    self._add_error(f"{context} 'producers' must be a list")
+                else:
+                    for producer in producers:
+                        if not isinstance(producer, str) or not producer.strip():
+                            self._add_error(f"{context} 'producers' entries must be non-empty strings")
+
+            if 'policy' in entry:
+                policy = entry['policy']
+                if not isinstance(policy, str):
+                    self._add_error(f"{context} 'policy' must be a string")
+                elif policy not in allowed_policies:
+                    self._add_error(f"{context} unsupported policy '{policy}'")
+
+            if 'freshness' in entry:
+                freshness = entry['freshness']
+                if not isinstance(freshness, str):
+                    self._add_error(f"{context} 'freshness' must be a string")
+                elif freshness not in allowed_freshness:
+                    self._add_error(f"{context} unsupported freshness '{freshness}'")
+
+    def _get_expected_output_map(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Index expected_outputs by artifact name for cross-reference checks."""
+        out: Dict[str, Dict[str, Any]] = {}
+        expected_outputs = step.get('expected_outputs', [])
+        if not isinstance(expected_outputs, list):
+            return out
+
+        for spec in expected_outputs:
+            if isinstance(spec, dict) and isinstance(spec.get('name'), str):
+                out[spec['name']] = spec
+        return out
+
+    def _validate_dataflow_cross_references(self, steps: List[Dict[str, Any]], artifacts_registry: Optional[Any]):
+        """Validate v1.2 publishes/consumes cross references."""
+        registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
+
+        publishes_by_step: Dict[str, Set[str]] = {}
+        step_names: Set[str] = set()
+
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            step_name = step.get('name')
+            if not isinstance(step_name, str):
+                continue
+
+            step_names.add(step_name)
+            published_artifacts: Set[str] = set()
+
+            expected_by_name = self._get_expected_output_map(step)
+            publishes = step.get('publishes', [])
+            if isinstance(publishes, list):
+                for entry in publishes:
+                    if not isinstance(entry, dict):
+                        continue
+                    artifact_name = entry.get('artifact')
+                    from_name = entry.get('from')
+                    if not isinstance(artifact_name, str) or not isinstance(from_name, str):
+                        continue
+
+                    if artifact_name not in registry:
+                        self._add_error(
+                            f"Step '{step_name}': publishes unknown artifact '{artifact_name}'"
+                        )
+                        continue
+
+                    output_spec = expected_by_name.get(from_name)
+                    if output_spec is None:
+                        self._add_error(
+                            f"Step '{step_name}': publishes.from '{from_name}' not found in expected_outputs"
+                        )
+                        continue
+
+                    registry_spec = registry[artifact_name]
+                    pointer = registry_spec.get('pointer')
+                    if output_spec.get('path') != pointer:
+                        self._add_error(
+                            f"Step '{step_name}': publishes pointer mismatch for artifact '{artifact_name}'"
+                        )
+                        continue
+
+                    if output_spec.get('type') != registry_spec.get('type'):
+                        self._add_error(
+                            f"Step '{step_name}': publishes type mismatch for artifact '{artifact_name}'"
+                        )
+                        continue
+
+                    published_artifacts.add(artifact_name)
+
+            publishes_by_step[step_name] = published_artifacts
+
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            step_name = step.get('name')
+            if not isinstance(step_name, str):
+                continue
+
+            consumes = step.get('consumes', [])
+            if not isinstance(consumes, list):
+                continue
+
+            for entry in consumes:
+                if not isinstance(entry, dict):
+                    continue
+                artifact_name = entry.get('artifact')
+                if not isinstance(artifact_name, str):
+                    continue
+
+                if artifact_name not in registry:
+                    self._add_error(
+                        f"Step '{step_name}': consumes unknown artifact '{artifact_name}'"
+                    )
+                    continue
+
+                producers = entry.get('producers', [])
+                if not isinstance(producers, list):
+                    continue
+
+                for producer_name in producers:
+                    if not isinstance(producer_name, str):
+                        continue
+                    if artifact_name not in publishes_by_step.get(producer_name, set()):
+                        self._add_error(
+                            f"Step '{step_name}': consumes producer '{producer_name}' does not publish artifact '{artifact_name}'"
+                        )
 
     def _add_error(self, message: str, path: str = "", exit_code: int = 2):
         """Add validation error."""
