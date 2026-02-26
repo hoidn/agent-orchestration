@@ -488,7 +488,7 @@ class WorkflowExecutor:
         if not isinstance(global_consumes, dict):
             global_consumes = {}
             artifact_consumes['__global__'] = global_consumes
-        step_resolved_consumes: Dict[str, str] = {}
+        step_resolved_consumes: Dict[str, Any] = {}
         resolved_consumes[step_name] = step_resolved_consumes
 
         for consume in consumes:
@@ -557,31 +557,76 @@ class WorkflowExecutor:
                 )
 
             artifact_spec = artifacts_registry.get(artifact_name, {})
-            pointer = artifact_spec.get('pointer') if isinstance(artifact_spec, dict) else None
-            if not isinstance(pointer, str) or not pointer:
-                return self._contract_violation_result(
-                    "Consume contract failed",
-                    {
-                        "step": step_name,
-                        "artifact": artifact_name,
-                        "reason": "missing_registry_pointer",
-                    },
-                )
-
+            artifact_kind = 'relpath'
+            artifact_type = None
+            if isinstance(artifact_spec, dict):
+                kind_value = artifact_spec.get('kind')
+                if isinstance(kind_value, str) and kind_value:
+                    artifact_kind = kind_value
+                type_value = artifact_spec.get('type')
+                if isinstance(type_value, str):
+                    artifact_type = type_value
             selected_value = selected.get('value')
-            if not isinstance(selected_value, str):
+            if artifact_kind == 'relpath':
+                pointer = artifact_spec.get('pointer') if isinstance(artifact_spec, dict) else None
+                if not isinstance(pointer, str) or not pointer:
+                    return self._contract_violation_result(
+                        "Consume contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "missing_registry_pointer",
+                        },
+                    )
+                if not isinstance(selected_value, str):
+                    return self._contract_violation_result(
+                        "Consume contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "invalid_selected_value",
+                        },
+                    )
+                pointer_path = self.workspace / pointer
+                pointer_path.parent.mkdir(parents=True, exist_ok=True)
+                pointer_path.write_text(f"{selected_value}\n")
+            elif artifact_kind == 'scalar':
+                valid_scalar_value = False
+                if artifact_type == 'integer':
+                    valid_scalar_value = type(selected_value) is int
+                elif artifact_type == 'float':
+                    valid_scalar_value = (
+                        isinstance(selected_value, float)
+                        or type(selected_value) is int
+                    )
+                elif artifact_type == 'bool':
+                    valid_scalar_value = isinstance(selected_value, bool)
+                elif artifact_type == 'enum':
+                    valid_scalar_value = isinstance(selected_value, str)
+                else:
+                    valid_scalar_value = isinstance(selected_value, (int, float, bool, str))
+
+                if not valid_scalar_value:
+                    return self._contract_violation_result(
+                        "Consume contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "invalid_selected_value",
+                            "artifact_kind": artifact_kind,
+                            "artifact_type": artifact_type,
+                        },
+                    )
+            else:
                 return self._contract_violation_result(
                     "Consume contract failed",
                     {
                         "step": step_name,
                         "artifact": artifact_name,
-                        "reason": "invalid_selected_value",
+                        "reason": "unsupported_artifact_kind",
+                        "artifact_kind": artifact_kind,
                     },
                 )
-
-            pointer_path = self.workspace / pointer
-            pointer_path.parent.mkdir(parents=True, exist_ok=True)
-            pointer_path.write_text(f"{selected_value}\n")
 
             step_consumes[artifact_name] = selected_version
             global_consumes[artifact_name] = selected_version
@@ -1451,9 +1496,25 @@ class WorkflowExecutor:
         if not isinstance(step_consumed_values, dict) or not step_consumed_values:
             return prompt
 
-        consumed_values: Dict[str, str] = {}
+        prompt_consumes = step.get('prompt_consumes')
+        allowed_names: Optional[set[str]] = None
+        if prompt_consumes is not None:
+            if not isinstance(prompt_consumes, list):
+                return prompt
+            allowed_names = {
+                name for name in prompt_consumes
+                if isinstance(name, str) and name.strip()
+            }
+            if not allowed_names:
+                return prompt
+
+        consumed_values: Dict[str, Any] = {}
         for key, value in step_consumed_values.items():
-            if isinstance(key, str) and isinstance(value, str):
+            if not isinstance(key, str):
+                continue
+            if allowed_names is not None and key not in allowed_names:
+                continue
+            if isinstance(value, (str, int, float, bool)):
                 consumed_values[key] = value
 
         if not consumed_values:

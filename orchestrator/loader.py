@@ -247,6 +247,36 @@ class WorkflowLoader:
                 else:
                     self._validate_consumes(step['consumes'], name)
 
+            if 'prompt_consumes' in step:
+                if version != "1.2":
+                    self._add_error(f"Step '{name}': prompt_consumes requires version '1.2'")
+                else:
+                    prompt_consumes = step['prompt_consumes']
+                    if (
+                        not isinstance(prompt_consumes, list)
+                        or any(not isinstance(item, str) or not item.strip() for item in prompt_consumes)
+                    ):
+                        self._add_error(
+                            f"Step '{name}': prompt_consumes must be a list of artifact names"
+                        )
+
+                    consumes = step.get('consumes')
+                    if not isinstance(consumes, list) or not consumes:
+                        self._add_error(f"Step '{name}': prompt_consumes requires consumes")
+                    elif isinstance(prompt_consumes, list):
+                        consumed_names = {
+                            entry.get('artifact')
+                            for entry in consumes
+                            if isinstance(entry, dict) and isinstance(entry.get('artifact'), str)
+                        }
+                        for artifact_name in prompt_consumes:
+                            if not isinstance(artifact_name, str) or not artifact_name.strip():
+                                continue
+                            if artifact_name not in consumed_names:
+                                self._add_error(
+                                    f"Step '{name}': prompt_consumes artifact '{artifact_name}' must appear in consumes"
+                                )
+
             if 'inject_consumes' in step:
                 if version != "1.2":
                     self._add_error(f"Step '{name}': inject_consumes requires version '1.2'")
@@ -510,13 +540,12 @@ class WorkflowLoader:
                 self._add_error(f"{context} must be a dictionary")
                 continue
 
-            pointer = spec.get('pointer')
-            if pointer is None:
-                self._add_error(f"{context} missing required 'pointer'")
-            elif not isinstance(pointer, str):
-                self._add_error(f"{context} 'pointer' must be a string")
-            else:
-                self._validate_path_safety(pointer, f"{context}.pointer")
+            kind = spec.get('kind', 'relpath')
+            if not isinstance(kind, str):
+                self._add_error(f"{context} 'kind' must be a string")
+                kind = 'relpath'
+            elif kind not in {'relpath', 'scalar'}:
+                self._add_error(f"{context} invalid kind '{kind}'")
 
             output_type = spec.get('type')
             if output_type is None:
@@ -526,14 +555,38 @@ class WorkflowLoader:
             elif output_type not in self.SUPPORTED_OUTPUT_TYPES:
                 self._add_error(f"{context} invalid type '{output_type}'")
 
-            if 'under' in spec:
-                if not isinstance(spec['under'], str):
-                    self._add_error(f"{context} 'under' must be a string")
+            if kind == 'relpath':
+                pointer = spec.get('pointer')
+                if pointer is None:
+                    self._add_error(f"{context}: kind 'relpath' requires 'pointer'")
+                elif not isinstance(pointer, str):
+                    self._add_error(f"{context} 'pointer' must be a string")
                 else:
-                    self._validate_path_safety(spec['under'], f"{context}.under")
+                    self._validate_path_safety(pointer, f"{context}.pointer")
 
-            if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
-                self._add_error(f"{context} 'must_exist_target' must be a boolean")
+                if output_type is not None and output_type != 'relpath':
+                    self._add_error(f"{context}: kind 'relpath' requires type 'relpath'")
+
+                if 'under' in spec:
+                    if not isinstance(spec['under'], str):
+                        self._add_error(f"{context} 'under' must be a string")
+                    else:
+                        self._validate_path_safety(spec['under'], f"{context}.under")
+
+                if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
+                    self._add_error(f"{context} 'must_exist_target' must be a boolean")
+
+            elif kind == 'scalar':
+                if output_type not in {'enum', 'integer', 'float', 'bool'}:
+                    self._add_error(
+                        f"{context}: kind 'scalar' requires type one of enum|integer|float|bool"
+                    )
+                if 'pointer' in spec:
+                    self._add_error(f"{context}: kind 'scalar' forbids 'pointer'")
+                if 'under' in spec:
+                    self._add_error(f"{context}: kind 'scalar' forbids 'under'")
+                if 'must_exist_target' in spec:
+                    self._add_error(f"{context}: kind 'scalar' forbids 'must_exist_target'")
 
             if output_type == 'enum' and 'allowed' not in spec:
                 self._add_error(f"{context} enum type requires 'allowed'")
@@ -662,12 +715,14 @@ class WorkflowLoader:
                         continue
 
                     registry_spec = registry[artifact_name]
-                    pointer = registry_spec.get('pointer')
-                    if output_spec.get('path') != pointer:
-                        self._add_error(
-                            f"Step '{step_name}': publishes pointer mismatch for artifact '{artifact_name}'"
-                        )
-                        continue
+                    registry_kind = registry_spec.get('kind', 'relpath')
+                    if registry_kind == 'relpath':
+                        pointer = registry_spec.get('pointer')
+                        if output_spec.get('path') != pointer:
+                            self._add_error(
+                                f"Step '{step_name}': publishes pointer mismatch for artifact '{artifact_name}'"
+                            )
+                            continue
 
                     if output_spec.get('type') != registry_spec.get('type'):
                         self._add_error(

@@ -905,3 +905,192 @@ class TestLoaderValidation:
         assert exc_info.value.exit_code == 2
         assert any("consumes_injection_position requires version '1.2'" in str(err.message)
                    for err in exc_info.value.errors)
+
+    def test_v12_prompt_consumes_requires_list_of_strings(self):
+        """prompt_consumes must be a list of non-empty artifact names."""
+        workflow = {
+            "version": "1.2",
+            "name": "bad-prompt-consumes-type",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                }],
+                "prompt_consumes": ["execution_log", 7],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("prompt_consumes must be a list of artifact names" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_prompt_consumes_requires_consumes(self):
+        """prompt_consumes cannot be declared without consumes."""
+        workflow = {
+            "version": "1.2",
+            "name": "prompt-consumes-without-consumes",
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "prompt_consumes": ["execution_log"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("prompt_consumes requires consumes" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_prompt_consumes_must_be_subset_of_consumes(self):
+        """prompt_consumes entries must be declared in consumes[*].artifact."""
+        workflow = {
+            "version": "1.2",
+            "name": "prompt-consumes-subset",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                },
+                "plan": {
+                    "pointer": "state/plan_path.txt",
+                    "type": "relpath",
+                    "under": "docs/plans",
+                },
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                }],
+                "prompt_consumes": ["plan"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("prompt_consumes artifact 'plan' must appear in consumes" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_artifact_kind_scalar_accepts_non_relpath_types(self):
+        """kind:scalar supports scalar output types without pointer-file requirements."""
+        workflow = {
+            "version": "1.2",
+            "name": "scalar-artifact",
+            "artifacts": {
+                "failed_count": {
+                    "kind": "scalar",
+                    "type": "integer",
+                }
+            },
+            "steps": [{
+                "name": "CountFailures",
+                "command": ["bash", "-lc", "echo 0"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        assert loaded["artifacts"]["failed_count"]["kind"] == "scalar"
+
+    def test_v12_artifact_kind_scalar_rejects_relpath_pointer_fields(self):
+        """kind:scalar cannot use pointer/under/must_exist_target relpath constraints."""
+        workflow = {
+            "version": "1.2",
+            "name": "bad-scalar-fields",
+            "artifacts": {
+                "failed_count": {
+                    "kind": "scalar",
+                    "type": "integer",
+                    "pointer": "state/failed_count.txt",
+                    "under": "state",
+                    "must_exist_target": True,
+                }
+            },
+            "steps": [{
+                "name": "CountFailures",
+                "command": ["bash", "-lc", "echo 0"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("kind 'scalar' forbids 'pointer'" in str(err.message)
+                   for err in exc_info.value.errors)
+        assert any("kind 'scalar' forbids 'under'" in str(err.message)
+                   for err in exc_info.value.errors)
+        assert any("kind 'scalar' forbids 'must_exist_target'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_artifact_kind_relpath_requires_pointer(self):
+        """kind:relpath requires explicit pointer path."""
+        workflow = {
+            "version": "1.2",
+            "name": "missing-relpath-pointer",
+            "artifacts": {
+                "execution_log": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "ExecutePlan",
+                "command": ["bash", "-lc", "echo ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("kind 'relpath' requires 'pointer'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v12_artifact_kind_defaults_to_relpath_for_back_compat(self):
+        """Omitting kind preserves relpath semantics for existing v1.2 workflows."""
+        workflow = {
+            "version": "1.2",
+            "name": "artifact-kind-default",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                    "must_exist_target": True,
+                }
+            },
+            "steps": [{
+                "name": "ExecutePlan",
+                "command": ["bash", "-lc", "echo ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        assert loaded["artifacts"]["execution_log"]["type"] == "relpath"
