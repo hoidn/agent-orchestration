@@ -742,6 +742,43 @@ class TestLoaderValidation:
         assert any("publishes pointer mismatch for artifact 'execution_log'" in str(err.message)
                    for err in exc_info.value.errors)
 
+    def test_v12_publishes_incompatible_with_persist_artifacts_disabled(self):
+        """publishes requires artifacts to be persisted in step result state."""
+        workflow = {
+            "version": "1.2",
+            "name": "bad-publish-persist-combo",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "ExecutePlan",
+                "command": ["echo", "ok"],
+                "persist_artifacts_in_state": False,
+                "expected_outputs": [{
+                    "name": "execution_log_path",
+                    "path": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }],
+                "publishes": [{
+                    "artifact": "execution_log",
+                    "from": "execution_log_path",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("publishes requires persist_artifacts_in_state to be true" in str(err.message)
+                   for err in exc_info.value.errors)
+
     def test_v12_consumes_producers_must_publish_artifact(self):
         """consumes.producers entries must reference steps that publish that artifact."""
         workflow = {
