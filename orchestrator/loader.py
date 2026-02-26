@@ -235,6 +235,10 @@ class WorkflowLoader:
                 if version != "1.2":
                     self._add_error(f"Step '{name}': publishes requires version '1.2'")
                 else:
+                    if step.get('persist_artifacts_in_state') is False:
+                        self._add_error(
+                            f"Step '{name}': publishes requires persist_artifacts_in_state to be true"
+                        )
                     self._validate_publishes(step['publishes'], name)
 
             if 'consumes' in step:
