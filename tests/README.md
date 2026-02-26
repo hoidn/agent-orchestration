@@ -49,6 +49,12 @@ Runtime-focused smoke selector:
 pytest tests/test_workflow_examples_v0.py -k runtime -v
 ```
 
+Prompt-file-backed multi-step E2E selector:
+
+```bash
+ORCHESTRATE_E2E=1 pytest -v -m e2e tests/e2e/test_e2e_multistep_prompted_loop.py
+```
+
 ## Recommended Workflow
 1) Local development: default to unit/integration (`pytest -m "not e2e" -v`).
 2) Before merging a feature that touches orchestration flow or provider integration, run E2E locally (with required secrets).
