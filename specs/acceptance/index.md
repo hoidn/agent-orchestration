@@ -101,6 +101,7 @@
 91. v1.2 provider consumes opt-out: `inject_consumes:false` disables consumed-artifacts prompt injection
 92. v1.2 provider consumes position: `consumes_injection_position: append` places consumed-artifacts block after prompt body
 93. v1.2 consumes prompt provenance: injected values must match resolved consume selection (latest publication under producer/policy filters)
+94. v1.2 loader guardrail: reject steps that combine `publishes` with `persist_artifacts_in_state:false`
 
 ## Future Acceptance (v1.2)
 

@@ -40,6 +40,7 @@
       - When true (default), validated `expected_outputs` are mirrored into `steps.<Step>.artifacts` in `state.json`.
       - When false, `expected_outputs` are still fully validated, but artifact values are not duplicated into `state.json`.
       - Use this when on-disk files (for example `state/*.txt` pointers) are the intended single source of truth.
+      - Steps that declare `publishes` must keep this as `true` (or omit it) so publish runtime can read `steps.<Step>.artifacts`.
     - `inject_output_contract: boolean` (optional; default true)
       - Consumed only by provider steps to control prompt suffix injection.
       - Accepted on non-provider steps as a compatibility no-op.
@@ -61,6 +62,7 @@
     - `publishes`: list of `{ artifact, from }`
       - `artifact`: artifact name from top-level `artifacts`
       - `from`: local `expected_outputs.name` produced by the same step
+      - requires `persist_artifacts_in_state` to be `true` for that step
       - runtime: on successful step, publication appends a new artifact version record
     - `consumes`: list of contracts
       - `artifact`: artifact name from top-level `artifacts`
