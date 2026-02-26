@@ -981,7 +981,10 @@ class WorkflowExecutor:
                 }
 
             # Execute the prepared invocation
-            exec_result = self.provider_executor.execute(invocation)
+            exec_result = self.provider_executor.execute(
+                invocation,
+                stream_output=self.debug
+            )
 
             # Capture output according to specified mode
             capture_mode = step.get('output_capture', 'text')

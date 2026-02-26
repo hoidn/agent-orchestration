@@ -7,6 +7,8 @@ and error handling per specs/providers.md.
 
 import logging
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Any, Union
@@ -150,7 +152,8 @@ class ProviderExecutor:
     def execute(
         self,
         invocation: ProviderInvocation,
-        cwd: Optional[Path] = None
+        cwd: Optional[Path] = None,
+        stream_output: bool = False
     ) -> ProviderExecutionResult:
         """
         Execute a prepared provider invocation.
@@ -181,25 +184,87 @@ class ProviderExecutor:
             if invocation.input_mode == InputMode.STDIN:
                 logger.debug(f"Using stdin mode, prompt size: {len(invocation.prompt or '')} bytes")
 
-            # Execute command
-            # Note: We use 'input' parameter for stdin content, not both 'stdin' and 'input'
-            result = subprocess.run(
+            if not stream_output:
+                # Execute command
+                # Note: We use 'input' parameter for stdin content, not both 'stdin' and 'input'
+                result = subprocess.run(
+                    invocation.command,
+                    cwd=str(working_dir),
+                    env=process_env,
+                    input=stdin_input,
+                    capture_output=True,
+                    timeout=invocation.timeout_sec,
+                )
+
+                duration_ms = int((time.time() - start_time) * 1000)
+
+                return ProviderExecutionResult(
+                    exit_code=result.returncode,
+                    stdout=result.stdout,
+                    stderr=result.stderr,
+                    duration_ms=duration_ms
+                )
+
+            # Streaming mode: tee provider stdout/stderr to parent streams live
+            process = subprocess.Popen(
                 invocation.command,
                 cwd=str(working_dir),
                 env=process_env,
-                input=stdin_input,
-                capture_output=True,
-                timeout=invocation.timeout_sec,
+                stdin=subprocess.PIPE if stdin_input is not None else subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
 
-            duration_ms = int((time.time() - start_time) * 1000)
+            if stdin_input is not None and process.stdin is not None:
+                process.stdin.write(stdin_input)
+                process.stdin.close()
 
-            return ProviderExecutionResult(
-                exit_code=result.returncode,
-                stdout=result.stdout,
-                stderr=result.stderr,
-                duration_ms=duration_ms
+            stdout_buf = bytearray()
+            stderr_buf = bytearray()
+
+            stdout_thread = threading.Thread(
+                target=self._stream_pipe,
+                args=(process.stdout, stdout_buf, sys.stdout),
+                daemon=True,
             )
+            stderr_thread = threading.Thread(
+                target=self._stream_pipe,
+                args=(process.stderr, stderr_buf, sys.stderr),
+                daemon=True,
+            )
+            stdout_thread.start()
+            stderr_thread.start()
+
+            try:
+                exit_code = process.wait(timeout=invocation.timeout_sec)
+                stdout_thread.join(timeout=1.0)
+                stderr_thread.join(timeout=1.0)
+
+                duration_ms = int((time.time() - start_time) * 1000)
+                return ProviderExecutionResult(
+                    exit_code=exit_code,
+                    stdout=bytes(stdout_buf),
+                    stderr=bytes(stderr_buf),
+                    duration_ms=duration_ms
+                )
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                stdout_thread.join(timeout=1.0)
+                stderr_thread.join(timeout=1.0)
+
+                duration_ms = int((time.time() - start_time) * 1000)
+                return ProviderExecutionResult(
+                    exit_code=124,
+                    stdout=bytes(stdout_buf),
+                    stderr=bytes(stderr_buf),
+                    duration_ms=duration_ms,
+                    error={
+                        "type": "timeout",
+                        "message": f"Provider timed out after {invocation.timeout_sec} seconds",
+                        "context": {"timeout_sec": invocation.timeout_sec}
+                    }
+                )
 
         except subprocess.TimeoutExpired as e:
             # Timeout: exit code 124 per spec
@@ -230,6 +295,35 @@ class ProviderExecutor:
                     "context": {}
                 }
             )
+
+    def _stream_pipe(
+        self,
+        pipe: Optional[Any],
+        buffer: bytearray,
+        out_stream: Any
+    ) -> None:
+        """Read bytes from a subprocess pipe, stream them to output, and buffer them."""
+        if pipe is None:
+            return
+
+        output = out_stream.buffer if hasattr(out_stream, "buffer") else out_stream
+        try:
+            while True:
+                chunk = pipe.read(4096)
+                if not chunk:
+                    break
+                buffer.extend(chunk)
+                try:
+                    output.write(chunk)
+                    output.flush()
+                except Exception:
+                    # Streaming should never break execution/capture path.
+                    pass
+        finally:
+            try:
+                pipe.close()
+            except Exception:
+                pass
 
     def _substitute_params(
         self,
