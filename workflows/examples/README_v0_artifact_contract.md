@@ -54,6 +54,13 @@ cd ~/Documents/agent-orchestration
 python -m orchestrator run workflows/examples/backlog_plan_execute_v0.yaml --dry-run
 ```
 
+Runtime example with summaries enabled:
+
+```bash
+cd ~/Documents/agent-orchestration
+python -m orchestrator run workflows/examples/backlog_plan_execute_v0.yaml --debug --step-summaries --summary-mode async --summary-provider claude_sonnet_summary
+```
+
 ## Known Limitations (v0)
 
 - Loop control uses existing `on.*.goto` and shell gates (no new control-flow DSL primitives yet).
