@@ -42,6 +42,9 @@
       - `under: string` (optional root for `relpath` target validation)
       - `must_exist_target: boolean` (optional, `relpath` only)
       - `required: boolean` (optional, default true; when false, missing file is allowed)
+      - `description: string` (optional prompt guidance; no runtime validation impact)
+      - `format_hint: string` (optional prompt guidance; no runtime validation impact)
+      - `example: string` (optional prompt guidance; no runtime validation impact)
       - Runtime enforcement runs only when the step process exits with code `0`.
       - Path checks are canonicalized (`resolve`) and must remain under WORKSPACE.
     - `persist_artifacts_in_state: boolean` (optional; default true)

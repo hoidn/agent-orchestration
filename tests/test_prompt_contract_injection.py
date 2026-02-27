@@ -79,6 +79,71 @@ def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Pa
     assert "type: enum" in captured["prompt"]
 
 
+def test_output_contract_block_includes_guidance_fields(tmp_path: Path):
+    """Output contract prompt suffix includes optional guidance annotations."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "review.md").write_text("Review this patch.\n")
+
+    workflow = {
+        "version": "1.1.1",
+        "name": "prompt-contract-guidance",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "provider": "mock_provider",
+            "input_file": "prompts/review.md",
+            "expected_outputs": [{
+                "name": "review_decision",
+                "path": "state/review_decision.txt",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+                "description": "Final review decision token.",
+                "format_hint": "Uppercase single token.",
+                "example": "APPROVE",
+            }],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        (tmp_path / "state").mkdir(exist_ok=True)
+        (tmp_path / "state" / "review_decision.txt").write_text("APPROVE\n")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Review"]["exit_code"] == 0
+    assert "description: Final review decision token." in captured["prompt"]
+    assert "format_hint: Uppercase single token." in captured["prompt"]
+    assert "example: APPROVE" in captured["prompt"]
+
+
 def test_inject_output_contract_false_disables_prompt_suffix(tmp_path: Path):
     """Provider steps can disable output contract prompt suffix with inject_output_contract: false."""
     (tmp_path / "prompts").mkdir()

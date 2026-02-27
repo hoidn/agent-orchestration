@@ -20,6 +20,8 @@
     - Limit scope with `prompt_consumes: [artifact_name, ...]` to inject only selected consumed artifacts.
     - `prompt_consumes: []` suppresses the consumed-artifacts block entirely.
   - If the step defines `expected_outputs` and `inject_output_contract` is not `false`, append a deterministic `Output Contract` suffix describing required artifacts (`name`, `path`, `type`, optional constraints).
+    - Optional `expected_outputs` guidance annotations (`description`, `format_hint`, `example`) are included in this suffix when present.
+    - These annotations are prompt guidance only and do not change runtime contract validation semantics.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
 - Placeholder and parameter substitution

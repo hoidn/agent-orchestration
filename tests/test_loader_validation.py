@@ -406,6 +406,67 @@ class TestLoaderValidation:
         result = self.loader.load(path)
         assert result["steps"][0]["expected_outputs"][0]["type"] == "relpath"
 
+    def test_expected_outputs_guidance_fields_accept_strings(self):
+        """Optional expected_outputs guidance fields accept string values."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "expected outputs guidance valid",
+            "steps": [{
+                "name": "DraftPlan",
+                "provider": "codex",
+                "expected_outputs": [
+                    {
+                        "name": "plan_path",
+                        "path": "state/plan_path.txt",
+                        "type": "relpath",
+                        "description": "Path to generated implementation plan.",
+                        "format_hint": "Workspace-relative path",
+                        "example": "docs/plans/2026-02-27-feature.md",
+                    }
+                ]
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        result = self.loader.load(path)
+        output_spec = result["steps"][0]["expected_outputs"][0]
+        assert output_spec["description"] == "Path to generated implementation plan."
+        assert output_spec["format_hint"] == "Workspace-relative path"
+        assert output_spec["example"] == "docs/plans/2026-02-27-feature.md"
+
+    @pytest.mark.parametrize(
+        "field,bad_value",
+        [
+            ("description", {"not": "string"}),
+            ("format_hint", ["not", "string"]),
+            ("example", 123),
+        ],
+    )
+    def test_expected_outputs_guidance_fields_require_strings(self, field, bad_value):
+        """Optional expected_outputs guidance fields must be strings when provided."""
+        workflow = {
+            "version": "1.1.1",
+            "name": "expected outputs guidance invalid",
+            "steps": [{
+                "name": "DraftPlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "plan_path",
+                    "path": "state/plan_path.txt",
+                    "type": "relpath",
+                    field: bad_value,
+                }]
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(f"'{field}' must be a string" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_expected_outputs_missing_required_keys(self):
         """expected_outputs entries must include path and type."""
         workflow = {

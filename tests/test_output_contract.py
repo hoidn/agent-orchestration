@@ -47,6 +47,24 @@ def test_validate_expected_outputs_parses_supported_types(tmp_path: Path):
     }
 
 
+def test_validate_expected_outputs_ignores_guidance_fields(tmp_path: Path):
+    """Guidance annotations do not change runtime parsing semantics."""
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "decision.txt").write_text("APPROVE\n")
+    specs = [{
+        "name": "review_outcome",
+        "path": "state/decision.txt",
+        "type": "enum",
+        "allowed": ["APPROVE", "REVISE"],
+        "description": "Final review gate decision.",
+        "format_hint": "Uppercase token only.",
+        "example": "APPROVE",
+    }]
+
+    artifacts = validate_expected_outputs(specs, workspace=tmp_path)
+    assert artifacts == {"review_outcome": "APPROVE"}
+
+
 def test_validate_expected_outputs_missing_file_raises_violation(tmp_path: Path):
     """Missing required output file returns a contract violation."""
     specs = [{"name": "decision", "path": "state/decision.txt", "type": "enum", "allowed": ["APPROVE"]}]

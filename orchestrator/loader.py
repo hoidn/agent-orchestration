@@ -480,6 +480,10 @@ class WorkflowLoader:
             if 'required' in spec and not isinstance(spec['required'], bool):
                 self._add_error(f"{context} 'required' must be a boolean")
 
+            for guidance_key in ('description', 'format_hint', 'example'):
+                if guidance_key in spec and not isinstance(spec[guidance_key], str):
+                    self._add_error(f"{context} '{guidance_key}' must be a string")
+
     def _validate_output_bundle(self, output_bundle: Any, step_name: str):
         """Validate output_bundle contract entries (v1.3)."""
         context = f"Step '{step_name}': output_bundle"

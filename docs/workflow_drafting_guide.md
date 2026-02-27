@@ -29,6 +29,8 @@ Provider prompt text is composed deterministically:
 
 Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
 
+`expected_outputs` also supports optional guidance fields (`description`, `format_hint`, `example`) that are injected into the `Output Contract` block. Use them to reduce ambiguity for agent-written artifacts. They are prompt guidance only and do not change runtime validation rules.
+
 ## 3) Deterministic Handoff Patterns
 
 ### A) `expected_outputs` (v1.1+, file-per-artifact)
@@ -72,6 +74,19 @@ Keep prompts focused on decision-quality instructions, not DSL plumbing.
 | Evidence format (what files to write and where). | Over-specifying pointer plumbing already enforced by contracts. |
 
 Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders.
+
+For `expected_outputs`, prefer concise guidance annotations directly on each artifact:
+
+```yaml
+expected_outputs:
+  - name: review_decision
+    path: state/review_decision.txt
+    type: enum
+    allowed: [APPROVE, REVISE]
+    description: Final implementation gate decision.
+    format_hint: Uppercase token, no extra text.
+    example: APPROVE
+```
 
 ## 6) Recommended Loop Pattern
 

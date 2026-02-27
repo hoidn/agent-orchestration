@@ -27,6 +27,12 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
             lines.append("  must_exist_target: true")
         if spec.get("required") is False:
             lines.append("  required: false")
+        if "description" in spec:
+            lines.append(f"  description: {spec['description']}")
+        if "format_hint" in spec:
+            lines.append(f"  format_hint: {spec['format_hint']}")
+        if "example" in spec:
+            lines.append(f"  example: {spec['example']}")
 
     return "\n".join(lines) + "\n"
 
