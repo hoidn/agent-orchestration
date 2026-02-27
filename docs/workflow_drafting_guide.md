@@ -68,7 +68,7 @@ Keep prompts focused on decision-quality instructions, not DSL plumbing.
 | --- | --- |
 | Objective + scope boundaries. | Repeating file lists already injected via `depends_on.inject` or `consumes`. |
 | Completion criteria (done vs blocked). | Repeating output contracts already injected via `expected_outputs`. |
-| Forbidden shortcuts (when failure modes are predictable). | “Audit-only” language that can be mistaken for execution. |
+| Forbidden shortcuts (when failure modes are predictable). | "Audit-only" language that can be mistaken for execution. |
 | Evidence format (what files to write and where). | Over-specifying pointer plumbing already enforced by contracts. |
 
 Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders.
@@ -77,7 +77,7 @@ Exception: keep redundancy when the step is high-risk and you want belt-and-susp
 
 For execute/review/fix loops, separate "doing" from "deciding":
 
-`Execute` → `Checks` → `Assess` → `Review` → `Gate` → (`Fix` → back to `Checks`)
+`Execute` -> `Checks` -> `Assess` -> `Review` -> `Gate` -> (`Fix` -> back to `Checks`)
 
 Add at least one hard closure assertion step if "looks done" is not good enough.
 
@@ -91,7 +91,7 @@ Before running a new workflow, confirm the basics:
 | Determinism | Use `expected_outputs` or `output_bundle` where deterministic handoff is needed. |
 | Dataflow | `publishes.from` references a real produced artifact name; `consumes` matches real runtime dependencies. |
 | Prompts | Prompt text does not conflict with injected blocks. |
-| Control flow | Gates encode completion, not just “a file exists”; loops have bounded retries/cycles. |
+| Control flow | Gates encode completion, not just "a file exists"; loops have bounded retries/cycles. |
 | First run | Use `--debug` so you can inspect composed prompts. |
 
 ## 8) Debugging Where Things Go Wrong
