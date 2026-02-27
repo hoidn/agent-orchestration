@@ -15,6 +15,44 @@ from orchestrator.exceptions import WorkflowValidationError
 logger = logging.getLogger(__name__)
 
 
+def _merge_observability_overrides(base: Optional[Dict[str, Any]], **overrides: Any) -> Optional[Dict[str, Any]]:
+    """Merge resume-time summary overrides onto persisted runtime config."""
+    config: Dict[str, Any] = dict(base or {})
+    step_cfg: Dict[str, Any] = dict(config.get("step_summaries", {}))
+
+    if not step_cfg and not any(value is not None for value in overrides.values()):
+        return None
+
+    if not step_cfg:
+        step_cfg = {
+            "enabled": True,
+            "mode": "async",
+            "provider": "claude_sonnet_summary",
+            "timeout_sec": 120,
+            "max_input_chars": 12000,
+            "best_effort": True,
+        }
+
+    if overrides.get("summary_mode") is not None:
+        step_cfg["mode"] = overrides["summary_mode"]
+    if overrides.get("summary_provider") is not None:
+        step_cfg["provider"] = overrides["summary_provider"]
+    if overrides.get("summary_timeout_sec") is not None:
+        timeout_sec = int(overrides["summary_timeout_sec"])
+        if timeout_sec <= 0:
+            raise ValueError("--summary-timeout-sec must be > 0")
+        step_cfg["timeout_sec"] = timeout_sec
+    if overrides.get("summary_max_input_chars") is not None:
+        max_chars = int(overrides["summary_max_input_chars"])
+        if max_chars <= 0:
+            raise ValueError("--summary-max-input-chars must be > 0")
+        step_cfg["max_input_chars"] = max_chars
+
+    step_cfg["enabled"] = True
+    config["step_summaries"] = step_cfg
+    return config
+
+
 def resume_workflow(
     run_id: str,
     repair: bool = False,
@@ -24,6 +62,10 @@ def resume_workflow(
     retry_delay_ms: Optional[int] = None,
     backup_state: bool = False,
     debug: bool = False,
+    summary_mode: Optional[str] = None,
+    summary_provider: Optional[str] = None,
+    summary_timeout_sec: Optional[int] = None,
+    summary_max_input_chars: Optional[int] = None,
     **kwargs
 ) -> int:
     """Resume an interrupted workflow run.
@@ -37,6 +79,10 @@ def resume_workflow(
         retry_delay_ms: Delay between retries in milliseconds
         backup_state: Enable state backups
         debug: Enable debug logging
+        summary_mode: Optional summary mode override
+        summary_provider: Optional summary provider override
+        summary_timeout_sec: Optional summary timeout override
+        summary_max_input_chars: Optional summary max input chars override
         **kwargs: Additional options (ignored)
 
     Returns:
@@ -92,11 +138,21 @@ def resume_workflow(
         return 1
 
     workflow_file = state.workflow_file
-    workflow_checksum = state.workflow_checksum
-
     if not workflow_file:
         print("Error: No workflow file recorded in state", file=sys.stderr)
         return 1
+
+    observability = _merge_observability_overrides(
+        state.observability,
+        summary_mode=summary_mode,
+        summary_provider=summary_provider,
+        summary_timeout_sec=summary_timeout_sec,
+        summary_max_input_chars=summary_max_input_chars,
+    )
+    if observability is not None:
+        # Persist runtime override so future resumes are deterministic.
+        state.observability = observability
+        state_manager._write_state()
 
     workflow_path = Path(workflow_file)
     if not workflow_path.exists():
@@ -111,8 +167,6 @@ def resume_workflow(
     loader = WorkflowLoader(workspace_dir)
     try:
         workflow = loader.load(workflow_path)
-        # Calculate checksum separately using StateManager's method
-        checksum = state_manager._calculate_checksum(workflow_path)
     except WorkflowValidationError as e:
         print(f"Error loading workflow: {e}", file=sys.stderr)
         return 2
@@ -178,11 +232,12 @@ def resume_workflow(
     workspace_dir = Path.cwd()
     executor = WorkflowExecutor(
         workflow=workflow,
-        workspace_dir=workspace_dir,
+        workspace=workspace_dir,
         state_manager=state_manager,
         max_retries=max_retries,
         retry_delay_ms=retry_delay_ms,
-        debug=debug
+        debug=debug,
+        observability=observability,
     )
 
     # Execute workflow

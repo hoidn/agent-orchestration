@@ -9,7 +9,7 @@ import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from argparse import Namespace
 
 from orchestrator.loader import WorkflowLoader
@@ -19,6 +19,40 @@ from orchestrator.workflow.executor import WorkflowExecutor
 
 
 logger = logging.getLogger(__name__)
+
+
+def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
+    """Build runtime observability config from CLI flags.
+
+    Observability is runtime-only (not DSL). Summaries default to async when enabled.
+    """
+    step_summaries_enabled = bool(getattr(args, 'step_summaries', False))
+    summary_mode = getattr(args, 'summary_mode', None)
+
+    if summary_mode and not step_summaries_enabled:
+        # Explicit mode should implicitly enable summaries.
+        step_summaries_enabled = True
+
+    if not step_summaries_enabled:
+        return None
+
+    summary_timeout_sec = int(getattr(args, 'summary_timeout_sec', 120))
+    summary_max_input_chars = int(getattr(args, 'summary_max_input_chars', 12000))
+    if summary_timeout_sec <= 0:
+        raise ValueError("--summary-timeout-sec must be > 0")
+    if summary_max_input_chars <= 0:
+        raise ValueError("--summary-max-input-chars must be > 0")
+
+    return {
+        "step_summaries": {
+            "enabled": True,
+            "mode": summary_mode or "async",
+            "provider": getattr(args, 'summary_provider', 'claude_sonnet_summary'),
+            "timeout_sec": summary_timeout_sec,
+            "max_input_chars": summary_max_input_chars,
+            "best_effort": True,
+        }
+    }
 
 
 def parse_context(args: Namespace, workflow_context: Dict[str, Any] | None = None) -> Dict[str, str]:
@@ -245,6 +279,8 @@ def run_workflow(args: Namespace) -> int:
         # Parse context
         context = parse_context(args, workflow_context=workflow.get('context', {}))
 
+        observability = build_observability_config(args)
+
         # Initialize state manager
         # AT-69: --debug implies backup_enabled
         state_manager = StateManager(
@@ -254,7 +290,11 @@ def run_workflow(args: Namespace) -> int:
         )
 
         # Create new run
-        run_state = state_manager.initialize(str(workflow_path.relative_to(workspace)), context)
+        run_state = state_manager.initialize(
+            str(workflow_path.relative_to(workspace)),
+            context,
+            observability=observability,
+        )
         logger.info(f"Created new run: {run_state.run_id}")
 
         # Execute workflow
@@ -265,7 +305,8 @@ def run_workflow(args: Namespace) -> int:
             logs_dir=state_manager.logs_dir,
             debug=args.debug if hasattr(args, 'debug') else False,
             max_retries=args.max_retries,
-            retry_delay_ms=args.retry_delay
+            retry_delay_ms=args.retry_delay,
+            observability=observability,
         )
 
         result = executor.execute(

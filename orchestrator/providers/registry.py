@@ -41,6 +41,12 @@ class ProviderRegistry:
                 defaults={"model": "claude-opus-4-6"},
                 input_mode=InputMode.ARGV
             ),
+            "claude_sonnet_summary": ProviderTemplate(
+                name="claude_sonnet_summary",
+                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
+                defaults={"model": "claude-sonnet-4-6"},
+                input_mode=InputMode.ARGV
+            ),
             "gemini": ProviderTemplate(
                 name="gemini",
                 command=["gemini", "-p", "${PROMPT}"],

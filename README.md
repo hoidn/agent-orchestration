@@ -51,9 +51,28 @@ python -m orchestrator run workflows/examples/backlog_plan_execute_v1_2_dataflow
 # Resume a run
 python -m orchestrator resume <run_id>
 
+# Generate a human-readable run status report
+python -m orchestrator report --run-id <run_id> --format md
+
+# Enable advisory step summaries (async by default)
+python -m orchestrator run workflows/examples/observability_runtime_config_demo.yaml --debug --step-summaries
+
+# Deterministic summary mode (blocks each step until summary result/error is written)
+python -m orchestrator run workflows/examples/observability_runtime_config_demo.yaml --debug --step-summaries --summary-mode sync
+
 # Unit/integration default loop
 pytest -m "not e2e" -v
 ```
+
+## Runtime Observability
+
+- Observability is runtime-configured (CLI flags), not workflow DSL.
+- `--step-summaries` enables advisory per-step summaries.
+- `--summary-mode async|sync` controls mode:
+  - `async` (default): non-blocking, best-effort.
+  - `sync`: deterministic/blocking summary execution.
+- Summary artifacts are written under `.orchestrate/runs/<run_id>/summaries/`.
+- Summaries are never consumed by `consumes` and never used for control-flow gating.
 
 ## Debugging Runs
 

@@ -29,6 +29,7 @@ from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
 from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
+from ..observability.summary import SummaryObserver
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +48,8 @@ class WorkflowExecutor:
         logs_dir: Optional[Path] = None,
         debug: bool = False,
         max_retries: int = 0,
-        retry_delay_ms: int = 1000
+        retry_delay_ms: int = 1000,
+        observability: Optional[Dict[str, Any]] = None,
     ):
         """
         Initialize workflow executor.
@@ -63,6 +65,7 @@ class WorkflowExecutor:
         self.workspace = workspace
         self.state_manager = state_manager
         self.debug = debug
+        self.observability = observability or {}
 
         # Initialize secrets manager
         self.secrets_manager = SecretsManager()
@@ -81,6 +84,7 @@ class WorkflowExecutor:
         self.dependency_injector = DependencyInjector(str(workspace))
         self.condition_evaluator = ConditionEvaluator(workspace)
         self.variable_substitutor = VariableSubstitutor()
+        self.summary_observer = self._create_summary_observer()
 
         # Execution state
         self.current_step = 0
@@ -195,6 +199,7 @@ class WorkflowExecutor:
                         error=error_info
                     )
                     self.state_manager.update_step(step_name, step_result)
+                    self._emit_step_summary(step_name, step, result)
 
                     step_index += 1
                     continue
@@ -218,6 +223,7 @@ class WorkflowExecutor:
                         skipped=True
                     )
                     self.state_manager.update_step(step_name, step_result)
+                    self._emit_step_summary(step_name, step, result)
 
                     step_index += 1
                     continue
@@ -245,6 +251,7 @@ class WorkflowExecutor:
                     artifacts=consume_error.get('artifacts'),
                 )
                 self.state_manager.update_step(step_name, step_result)
+                self._emit_step_summary(step_name, step, consume_error)
 
                 next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
                 if next_step == '_end':
@@ -270,8 +277,14 @@ class WorkflowExecutor:
                     # state['steps']['ProcessFiles'] as expected
                     if isinstance(loop_results, list):
                         self.state_manager.update_loop_results(step_name, loop_results)
+                self._emit_step_summary(
+                    step_name,
+                    step,
+                    state.get('steps', {}).get(step_name, {'status': 'completed'}),
+                )
             elif 'wait_for' in step:
                 state = self._execute_wait_for(step, state)
+                self._emit_step_summary(step_name, step, state.get('steps', {}).get(step_name, {}))
             elif 'provider' in step:
                 result = self._execute_provider(step, state)
                 publish_error = self._record_published_artifacts(step, step_name, result, state)
@@ -297,6 +310,7 @@ class WorkflowExecutor:
                     artifacts=result.get('artifacts')
                 )
                 self.state_manager.update_step(step_name, step_result)
+                self._emit_step_summary(step_name, step, result)
             elif 'command' in step:
                 result = self._execute_command(step, state)
                 publish_error = self._record_published_artifacts(step, step_name, result, state)
@@ -321,6 +335,7 @@ class WorkflowExecutor:
                     artifacts=result.get('artifacts')
                 )
                 self.state_manager.update_step(step_name, step_result)
+                self._emit_step_summary(step_name, step, result)
 
             # Handle control flow after step execution (AT-56, AT-57, AT-58)
             next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
@@ -342,6 +357,95 @@ class WorkflowExecutor:
         self.state_manager.update_status('completed')
         # Return the updated state
         return self.state_manager.load().to_dict()
+
+    def _create_summary_observer(self) -> Optional[SummaryObserver]:
+        """Create summary observer from runtime observability config."""
+        if not isinstance(self.observability, dict):
+            return None
+        summaries_cfg = self.observability.get('step_summaries')
+        if not isinstance(summaries_cfg, dict):
+            return None
+        if not summaries_cfg.get('enabled', False):
+            return None
+
+        provider_name = str(summaries_cfg.get('provider', 'claude_sonnet_summary'))
+        mode = str(summaries_cfg.get('mode', 'async')).lower()
+        if mode not in {'async', 'sync'}:
+            mode = 'async'
+
+        timeout_sec = summaries_cfg.get('timeout_sec', 120)
+        max_input_chars = summaries_cfg.get('max_input_chars', 12000)
+        try:
+            timeout_sec = int(timeout_sec)
+        except (TypeError, ValueError):
+            timeout_sec = 120
+        try:
+            max_input_chars = int(max_input_chars)
+        except (TypeError, ValueError):
+            max_input_chars = 12000
+        if timeout_sec <= 0:
+            timeout_sec = 120
+        if max_input_chars <= 0:
+            max_input_chars = 12000
+
+        best_effort = bool(summaries_cfg.get('best_effort', True))
+        return SummaryObserver(
+            run_root=self.state_manager.run_root,
+            provider_executor=self.provider_executor,
+            provider_name=provider_name,
+            mode=mode,
+            timeout_sec=timeout_sec,
+            best_effort=best_effort,
+            max_input_chars=max_input_chars,
+        )
+
+    def _emit_step_summary(self, step_name: str, step: Dict[str, Any], result: Dict[str, Any]) -> None:
+        """Emit observability summary for a completed step."""
+        if self.summary_observer is None:
+            return
+        snapshot = self._build_step_summary_snapshot(step_name, step, result)
+        try:
+            self.summary_observer.emit(step_name, snapshot)
+        except Exception as exc:
+            logger.warning("Summary emission failed for %s: %s", step_name, exc)
+
+    def _build_step_summary_snapshot(self, step_name: str, step: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+        """Build a compact, deterministic snapshot for summary generation."""
+        input_payload: Dict[str, Any] = {}
+        if 'command' in step:
+            input_payload['command'] = step.get('command')
+        if 'provider' in step:
+            input_payload['provider'] = step.get('provider')
+            prompt_file = self.state_manager.logs_dir / f"{step_name}.prompt.txt"
+            if prompt_file.exists():
+                try:
+                    input_payload['prompt'] = prompt_file.read_text(encoding='utf-8')
+                except OSError:
+                    pass
+
+        output_payload: Dict[str, Any] = {}
+        if isinstance(result, dict):
+            output_payload = {
+                'status': result.get('status'),
+                'exit_code': result.get('exit_code'),
+                'duration_ms': result.get('duration_ms'),
+                'output': result.get('output') or result.get('text'),
+                'lines': result.get('lines'),
+                'json': result.get('json'),
+                'error': result.get('error'),
+                'artifacts': result.get('artifacts'),
+            }
+
+        return {
+            'run_id': self.state_manager.run_id,
+            'workflow': self.workflow.get('name'),
+            'step': {
+                'name': step_name,
+                'type': 'provider' if 'provider' in step else 'command' if 'command' in step else 'other',
+                'input': input_payload,
+                'output': output_payload,
+            },
+        }
 
     def _contract_violation_result(self, message: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """Build a standardized contract_violation failure result."""

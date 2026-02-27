@@ -1,0 +1,17 @@
+version: "1.3"
+name: "observability_runtime_config_demo"
+
+providers:
+  local_echo:
+    command: ["python", "-c", "print('provider-step-ok')"]
+    input_mode: "argv"
+
+steps:
+  - name: PrepareState
+    command: ["bash", "-lc", "mkdir -p state && echo ready > state/ready.txt"]
+    output_capture: text
+
+  - name: ProviderWork
+    provider: "local_echo"
+    input_file: "workflows/examples/prompts/observability_demo_prompt.md"
+    output_capture: text

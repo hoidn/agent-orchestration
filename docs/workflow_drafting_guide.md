@@ -1,141 +1,115 @@
 # Workflow Drafting Guide
 
-This guide explains how to author reliable workflows when prompts, runtime contracts, and control flow all interact.
+This guide is informative. The normative contracts live under `specs/` (start at `specs/index.md`).
+
+Goal: help you author workflows that are reliable when prompts, deterministic artifacts, and control flow all interact.
 
 ## 1) Mental Model: Three Contracts
 
-Treat each provider step as three separate contracts:
+Treat a provider step as three separate contracts. Confusing them is the fastest way to write a workflow that "looks right" but fails in review.
 
-1. Prompt contract
-- What the agent is asked to do.
+| Contract | What it is | Where it lives |
+| --- | --- | --- |
+| Prompt contract | The instructions the provider receives. | `input_file` plus injected blocks (see below). |
+| Runtime contract | What the orchestrator validates after execution. | `expected_outputs` or `output_bundle`. |
+| Flow contract | What determines routing, looping, and termination. | `on.*.goto`, gates, and cycle caps. |
 
-2. Runtime contract
-- What the orchestrator validates after step execution (`expected_outputs` or `output_bundle`).
+The key rule: satisfying the runtime contract does not imply the prompt contract was followed, and neither implies the flow contract routes the way you intended.
 
-3. Flow contract
-- What decides whether execution continues, loops, or stops (`on.success/failure.goto`, gates, max cycles).
+## 2) Provider Prompt Composition (What The Agent Actually Sees)
 
-Most workflow bugs come from assuming one contract implies another. It does not.
+Provider prompt text is composed deterministically:
 
-## 2) What Is Injected Automatically
+| Order | Step | Notes / knobs |
+| --- | --- | --- |
+| 1 | Read `input_file` literally. | No variable substitution inside file contents. |
+| 2 | Apply `depends_on.inject` (v1.1.1+) if enabled. | Injects resolved dependencies in-memory; the workflow file does not change. |
+| 3 | Inject `## Consumed Artifacts` (v1.2+) if the step has `consumes`. | `inject_consumes`, `consumes_injection_position`, `prompt_consumes`. Uses resolved consume values from preflight. |
+| 4 | Append `## Output Contract` if the step has `expected_outputs`. | `inject_output_contract` controls suffix injection. This is validation, not execution. |
 
-For provider steps, prompt text is composed in this order:
-
-1. Base prompt from `input_file` (literal file contents).
-2. Optional `Consumed Artifacts` block (when `consumes` is present and `inject_consumes != false`).
-3. Optional `Output Contract` block (when `expected_outputs` is present and `inject_output_contract != false`).
-
-Important:
-- Producer/consumer declarations do not replace prompt instructions. They only resolve artifact lineage and preflight checks.
-- Output-contract injection describes required artifacts and paths. It does not execute file writes; the agent still must write files.
+Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
 
 ## 3) Deterministic Handoff Patterns
 
-## A. `expected_outputs` (v1.2, file-per-artifact)
+### A) `expected_outputs` (v1.1+, file-per-artifact)
 
-Use when each artifact naturally maps to one file.
+Use when each deterministic value naturally maps to one file path (pointers, enums, counts, relpaths).
 
-Pros:
-- Simple.
-- Strong `relpath` safety checks (`under`, `must_exist_target`).
-- Easy to inspect by humans.
+Why it works: the orchestrator can validate presence, type, and path safety (`under`, `must_exist_target`) without parsing prose.
 
-Cons:
-- Many pointer files can accumulate.
-
-## B. `output_bundle` (v1.3, single JSON file)
+### B) `output_bundle` (v1.3+, single JSON file)
 
 Use when a step emits many scalar artifacts.
 
-Pros:
-- One deterministic JSON artifact file.
-- Typed extraction via `json_pointer`.
+Summary:
 
-Cons:
-- Requires stricter JSON discipline.
-- Still file-based (not raw stdout handoff).
+| Pattern | Best for | Tradeoffs |
+| --- | --- | --- |
+| `expected_outputs` | A few values that naturally map to files (relpaths, enums, counts). | Simple and human-auditable; can create many small pointer files if overused. |
+| `output_bundle` | Many scalar values at once. | Fewer files; stricter JSON discipline. |
 
 ## 4) Avoid Weak Gates
 
-Common anti-pattern:
-- `FixIssues` is considered successful if it writes required output files, even if blockers remain.
+Common anti-pattern: a step "succeeds" because it wrote the required output files, even though the underlying work is incomplete.
+
+This is not a bug; it's how the contracts are designed. The orchestrator can validate that files exist, but it cannot infer semantic completeness unless you encode it.
 
 If your intent is root-cause closure, add an explicit gate that checks closure criteria before moving forward.
 
-Example closure checks:
-- Required canonical command completed.
-- Fallback profile not used for canonical requirement.
-- Required artifact exists and matches expected profile/tag.
-- Review decision is `APPROVE`.
+Example closure checks: a required command was executed (with machine-checkable evidence), fallbacks were not used for canonical requirements, required artifacts exist with expected profile/tag, and a review decision artifact says `APPROVE`.
 
-Do not rely on review prose alone to enforce completion.
+Do not rely on review prose as the only enforcement mechanism. Route control flow using strict, published artifacts.
 
 ## 5) Prompt Authoring Guidance
 
-Keep prompts focused on decision-quality instructions, not plumbing duplicated from DSL.
+Keep prompts focused on decision-quality instructions, not DSL plumbing.
 
-Prompt should include:
-- Task objective.
-- Completion criteria.
-- Explicit forbidden shortcuts (if needed).
-- Required evidence format.
+| Do include | Usually avoid |
+| --- | --- |
+| Objective + scope boundaries. | Repeating file lists already injected via `depends_on.inject` or `consumes`. |
+| Completion criteria (done vs blocked). | Repeating output contracts already injected via `expected_outputs`. |
+| Forbidden shortcuts (when failure modes are predictable). | “Audit-only” language that can be mistaken for execution. |
+| Evidence format (what files to write and where). | Over-specifying pointer plumbing already enforced by contracts. |
 
-Prompt should usually avoid:
-- Repeating pointer paths already injected via `consumes`.
-- Repeating output file contracts already injected via `expected_outputs`.
-
-Exception:
-- Keep explicit lines when you want extra redundancy for high-risk steps.
+Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders.
 
 ## 6) Recommended Loop Pattern
 
-For execute/review/fix loops:
+For execute/review/fix loops, separate "doing" from "deciding":
 
-1. ExecutePlan
-- Publish execution session log pointer.
+`Execute` → `Checks` → `Assess` → `Review` → `Gate` → (`Fix` → back to `Checks`)
 
-2. Run deterministic checks
-- Produce machine-checkable evidence log.
-
-3. Assess completion
-- Convert execution evidence into structured status (`COMPLETE/INCOMPLETE/BLOCKED`).
-
-4. ReviewImplVsPlan
-- Produce decision + review artifact pointer.
-
-5. Gate
-- Route on decision.
-
-6. FixIssues
-- Consume plan + execution assessment + review.
-
-7. Cycle gate
-- Hard cap via `max_review_cycles`.
-
-Add at least one hard closure assertion step if fallback behavior is possible.
+Add at least one hard closure assertion step if "looks done" is not good enough.
 
 ## 7) Drafting Checklist
 
-Before running a new workflow, confirm:
+Before running a new workflow, confirm the basics:
 
-- DSL version supports used fields (`version` gating).
-- Every provider step has explicit `expected_outputs` or `output_bundle` where deterministic handoff is needed.
-- `publishes.from` references real local artifact names.
-- `consumes` reflects true runtime dependencies.
-- Prompt text does not conflict with injected contracts.
-- Gates encode real completion, not just artifact presence.
-- Loop has bounded retries/cycles.
-- `--debug` prompt audit is enabled for first runs.
+| Area | Sanity check |
+| --- | --- |
+| Versioning | `version` gates the features you use (injection, dataflow, bundles). |
+| Determinism | Use `expected_outputs` or `output_bundle` where deterministic handoff is needed. |
+| Dataflow | `publishes.from` references a real produced artifact name; `consumes` matches real runtime dependencies. |
+| Prompts | Prompt text does not conflict with injected blocks. |
+| Control flow | Gates encode completion, not just “a file exists”; loops have bounded retries/cycles. |
+| First run | Use `--debug` so you can inspect composed prompts. |
 
 ## 8) Debugging Where Things Go Wrong
 
 Use run artifacts under `.orchestrate/runs/<run_id>/`:
 
-- `logs/<Step>.prompt.txt`
-  - Shows fully composed prompt after injections.
-- `state.json`
-  - Shows step result, errors, and parsed artifacts.
-- `logs/<Step>.stderr` and `<Step>.stdout`
-  - Provider/command execution traces.
+| File | Why you care |
+| --- | --- |
+| `logs/<Step>.prompt.txt` | The fully composed provider prompt after injections. |
+| `state.json` | Step results, errors, and parsed deterministic artifacts. |
+| `logs/<Step>.stdout` / `logs/<Step>.stderr` | Provider/command traces (including truncation spillover). |
 
 If behavior differs from prompt file content, inspect the composed `.prompt.txt` first.
+
+## 9) Runtime Observability (No DSL Clutter)
+
+Observability controls are intentionally runtime flags, not workflow syntax.
+
+`--step-summaries` enables advisory per-step summaries. `--summary-mode async|sync` selects behavior (`async` is default and non-blocking; `sync` blocks step completion until summary output/error is written). `--summary-provider <provider>` selects the summarizer template.
+
+Summary artifacts live under `.orchestrate/runs/<run_id>/summaries/`. They are not part of artifact contracts and must never gate workflow control flow.

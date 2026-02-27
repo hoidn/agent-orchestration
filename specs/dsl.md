@@ -19,6 +19,7 @@
       - forbids `pointer`, `under`, and `must_exist_target`
     - `allowed: string[]` required for enum artifacts
   - `steps`: ordered list of step objects.
+  - `observability` is intentionally not a DSL key; run observability is configured via CLI/runtime flags (see `cli.md`).
 
 - Step schema (consolidated; MVP + v1.1.1)
   - Required: `name: string`.

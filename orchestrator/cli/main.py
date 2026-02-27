@@ -100,6 +100,34 @@ def create_parser() -> argparse.ArgumentParser:
         default='info',
         help='Set log level'
     )
+    run_parser.add_argument(
+        '--step-summaries',
+        action='store_true',
+        help='Enable per-step summaries (advisory only)'
+    )
+    run_parser.add_argument(
+        '--summary-mode',
+        choices=['async', 'sync'],
+        help='Summary mode (default: async when summaries are enabled)'
+    )
+    run_parser.add_argument(
+        '--summary-provider',
+        type=str,
+        default='claude_sonnet_summary',
+        help='Provider template name for summaries'
+    )
+    run_parser.add_argument(
+        '--summary-timeout-sec',
+        type=int,
+        default=120,
+        help='Timeout for a single summary request'
+    )
+    run_parser.add_argument(
+        '--summary-max-input-chars',
+        type=int,
+        default=12000,
+        help='Maximum snapshot chars passed to summarizer'
+    )
 
     # Resume command (minimal for now)
     resume_parser = subparsers.add_parser('resume', help='Resume a workflow run')
@@ -128,6 +156,50 @@ def create_parser() -> argparse.ArgumentParser:
         action='store_true',
         help='Backup state before each step'
     )
+    resume_parser.add_argument(
+        '--summary-mode',
+        choices=['async', 'sync'],
+        help='Override summary mode for this resume run'
+    )
+    resume_parser.add_argument(
+        '--summary-provider',
+        type=str,
+        help='Override summary provider for this resume run'
+    )
+    resume_parser.add_argument(
+        '--summary-timeout-sec',
+        type=int,
+        help='Override summary timeout for this resume run'
+    )
+    resume_parser.add_argument(
+        '--summary-max-input-chars',
+        type=int,
+        help='Override summary max input chars for this resume run'
+    )
+
+    report_parser = subparsers.add_parser('report', help='Render workflow run status')
+    report_parser.add_argument(
+        '--run-id',
+        type=str,
+        help='Run ID (defaults to latest run)'
+    )
+    report_parser.add_argument(
+        '--runs-root',
+        type=str,
+        default='.orchestrate/runs',
+        help='Runs root directory'
+    )
+    report_parser.add_argument(
+        '--format',
+        choices=['md', 'json'],
+        default='md',
+        help='Output format'
+    )
+    report_parser.add_argument(
+        '--output',
+        type=str,
+        help='Optional output file path'
+    )
 
     return parser
 
@@ -146,6 +218,14 @@ def main(args: Optional[list] = None) -> int:
     elif parsed_args.command == 'resume':
         from orchestrator.cli.commands import resume_workflow
         return resume_workflow(**vars(parsed_args))
+    elif parsed_args.command == 'report':
+        from orchestrator.cli.commands import report_workflow
+        return report_workflow(
+            run_id=parsed_args.run_id,
+            runs_root=parsed_args.runs_root,
+            format=parsed_args.format,
+            output=parsed_args.output,
+        )
     else:
         parser.print_help()
         return 1

@@ -3,10 +3,12 @@
 - Commands
   - `orchestrate run <workflow.yaml> [--context k=v ...] [--context-file path] [--clean-processed] [--archive-processed <dst>]`
   - `orchestrate resume <run_id>`
+  - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
   - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <file>`, `orchestrate watch <workflow.yaml>`
 
 - Debugging and recovery flags
   - `--debug`, `--progress` (post-MVP), `--trace` (post-MVP), `--dry-run`
+  - Runtime observability: `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`
   - `--force-restart`, `--repair`, `--backup-state`, `--state-dir <path>`
   - Error handling: `--on-error stop|continue|interactive` (interactive optional/post-MVP)
   - Retries: `--max-retries <n>`, `--retry-delay <ms>`
@@ -34,6 +36,9 @@ orchestrate run workflows/demo.yaml \
 # Resume failed/interrupted run
 orchestrate resume <run_id>
 
+# Render status report for latest run
+orchestrate report --format md
+
 # Execute single step (optional/post-MVP)
 orchestrate run-step <step_name> --workflow workflows/demo.yaml
 
@@ -49,6 +54,11 @@ orchestrate watch workflows/demo.yaml
 --progress              # Show real-time progress (post-MVP)
 --trace                 # Include trace IDs in logs (post-MVP)
 --dry-run               # Validate without execution
+--step-summaries
+--summary-mode async|sync
+--summary-provider <name>
+--summary-timeout-sec <n>
+--summary-max-input-chars <n>
 
 # State management
 --force-restart         # Ignore existing state

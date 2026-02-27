@@ -75,6 +75,7 @@ class RunState:
     status: StateStatus
     run_root: Optional[str] = None  # Path to .orchestrate/runs/<run_id>
     context: Dict[str, Any] = field(default_factory=dict)
+    observability: Optional[Dict[str, Any]] = None
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
     artifact_versions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
@@ -100,6 +101,8 @@ class RunState:
         # Include run_root if set
         if self.run_root:
             result["run_root"] = self.run_root
+        if self.observability is not None:
+            result["observability"] = self.observability
 
         # Convert step results - type assert for type checker
         steps_dict: Dict[str, Any] = result["steps"]
@@ -138,6 +141,7 @@ class RunState:
             status=data["status"],
             run_root=data.get("run_root"),  # Optional, may not be present in older states
             context=data.get("context", {}),
+            observability=data.get("observability"),
             steps=data.get("steps", {}),
             for_each=for_each,
             artifact_versions=data.get("artifact_versions", {}),
@@ -196,7 +200,12 @@ class StateManager:
                 sha256.update(chunk)
         return f"sha256:{sha256.hexdigest()}"
 
-    def initialize(self, workflow_file: str, context: Optional[Dict[str, Any]] = None) -> RunState:
+    def initialize(
+        self,
+        workflow_file: str,
+        context: Optional[Dict[str, Any]] = None,
+        observability: Optional[Dict[str, Any]] = None,
+    ) -> RunState:
         """Initialize a new run state.
 
         Args:
@@ -228,7 +237,8 @@ class StateManager:
             updated_at=now,
             status="running",
             run_root=str(self.run_root),  # Store run_root path
-            context=context or {}
+            context=context or {},
+            observability=observability,
         )
 
         # Write initial state
