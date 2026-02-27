@@ -32,7 +32,7 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
 
@@ -119,7 +119,7 @@ class WorkflowLoader:
                 self._validate_path_safety(workflow[dir_field], dir_field)
 
         if 'artifacts' in workflow:
-            if version != "1.2":
+            if version not in {"1.2", "1.3"}:
                 self._add_error("artifacts requires version '1.2'")
             else:
                 self._validate_artifacts_registry(workflow['artifacts'])
@@ -226,6 +226,17 @@ class WorkflowLoader:
             if 'expected_outputs' in step:
                 self._validate_expected_outputs(step['expected_outputs'], name)
 
+            if 'output_bundle' in step:
+                if version != "1.3":
+                    self._add_error(f"Step '{name}': output_bundle requires version '1.3'")
+                else:
+                    self._validate_output_bundle(step['output_bundle'], name)
+
+            if 'expected_outputs' in step and 'output_bundle' in step:
+                self._add_error(
+                    f"Step '{name}': output_bundle is mutually exclusive with expected_outputs"
+                )
+
             if 'inject_output_contract' in step and not isinstance(step['inject_output_contract'], bool):
                 self._add_error(f"Step '{name}': 'inject_output_contract' must be a boolean")
 
@@ -233,7 +244,7 @@ class WorkflowLoader:
                 self._add_error(f"Step '{name}': 'persist_artifacts_in_state' must be a boolean")
 
             if 'publishes' in step:
-                if version != "1.2":
+                if version not in {"1.2", "1.3"}:
                     self._add_error(f"Step '{name}': publishes requires version '1.2'")
                 else:
                     if step.get('persist_artifacts_in_state') is False:
@@ -243,13 +254,13 @@ class WorkflowLoader:
                     self._validate_publishes(step['publishes'], name)
 
             if 'consumes' in step:
-                if version != "1.2":
+                if version not in {"1.2", "1.3"}:
                     self._add_error(f"Step '{name}': consumes requires version '1.2'")
                 else:
                     self._validate_consumes(step['consumes'], name)
 
             if 'prompt_consumes' in step:
-                if version != "1.2":
+                if version not in {"1.2", "1.3"}:
                     self._add_error(f"Step '{name}': prompt_consumes requires version '1.2'")
                 else:
                     prompt_consumes = step['prompt_consumes']
@@ -279,13 +290,13 @@ class WorkflowLoader:
                                 )
 
             if 'inject_consumes' in step:
-                if version != "1.2":
+                if version not in {"1.2", "1.3"}:
                     self._add_error(f"Step '{name}': inject_consumes requires version '1.2'")
                 elif not isinstance(step['inject_consumes'], bool):
                     self._add_error(f"Step '{name}': 'inject_consumes' must be a boolean")
 
             if 'consumes_injection_position' in step:
-                if version != "1.2":
+                if version not in {"1.2", "1.3"}:
                     self._add_error(f"Step '{name}': consumes_injection_position requires version '1.2'")
                 else:
                     position = step['consumes_injection_position']
@@ -297,6 +308,12 @@ class WorkflowLoader:
                         self._add_error(
                             f"Step '{name}': consumes_injection_position must be 'prepend' or 'append'"
                         )
+
+            if 'consume_bundle' in step:
+                if version != "1.3":
+                    self._add_error(f"Step '{name}': consume_bundle requires version '1.3'")
+                else:
+                    self._validate_consume_bundle(step['consume_bundle'], name, step.get('consumes'))
 
             # Validate wait_for exclusivity (AT-36)
             if 'wait_for' in step:
@@ -462,6 +479,117 @@ class WorkflowLoader:
 
             if 'required' in spec and not isinstance(spec['required'], bool):
                 self._add_error(f"{context} 'required' must be a boolean")
+
+    def _validate_output_bundle(self, output_bundle: Any, step_name: str):
+        """Validate output_bundle contract entries (v1.3)."""
+        context = f"Step '{step_name}': output_bundle"
+        if not isinstance(output_bundle, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        if 'path' not in output_bundle:
+            self._add_error(f"{context} missing required 'path'")
+        elif not isinstance(output_bundle['path'], str):
+            self._add_error(f"{context} 'path' must be a string")
+        else:
+            self._validate_path_safety(output_bundle['path'], f"{context} path")
+
+        fields = output_bundle.get('fields')
+        if not isinstance(fields, list) or not fields:
+            self._add_error(f"{context}.fields must be a non-empty list")
+            return
+
+        seen_names: Set[str] = set()
+        for i, spec in enumerate(fields):
+            field_context = f"{context}.fields[{i}]"
+            if not isinstance(spec, dict):
+                self._add_error(f"{field_context} must be a dictionary")
+                continue
+
+            if 'name' not in spec:
+                self._add_error(f"{field_context} missing required 'name'")
+            elif not isinstance(spec['name'], str):
+                self._add_error(f"{field_context} 'name' must be a string")
+            elif not spec['name'].strip():
+                self._add_error(f"{field_context} 'name' cannot be empty")
+            elif spec['name'] in seen_names:
+                self._add_error(f"{field_context} duplicate artifact name '{spec['name']}'")
+            else:
+                seen_names.add(spec['name'])
+
+            if 'json_pointer' not in spec:
+                self._add_error(f"{field_context} missing required 'json_pointer'")
+            elif not isinstance(spec['json_pointer'], str):
+                self._add_error(f"{field_context} 'json_pointer' must be a string")
+            else:
+                pointer = spec['json_pointer']
+                if pointer and not pointer.startswith('/'):
+                    self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax")
+
+            if 'type' not in spec:
+                self._add_error(f"{field_context} missing required 'type'")
+            elif not isinstance(spec['type'], str):
+                self._add_error(f"{field_context} 'type' must be a string")
+            elif spec['type'] not in self.SUPPORTED_OUTPUT_TYPES:
+                self._add_error(
+                    f"{field_context} invalid output_bundle field type '{spec['type']}'"
+                )
+
+            if 'under' in spec:
+                if not isinstance(spec['under'], str):
+                    self._add_error(f"{field_context} 'under' must be a string")
+                else:
+                    self._validate_path_safety(spec['under'], f"{field_context} under")
+
+            if 'allowed' in spec and not isinstance(spec['allowed'], list):
+                self._add_error(f"{field_context} 'allowed' must be a list")
+
+            if spec.get('type') == 'enum' and 'allowed' not in spec:
+                self._add_error(f"{field_context} enum type requires 'allowed'")
+
+            if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
+                self._add_error(f"{field_context} 'must_exist_target' must be a boolean")
+
+            if 'required' in spec and not isinstance(spec['required'], bool):
+                self._add_error(f"{field_context} 'required' must be a boolean")
+
+    def _validate_consume_bundle(self, consume_bundle: Any, step_name: str, consumes: Any):
+        """Validate consume_bundle structure and consumes subset constraints (v1.3)."""
+        context = f"Step '{step_name}': consume_bundle"
+        if not isinstance(consume_bundle, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        if 'path' not in consume_bundle:
+            self._add_error(f"{context} missing required 'path'")
+        elif not isinstance(consume_bundle['path'], str):
+            self._add_error(f"{context} 'path' must be a string")
+        else:
+            self._validate_path_safety(consume_bundle['path'], f"{context} path")
+
+        if not isinstance(consumes, list) or not consumes:
+            self._add_error(f"Step '{step_name}': consume_bundle requires consumes")
+            return
+
+        consumed_names = {
+            entry.get('artifact')
+            for entry in consumes
+            if isinstance(entry, dict) and isinstance(entry.get('artifact'), str)
+        }
+
+        if 'include' in consume_bundle:
+            include = consume_bundle['include']
+            if not isinstance(include, list):
+                self._add_error(f"{context} 'include' must be a list")
+            else:
+                for name in include:
+                    if not isinstance(name, str) or not name.strip():
+                        self._add_error(f"{context} 'include' entries must be non-empty strings")
+                        continue
+                    if name not in consumed_names:
+                        self._add_error(
+                            f"Step '{step_name}': consume_bundle.include artifact '{name}' must appear in consumes"
+                        )
 
     def _validate_when_condition(self, when: Any, step_name: str):
         """Validate when condition structure."""
@@ -677,16 +805,34 @@ class WorkflowLoader:
                 elif freshness not in allowed_freshness:
                     self._add_error(f"{context} unsupported freshness '{freshness}'")
 
-    def _get_expected_output_map(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
-        """Index expected_outputs by artifact name for cross-reference checks."""
+    def _get_publish_source_map(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Index publish sources by name for cross-reference checks."""
         out: Dict[str, Dict[str, Any]] = {}
         expected_outputs = step.get('expected_outputs', [])
         if not isinstance(expected_outputs, list):
-            return out
+            expected_outputs = []
 
         for spec in expected_outputs:
-            if isinstance(spec, dict) and isinstance(spec.get('name'), str):
-                out[spec['name']] = spec
+            if not isinstance(spec, dict) or not isinstance(spec.get('name'), str):
+                continue
+            out[spec['name']] = {
+                "source": "expected_outputs",
+                "type": spec.get('type'),
+                "path": spec.get('path'),
+            }
+
+        output_bundle = step.get('output_bundle')
+        if isinstance(output_bundle, dict):
+            fields = output_bundle.get('fields', [])
+            if isinstance(fields, list):
+                for spec in fields:
+                    if not isinstance(spec, dict) or not isinstance(spec.get('name'), str):
+                        continue
+                    out[spec['name']] = {
+                        "source": "output_bundle",
+                        "type": spec.get('type'),
+                        "path": None,
+                    }
         return out
 
     def _validate_dataflow_cross_references(self, steps: List[Dict[str, Any]], artifacts_registry: Optional[Any]):
@@ -704,7 +850,7 @@ class WorkflowLoader:
 
             published_artifacts: Set[str] = set()
 
-            expected_by_name = self._get_expected_output_map(step)
+            publish_sources_by_name = self._get_publish_source_map(step)
             publishes = step.get('publishes', [])
             if isinstance(publishes, list):
                 for entry in publishes:
@@ -721,24 +867,25 @@ class WorkflowLoader:
                         )
                         continue
 
-                    output_spec = expected_by_name.get(from_name)
-                    if output_spec is None:
+                    source_spec = publish_sources_by_name.get(from_name)
+                    if source_spec is None:
                         self._add_error(
-                            f"Step '{step_name}': publishes.from '{from_name}' not found in expected_outputs"
+                            f"Step '{step_name}': publishes.from '{from_name}' not found in expected_outputs or output_bundle.fields"
                         )
                         continue
 
                     registry_spec = registry[artifact_name]
                     registry_kind = registry_spec.get('kind', 'relpath')
-                    if registry_kind == 'relpath':
+                    source_path = source_spec.get('path')
+                    if registry_kind == 'relpath' and isinstance(source_path, str):
                         pointer = registry_spec.get('pointer')
-                        if output_spec.get('path') != pointer:
+                        if source_path != pointer:
                             self._add_error(
                                 f"Step '{step_name}': publishes pointer mismatch for artifact '{artifact_name}'"
                             )
                             continue
 
-                    if output_spec.get('type') != registry_spec.get('type'):
+                    if source_spec.get('type') != registry_spec.get('type'):
                         self._add_error(
                             f"Step '{step_name}': publishes type mismatch for artifact '{artifact_name}'"
                         )

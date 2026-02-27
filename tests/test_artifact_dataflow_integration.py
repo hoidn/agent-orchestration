@@ -1,5 +1,6 @@
 """Integration tests for v1.2 artifact publish/consume dataflow guarantees."""
 
+import json
 from pathlib import Path
 
 import yaml
@@ -453,3 +454,118 @@ def test_enum_registry_allowed_is_enforced_at_publish_boundary(tmp_path: Path):
     assert decision_step["error"]["type"] == "contract_violation"
     assert decision_step["error"]["context"]["reason"] == "invalid_enum_value"
     assert persisted.get("artifact_versions", {}).get("review_decision", []) == []
+
+
+def test_v13_consume_bundle_writes_resolved_artifacts_json(tmp_path: Path):
+    """consume_bundle writes resolved consumed artifacts to a single JSON file."""
+    workflow = {
+        "version": "1.3",
+        "name": "consume-bundle-write",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            _publish_step("ExecutePlan", "artifacts/work/latest-execution-log.md"),
+            {
+                "name": "ReviewImplVsPlan",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ExecutePlan"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "consume_bundle": {
+                    "path": "state/consumes/review_impl_vs_plan.json",
+                },
+                "command": ["bash", "-lc", "cat state/consumes/review_impl_vs_plan.json"],
+            },
+        ],
+    }
+
+    state, _persisted = _run_workflow(tmp_path, workflow)
+    review = state["steps"]["ReviewImplVsPlan"]
+
+    assert review["exit_code"] == 0
+    bundle = json.loads((tmp_path / "state" / "consumes" / "review_impl_vs_plan.json").read_text())
+    assert bundle == {
+        "execution_log": "artifacts/work/latest-execution-log.md",
+    }
+
+
+def test_v13_consume_bundle_include_writes_subset_only(tmp_path: Path):
+    """consume_bundle.include limits materialized JSON keys to selected artifacts."""
+    artifacts_registry = _artifact_registry()
+    artifacts_registry.update(_scalar_artifact_registry())
+    workflow = {
+        "version": "1.3",
+        "name": "consume-bundle-include-subset",
+        "artifacts": artifacts_registry,
+        "steps": [
+            _publish_step("ExecutePlan", "artifacts/work/latest-execution-log.md"),
+            _publish_scalar_step("RunChecks", 3),
+            {
+                "name": "ReviewImplVsPlan",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ExecutePlan"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    },
+                    {
+                        "artifact": "failed_count",
+                        "producers": ["RunChecks"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    },
+                ],
+                "consume_bundle": {
+                    "path": "state/consumes/review_impl_vs_plan.json",
+                    "include": ["execution_log"],
+                },
+                "command": ["bash", "-lc", "cat state/consumes/review_impl_vs_plan.json"],
+            },
+        ],
+    }
+
+    state, _persisted = _run_workflow(tmp_path, workflow)
+    review = state["steps"]["ReviewImplVsPlan"]
+
+    assert review["exit_code"] == 0
+    bundle = json.loads((tmp_path / "state" / "consumes" / "review_impl_vs_plan.json").read_text())
+    assert bundle == {
+        "execution_log": "artifacts/work/latest-execution-log.md",
+    }
+
+
+def test_v13_consume_bundle_not_written_when_consume_contract_fails(tmp_path: Path):
+    """consume_bundle file is not written when consume preflight fails."""
+    workflow = {
+        "version": "1.3",
+        "name": "consume-bundle-no-write-on-failure",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            {
+                "name": "ReviewImplVsPlan",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ExecutePlan"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "consume_bundle": {
+                    "path": "state/consumes/review_impl_vs_plan.json",
+                },
+                "command": ["bash", "-lc", "echo should-not-run"],
+            },
+        ],
+    }
+
+    state, _persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+    review = state["steps"]["ReviewImplVsPlan"]
+
+    assert review["exit_code"] == 2
+    assert review["error"]["type"] == "contract_violation"
+    assert not (tmp_path / "state" / "consumes" / "review_impl_vs_plan.json").exists()

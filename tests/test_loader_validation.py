@@ -1148,3 +1148,209 @@ class TestLoaderValidation:
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
         assert loaded["artifacts"]["execution_log"]["type"] == "relpath"
+
+    def test_v13_output_bundle_requires_version_1_3(self):
+        """output_bundle is gated to version 1.3+."""
+        workflow = {
+            "version": "1.2",
+            "name": "v13-gated-output-bundle",
+            "steps": [{
+                "name": "Assess",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "artifacts/work/summary.json",
+                    "fields": [{
+                        "name": "status",
+                        "json_pointer": "/status",
+                        "type": "enum",
+                        "allowed": ["COMPLETE", "INCOMPLETE", "BLOCKED"],
+                    }],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("output_bundle requires version '1.3'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v13_output_bundle_rejects_expected_outputs_on_same_step(self):
+        """output_bundle and expected_outputs cannot be combined on one step."""
+        workflow = {
+            "version": "1.3",
+            "name": "v13-output-bundle-mutual-exclusion",
+            "steps": [{
+                "name": "Assess",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "status_path",
+                    "path": "state/status.txt",
+                    "type": "enum",
+                    "allowed": ["COMPLETE", "INCOMPLETE", "BLOCKED"],
+                }],
+                "output_bundle": {
+                    "path": "artifacts/work/summary.json",
+                    "fields": [{
+                        "name": "status",
+                        "json_pointer": "/status",
+                        "type": "enum",
+                        "allowed": ["COMPLETE", "INCOMPLETE", "BLOCKED"],
+                    }],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("output_bundle is mutually exclusive with expected_outputs" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v13_output_bundle_requires_non_empty_fields(self):
+        """output_bundle.fields must be a non-empty list."""
+        workflow = {
+            "version": "1.3",
+            "name": "v13-output-bundle-empty-fields",
+            "steps": [{
+                "name": "Assess",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "artifacts/work/summary.json",
+                    "fields": [],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("output_bundle.fields must be a non-empty list" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v13_output_bundle_field_requires_json_pointer_and_type(self):
+        """Each output_bundle field requires name, json_pointer, and type."""
+        workflow = {
+            "version": "1.3",
+            "name": "v13-output-bundle-field-shape",
+            "steps": [{
+                "name": "Assess",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "artifacts/work/summary.json",
+                    "fields": [{
+                        "name": "status",
+                    }],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("output_bundle.fields[0] missing required 'json_pointer'" in str(err.message)
+                   for err in exc_info.value.errors)
+        assert any("output_bundle.fields[0] missing required 'type'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v13_consume_bundle_requires_version_1_3(self):
+        """consume_bundle is gated to version 1.3+."""
+        workflow = {
+            "version": "1.2",
+            "name": "v13-gated-consume-bundle",
+            "artifacts": {
+                "plan": {
+                    "pointer": "state/plan_path.txt",
+                    "type": "relpath",
+                    "under": "docs/plans",
+                },
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "plan",
+                    "policy": "latest_successful",
+                }],
+                "consume_bundle": {
+                    "path": "state/consumes/review.json",
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consume_bundle requires version '1.3'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v13_consume_bundle_requires_consumes(self):
+        """consume_bundle cannot be used on a step with no consumes contract."""
+        workflow = {
+            "version": "1.3",
+            "name": "v13-consume-bundle-requires-consumes",
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consume_bundle": {
+                    "path": "state/consumes/review.json",
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consume_bundle requires consumes" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_v13_consume_bundle_include_must_be_subset_of_consumes(self):
+        """consume_bundle.include must only contain artifacts declared in consumes."""
+        workflow = {
+            "version": "1.3",
+            "name": "v13-consume-bundle-include-subset",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                },
+                "plan": {
+                    "pointer": "state/plan_path.txt",
+                    "type": "relpath",
+                    "under": "docs/plans",
+                },
+            },
+            "steps": [{
+                "name": "Review",
+                "provider": "codex",
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                }],
+                "consume_bundle": {
+                    "path": "state/consumes/review.json",
+                    "include": ["execution_log", "plan"],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("consume_bundle.include artifact 'plan' must appear in consumes" in str(err.message)
+                   for err in exc_info.value.errors)

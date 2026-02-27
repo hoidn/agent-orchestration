@@ -6,6 +6,7 @@ import pytest
 
 from orchestrator.contracts.output_contract import (
     OutputContractError,
+    validate_output_bundle,
     validate_expected_outputs,
 )
 
@@ -147,3 +148,113 @@ def test_validate_expected_outputs_rejects_duplicate_artifact_names(tmp_path: Pa
         validate_expected_outputs(specs, workspace=tmp_path)
 
     assert any(v["type"] == "duplicate_artifact_name" for v in exc_info.value.violations)
+
+
+def test_validate_output_bundle_parses_supported_types(tmp_path: Path):
+    """Bundle fields parse enum/int/float/bool/relpath into typed artifacts."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "docs" / "plans").mkdir(parents=True)
+    (tmp_path / "docs" / "plans" / "plan-a.md").write_text("# plan\n")
+    (tmp_path / "artifacts" / "work" / "summary.json").write_text(
+        '{"decision":"APPROVE","failed_count":2,"score":0.91,"approved":true,"plan_path":"docs/plans/plan-a.md"}\n'
+    )
+
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [
+            {"name": "review_outcome", "json_pointer": "/decision", "type": "enum", "allowed": ["APPROVE", "REVISE"]},
+            {"name": "failure_count", "json_pointer": "/failed_count", "type": "integer"},
+            {"name": "quality_score", "json_pointer": "/score", "type": "float"},
+            {"name": "approved_flag", "json_pointer": "/approved", "type": "bool"},
+            {
+                "name": "plan_path",
+                "json_pointer": "/plan_path",
+                "type": "relpath",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            },
+        ],
+    }
+
+    artifacts = validate_output_bundle(bundle, workspace=tmp_path)
+    assert artifacts == {
+        "review_outcome": "APPROVE",
+        "failure_count": 2,
+        "quality_score": 0.91,
+        "approved_flag": True,
+        "plan_path": "docs/plans/plan-a.md",
+    }
+
+
+def test_validate_output_bundle_missing_file_raises_violation(tmp_path: Path):
+    """Missing output_bundle file returns a contract violation."""
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [{"name": "decision", "json_pointer": "/decision", "type": "enum", "allowed": ["APPROVE"]}],
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert any(v["type"] == "missing_bundle_file" for v in exc_info.value.violations)
+
+
+def test_validate_output_bundle_invalid_json_raises_violation(tmp_path: Path):
+    """Invalid bundle JSON fails deterministic contract parsing."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "summary.json").write_text("{invalid}\n")
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [{"name": "decision", "json_pointer": "/decision", "type": "enum", "allowed": ["APPROVE"]}],
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert any(v["type"] == "invalid_json_document" for v in exc_info.value.violations)
+
+
+def test_validate_output_bundle_missing_pointer_raises_violation(tmp_path: Path):
+    """Missing JSON pointer path in bundle fails validation."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "summary.json").write_text('{"decision":"APPROVE"}\n')
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [{"name": "decision", "json_pointer": "/missing", "type": "enum", "allowed": ["APPROVE"]}],
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert any(v["type"] == "json_pointer_not_found" for v in exc_info.value.violations)
+
+
+def test_validate_output_bundle_invalid_enum_raises_violation(tmp_path: Path):
+    """Enum constraints apply to extracted output_bundle field values."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "summary.json").write_text('{"decision":"MAYBE"}\n')
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [{"name": "decision", "json_pointer": "/decision", "type": "enum", "allowed": ["APPROVE"]}],
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    assert any(v["type"] == "invalid_enum_value" for v in exc_info.value.violations)
+
+
+def test_validate_output_bundle_relpath_constraints_are_enforced(tmp_path: Path):
+    """relpath extraction from bundles cannot escape workspace or declared under root."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "summary.json").write_text('{"plan_path":"../outside.md"}\n')
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [{"name": "plan_path", "json_pointer": "/plan_path", "type": "relpath", "under": "docs/plans"}],
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_output_bundle(bundle, workspace=tmp_path)
+
+    violation_types = {v["type"] for v in exc_info.value.violations}
+    assert "path_escape" in violation_types or "outside_under_root" in violation_types

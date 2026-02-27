@@ -30,6 +30,16 @@
     - consume preflight (`latest_successful`) with optional freshness (`since_last_consume`)
     - deterministic contract failures (`exit_code: 2`, `error.type: "contract_violation"`).
 
+- v1.3 additions (JSON-bundled deterministic I/O)
+  - Step-level `output_bundle` allows one JSON file to publish multiple deterministic artifacts with typed validation.
+  - Step-level `consume_bundle` writes resolved consumes into one JSON file after consume preflight.
+  - `publishes.from` may reference either `expected_outputs.name` or `output_bundle.fields[*].name`.
+  - Existing v1.2 behavior remains valid; pointer materialization still applies to relpath consumes.
+  - Recommended workflow policy:
+    - Heavy execution/fix steps: keep flexible (`output_capture: text|lines`), minimal deterministic outputs.
+    - Assessment/review/gate steps: keep strict (`output_capture: json`, `allow_parse_error: false`), publish decision artifacts.
+    - Control flow should branch on strict published artifacts, not raw prose logs.
+
 - Planned future (declarative per-item lifecycle)
   - `for_each.on_item_complete` with `success.move_to` / `failure.move_to` directories.
   - Version gating and rollout details are deferred until feature implementation.
@@ -122,10 +132,10 @@ Planned acceptance:
 6. Idempotent on resume; no double move.
 7. Missing source logs lifecycle error; item result unchanged.
 
-- v1.3 planned (JSON output validation)
+- Future planned (JSON stdout validation assertions)
   - For steps with `output_capture: json`: optional `output_schema` and `output_require[...]` assertions.
   - Incompatible with `allow_parse_error: true`.
-  - Version-gated: requires `version: "1.3"` or higher.
+  - Version-gating target will be finalized when implemented.
 
 ## Version Gating Summary
 
@@ -134,5 +144,6 @@ Planned acceptance:
 | 1.1 | Baseline DSL; providers (argv/stdin), `wait_for`, `depends_on` (required/optional), `when` (equals/exists/not_exists), retries/timeouts, strict path safety | State schema initially 1.1.1 (separate track). Unknown DSL fields rejected. |
 | 1.1.1 | `depends_on.inject` (list/content/none), injection truncation recording | Workflows must declare `version: "1.1.1"` to use `inject`. |
 | 1.2 | `artifacts(kind=relpath|scalar)`, `publishes`, `consumes`, `prompt_consumes` with runtime publish/consume enforcement | Keeps `expected_outputs` as file-validation primitive; adds provenance/freshness guarantees plus optional prompt-noise reduction and scalar consume flow. |
+| 1.3 | `output_bundle`, `consume_bundle`, and `publishes.from` support for bundle fields | Reduces deterministic I/O fragmentation while preserving v1.2 publish/consume guarantees. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
-| 1.3 (planned) | JSON output validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |
+| future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

@@ -7,7 +7,7 @@
   - Injection (v1.1.1): modes, default instruction, prepend/append position, truncation record.
   - IO capture: modes, limits, tee semantics, JSON parse behavior and `allow_parse_error`.
   - Providers: argv vs stdin, placeholder validation, unresolved placeholders, parameter merge.
-  - Deterministic artifact contracts: `expected_outputs` validation, typed parsing, contract violation handling, and prompt suffix injection controls.
+  - Deterministic artifact contracts: `expected_outputs`/`output_bundle` validation, typed parsing, publish/consume lineage, and contract violation handling.
   - Wait-for: exclusivity, timeout semantics, state metrics.
   - State integrity: atomic writes, backups, resume/repair, checksum.
   - CLI safety: `--clean-processed` & `--archive-processed` constraints.
@@ -18,7 +18,7 @@
 
 - Future acceptance (planned)
   - v1.2 lifecycle: per-item success/failure moves; idempotency and resume.
-  - v1.3 JSON validation: schema pass/fail, require-pointer assertions, variable substitution in schema path.
+  - Future JSON stdout validation assertions: schema pass/fail, require-pointer assertions, variable substitution in schema path.
 
 ## Canonical List (v1.1 + v1.1.1)
 
@@ -107,6 +107,13 @@
 97. v1.2 prompt consume suppression: `prompt_consumes: []` injects no consumed-artifacts block
 98. v1.2 scalar artifact schema: `artifacts.<name>.kind: scalar` supports `enum|integer|float|bool` and rejects relpath-only fields
 99. v1.2 scalar runtime consume: scalar consume preflight enforces freshness without pointer-file materialization
+100. v1.3 loader gating: step `output_bundle`/`consume_bundle` rejected below `version: "1.3"`
+101. v1.3 loader exclusivity: step cannot declare both `expected_outputs` and `output_bundle`
+102. v1.3 output bundle runtime: successful step validates/extracts `output_bundle.fields[*]` into `steps.<Step>.artifacts`
+103. v1.3 output bundle runtime failure: missing/invalid bundle yields `exit_code:2` with `error.type:"contract_violation"`
+104. v1.3 consume bundle runtime: successful consume preflight writes JSON bundle to `consume_bundle.path`
+105. v1.3 consume bundle subset: `consume_bundle.include` limits emitted keys to selected consumed artifacts
+106. v1.3 strict review gating policy: workflow branch decisions consume strict published assessment/review artifacts, not raw execution prose logs
 
 ## Future Acceptance (v1.2)
 
@@ -120,6 +127,6 @@
 8. Missing source: record lifecycle error; result unchanged.
 9. State recording: per-iteration `lifecycle` object present.
 
-## Future Acceptance (v1.3)
+## Future Acceptance (JSON Stdout Validation)
 
 1. Schema pass; 2. Schema fail with `json_schema_errors`; 3. Parse fail; 4. Parse allowed is incompatible with schema; 5. Require pointer exists; 6. Require equals; 7. Require type; 8. Multiple requirements; 9. Variable substitution in schema path; 10. Large JSON overflow behavior.

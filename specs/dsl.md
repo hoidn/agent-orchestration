@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", or "1.2"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", or "1.3"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -59,8 +59,27 @@
       - Provider steps only: subset of `consumes[*].artifact` that should be injected into prompt text.
       - If omitted, all resolved consumed artifacts are injected (backward-compatible default).
       - If `[]`, no consumed-artifacts prompt block is injected.
-  # Future (v1.3): JSON output validation (opt-in, version-gated)
-  # Only valid when `version: "1.3"` or higher AND `output_capture: json` AND `allow_parse_error` is false
+    - `output_bundle` (optional; v1.3+): deterministic artifacts extracted from one JSON file.
+      - `path: string` (required, relative JSON file written by the step)
+      - `fields: OutputBundleField[]` (required, non-empty)
+      - Mutual exclusion: cannot be combined with `expected_outputs` on the same step.
+      - `OutputBundleField`:
+        - `name: string` (required artifact key; unique within `fields`)
+        - `json_pointer: string` (required RFC 6901 pointer; `""` allowed for root)
+        - `type: enum|integer|float|bool|relpath` (required)
+        - `allowed: string[]` (required when `type: enum`)
+        - `under: string` (optional root for `relpath` target validation)
+        - `must_exist_target: boolean` (optional, `relpath` only)
+        - `required: boolean` (optional, default true; when false, missing pointer is allowed)
+      - Runtime enforcement runs only when the step process exits with code `0`.
+      - Parsed values are exposed as `steps.<Step>.artifacts` (unless `persist_artifacts_in_state:false`).
+    - `consume_bundle` (optional; v1.3+): materialize resolved consumes into one JSON file.
+      - `path: string` (required output JSON path under WORKSPACE)
+      - `include: string[]` (optional subset of consumed artifact names; default all resolved consumes)
+      - Requires step `consumes`; `include` must be subset of `consumes[*].artifact`.
+      - Written only after consume preflight succeeds.
+  # Future (post-v1.3): additional JSON stdout validation (opt-in, version-gated)
+  # Only valid when enabled in a future version AND `output_capture: json` AND `allow_parse_error` is false
   - `output_schema?: string`                         # Path to JSON Schema under WORKSPACE; variables allowed
   - `output_require?:`                               # Simple built-in assertions on parsed JSON
       - `pointer: string`                            # RFC 6901 JSON Pointer (e.g., "/approved")
@@ -72,7 +91,7 @@
   - Dataflow (v1.2+):
     - `publishes`: list of `{ artifact, from }`
       - `artifact`: artifact name from top-level `artifacts`
-      - `from`: local `expected_outputs.name` produced by the same step
+      - `from`: local `expected_outputs.name` or `output_bundle.fields[*].name` produced by the same step
       - requires `persist_artifacts_in_state` to be `true` for that step
       - runtime: on successful step, publication appends a new artifact version record
     - `consumes`: list of contracts
@@ -110,6 +129,7 @@
   - Version gating:
     - `depends_on.inject` requires `version: "1.1.1"` or higher.
     - `artifacts`, `publishes`, `consumes`, `inject_consumes`, `consumes_injection_position`, and `prompt_consumes` require `version: "1.2"` or higher.
+    - `output_bundle` and `consume_bundle` require `version: "1.3"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.

@@ -4,6 +4,7 @@ Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 """
 
 import copy
+import json
 import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -15,7 +16,11 @@ from ..providers.executor import ProviderExecutor
 from ..providers.registry import ProviderRegistry
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
-from ..contracts.output_contract import OutputContractError, validate_expected_outputs
+from ..contracts.output_contract import (
+    OutputContractError,
+    validate_expected_outputs,
+    validate_output_bundle,
+)
 from ..contracts.prompt_contract import (
     render_consumed_artifacts_block,
     render_output_contract_block,
@@ -660,8 +665,122 @@ class WorkflowExecutor:
             global_consumes[artifact_name] = selected_version
             step_resolved_consumes[artifact_name] = selected_value
 
+        consume_bundle = step.get('consume_bundle')
+        if consume_bundle:
+            write_error = self._write_consume_bundle(
+                consume_bundle=consume_bundle,
+                step_name=step_name,
+                resolved_values=step_resolved_consumes,
+            )
+            if write_error is not None:
+                return write_error
+
         self._persist_dataflow_state(state)
         return None
+
+    def _write_consume_bundle(
+        self,
+        consume_bundle: Any,
+        step_name: str,
+        resolved_values: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Materialize resolved consumes into a deterministic JSON bundle file."""
+        if not isinstance(consume_bundle, dict):
+            return self._contract_violation_result(
+                "Consume contract failed",
+                {
+                    "step": step_name,
+                    "reason": "invalid_consume_bundle",
+                },
+            )
+
+        bundle_path_raw = consume_bundle.get('path')
+        if not isinstance(bundle_path_raw, str) or not bundle_path_raw:
+            return self._contract_violation_result(
+                "Consume contract failed",
+                {
+                    "step": step_name,
+                    "reason": "invalid_consume_bundle_path",
+                },
+            )
+
+        bundle_path = self._resolve_workspace_path(bundle_path_raw)
+        if bundle_path is None:
+            return self._contract_violation_result(
+                "Consume contract failed",
+                {
+                    "step": step_name,
+                    "reason": "consume_bundle_path_escape",
+                    "path": bundle_path_raw,
+                },
+            )
+
+        include = consume_bundle.get('include')
+        selected_values: Dict[str, Any]
+        if include is None:
+            selected_values = dict(resolved_values)
+        elif isinstance(include, list):
+            selected_values = {}
+            for artifact_name in include:
+                if not isinstance(artifact_name, str):
+                    return self._contract_violation_result(
+                        "Consume contract failed",
+                        {
+                            "step": step_name,
+                            "reason": "invalid_consume_bundle_include",
+                        },
+                    )
+                if artifact_name not in resolved_values:
+                    return self._contract_violation_result(
+                        "Consume contract failed",
+                        {
+                            "step": step_name,
+                            "reason": "consume_bundle_include_missing_artifact",
+                            "artifact": artifact_name,
+                        },
+                    )
+                selected_values[artifact_name] = resolved_values[artifact_name]
+        else:
+            return self._contract_violation_result(
+                "Consume contract failed",
+                {
+                    "step": step_name,
+                    "reason": "invalid_consume_bundle_include",
+                },
+            )
+
+        try:
+            bundle_path.parent.mkdir(parents=True, exist_ok=True)
+            bundle_path.write_text(
+                json.dumps(selected_values, sort_keys=True, ensure_ascii=True) + "\n",
+                encoding="utf-8",
+            )
+        except OSError as exc:
+            return self._contract_violation_result(
+                "Consume contract failed",
+                {
+                    "step": step_name,
+                    "reason": "consume_bundle_write_failed",
+                    "path": bundle_path_raw,
+                    "error": str(exc),
+                },
+            )
+
+        return None
+
+    def _resolve_workspace_path(self, relative_path: str) -> Optional[Path]:
+        """Resolve workspace-relative path and reject escapes."""
+        path = Path(relative_path)
+        if path.is_absolute() or ".." in path.parts:
+            return None
+
+        candidate = (self.workspace / path).resolve()
+        workspace_root = self.workspace.resolve()
+        try:
+            candidate.relative_to(workspace_root)
+        except ValueError:
+            return None
+        return candidate
 
     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
         """
@@ -1465,9 +1584,10 @@ class WorkflowExecutor:
             return execute_fn(invocation)
 
     def _apply_expected_outputs_contract(self, step: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
-        """Validate expected_outputs artifacts and attach parsed values to step result."""
+        """Validate deterministic output contracts and attach parsed values to step result."""
         expected_outputs = step.get('expected_outputs')
-        if not expected_outputs:
+        output_bundle = step.get('output_bundle')
+        if not expected_outputs and not output_bundle:
             return result
 
         if result.get('exit_code', 0) != 0:
@@ -1475,7 +1595,10 @@ class WorkflowExecutor:
             return result
 
         try:
-            artifacts = validate_expected_outputs(expected_outputs, workspace=self.workspace)
+            if output_bundle:
+                artifacts = validate_output_bundle(output_bundle, workspace=self.workspace)
+            else:
+                artifacts = validate_expected_outputs(expected_outputs, workspace=self.workspace)
         except OutputContractError as contract_error:
             failed_result = dict(result)
             failed_result['status'] = 'failed'

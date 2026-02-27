@@ -8,6 +8,8 @@ This runbook documents the prototype workflows that use deterministic file-based
   - Pattern: backlog item selection -> plan draft -> plan execution -> optional review loop.
 - `workflows/examples/backlog_plan_execute_v1_2_dataflow.yaml`
   - Pattern: execute -> review -> fix loop with explicit v1.2 artifact publish/consume guarantees.
+- `workflows/examples/backlog_plan_execute_v1_3_json_bundles.yaml`
+  - Pattern: flexible execution/fix steps + strict JSON assessment/review gates using `output_bundle`/`consume_bundle`.
 - `workflows/examples/test_fix_loop_v0.yaml`
   - Pattern: run tests -> gate on failure count -> fix -> retry until pass/max cycles.
 - `workflows/examples/unit_of_work_plus_test_fix_v0.yaml`
@@ -19,6 +21,13 @@ This runbook documents the prototype workflows that use deterministic file-based
 - Each producing step declares `expected_outputs` with explicit `name`.
 - Downstream logic consumes values from `steps.<Step>.artifacts.<name>`.
 - In `version: "1.2"` workflows, provider steps with `consumes` automatically inject a deterministic `Consumed Artifacts` prompt block (unless `inject_consumes: false`).
+- In `version: "1.3"` workflows, deterministic values can be bundled:
+  - `output_bundle` extracts typed artifacts from one JSON output file.
+  - `consume_bundle` materializes resolved consumes into one JSON file for downstream command/provider use.
+- Recommended control policy:
+  - Keep heavy execution/fix steps flexible (`output_capture: text`).
+  - Keep assessment/review/gate steps strict (`output_capture: json`, `allow_parse_error: false`).
+  - Drive `goto` decisions from strict published artifacts, not raw prose logs.
 
 ## Verification Commands
 

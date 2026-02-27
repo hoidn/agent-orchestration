@@ -12,6 +12,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 EXAMPLE_FILES = [
     "backlog_plan_execute_v0.yaml",
     "backlog_plan_execute_v1_2_dataflow.yaml",
+    "backlog_plan_execute_v1_3_json_bundles.yaml",
     "test_fix_loop_v0.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
 ]
@@ -46,6 +47,7 @@ def _run_with_mocked_providers(
     workflow_relpath: str,
     provider_sequence: list[str],
     provider_writers: dict[str, Callable[[Path], None]],
+    provider_stdout: dict[str, bytes | str] | None = None,
     captured_prompts: list[dict[str, str]] | None = None,
 ) -> dict:
     loader = WorkflowLoader(workspace)
@@ -67,9 +69,13 @@ def _run_with_mocked_providers(
         step_name = provider_sequence[call_index["value"]]
         call_index["value"] += 1
         provider_writers[step_name](workspace)
+        stdout_value = b"ok"
+        if provider_stdout and step_name in provider_stdout:
+            configured = provider_stdout[step_name]
+            stdout_value = configured if isinstance(configured, bytes) else configured.encode("utf-8")
         return SimpleNamespace(
             exit_code=0,
-            stdout=b"ok",
+            stdout=stdout_value,
             stderr=b"",
             duration_ms=1,
             error=None,
@@ -232,3 +238,57 @@ def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
     assert "- execution_log: artifacts/work/fix.log" in review_prompts[1]
     assert "- failed_count:" not in review_prompts[0]
     assert "- failed_count:" not in review_prompts[1]
+
+
+def test_backlog_plan_execute_v1_3_json_bundles_runtime(tmp_path: Path):
+    """v1.3 example uses strict assessment artifacts to drive execute/fix gating."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "backlog_plan_execute_v1_3_json_bundles.yaml"
+    )
+
+    captured_prompts: list[dict[str, str]] = []
+
+    def _write_assessment(ws: Path) -> None:
+        failed_count = int((ws / "state" / "failed_count.txt").read_text().strip())
+        decision = "APPROVE" if failed_count == 0 else "REVISE"
+        (ws / "state").mkdir(parents=True, exist_ok=True)
+        (ws / "state" / "assessment_output.json").write_text(
+            f'{{"review_decision":"{decision}"}}\n'
+        )
+
+    state = _run_with_mocked_providers(
+        workspace=workspace,
+        workflow_path=workflow_path,
+        workflow_relpath=workflow_relpath,
+        provider_sequence=["ExecutePlan", "AssessExecutionCompletion", "FixIssues", "AssessExecutionCompletion"],
+        captured_prompts=captured_prompts,
+        provider_stdout={
+            "AssessExecutionCompletion": b'{"assessment":"ok"}\n',
+        },
+        provider_writers={
+            "ExecutePlan": lambda ws: _write_relpath_artifact(
+                ws, "state/execution_log_path.txt", "artifacts/work/execute.log", "execute\n"
+            ),
+            "FixIssues": lambda ws: (
+                _write_relpath_artifact(
+                    ws, "state/execution_log_path.txt", "artifacts/work/fix.log", "fix\n"
+                ),
+                (ws / "state" / "fixed.marker").write_text("fixed\n"),
+            ),
+            "AssessExecutionCompletion": _write_assessment,
+        },
+    )
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 4
+
+    versions = state.get("artifact_versions", {}).get("review_decision", [])
+    assert [entry["value"] for entry in versions] == ["REVISE", "APPROVE"]
+    assert [entry["producer"] for entry in versions] == ["AssessExecutionCompletion", "AssessExecutionCompletion"]
+
+    consumes = state.get("artifact_consumes", {}).get("ReviewGate", {})
+    assert consumes.get("review_decision") == 2
+
+    gate_bundle = workspace / "state" / "consumes" / "review_gate.json"
+    assert gate_bundle.exists()
+    assert '"review_decision": "APPROVE"' in gate_bundle.read_text()

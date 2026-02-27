@@ -7,6 +7,9 @@
 - Output handling
   - `output_file`: STDOUT is tee'd to this file and to the orchestrator capture pipeline.
   - Stderr is captured separately and written to logs when non-empty.
+  - Deterministic artifact contracts:
+    - `expected_outputs`: file-per-value contract validation (v1.1+).
+    - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
 
 - Output capture modes
   - `text` (default): store up to 8 KiB in `state.json`. If exceeded, set `truncated: true` and write full stdout to `logs/<Step>.stdout`.
@@ -16,6 +19,16 @@
 
 - State fields
   - For `lines`/`json`, omit raw `output` to avoid duplication; include `truncated` flag and mode-specific fields.
+  - Deterministic artifacts parsed from `expected_outputs` or `output_bundle` are exposed under `steps.<Step>.artifacts` (unless artifact persistence is disabled).
+
+## Recommended Strictness Split
+
+- Heavy implementation/fix steps:
+  - Prefer `output_capture: text` (or `lines`) with minimal deterministic artifacts.
+- Assessment/review/gate steps:
+  - Prefer `output_capture: json` with `allow_parse_error: false`.
+- Workflow control flow:
+  - Branch on strict published artifacts from assessment/review steps rather than free-form execution prose logs.
 
 ## Tee semantics details
 
