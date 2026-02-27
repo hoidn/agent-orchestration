@@ -809,6 +809,10 @@ class WorkflowLoader:
                 elif freshness not in allowed_freshness:
                     self._add_error(f"{context} unsupported freshness '{freshness}'")
 
+            for guidance_key in ('description', 'format_hint', 'example'):
+                if guidance_key in entry and not isinstance(entry[guidance_key], str):
+                    self._add_error(f"{context} '{guidance_key}' must be a string")
+
     def _get_publish_source_map(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         """Index publish sources by name for cross-reference checks."""
         out: Dict[str, Dict[str, Any]] = {}

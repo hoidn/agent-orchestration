@@ -103,6 +103,9 @@
       - `producers: string[]` (optional producer step-name filter)
       - `policy: latest_successful` (MVP)
       - `freshness: any|since_last_consume` (default `any`)
+      - `description: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
+      - `format_hint: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
+      - `example: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
       - runtime preflight:
         - `kind: relpath` artifacts materialize selected value to canonical pointer file
         - `kind: scalar` artifacts skip pointer-file writes and use typed value directly

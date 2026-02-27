@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
@@ -37,10 +37,21 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def render_consumed_artifacts_block(consumed: Dict[str, Any]) -> str:
+def render_consumed_artifacts_block(
+    consumed: Dict[str, Any],
+    guidance_by_name: Optional[Dict[str, Dict[str, str]]] = None,
+) -> str:
     """Render a stable prompt block describing resolved consumed artifacts."""
     lines: List[str] = ["## Consumed Artifacts"]
+    guidance = guidance_by_name or {}
     for name in sorted(consumed.keys()):
         lines.append(f"- {name}: {consumed[name]}")
+        field_guidance = guidance.get(name, {})
+        if "description" in field_guidance:
+            lines.append(f"  description: {field_guidance['description']}")
+        if "format_hint" in field_guidance:
+            lines.append(f"  format_hint: {field_guidance['format_hint']}")
+        if "example" in field_guidance:
+            lines.append(f"  example: {field_guidance['example']}")
     lines.append("Read these files before acting.")
     return "\n".join(lines) + "\n"

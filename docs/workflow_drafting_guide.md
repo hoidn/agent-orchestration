@@ -31,6 +31,8 @@ Practical implications: if you need dynamic prompt content, generate a file in a
 
 `expected_outputs` also supports optional guidance fields (`description`, `format_hint`, `example`) that are injected into the `Output Contract` block. Use them to reduce ambiguity for agent-written artifacts. They are prompt guidance only and do not change runtime validation rules.
 
+`consumes` supports the same optional guidance fields (`description`, `format_hint`, `example`). When present, they are injected under each consumed artifact line in `## Consumed Artifacts` (subject to `prompt_consumes` filtering). They are prompt guidance only and do not change runtime consume preflight behavior.
+
 ## 3) Deterministic Handoff Patterns
 
 ### A) `expected_outputs` (v1.1+, file-per-artifact)
@@ -86,6 +88,17 @@ expected_outputs:
     description: Final implementation gate decision.
     format_hint: Uppercase token, no extra text.
     example: APPROVE
+```
+
+For `consumes`, use concise annotations when the consumed value format is easy to misread:
+
+```yaml
+consumes:
+  - artifact: execution_log
+    producers: [ExecutePlan]
+    description: Primary execution session log path.
+    format_hint: Workspace-relative path under artifacts/work.
+    example: artifacts/work/latest-execution-session-log.md
 ```
 
 ## 6) Recommended Loop Pattern

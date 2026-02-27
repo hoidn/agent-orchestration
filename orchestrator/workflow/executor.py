@@ -1790,7 +1790,28 @@ class WorkflowExecutor:
         if not consumed_values:
             return prompt
 
-        consumes_block = render_consumed_artifacts_block(consumed_values)
+        consumes_guidance: Dict[str, Dict[str, str]] = {}
+        for consume in consumes:
+            if not isinstance(consume, dict):
+                continue
+            artifact_name = consume.get('artifact')
+            if not isinstance(artifact_name, str):
+                continue
+            if artifact_name not in consumed_values:
+                continue
+
+            guidance: Dict[str, str] = {}
+            for guidance_key in ('description', 'format_hint', 'example'):
+                guidance_value = consume.get(guidance_key)
+                if isinstance(guidance_value, str):
+                    guidance[guidance_key] = guidance_value
+            if guidance:
+                consumes_guidance[artifact_name] = guidance
+
+        consumes_block = render_consumed_artifacts_block(
+            consumed_values,
+            consumes_guidance,
+        )
         position = step.get('consumes_injection_position', 'prepend')
         if position == 'append':
             if not prompt:
