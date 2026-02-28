@@ -102,6 +102,43 @@ def test_validate_expected_outputs_relpath_escape_or_under_violation(tmp_path: P
     assert "path_escape" in violation_types or "outside_under_root" in violation_types
 
 
+def test_validate_expected_outputs_relpath_basename_normalizes_under_root(tmp_path: Path):
+    """Bare filename relpaths normalize under declared under-root when present."""
+    (tmp_path / "state").mkdir()
+    (tmp_path / "artifacts" / "review").mkdir(parents=True)
+    (tmp_path / "state" / "code_review_path.txt").write_text("latest-review.md\n")
+    (tmp_path / "artifacts" / "review" / "latest-review.md").write_text("ok\n")
+
+    specs = [{
+        "name": "code_review_path",
+        "path": "state/code_review_path.txt",
+        "type": "relpath",
+        "under": "artifacts/review",
+        "must_exist_target": True,
+    }]
+
+    artifacts = validate_expected_outputs(specs, workspace=tmp_path)
+    assert artifacts == {"code_review_path": "artifacts/review/latest-review.md"}
+
+
+def test_validate_expected_outputs_relpath_nested_value_still_requires_under_root(tmp_path: Path):
+    """Only bare filenames auto-normalize; nested values still enforce under-root checks."""
+    (tmp_path / "state").mkdir()
+    (tmp_path / "state" / "code_review_path.txt").write_text("foo/latest-review.md\n")
+
+    specs = [{
+        "name": "code_review_path",
+        "path": "state/code_review_path.txt",
+        "type": "relpath",
+        "under": "artifacts/review",
+    }]
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_expected_outputs(specs, workspace=tmp_path)
+
+    assert any(v["type"] == "outside_under_root" for v in exc_info.value.violations)
+
+
 def test_validate_expected_outputs_relpath_symlink_escape_violation(tmp_path: Path):
     """Symlink targets escaping workspace are rejected by canonical path checks."""
     (tmp_path / "state").mkdir()
@@ -276,3 +313,25 @@ def test_validate_output_bundle_relpath_constraints_are_enforced(tmp_path: Path)
 
     violation_types = {v["type"] for v in exc_info.value.violations}
     assert "path_escape" in violation_types or "outside_under_root" in violation_types
+
+
+def test_validate_output_bundle_relpath_basename_normalizes_under_root(tmp_path: Path):
+    """Bundle relpath bare filenames normalize under declared under-root."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "review").mkdir(parents=True)
+    (tmp_path / "artifacts" / "review" / "latest-review.md").write_text("ok\n")
+    (tmp_path / "artifacts" / "work" / "summary.json").write_text('{"review_path":"latest-review.md"}\n')
+
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [{
+            "name": "code_review_path",
+            "json_pointer": "/review_path",
+            "type": "relpath",
+            "under": "artifacts/review",
+            "must_exist_target": True,
+        }],
+    }
+
+    artifacts = validate_output_bundle(bundle, workspace=tmp_path)
+    assert artifacts == {"code_review_path": "artifacts/review/latest-review.md"}

@@ -427,6 +427,21 @@ def _validate_relpath_value(
                 context={"under": under},
             )
         if not _is_within(target, under_root):
+            normalized_target = _normalize_basename_under_root(
+                raw_value=raw_value,
+                workspace=workspace,
+                under_root=under_root,
+                must_exist_target=bool(spec.get("must_exist_target")),
+            )
+            if normalized_target is not None:
+                target = normalized_target
+            else:
+                return None, ContractViolation(
+                    type="outside_under_root",
+                    message="relpath output points outside the declared under root",
+                    context={"value": raw_value, "under": under},
+                )
+        if not _is_within(target, under_root):
             return None, ContractViolation(
                 type="outside_under_root",
                 message="relpath output points outside the declared under root",
@@ -441,6 +456,31 @@ def _validate_relpath_value(
         )
 
     return target.relative_to(workspace).as_posix(), None
+
+
+def _normalize_basename_under_root(
+    raw_value: str,
+    workspace: Path,
+    under_root: Path,
+    must_exist_target: bool,
+) -> Path | None:
+    """Normalize bare filenames to under-root paths when contract under-root is present."""
+    value_path = Path(raw_value)
+    if len(value_path.parts) != 1:
+        return None
+
+    basename = value_path.parts[0]
+    if basename in {"", ".", ".."}:
+        return None
+
+    candidate = (under_root / basename).resolve()
+    if not _is_within(candidate, workspace):
+        return None
+    if not _is_within(candidate, under_root):
+        return None
+    if must_exist_target and not candidate.exists():
+        return None
+    return candidate
 
 
 def _resolve_workspace_path(workspace: Path, relative_path: str) -> Path | None:
