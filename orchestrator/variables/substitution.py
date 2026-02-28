@@ -6,7 +6,6 @@ Per specs/variables.md.
 
 import re
 from typing import Any, Dict, List, Optional, Set, Union
-from pathlib import Path
 
 
 class VariableSubstitutor:

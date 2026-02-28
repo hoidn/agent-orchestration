@@ -4,7 +4,7 @@ Implements AT-3, AT-13: Dynamic for-each with items_from pointer resolution.
 """
 
 import re
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, Optional
 
 
 class PointerResolver:

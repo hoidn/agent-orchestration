@@ -3,14 +3,13 @@ Workflow executor with for-each loop support.
 Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 """
 
-import copy
 import json
 import logging
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 
 from ..state import StateManager
-from ..exec.step_executor import StepExecutor, ExecutionResult
+from ..exec.step_executor import StepExecutor
 from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
 from ..providers.registry import ProviderRegistry
@@ -907,7 +906,7 @@ class WorkflowExecutor:
 
         # Resolve secrets to get their values tracked for masking
         if secrets or env:
-            secrets_context = secrets_manager.resolve_secrets(
+            secrets_manager.resolve_secrets(
                 declared_secrets=secrets,
                 step_env=env
             )
@@ -1296,7 +1295,7 @@ class WorkflowExecutor:
             else:
                 # For string commands, substitute the entire string
                 command = self.variable_substitutor.substitute(command, variables)
-        except ValueError as e:
+        except ValueError:
             # AT-63: Undefined variable detected, return error without executing
             undefined_vars = list(self.variable_substitutor.undefined_vars)
 
@@ -1313,7 +1312,7 @@ class WorkflowExecutor:
                     substituted_cmd = self.variable_substitutor.substitute(
                         step['command'], variables, track_undefined=False
                     )
-            except:
+            except Exception:
                 substituted_cmd = step['command']
 
             return {
@@ -1559,7 +1558,7 @@ class WorkflowExecutor:
 
         # Import types
         from ..providers.types import ProviderParams
-        from ..exec.output_capture import OutputCapture, CaptureResult
+        from ..exec.output_capture import OutputCapture
 
         while True:
             # Prepare provider invocation

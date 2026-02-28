@@ -2,7 +2,7 @@
 
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, Union
+from typing import Any, Dict, List, Optional, Set
 import yaml
 
 from orchestrator.exceptions import ValidationError, WorkflowValidationError

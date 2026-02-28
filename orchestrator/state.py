@@ -5,7 +5,6 @@ Manages run state persistence, atomic writes, and recovery per specs/state.md.
 
 import json
 import hashlib
-import os
 import shutil
 from datetime import datetime, timezone
 from pathlib import Path

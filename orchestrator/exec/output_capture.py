@@ -11,7 +11,7 @@ AT-52: Output tee semantics - output_file receives full stdout while limits appl
 import json
 from pathlib import Path
 from enum import Enum
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
 
 

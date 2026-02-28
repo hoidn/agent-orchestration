@@ -4,7 +4,6 @@ Implements basic command execution with output capture.
 """
 
 import subprocess
-import os
 import shlex
 import time
 from pathlib import Path
@@ -12,8 +11,8 @@ from typing import Any, Dict, List, Optional, Union
 from dataclasses import dataclass
 
 from .output_capture import OutputCapture, CaptureMode, CaptureResult
-from ..fsq.wait import WaitFor, WaitForConfig, WaitForResult
-from ..security.secrets import SecretsManager, SecretsContext
+from ..fsq.wait import WaitFor, WaitForConfig
+from ..security.secrets import SecretsManager
 
 
 @dataclass
@@ -85,7 +84,6 @@ class StepExecutor:
         Returns:
             ExecutionResult with captured output and metadata
         """
-        import time
 
         # Setup working directory
         working_dir = cwd or self.workspace

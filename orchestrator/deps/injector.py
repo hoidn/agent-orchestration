@@ -1,6 +1,5 @@
 """Dependency injection into prompts."""
 
-import os
 from pathlib import Path
 from typing import Dict, List, Optional, Any, Tuple
 from dataclasses import dataclass
@@ -244,7 +243,7 @@ class DependencyInjector:
                     shown_size += file_size
                     total_size += header_size + file_size
                     
-            except Exception as e:
+            except Exception:
                 # Skip files that can't be read
                 continue
                 

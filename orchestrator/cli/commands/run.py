@@ -4,8 +4,6 @@ import json
 import logging
 import os
 import shutil
-import sys
-import tempfile
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -120,12 +118,12 @@ def validate_clean_processed(workflow_path: Path, processed_dir: Path) -> None:
     # Additional safety: prevent cleaning root or parent directories
     if processed_abs == workspace:
         raise ValueError(
-            f"Safety check failed: cannot clean WORKSPACE root directory"
+            "Safety check failed: cannot clean WORKSPACE root directory"
         )
 
     if workspace.is_relative_to(processed_abs):
         raise ValueError(
-            f"Safety check failed: cannot clean parent directory of WORKSPACE"
+            "Safety check failed: cannot clean parent directory of WORKSPACE"
         )
 
 
@@ -150,7 +148,7 @@ def clean_processed_directory(processed_dir: Path) -> None:
         else:
             item.unlink()
 
-    logger.info(f"Successfully cleaned processed directory")
+    logger.info("Successfully cleaned processed directory")
 
 
 def validate_archive_destination(processed_dir: Path, archive_dest: Path) -> None:

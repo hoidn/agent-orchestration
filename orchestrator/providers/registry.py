@@ -6,7 +6,6 @@ Implements provider template storage, lookup, and parameter merging per specs/pr
 
 import logging
 from typing import Dict, List, Optional, Any
-from pathlib import Path
 
 from .types import ProviderTemplate, InputMode
 

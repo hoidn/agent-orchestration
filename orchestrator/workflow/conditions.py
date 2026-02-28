@@ -5,7 +5,7 @@ Implements AT-37, AT-46, AT-47: Conditional execution with when.equals/exists/no
 
 import glob
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional
 
 from ..variables.substitution import VariableSubstitutor
 
@@ -98,7 +98,7 @@ class ConditionEvaluator:
         try:
             left = self.substitutor.substitute(equals_cond['left'], variables)
             right = self.substitutor.substitute(equals_cond['right'], variables)
-        except ValueError as e:
+        except ValueError:
             # Undefined variables make the condition false
             # This is a runtime condition evaluation, not a validation error
             return False

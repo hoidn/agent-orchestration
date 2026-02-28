@@ -6,13 +6,10 @@ Per specs/queue.md:
 - AT-6: User-driven task lifecycle management (move to processed/failed)
 """
 
-import os
 import shutil
-import datetime
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 import json
-import tempfile
 
 
 class QueueManager:

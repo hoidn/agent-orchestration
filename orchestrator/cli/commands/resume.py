@@ -253,7 +253,7 @@ def resume_workflow(
 
         final_status = result.get('status', 'unknown')
         if final_status == 'completed':
-            print(f"Workflow resumed and completed successfully")
+            print("Workflow resumed and completed successfully")
             return 0
         else:
             print(f"Workflow execution ended with status: {final_status}")
