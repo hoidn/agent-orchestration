@@ -8,8 +8,8 @@ This repo defines a YAML DSL, strict runtime contracts, and filesystem-native ru
 
 ```bash
 cd /home/ollie/Documents/agent-orchestration
-python -m venv .venv
-source .venv/bin/activate
+conda create -n agent-orch python=3.11 -y
+conda activate agent-orch
 pip install -e ".[dev]"
 python -m orchestrator --help
 python -m orchestrator run workflows/examples/prompt_audit_demo.yaml --debug
