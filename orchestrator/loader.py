@@ -32,7 +32,7 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
 
@@ -119,7 +119,7 @@ class WorkflowLoader:
                 self._validate_path_safety(workflow[dir_field], dir_field)
 
         if 'artifacts' in workflow:
-            if version not in {"1.2", "1.3"}:
+            if version not in {"1.2", "1.3", "1.4"}:
                 self._add_error("artifacts requires version '1.2'")
             else:
                 self._validate_artifacts_registry(workflow['artifacts'])
@@ -227,7 +227,7 @@ class WorkflowLoader:
                 self._validate_expected_outputs(step['expected_outputs'], name)
 
             if 'output_bundle' in step:
-                if version != "1.3":
+                if version not in {"1.3", "1.4"}:
                     self._add_error(f"Step '{name}': output_bundle requires version '1.3'")
                 else:
                     self._validate_output_bundle(step['output_bundle'], name)
@@ -244,7 +244,7 @@ class WorkflowLoader:
                 self._add_error(f"Step '{name}': 'persist_artifacts_in_state' must be a boolean")
 
             if 'publishes' in step:
-                if version not in {"1.2", "1.3"}:
+                if version not in {"1.2", "1.3", "1.4"}:
                     self._add_error(f"Step '{name}': publishes requires version '1.2'")
                 else:
                     if step.get('persist_artifacts_in_state') is False:
@@ -254,13 +254,13 @@ class WorkflowLoader:
                     self._validate_publishes(step['publishes'], name)
 
             if 'consumes' in step:
-                if version not in {"1.2", "1.3"}:
+                if version not in {"1.2", "1.3", "1.4"}:
                     self._add_error(f"Step '{name}': consumes requires version '1.2'")
                 else:
                     self._validate_consumes(step['consumes'], name)
 
             if 'prompt_consumes' in step:
-                if version not in {"1.2", "1.3"}:
+                if version not in {"1.2", "1.3", "1.4"}:
                     self._add_error(f"Step '{name}': prompt_consumes requires version '1.2'")
                 else:
                     prompt_consumes = step['prompt_consumes']
@@ -290,13 +290,13 @@ class WorkflowLoader:
                                 )
 
             if 'inject_consumes' in step:
-                if version not in {"1.2", "1.3"}:
+                if version not in {"1.2", "1.3", "1.4"}:
                     self._add_error(f"Step '{name}': inject_consumes requires version '1.2'")
                 elif not isinstance(step['inject_consumes'], bool):
                     self._add_error(f"Step '{name}': 'inject_consumes' must be a boolean")
 
             if 'consumes_injection_position' in step:
-                if version not in {"1.2", "1.3"}:
+                if version not in {"1.2", "1.3", "1.4"}:
                     self._add_error(f"Step '{name}': consumes_injection_position requires version '1.2'")
                 else:
                     position = step['consumes_injection_position']
@@ -310,7 +310,7 @@ class WorkflowLoader:
                         )
 
             if 'consume_bundle' in step:
-                if version != "1.3":
+                if version not in {"1.3", "1.4"}:
                     self._add_error(f"Step '{name}': consume_bundle requires version '1.3'")
                 else:
                     self._validate_consume_bundle(step['consume_bundle'], name, step.get('consumes'))

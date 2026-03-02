@@ -157,6 +157,46 @@ def test_consume_latest_successful_prefers_fixissues_over_executeplan(tmp_path: 
     assert consumes.get("execution_log") == 2
 
 
+def test_v14_consume_relpath_is_read_only_for_pointer_file(tmp_path: Path):
+    """v1.4 consume preflight must not overwrite relpath pointer files."""
+    workflow = {
+        "version": "1.4",
+        "name": "consume-read-only-pointer",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            _publish_step("ExecutePlan", "artifacts/work/exec-plan.md"),
+            {
+                "name": "PrepareFixPointer",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "printf 'artifacts/work/c2-fix.md\\n' > state/execution_log_path.txt",
+                ],
+            },
+            {
+                "name": "FixIssues",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ExecutePlan"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "command": ["bash", "-lc", "cat state/execution_log_path.txt"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow)
+    fix_output = state["steps"]["FixIssues"]["output"].strip()
+
+    # v1.4: consume resolution should not clobber the step-owned pointer file.
+    assert fix_output == "artifacts/work/c2-fix.md"
+    consumes = persisted.get("artifact_consumes", {}).get("FixIssues", {})
+    assert consumes.get("execution_log") == 1
+
+
 def test_consume_since_last_consume_fails_when_stale(tmp_path: Path):
     """since_last_consume requires a new publication before the next consume."""
     workflow = {

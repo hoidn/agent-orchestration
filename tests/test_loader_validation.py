@@ -677,6 +677,62 @@ class TestLoaderValidation:
         assert "artifacts" in result
         assert "execution_log" in result["artifacts"]
 
+    def test_v14_artifacts_schema_accepts_in_v1_4(self):
+        """Top-level artifacts schema is accepted in v1.4."""
+        workflow = {
+            "version": "1.4",
+            "name": "artifacts-ok-v14",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                    "must_exist_target": True,
+                }
+            },
+            "steps": [{
+                "name": "step1",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        result = self.loader.load(path)
+        assert result["version"] == "1.4"
+        assert "artifacts" in result
+        assert "execution_log" in result["artifacts"]
+
+    def test_v14_consumes_controls_accept_in_v1_4(self):
+        """v1.4 accepts consumes and consume prompt controls."""
+        workflow = {
+            "version": "1.4",
+            "name": "v14-consumes-controls",
+            "artifacts": {
+                "execution_log": {
+                    "pointer": "state/execution_log_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                }
+            },
+            "steps": [{
+                "name": "Review",
+                "command": ["echo", "ok"],
+                "consumes": [{
+                    "artifact": "execution_log",
+                    "policy": "latest_successful",
+                    "freshness": "any",
+                }],
+                "inject_consumes": True,
+                "consumes_injection_position": "append",
+                "prompt_consumes": ["execution_log"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        result = self.loader.load(path)
+        assert result["version"] == "1.4"
+        assert result["steps"][0]["consumes"][0]["artifact"] == "execution_log"
+
     def test_v12_publishes_rejected_in_v1_1_1(self):
         """Step publishes are version-gated to v1.2+."""
         workflow = {
@@ -1343,6 +1399,31 @@ class TestLoaderValidation:
         assert any("output_bundle is mutually exclusive with expected_outputs" in str(err.message)
                    for err in exc_info.value.errors)
 
+    def test_v14_output_bundle_accepts_in_v1_4(self):
+        """output_bundle remains valid in v1.4."""
+        workflow = {
+            "version": "1.4",
+            "name": "v14-output-bundle",
+            "steps": [{
+                "name": "Assess",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "artifacts/work/summary.json",
+                    "fields": [{
+                        "name": "status",
+                        "json_pointer": "/status",
+                        "type": "enum",
+                        "allowed": ["COMPLETE", "INCOMPLETE", "BLOCKED"],
+                    }],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        result = self.loader.load(path)
+        assert result["version"] == "1.4"
+        assert result["steps"][0]["output_bundle"]["path"] == "artifacts/work/summary.json"
+
     def test_v13_output_bundle_requires_non_empty_fields(self):
         """output_bundle.fields must be a non-empty list."""
         workflow = {
@@ -1447,6 +1528,36 @@ class TestLoaderValidation:
         assert exc_info.value.exit_code == 2
         assert any("consume_bundle requires consumes" in str(err.message)
                    for err in exc_info.value.errors)
+
+    def test_v14_consume_bundle_accepts_in_v1_4(self):
+        """consume_bundle remains valid in v1.4."""
+        workflow = {
+            "version": "1.4",
+            "name": "v14-consume-bundle",
+            "artifacts": {
+                "plan": {
+                    "pointer": "state/plan_path.txt",
+                    "type": "relpath",
+                    "under": "docs/plans",
+                },
+            },
+            "steps": [{
+                "name": "Review",
+                "command": ["echo", "ok"],
+                "consumes": [{
+                    "artifact": "plan",
+                    "policy": "latest_successful",
+                }],
+                "consume_bundle": {
+                    "path": "state/consumes/review.json",
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        result = self.loader.load(path)
+        assert result["version"] == "1.4"
+        assert result["steps"][0]["consume_bundle"]["path"] == "state/consumes/review.json"
 
     def test_v13_consume_bundle_include_must_be_subset_of_consumes(self):
         """consume_bundle.include must only contain artifacts declared in consumes."""

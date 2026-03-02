@@ -621,6 +621,8 @@ class WorkflowExecutor:
             artifact_consumes['__global__'] = global_consumes
         step_resolved_consumes: Dict[str, Any] = {}
         resolved_consumes[step_name] = step_resolved_consumes
+        workflow_version = self.workflow.get("version")
+        materialize_relpath_consume_pointer = workflow_version in {"1.2", "1.3"}
 
         for consume in consumes:
             if not isinstance(consume, dict):
@@ -718,9 +720,11 @@ class WorkflowExecutor:
                             "reason": "invalid_selected_value",
                         },
                     )
-                pointer_path = self.workspace / pointer
-                pointer_path.parent.mkdir(parents=True, exist_ok=True)
-                pointer_path.write_text(f"{selected_value}\n")
+                # v1.4+: consume preflight is read-only and must not mutate pointer files.
+                if materialize_relpath_consume_pointer:
+                    pointer_path = self.workspace / pointer
+                    pointer_path.parent.mkdir(parents=True, exist_ok=True)
+                    pointer_path.write_text(f"{selected_value}\n")
             elif artifact_kind == 'scalar':
                 valid_scalar_value = False
                 if artifact_type == 'integer':

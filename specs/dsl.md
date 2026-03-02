@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", or "1.3"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", or "1.4"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -107,7 +107,9 @@
       - `format_hint: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
       - `example: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
       - runtime preflight:
-        - `kind: relpath` artifacts materialize selected value to canonical pointer file
+        - `kind: relpath` artifacts:
+          - `version: "1.2"` / `"1.3"`: materialize selected value to canonical pointer file
+          - `version: "1.4"`: read-only consume resolution (no pointer-file mutation)
         - `kind: scalar` artifacts skip pointer-file writes and use typed value directly
         - fail with `contract_violation` (exit 2) when missing/stale/type-invalid
   - Control:
