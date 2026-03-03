@@ -4,6 +4,7 @@ import json
 import pytest
 import tempfile
 import shutil
+import time
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -299,3 +300,27 @@ steps:
         assert step["exit_code"] == 2
         assert step["error"]["type"] == "ValidationError"
         assert step["error"]["context"]["missing_files"] == ["config.yaml"]
+
+    def test_current_step_lifecycle_with_heartbeat(self, temp_workspace, workflow_file):
+        """Current step should be persisted while running and cleared on completion."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.start_step("LongStep", 3, "command")
+        loaded = manager.load()
+        assert loaded.current_step is not None
+        assert loaded.current_step["name"] == "LongStep"
+        assert loaded.current_step["index"] == 3
+        assert loaded.current_step["type"] == "command"
+        assert loaded.current_step["status"] == "running"
+        first_heartbeat = loaded.current_step["last_heartbeat_at"]
+
+        time.sleep(0.01)
+        manager.heartbeat_step("LongStep")
+        loaded = manager.load()
+        assert loaded.current_step is not None
+        assert loaded.current_step["last_heartbeat_at"] != first_heartbeat
+
+        manager.update_step("LongStep", StepResult(status="completed", exit_code=0))
+        loaded = manager.load()
+        assert loaded.current_step is None

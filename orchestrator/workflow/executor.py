@@ -5,6 +5,8 @@ Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 
 import json
 import logging
+import threading
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -49,6 +51,7 @@ class WorkflowExecutor:
         max_retries: int = 0,
         retry_delay_ms: int = 1000,
         observability: Optional[Dict[str, Any]] = None,
+        step_heartbeat_interval_sec: float = 30.0,
     ):
         """
         Initialize workflow executor.
@@ -94,6 +97,7 @@ class WorkflowExecutor:
         # Retry configuration
         self.max_retries = max_retries
         self.retry_delay_ms = retry_delay_ms
+        self.step_heartbeat_interval_sec = step_heartbeat_interval_sec
 
     def execute(self, run_id: Optional[str] = None, on_error: str = 'stop',
                 max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None,
@@ -263,78 +267,85 @@ class WorkflowExecutor:
                     step_index += 1
                 continue
 
+            self.state_manager.start_step(
+                step_name,
+                step_index,
+                self._resolve_step_type(step),
+            )
+
             # Execute based on step type
-            if 'for_each' in step:
-                state = self._execute_for_each(step, state, resume=resume)
-                # Persist the for_each summary array to state manager
-                # The for_each method already updates individual iteration results,
-                # but we also need to persist the summary array result
-                if step_name in state['steps']:
-                    loop_results = state['steps'][step_name]
-                    # Update state manager with the loop results array
-                    # This ensures the array is persisted to disk and tests can access
-                    # state['steps']['ProcessFiles'] as expected
-                    if isinstance(loop_results, list):
-                        self.state_manager.update_loop_results(step_name, loop_results)
-                self._emit_step_summary(
-                    step_name,
-                    step,
-                    state.get('steps', {}).get(step_name, {'status': 'completed'}),
-                )
-            elif 'wait_for' in step:
-                state = self._execute_wait_for(step, state)
-                self._emit_step_summary(step_name, step, state.get('steps', {}).get(step_name, {}))
-            elif 'provider' in step:
-                result = self._execute_provider(step, state)
-                publish_error = self._record_published_artifacts(step, step_name, result, state)
-                if publish_error is not None:
-                    result = publish_error
-                # Store result in state
-                if 'steps' not in state:
-                    state['steps'] = {}
-                state['steps'][step_name] = result
+            with self._step_heartbeat(step_name):
+                if 'for_each' in step:
+                    state = self._execute_for_each(step, state, resume=resume)
+                    # Persist the for_each summary array to state manager
+                    # The for_each method already updates individual iteration results,
+                    # but we also need to persist the summary array result
+                    if step_name in state['steps']:
+                        loop_results = state['steps'][step_name]
+                        # Update state manager with the loop results array
+                        # This ensures the array is persisted to disk and tests can access
+                        # state['steps']['ProcessFiles'] as expected
+                        if isinstance(loop_results, list):
+                            self.state_manager.update_loop_results(step_name, loop_results)
+                    self._emit_step_summary(
+                        step_name,
+                        step,
+                        state.get('steps', {}).get(step_name, {'status': 'completed'}),
+                    )
+                elif 'wait_for' in step:
+                    state = self._execute_wait_for(step, state)
+                    self._emit_step_summary(step_name, step, state.get('steps', {}).get(step_name, {}))
+                elif 'provider' in step:
+                    result = self._execute_provider(step, state)
+                    publish_error = self._record_published_artifacts(step, step_name, result, state)
+                    if publish_error is not None:
+                        result = publish_error
+                    # Store result in state
+                    if 'steps' not in state:
+                        state['steps'] = {}
+                    state['steps'][step_name] = result
 
-                # Update state manager (persist to disk) - AT-72
-                from ..state import StepResult
-                step_result = StepResult(
-                    status='completed' if result.get('exit_code') == 0 else 'failed',
-                    exit_code=result.get('exit_code', 0),
-                    duration_ms=result.get('duration_ms', 0),
-                    output=result.get('output'),
-                    lines=result.get('lines'),
-                    json=result.get('json'),
-                    error=result.get('error'),
-                    truncated=result.get('truncated', False),
-                    debug=result.get('debug'),  # Include debug fields for injection metadata
-                    artifacts=result.get('artifacts')
-                )
-                self.state_manager.update_step(step_name, step_result)
-                self._emit_step_summary(step_name, step, result)
-            elif 'command' in step:
-                result = self._execute_command(step, state)
-                publish_error = self._record_published_artifacts(step, step_name, result, state)
-                if publish_error is not None:
-                    result = publish_error
-                # Store result in state
-                if 'steps' not in state:
-                    state['steps'] = {}
-                state['steps'][step_name] = result
+                    # Update state manager (persist to disk) - AT-72
+                    from ..state import StepResult
+                    step_result = StepResult(
+                        status='completed' if result.get('exit_code') == 0 else 'failed',
+                        exit_code=result.get('exit_code', 0),
+                        duration_ms=result.get('duration_ms', 0),
+                        output=result.get('output'),
+                        lines=result.get('lines'),
+                        json=result.get('json'),
+                        error=result.get('error'),
+                        truncated=result.get('truncated', False),
+                        debug=result.get('debug'),  # Include debug fields for injection metadata
+                        artifacts=result.get('artifacts')
+                    )
+                    self.state_manager.update_step(step_name, step_result)
+                    self._emit_step_summary(step_name, step, result)
+                elif 'command' in step:
+                    result = self._execute_command(step, state)
+                    publish_error = self._record_published_artifacts(step, step_name, result, state)
+                    if publish_error is not None:
+                        result = publish_error
+                    # Store result in state
+                    if 'steps' not in state:
+                        state['steps'] = {}
+                    state['steps'][step_name] = result
 
-                # Update state manager (persist to disk)
-                from ..state import StepResult
-                step_result = StepResult(
-                    status='completed' if result.get('exit_code') == 0 else 'failed',
-                    exit_code=result.get('exit_code', 0),
-                    duration_ms=result.get('duration_ms', 0),
-                    output=result.get('output'),
-                    lines=result.get('lines'),
-                    json=result.get('json'),
-                    error=result.get('error'),
-                    truncated=result.get('truncated', False),
-                    artifacts=result.get('artifacts')
-                )
-                self.state_manager.update_step(step_name, step_result)
-                self._emit_step_summary(step_name, step, result)
+                    # Update state manager (persist to disk)
+                    from ..state import StepResult
+                    step_result = StepResult(
+                        status='completed' if result.get('exit_code') == 0 else 'failed',
+                        exit_code=result.get('exit_code', 0),
+                        duration_ms=result.get('duration_ms', 0),
+                        output=result.get('output'),
+                        lines=result.get('lines'),
+                        json=result.get('json'),
+                        error=result.get('error'),
+                        truncated=result.get('truncated', False),
+                        artifacts=result.get('artifacts')
+                    )
+                    self.state_manager.update_step(step_name, step_result)
+                    self._emit_step_summary(step_name, step, result)
 
             # Handle control flow after step execution (AT-56, AT-57, AT-58)
             next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
@@ -356,6 +367,52 @@ class WorkflowExecutor:
         self.state_manager.update_status('completed')
         # Return the updated state
         return self.state_manager.load().to_dict()
+
+    def _resolve_step_type(self, step: Dict[str, Any]) -> str:
+        """Return canonical step type label for runtime lifecycle state."""
+        if 'provider' in step:
+            return 'provider'
+        if 'command' in step:
+            return 'command'
+        if 'wait_for' in step:
+            return 'wait_for'
+        if 'for_each' in step:
+            return 'for_each'
+        return 'unknown'
+
+    @contextmanager
+    def _step_heartbeat(self, step_name: str):
+        """Emit periodic state heartbeat updates while a step is executing."""
+        interval_sec = float(self.step_heartbeat_interval_sec)
+        if interval_sec <= 0:
+            try:
+                yield
+            finally:
+                self.state_manager.clear_current_step(step_name)
+            return
+
+        stop_event = threading.Event()
+
+        def _heartbeat_loop():
+            while not stop_event.wait(interval_sec):
+                try:
+                    self.state_manager.heartbeat_step(step_name)
+                except Exception as exc:
+                    logger.debug("Step heartbeat update failed for %s: %s", step_name, exc)
+
+        heartbeat_thread = threading.Thread(
+            target=_heartbeat_loop,
+            name=f"step-heartbeat-{step_name}",
+            daemon=True,
+        )
+        heartbeat_thread.start()
+
+        try:
+            yield
+        finally:
+            stop_event.set()
+            heartbeat_thread.join(timeout=1.0)
+            self.state_manager.clear_current_step(step_name)
 
     def _create_summary_observer(self) -> Optional[SummaryObserver]:
         """Create summary observer from runtime observability config."""

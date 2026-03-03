@@ -6,6 +6,7 @@ Manages run state persistence, atomic writes, and recovery per specs/state.md.
 import json
 import hashlib
 import shutil
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Literal
@@ -75,6 +76,7 @@ class RunState:
     run_root: Optional[str] = None  # Path to .orchestrate/runs/<run_id>
     context: Dict[str, Any] = field(default_factory=dict)
     observability: Optional[Dict[str, Any]] = None
+    current_step: Optional[Dict[str, Any]] = None
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
     artifact_versions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
@@ -102,6 +104,8 @@ class RunState:
             result["run_root"] = self.run_root
         if self.observability is not None:
             result["observability"] = self.observability
+        if self.current_step is not None:
+            result["current_step"] = self.current_step
 
         # Convert step results - type assert for type checker
         steps_dict: Dict[str, Any] = result["steps"]
@@ -141,6 +145,7 @@ class RunState:
             run_root=data.get("run_root"),  # Optional, may not be present in older states
             context=data.get("context", {}),
             observability=data.get("observability"),
+            current_step=data.get("current_step"),
             steps=data.get("steps", {}),
             for_each=for_each,
             artifact_versions=data.get("artifact_versions", {}),
@@ -184,6 +189,7 @@ class StateManager:
 
         # Current state (loaded or new)
         self.state: Optional[RunState] = None
+        self._lock = threading.RLock()
 
     def _generate_run_id(self) -> str:
         """Generate run ID in format: YYYYMMDDTHHMMSSZ-<6char>."""
@@ -214,36 +220,37 @@ class StateManager:
         Returns:
             Initialized RunState
         """
-        # Create run directory structure
-        self.run_root.mkdir(parents=True, exist_ok=True)
-        self.logs_dir.mkdir(exist_ok=True)
+        with self._lock:
+            # Create run directory structure
+            self.run_root.mkdir(parents=True, exist_ok=True)
+            self.logs_dir.mkdir(exist_ok=True)
 
-        # Calculate workflow checksum
-        workflow_path = self.workspace / workflow_file
-        if not workflow_path.exists():
-            raise FileNotFoundError(f"Workflow file not found: {workflow_file}")
+            # Calculate workflow checksum
+            workflow_path = self.workspace / workflow_file
+            if not workflow_path.exists():
+                raise FileNotFoundError(f"Workflow file not found: {workflow_file}")
 
-        workflow_checksum = self._calculate_checksum(workflow_path)
+            workflow_checksum = self._calculate_checksum(workflow_path)
 
-        # Create initial state
-        now = datetime.now(timezone.utc).isoformat()
-        self.state = RunState(
-            schema_version=self.SCHEMA_VERSION,
-            run_id=self.run_id,
-            workflow_file=workflow_file,
-            workflow_checksum=workflow_checksum,
-            started_at=now,
-            updated_at=now,
-            status="running",
-            run_root=str(self.run_root),  # Store run_root path
-            context=context or {},
-            observability=observability,
-        )
+            # Create initial state
+            now = datetime.now(timezone.utc).isoformat()
+            self.state = RunState(
+                schema_version=self.SCHEMA_VERSION,
+                run_id=self.run_id,
+                workflow_file=workflow_file,
+                workflow_checksum=workflow_checksum,
+                started_at=now,
+                updated_at=now,
+                status="running",
+                run_root=str(self.run_root),  # Store run_root path
+                context=context or {},
+                observability=observability,
+            )
 
-        # Write initial state
-        self._write_state()
+            # Write initial state
+            self._write_state()
 
-        return self.state
+            return self.state
 
     def load(self) -> RunState:
         """Load existing state from disk.
@@ -255,30 +262,32 @@ class StateManager:
             FileNotFoundError: If state file doesn't exist
             json.JSONDecodeError: If state file is corrupted
         """
-        if not self.state_file.exists():
-            raise FileNotFoundError(f"State file not found: {self.state_file}")
+        with self._lock:
+            if not self.state_file.exists():
+                raise FileNotFoundError(f"State file not found: {self.state_file}")
 
-        with open(self.state_file, 'r') as f:
-            data = json.load(f)
+            with open(self.state_file, 'r') as f:
+                data = json.load(f)
 
-        self.state = RunState.from_dict(data)
-        return self.state
+            self.state = RunState.from_dict(data)
+            return self.state
 
     def _write_state(self):
         """Write state atomically (temp file + rename)."""
-        if not self.state:
-            raise RuntimeError("No state to write")
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("No state to write")
 
-        # Update timestamp
-        self.state.updated_at = datetime.now(timezone.utc).isoformat()
+            # Update timestamp
+            self.state.updated_at = datetime.now(timezone.utc).isoformat()
 
-        # Write to temp file
-        temp_file = self.state_file.with_suffix('.tmp')
-        with open(temp_file, 'w') as f:
-            json.dump(self.state.to_dict(), f, indent=2)
+            # Write to temp file
+            temp_file = self.state_file.with_suffix('.tmp')
+            with open(temp_file, 'w') as f:
+                json.dump(self.state.to_dict(), f, indent=2)
 
-        # Atomic rename
-        temp_file.replace(self.state_file)
+            # Atomic rename
+            temp_file.replace(self.state_file)
 
     def backup_state(self, step_name: str):
         """Create a backup of current state before step execution.
@@ -315,11 +324,17 @@ class StateManager:
             step_name: Name of the step
             result: Step execution result
         """
-        if not self.state:
-            raise RuntimeError("State not initialized")
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
 
-        self.state.steps[step_name] = result
-        self._write_state()
+            self.state.steps[step_name] = result
+            if (
+                self.state.current_step is not None
+                and self.state.current_step.get("name") == step_name
+            ):
+                self.state.current_step = None
+            self._write_state()
 
     def update_loop_step(self, loop_name: str, index: int, step_name: str, result: StepResult):
         """Update step result for loop iteration.
@@ -332,13 +347,14 @@ class StateManager:
             step_name: Name of the step within the loop
             result: Step execution result
         """
-        if not self.state:
-            raise RuntimeError("State not initialized")
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
 
-        # Format: steps.<LoopName>[i].<StepName>
-        key = f"{loop_name}[{index}].{step_name}"
-        self.state.steps[key] = result
-        self._write_state()
+            # Format: steps.<LoopName>[i].<StepName>
+            key = f"{loop_name}[{index}].{step_name}"
+            self.state.steps[key] = result
+            self._write_state()
 
     def update_loop_results(self, loop_name: str, loop_results: List[Dict[str, Any]]):
         """Update for_each loop results array.
@@ -349,12 +365,13 @@ class StateManager:
             loop_name: Name of the for_each loop
             loop_results: Array of iteration result dictionaries
         """
-        if not self.state:
-            raise RuntimeError("State not initialized")
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
 
-        # Store the loop results array directly
-        self.state.steps[loop_name] = loop_results
-        self._write_state()
+            # Store the loop results array directly
+            self.state.steps[loop_name] = loop_results
+            self._write_state()
 
     def update_for_each(self, loop_name: str, state: ForEachState):
         """Update for_each loop state.
@@ -363,11 +380,12 @@ class StateManager:
             loop_name: Name of the for_each loop
             state: Current loop state
         """
-        if not self.state:
-            raise RuntimeError("State not initialized")
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
 
-        self.state.for_each[loop_name] = state
-        self._write_state()
+            self.state.for_each[loop_name] = state
+            self._write_state()
 
     def update_dataflow_state(
         self,
@@ -375,12 +393,13 @@ class StateManager:
         artifact_consumes: Dict[str, Dict[str, int]],
     ):
         """Update v1.2 artifact dataflow state."""
-        if not self.state:
-            raise RuntimeError("State not initialized")
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
 
-        self.state.artifact_versions = artifact_versions
-        self.state.artifact_consumes = artifact_consumes
-        self._write_state()
+            self.state.artifact_versions = artifact_versions
+            self.state.artifact_consumes = artifact_consumes
+            self._write_state()
 
     def update_status(self, status: StateStatus):
         """Update overall run status.
@@ -388,11 +407,53 @@ class StateManager:
         Args:
             status: New run status
         """
-        if not self.state:
-            raise RuntimeError("State not initialized")
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
 
-        self.state.status = status
-        self._write_state()
+            self.state.status = status
+            self._write_state()
+
+    def start_step(self, step_name: str, step_index: int, step_type: str):
+        """Persist currently running step metadata."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            now = datetime.now(timezone.utc).isoformat()
+            self.state.current_step = {
+                "name": step_name,
+                "index": step_index,
+                "type": step_type,
+                "status": "running",
+                "started_at": now,
+                "last_heartbeat_at": now,
+            }
+            self._write_state()
+
+    def heartbeat_step(self, step_name: Optional[str] = None):
+        """Refresh heartbeat timestamp for current running step."""
+        with self._lock:
+            if not self.state or self.state.current_step is None:
+                return
+
+            if step_name and self.state.current_step.get("name") != step_name:
+                return
+
+            self.state.current_step["last_heartbeat_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_state()
+
+    def clear_current_step(self, step_name: Optional[str] = None):
+        """Clear current running step metadata."""
+        with self._lock:
+            if not self.state or self.state.current_step is None:
+                return
+
+            if step_name and self.state.current_step.get("name") != step_name:
+                return
+
+            self.state.current_step = None
+            self._write_state()
 
     def get_step_result(self, step_name: str) -> Optional[StepResult]:
         """Get result of a specific step.
@@ -403,14 +464,15 @@ class StateManager:
         Returns:
             Step result or None if not found
         """
-        if not self.state:
-            return None
+        with self._lock:
+            if not self.state:
+                return None
 
-        result = self.state.steps.get(step_name)
-        if isinstance(result, dict):
-            # Convert dict back to StepResult if needed
-            return StepResult(**result)
-        return result
+            result = self.state.steps.get(step_name)
+            if isinstance(result, dict):
+                # Convert dict back to StepResult if needed
+                return StepResult(**result)
+            return result
 
     def validate_checksum(self, workflow_file: str) -> bool:
         """Validate workflow checksum matches state.
