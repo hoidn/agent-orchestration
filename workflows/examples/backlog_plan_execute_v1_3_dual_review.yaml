@@ -1,0 +1,245 @@
+version: "1.3"
+name: "backlog-plan-execute-v1-3-dual-review"
+context:
+  max_review_cycles: "2"
+
+steps:
+  - name: InitializeReviewCycle
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && printf '0\n' > state/review_cycle.txt"
+    expected_outputs:
+      - name: review_cycle
+        path: state/review_cycle.txt
+        type: integer
+
+  - name: ExecutePlan
+    provider: codex
+    output_capture: text
+    expected_outputs:
+      - name: execution_log_path
+        path: state/execution_log_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_log
+        from: execution_log_path
+
+  - name: RunChecks
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p state
+        if [ -f state/fixed.marker ]; then
+          printf '0\n' > state/failed_count.txt
+        else
+          printf '1\n' > state/failed_count.txt
+        fi
+    expected_outputs:
+      - name: failed_count
+        path: state/failed_count.txt
+        type: integer
+    publishes:
+      - artifact: failed_count
+        from: failed_count
+
+  - name: AssessExecutionCompletion
+    provider: codex
+    output_capture: json
+    allow_parse_error: false
+    consumes:
+      - artifact: execution_log
+        producers: ["ExecutePlan", "FixIssues"]
+        policy: latest_successful
+        freshness: any
+      - artifact: failed_count
+        producers: ["RunChecks"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["execution_log"]
+    consume_bundle:
+      path: state/consumes/assess_execution_completion.json
+      include: ["execution_log", "failed_count"]
+    output_bundle:
+      path: state/execution_review_output.json
+      fields:
+        - name: execution_review_decision
+          json_pointer: /review_decision
+          type: enum
+          allowed: ["APPROVE", "REVISE"]
+    publishes:
+      - artifact: execution_review_decision
+        from: execution_review_decision
+
+  - name: ExecutionReviewGate
+    consumes:
+      - artifact: execution_review_decision
+        producers: ["AssessExecutionCompletion"]
+        policy: latest_successful
+        freshness: any
+    consume_bundle:
+      path: state/consumes/execution_review_gate.json
+      include: ["execution_review_decision"]
+    command:
+      - bash
+      - -lc
+      - |
+        python - <<'PY'
+        import json, sys
+        with open("state/consumes/execution_review_gate.json", "r", encoding="utf-8") as fh:
+            bundle = json.load(fh)
+        sys.exit(0 if bundle.get("execution_review_decision") == "APPROVE" else 1)
+        PY
+    on:
+      success:
+        goto: AssessPlanLevelIssues
+      failure:
+        goto: FixIssues
+
+  - name: FixIssues
+    provider: codex
+    output_capture: text
+    expected_outputs:
+      - name: execution_log_path
+        path: state/execution_log_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_log
+        from: execution_log_path
+    on:
+      success:
+        goto: IncrementReviewCycle
+
+  - name: IncrementReviewCycle
+    command:
+      - bash
+      - -lc
+      - 'c=$(cat state/review_cycle.txt); printf "%s\n" "$((c+1))" > state/review_cycle.txt'
+    expected_outputs:
+      - name: review_cycle
+        path: state/review_cycle.txt
+        type: integer
+
+  - name: ReviewCycleGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/review_cycle.txt)" -lt "${context.max_review_cycles}"'
+    on:
+      success:
+        goto: RunChecks
+      failure:
+        goto: FinalizeExecutionMaxCycles
+
+  - name: AssessPlanLevelIssues
+    provider: codex
+    output_capture: json
+    allow_parse_error: false
+    consumes:
+      - artifact: execution_log
+        producers: ["ExecutePlan", "FixIssues"]
+        policy: latest_successful
+        freshness: any
+      - artifact: execution_review_decision
+        producers: ["AssessExecutionCompletion"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["execution_log"]
+    consume_bundle:
+      path: state/consumes/assess_plan_level_issues.json
+      include: ["execution_log", "execution_review_decision"]
+    output_bundle:
+      path: state/plan_review_output.json
+      fields:
+        - name: plan_review_decision
+          json_pointer: /plan_review_decision
+          type: enum
+          allowed: ["CLEAR", "PLAN_REVISE"]
+    publishes:
+      - artifact: plan_review_decision
+        from: plan_review_decision
+
+  - name: PlanReviewGate
+    consumes:
+      - artifact: plan_review_decision
+        producers: ["AssessPlanLevelIssues"]
+        policy: latest_successful
+        freshness: any
+    consume_bundle:
+      path: state/consumes/plan_review_gate.json
+      include: ["plan_review_decision"]
+    command:
+      - bash
+      - -lc
+      - |
+        python - <<'PY'
+        import json, sys
+        with open("state/consumes/plan_review_gate.json", "r", encoding="utf-8") as fh:
+            bundle = json.load(fh)
+        sys.exit(0 if bundle.get("plan_review_decision") == "CLEAR" else 1)
+        PY
+    on:
+      success:
+        goto: FinalizeApproved
+      failure:
+        goto: FinalizePlanRevisionRequired
+
+  - name: FinalizeApproved
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && printf 'APPROVE\n' > state/workflow_outcome.txt"
+    expected_outputs:
+      - name: workflow_outcome
+        path: state/workflow_outcome.txt
+        type: enum
+        allowed: ["APPROVE", "PLAN_REVISE_REQUIRED", "EXECUTION_MAX_CYCLES"]
+
+  - name: FinalizePlanRevisionRequired
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && printf 'PLAN_REVISE_REQUIRED\n' > state/workflow_outcome.txt"
+    expected_outputs:
+      - name: workflow_outcome
+        path: state/workflow_outcome.txt
+        type: enum
+        allowed: ["APPROVE", "PLAN_REVISE_REQUIRED", "EXECUTION_MAX_CYCLES"]
+
+  - name: FinalizeExecutionMaxCycles
+    command:
+      - bash
+      - -lc
+      - "mkdir -p state && printf 'EXECUTION_MAX_CYCLES\n' > state/workflow_outcome.txt"
+    expected_outputs:
+      - name: workflow_outcome
+        path: state/workflow_outcome.txt
+        type: enum
+        allowed: ["APPROVE", "PLAN_REVISE_REQUIRED", "EXECUTION_MAX_CYCLES"]
+
+artifacts:
+  execution_log:
+    pointer: state/execution_log_path.txt
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+  failed_count:
+    kind: scalar
+    type: integer
+  execution_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["CLEAR", "PLAN_REVISE"]
+  workflow_outcome:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "PLAN_REVISE_REQUIRED", "EXECUTION_MAX_CYCLES"]

@@ -23,8 +23,10 @@ class _FakeProviderExecutor:
     def __init__(self, delay_sec=0.0, result=None):
         self.delay_sec = delay_sec
         self.result = result or _FakeProviderResult()
+        self.last_prepare_kwargs = None
 
     def prepare_invocation(self, *args, **kwargs):
+        self.last_prepare_kwargs = kwargs
         return object(), None
 
     def execute(self, invocation):
@@ -189,3 +191,55 @@ steps:
     assert final_state["artifact_versions"] == {}
     assert final_state["artifact_consumes"] == {}
     assert _wait_for(state_manager.run_root / "summaries" / "StepA.error.json")
+
+
+def test_summary_prompt_requests_detailed_structured_output(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-prompt-shape"
+    fake_executor = _FakeProviderExecutor()
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=fake_executor,
+        provider_name="summary_provider",
+        mode="sync",
+        timeout_sec=30,
+        best_effort=True,
+        max_input_chars=200,
+    )
+
+    observer.emit(
+        "ProviderStep",
+        {
+            "run_id": "run-prompt-shape",
+            "workflow": "demo",
+            "step": {
+                "name": "ProviderStep",
+                "type": "provider",
+                "input": {"provider": "codex", "prompt": "Do work"},
+                "output": {
+                    "status": "completed",
+                    "exit_code": 0,
+                    "duration_ms": 42,
+                    "artifacts": {
+                        "execution_session_log_path": "artifacts/work/latest-execution-session-log.md"
+                    },
+                },
+            },
+            "padding": "x" * 300,
+        },
+    )
+
+    assert fake_executor.last_prepare_kwargs is not None
+    prompt = fake_executor.last_prepare_kwargs["prompt_content"]
+    assert "post-mortem for one workflow step" in prompt
+    assert "Do not use markdown tables." in prompt
+    assert "Distinguish facts from inferences." in prompt
+    assert "### Outcome and Plan Conformance" in prompt
+    assert "### Mistakes and Failure Modes" in prompt
+    assert "### Recovery and Adaptation" in prompt
+    assert "### Stalls and Blockers" in prompt
+    assert "### Evidence and Confidence" in prompt
+    assert "### Recommended Next Actions" in prompt
+    assert "Assess whether the step conformed to declared intent/plan" in prompt
+    assert "Explain recovery attempts and whether they actually resolved issues." in prompt
+    assert "Snapshot truncated: yes" in prompt
+    assert "```json" in prompt

@@ -39,7 +39,9 @@ class SummaryObserver:
         """Emit summary generation for one step."""
         safe = self._safe_name(step_name)
         snapshot_path = self.summaries_dir / f"{safe}.snapshot.json"
-        snapshot_path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        snapshot_path.write_text(
+            json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+        )
 
         prompt = self._build_prompt(snapshot)
 
@@ -76,7 +78,8 @@ class SummaryObserver:
                     {
                         "stage": "prepare_invocation",
                         "exit_code": 2,
-                        "error": prepare_error or {"message": "failed to create summary invocation"},
+                        "error": prepare_error
+                        or {"message": "failed to create summary invocation"},
                     },
                     indent=2,
                     sort_keys=True,
@@ -99,7 +102,9 @@ class SummaryObserver:
                 if isinstance(getattr(exec_result, "stderr", b""), (bytes, bytearray))
                 else str(getattr(exec_result, "stderr", "")),
             }
-            error_path.write_text(json.dumps(error_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+            error_path.write_text(
+                json.dumps(error_payload, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+            )
             return False
 
         stdout = getattr(exec_result, "stdout", b"")
@@ -108,17 +113,46 @@ class SummaryObserver:
         else:
             summary_text = str(stdout)
 
-        summary_path.write_text(summary_text if summary_text.endswith("\n") else summary_text + "\n", encoding="utf-8")
+        summary_path.write_text(
+            summary_text if summary_text.endswith("\n") else summary_text + "\n", encoding="utf-8"
+        )
         return True
 
     def _build_prompt(self, snapshot: Dict[str, Any]) -> str:
-        body = json.dumps(snapshot, indent=2, sort_keys=True)
-        if len(body) > self.max_input_chars:
-            body = body[: self.max_input_chars]
+        full_body = json.dumps(snapshot, indent=2, sort_keys=True)
+        is_truncated = len(full_body) > self.max_input_chars
+        body = full_body[: self.max_input_chars] if is_truncated else full_body
         return (
-            "Summarize the following workflow step in concise, factual markdown. "
-            "Include what was attempted, key outputs, and current status.\n\n"
-            f"{body}"
+            "You are writing a post-mortem for one workflow step.\n"
+            "Primary goal: evaluate execution quality and reliability, not just restate outputs.\n\n"
+            "Style requirements:\n"
+            "- Prefer narrative analysis over checklist/template output.\n"
+            "- Do not use markdown tables.\n"
+            "- Avoid generic filler language.\n"
+            "- Distinguish facts from inferences.\n"
+            "- If uncertain, state uncertainty and alternative hypotheses.\n\n"
+            "Use this markdown structure (headings required):\n"
+            "## <Step Name> — Postmortem\n"
+            "### Outcome and Plan Conformance\n"
+            "### Mistakes and Failure Modes\n"
+            "### Recovery and Adaptation\n"
+            "### Stalls and Blockers\n"
+            "### Evidence and Confidence\n"
+            "### Recommended Next Actions\n\n"
+            "Content requirements:\n"
+            "- Assess whether the step conformed to declared intent/plan visible in prompt, consumes, and outputs.\n"
+            "- Identify concrete mistakes (wrong scope, stale artifacts, incomplete execution, invalid assumptions, etc.).\n"
+            "- Explain recovery attempts and whether they actually resolved issues.\n"
+            "- State where the step got stuck and why.\n"
+            "- Cite concrete values when present (status, exit_code, duration_ms, paths, artifacts, errors, commands/prompts).\n"
+            "- Call out contradictions and missing evidence explicitly.\n"
+            "- If data is missing, write `not present in snapshot` rather than guessing.\n"
+            "- Do not invent execution results.\n"
+            f"- Snapshot truncated: {'yes' if is_truncated else 'no'}.\n\n"
+            "Snapshot JSON:\n"
+            "```json\n"
+            f"{body}\n"
+            "```"
         )
 
     @staticmethod

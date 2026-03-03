@@ -1,0 +1,26 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Test and tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+*.egg-info/
+
+# Local runtime artifacts
+.orchestrate/
+state/
+tmp/
+.worktrees/
+
+# OS/editor noise
+.DS_Store
