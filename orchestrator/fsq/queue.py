@@ -7,7 +7,6 @@ Per specs/queue.md:
 """
 
 import shutil
-import datetime
 from pathlib import Path
 from typing import Dict, Any
 import json
@@ -115,6 +114,7 @@ class QueueManager:
 
         if create_timestamp_subdir:
             # Use ISO timestamp for subdirectory
+            import datetime
             timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S")
             dest_parent = dest_base / timestamp
         else:

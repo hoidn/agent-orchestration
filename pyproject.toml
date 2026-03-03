@@ -15,8 +15,6 @@ dependencies = [
 dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
-    "ruff>=0.6.0",
-    "pre-commit>=3.8.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -32,10 +30,3 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
-
-[tool.ruff]
-target-version = "py311"
-line-length = 100
-
-[tool.ruff.lint]
-select = ["E9", "F63", "F7", "F82"]
