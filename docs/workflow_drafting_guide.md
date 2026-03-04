@@ -1,6 +1,11 @@
 # Workflow Drafting Guide
 
 This guide is informative. The normative contracts live under `specs/` (start at `specs/index.md`).
+This guide is about DSL authoring choices, not runtime operations.
+
+Companion docs:
+- Concept model and terminology: `docs/orchestration_start_here.md`
+- Runtime sequencing and step lifecycle: `docs/runtime_execution_lifecycle.md`
 
 Goal: help you author workflows that are reliable when prompts, deterministic artifacts, and control flow all interact.
 
