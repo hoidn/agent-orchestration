@@ -34,6 +34,7 @@ Authoritative versioning details: [specs/versioning.md](specs/versioning.md)
 
 ## Start Here
 
+- Global docs index (informative): [docs/index.md](docs/index.md)
 - Master spec (normative): [specs/index.md](specs/index.md)
 - Acceptance criteria (normative): [specs/acceptance/index.md](specs/acceptance/index.md)
 - CLI contract (normative): [specs/cli.md](specs/cli.md)
