@@ -5,17 +5,15 @@ This index provides a comprehensive map of the repo documentation so you can qui
 Normative behavior lives in `specs/`.  
 Informative guidance and mental models live in `docs/`.
 
-## Critical Clarifications ⚠️
+## Clarifications ⚠️
 
-These are the most common terminology and contract confusions.
+These are the highest-impact terminology and contract confusions.
 
 | Topic | Common Confusion | Correct Model | Reference |
 | --- | --- | --- | --- |
-| Workflow vs runbook | "Runbook controls runtime semantics." | Workflow DSL controls execution semantics; runbooks explain operations. | [Orchestration Start Here](orchestration_start_here.md) |
-| Workflow vs step vs step execution | "A step definition and a step run are the same thing." | A step is authored in YAML; step execution is one runtime invocation in one run. | [Runtime Execution Lifecycle](runtime_execution_lifecycle.md) |
-| Orchestration vs DSL | "DSL is the entire system." | DSL is the authored contract language; orchestration is DSL + runtime + queue conventions + operations policy. | [Orchestration Start Here](orchestration_start_here.md) |
 | `depends_on` vs `consumes` | "They are redundant." | `depends_on` declares file dependencies and optional prompt injection; `consumes` is v1.2+ artifact producer/consumer lineage with typed preflight/freshness semantics. | [Dependencies](../specs/dependencies.md), [DSL](../specs/dsl.md) |
 | Queue lifecycle | "Orchestrator auto-moves queue items." | Queue item movement is workflow-authored; orchestrator does not auto-move individual task files. | [Queues and Wait-For](../specs/queue.md) |
+| Orchestration vs DSL | "DSL is the entire system." | DSL is the authored contract language; orchestration is DSL + runtime + queue conventions + operations policy. | [Orchestration Start Here](orchestration_start_here.md) |
 | Docs vs specs precedence | "Any docs page is authoritative." | `specs/` are normative. `docs/` are explanatory. | [Master Spec](../specs/index.md) |
 
 ---
@@ -169,6 +167,11 @@ These are the most common terminology and contract confusions.
 **Description:** Concrete YAML workflows covering retries, conditionals, loops, prompt auditing, capture modes, and dataflow contracts.  
 **Keywords:** examples, yaml, retries, loops, dataflow  
 **Use this when:** You want a working template instead of starting from a blank workflow.
+
+### [PtychoPINN Backlog Plan Slice Loop (Downstream Reference)](../workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml)
+**Description:** Informative snapshot of a real downstream workflow copied from `PtychoPINN/workflows/agent_orchestration/backlog_plan_slice_impl_review_loop.yaml` at source commit `370f641fdf84` (copied March 3, 2026).  
+**Keywords:** downstream, ptychopinn, backlog, execute-review-loop, reference  
+**Use this when:** You want a non-trivial real-world workflow example that demonstrates producer/consumer dataflow and looped review gates.
 
 ## Testing and Validation
 
