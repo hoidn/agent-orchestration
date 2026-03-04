@@ -83,6 +83,48 @@ steps:
             assert calls == ['step1', 'step2']
             assert 'step3' not in calls  # Step 3 should not execute
 
+    def test_at56_strict_flow_stop_marks_run_failed(self, tmp_path):
+        """Strict-flow stop must finalize run status as failed (not running)."""
+        workflow_yaml = """
+version: "1.1"
+name: test-strict-flow-status
+strict_flow: true
+steps:
+  - name: step1
+    command: ["echo", "Step 1"]
+
+  - name: step2
+    command: ["exit", "1"]
+"""
+        workflow_path = tmp_path / "workflow.yaml"
+        workflow_path.write_text(workflow_yaml)
+
+        loader = WorkflowLoader(tmp_path)
+        workflow = loader.load(workflow_path)
+
+        state_manager = StateManager(tmp_path)
+        run_state = state_manager.initialize(str(workflow_path), {})
+
+        executor = WorkflowExecutor(
+            workflow=workflow,
+            workspace=str(tmp_path),
+            state_manager=state_manager,
+            logs_dir=state_manager.logs_dir
+        )
+
+        with patch.object(executor, '_execute_command_with_context') as mock_exec:
+            def command_side_effect(step, context, state):
+                if step.get('name') == 'step2':
+                    return {'exit_code': 1, 'output': 'Failed'}
+                return {'exit_code': 0, 'output': 'Step 1'}
+
+            mock_exec.side_effect = command_side_effect
+            executor.execute(run_id=run_state.run_id, on_error='stop')
+
+        persisted = state_manager.load().to_dict()
+        assert persisted["steps"]["step2"]["status"] == "failed"
+        assert persisted["status"] == "failed"
+
     def test_at57_on_error_continue(self, tmp_path):
         """
         AT-57: With --on-error continue, run proceeds after non-zero exit.

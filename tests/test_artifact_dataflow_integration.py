@@ -239,6 +239,49 @@ def test_consume_since_last_consume_fails_when_stale(tmp_path: Path):
     assert review_b["error"]["type"] == "contract_violation"
 
 
+def test_since_last_consume_is_scoped_to_consumer_step(tmp_path: Path):
+    """A different consumer step should be allowed to consume the current version once."""
+    workflow = {
+        "version": "1.4",
+        "name": "consume-freshness-step-scope",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            _publish_step("ReviewImplVsPlan", "artifacts/work/c0-review.md"),
+            {
+                "name": "ReviewPlanLevelIssues",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ReviewImplVsPlan"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo plan-review"],
+            },
+            {
+                "name": "FixIssues",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ReviewImplVsPlan"],
+                        "policy": "latest_successful",
+                        "freshness": "since_last_consume",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo fix-issues"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+
+    assert state["steps"]["ReviewPlanLevelIssues"]["exit_code"] == 0
+    assert state["steps"]["FixIssues"]["exit_code"] == 0
+    consumes = persisted.get("artifact_consumes", {}).get("FixIssues", {})
+    assert consumes.get("execution_log") == 1
+
+
 def test_consume_missing_producer_output_fails_with_contract_violation(tmp_path: Path):
     """Consumer fails with contract_violation when producer did not publish a successful version."""
     workflow = {

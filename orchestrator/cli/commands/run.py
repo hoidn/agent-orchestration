@@ -314,11 +314,16 @@ def run_workflow(args: Namespace) -> int:
             retry_delay_ms=args.retry_delay
         )
 
-        # Archive processed directory on success
-        if result and archive_dest:
+        if isinstance(result, dict):
+            run_succeeded = result.get("status") == "completed"
+        else:
+            run_succeeded = bool(result)
+
+        # Archive processed directory on successful completion only.
+        if run_succeeded and archive_dest:
             archive_processed_directory(processed_dir, archive_dest)
 
-        return 0 if result else 1
+        return 0 if run_succeeded else 1
 
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")

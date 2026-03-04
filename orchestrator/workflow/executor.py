@@ -131,242 +131,254 @@ class WorkflowExecutor:
         state.setdefault('artifact_versions', {})
         state.setdefault('artifact_consumes', {})
         state['_resolved_consumes'] = {}
+        terminal_status = 'completed'
 
-        # Execute steps with control flow support
-        step_index = 0
-        while step_index < len(self.steps):
-            step = self.steps[step_index]
-            self.current_step = step_index
+        try:
+            # Execute steps with control flow support
+            step_index = 0
+            while step_index < len(self.steps):
+                step = self.steps[step_index]
+                self.current_step = step_index
 
-            # Check if step should be executed
-            step_name = step.get('name', f'step_{step_index}')
+                # Check if step should be executed
+                step_name = step.get('name', f'step_{step_index}')
 
-            # Check if step is already completed (for resume)
-            if resume and 'steps' in state and step_name in state['steps']:
-                step_result = state['steps'][step_name]
-                # For for-each loops, check if it's an array of results
-                if isinstance(step_result, list):
-                    # Check if all iterations are complete
-                    all_complete = all(
-                        isinstance(iteration, dict) and
-                        iteration.get('status') in ['completed', 'skipped']
-                        for iteration in step_result
-                        if isinstance(iteration, dict)
+                # Check if step is already completed (for resume)
+                if resume and 'steps' in state and step_name in state['steps']:
+                    step_result = state['steps'][step_name]
+                    # For for-each loops, check if it's an array of results
+                    if isinstance(step_result, list):
+                        # Check if all iterations are complete
+                        all_complete = all(
+                            isinstance(iteration, dict) and
+                            iteration.get('status') in ['completed', 'skipped']
+                            for iteration in step_result
+                            if isinstance(iteration, dict)
+                        )
+                        if all_complete:
+                            logger.info(f"Skipping already completed for-each step: {step_name}")
+                            step_index += 1
+                            continue
+                        # Partially complete for-each will be handled by _execute_for_each
+                    elif isinstance(step_result, dict):
+                        status = step_result.get('status')
+                        if status in ['completed', 'skipped']:
+                            logger.info(f"Skipping already {status} step: {step_name}")
+                            step_index += 1
+                            continue
+                        elif status == 'failed' and on_error == 'stop':
+                            logger.info(f"Step {step_name} previously failed, retrying")
+                            # Continue to retry the failed step
+
+                # Check conditional execution (AT-37, AT-46, AT-47)
+                if 'when' in step:
+                    # Build variables for condition evaluation
+                    variables = self.variable_substitutor.build_variables(
+                        run_state=state,
+                        context=self.workflow.get('context', {})
                     )
-                    if all_complete:
-                        logger.info(f"Skipping already completed for-each step: {step_name}")
+
+                    # Evaluate condition
+                    try:
+                        should_execute = self.condition_evaluator.evaluate(step['when'], variables)
+                    except Exception as e:
+                        # Condition evaluation error - record and skip
+                        error_info = {
+                            'message': f"Condition evaluation failed: {e}",
+                            'context': {'condition': step['when']}
+                        }
+                        result = {
+                            'status': 'failed',
+                            'exit_code': 2,
+                            'error': error_info
+                        }
+                        if 'steps' not in state:
+                            state['steps'] = {}
+                        state['steps'][step_name] = result
+
+                        # Persist to state manager
+                        from ..state import StepResult
+                        step_result = StepResult(
+                            status='failed',
+                            exit_code=2,
+                            error=error_info
+                        )
+                        self.state_manager.update_step(step_name, step_result)
+                        self._emit_step_summary(step_name, step, result)
+
                         step_index += 1
                         continue
-                    # Partially complete for-each will be handled by _execute_for_each
-                elif isinstance(step_result, dict):
-                    status = step_result.get('status')
-                    if status in ['completed', 'skipped']:
-                        logger.info(f"Skipping already {status} step: {step_name}")
+
+                    if not should_execute:
+                        # AT-37: Condition false -> step skipped with exit_code 0
+                        result = {
+                            'status': 'skipped',
+                            'exit_code': 0,
+                            'skipped': True
+                        }
+                        if 'steps' not in state:
+                            state['steps'] = {}
+                        state['steps'][step_name] = result
+
+                        # Persist to state manager
+                        from ..state import StepResult
+                        step_result = StepResult(
+                            status='skipped',
+                            exit_code=0,
+                            skipped=True
+                        )
+                        self.state_manager.update_step(step_name, step_result)
+                        self._emit_step_summary(step_name, step, result)
+
                         step_index += 1
                         continue
-                    elif status == 'failed' and on_error == 'stop':
-                        logger.info(f"Step {step_name} previously failed, retrying")
-                        # Continue to retry the failed step
 
-            # Check conditional execution (AT-37, AT-46, AT-47)
-            if 'when' in step:
-                # Build variables for condition evaluation
-                variables = self.variable_substitutor.build_variables(
-                    run_state=state,
-                    context=self.workflow.get('context', {})
-                )
+                # AT-69: Create backup before step execution if debug enabled
+                if self.debug:
+                    self.state_manager.backup_state(step_name)
 
-                # Evaluate condition
-                try:
-                    should_execute = self.condition_evaluator.evaluate(step['when'], variables)
-                except Exception as e:
-                    # Condition evaluation error - record and skip
-                    error_info = {
-                        'message': f"Condition evaluation failed: {e}",
-                        'context': {'condition': step['when']}
-                    }
-                    result = {
-                        'status': 'failed',
-                        'exit_code': 2,
-                        'error': error_info
-                    }
+                consume_error = self._enforce_consumes_contract(step, step_name, state)
+                if consume_error is not None:
                     if 'steps' not in state:
                         state['steps'] = {}
-                    state['steps'][step_name] = result
+                    state['steps'][step_name] = consume_error
 
-                    # Persist to state manager
                     from ..state import StepResult
                     step_result = StepResult(
                         status='failed',
-                        exit_code=2,
-                        error=error_info
+                        exit_code=consume_error.get('exit_code', 2),
+                        error=consume_error.get('error'),
+                        output=consume_error.get('output'),
+                        duration_ms=consume_error.get('duration_ms', 0),
+                        truncated=consume_error.get('truncated', False),
+                        lines=consume_error.get('lines'),
+                        json=consume_error.get('json'),
+                        artifacts=consume_error.get('artifacts'),
                     )
                     self.state_manager.update_step(step_name, step_result)
-                    self._emit_step_summary(step_name, step, result)
+                    self._emit_step_summary(step_name, step, consume_error)
 
-                    step_index += 1
+                    next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                    if next_step == '_end':
+                        break
+                    if next_step == '_stop':
+                        terminal_status = 'failed'
+                        break
+                    if isinstance(next_step, int):
+                        step_index = next_step
+                    else:
+                        step_index += 1
                     continue
 
-                if not should_execute:
-                    # AT-37: Condition false -> step skipped with exit_code 0
-                    result = {
-                        'status': 'skipped',
-                        'exit_code': 0,
-                        'skipped': True
-                    }
-                    if 'steps' not in state:
-                        state['steps'] = {}
-                    state['steps'][step_name] = result
-
-                    # Persist to state manager
-                    from ..state import StepResult
-                    step_result = StepResult(
-                        status='skipped',
-                        exit_code=0,
-                        skipped=True
-                    )
-                    self.state_manager.update_step(step_name, step_result)
-                    self._emit_step_summary(step_name, step, result)
-
-                    step_index += 1
-                    continue
-
-            # AT-69: Create backup before step execution if debug enabled
-            if self.debug:
-                self.state_manager.backup_state(step_name)
-
-            consume_error = self._enforce_consumes_contract(step, step_name, state)
-            if consume_error is not None:
-                if 'steps' not in state:
-                    state['steps'] = {}
-                state['steps'][step_name] = consume_error
-
-                from ..state import StepResult
-                step_result = StepResult(
-                    status='failed',
-                    exit_code=consume_error.get('exit_code', 2),
-                    error=consume_error.get('error'),
-                    output=consume_error.get('output'),
-                    duration_ms=consume_error.get('duration_ms', 0),
-                    truncated=consume_error.get('truncated', False),
-                    lines=consume_error.get('lines'),
-                    json=consume_error.get('json'),
-                    artifacts=consume_error.get('artifacts'),
+                self.state_manager.start_step(
+                    step_name,
+                    step_index,
+                    self._resolve_step_type(step),
                 )
-                self.state_manager.update_step(step_name, step_result)
-                self._emit_step_summary(step_name, step, consume_error)
 
+                # Execute based on step type
+                with self._step_heartbeat(step_name):
+                    if 'for_each' in step:
+                        state = self._execute_for_each(step, state, resume=resume)
+                        # Persist the for_each summary array to state manager
+                        # The for_each method already updates individual iteration results,
+                        # but we also need to persist the summary array result
+                        if step_name in state['steps']:
+                            loop_results = state['steps'][step_name]
+                            # Update state manager with the loop results array
+                            # This ensures the array is persisted to disk and tests can access
+                            # state['steps']['ProcessFiles'] as expected
+                            if isinstance(loop_results, list):
+                                self.state_manager.update_loop_results(step_name, loop_results)
+                        self._emit_step_summary(
+                            step_name,
+                            step,
+                            state.get('steps', {}).get(step_name, {'status': 'completed'}),
+                        )
+                    elif 'wait_for' in step:
+                        state = self._execute_wait_for(step, state)
+                        self._emit_step_summary(step_name, step, state.get('steps', {}).get(step_name, {}))
+                    elif 'provider' in step:
+                        result = self._execute_provider(step, state)
+                        publish_error = self._record_published_artifacts(step, step_name, result, state)
+                        if publish_error is not None:
+                            result = publish_error
+                        # Store result in state
+                        if 'steps' not in state:
+                            state['steps'] = {}
+                        state['steps'][step_name] = result
+
+                        # Update state manager (persist to disk) - AT-72
+                        from ..state import StepResult
+                        step_result = StepResult(
+                            status='completed' if result.get('exit_code') == 0 else 'failed',
+                            exit_code=result.get('exit_code', 0),
+                            duration_ms=result.get('duration_ms', 0),
+                            output=result.get('output'),
+                            lines=result.get('lines'),
+                            json=result.get('json'),
+                            error=result.get('error'),
+                            truncated=result.get('truncated', False),
+                            debug=result.get('debug'),  # Include debug fields for injection metadata
+                            artifacts=result.get('artifacts')
+                        )
+                        self.state_manager.update_step(step_name, step_result)
+                        self._emit_step_summary(step_name, step, result)
+                    elif 'command' in step:
+                        result = self._execute_command(step, state)
+                        publish_error = self._record_published_artifacts(step, step_name, result, state)
+                        if publish_error is not None:
+                            result = publish_error
+                        # Store result in state
+                        if 'steps' not in state:
+                            state['steps'] = {}
+                        state['steps'][step_name] = result
+
+                        # Update state manager (persist to disk)
+                        from ..state import StepResult
+                        step_result = StepResult(
+                            status='completed' if result.get('exit_code') == 0 else 'failed',
+                            exit_code=result.get('exit_code', 0),
+                            duration_ms=result.get('duration_ms', 0),
+                            output=result.get('output'),
+                            lines=result.get('lines'),
+                            json=result.get('json'),
+                            error=result.get('error'),
+                            truncated=result.get('truncated', False),
+                            artifacts=result.get('artifacts')
+                        )
+                        self.state_manager.update_step(step_name, step_result)
+                        self._emit_step_summary(step_name, step, result)
+
+                # Handle control flow after step execution (AT-56, AT-57, AT-58)
                 next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+
                 if next_step == '_end':
+                    # Special target to end workflow successfully
                     break
-                if next_step == '_stop':
-                    return state
-                if isinstance(next_step, int):
+                elif next_step == '_stop':
+                    # Stop execution due to error with strict_flow
+                    terminal_status = 'failed'
+                    break
+                elif isinstance(next_step, int):
+                    # Jump to specific step index
                     step_index = next_step
                 else:
+                    # Continue to next step
                     step_index += 1
-                continue
+        except Exception:
+            terminal_status = 'failed'
+            raise
+        finally:
+            self.state_manager.update_status(terminal_status)
 
-            self.state_manager.start_step(
-                step_name,
-                step_index,
-                self._resolve_step_type(step),
-            )
+        # Preserve historical behavior for stop-on-error returns, which include
+        # in-memory step payloads that may not have been mirrored to state.json.
+        if terminal_status == 'completed':
+            return self.state_manager.load().to_dict()
 
-            # Execute based on step type
-            with self._step_heartbeat(step_name):
-                if 'for_each' in step:
-                    state = self._execute_for_each(step, state, resume=resume)
-                    # Persist the for_each summary array to state manager
-                    # The for_each method already updates individual iteration results,
-                    # but we also need to persist the summary array result
-                    if step_name in state['steps']:
-                        loop_results = state['steps'][step_name]
-                        # Update state manager with the loop results array
-                        # This ensures the array is persisted to disk and tests can access
-                        # state['steps']['ProcessFiles'] as expected
-                        if isinstance(loop_results, list):
-                            self.state_manager.update_loop_results(step_name, loop_results)
-                    self._emit_step_summary(
-                        step_name,
-                        step,
-                        state.get('steps', {}).get(step_name, {'status': 'completed'}),
-                    )
-                elif 'wait_for' in step:
-                    state = self._execute_wait_for(step, state)
-                    self._emit_step_summary(step_name, step, state.get('steps', {}).get(step_name, {}))
-                elif 'provider' in step:
-                    result = self._execute_provider(step, state)
-                    publish_error = self._record_published_artifacts(step, step_name, result, state)
-                    if publish_error is not None:
-                        result = publish_error
-                    # Store result in state
-                    if 'steps' not in state:
-                        state['steps'] = {}
-                    state['steps'][step_name] = result
-
-                    # Update state manager (persist to disk) - AT-72
-                    from ..state import StepResult
-                    step_result = StepResult(
-                        status='completed' if result.get('exit_code') == 0 else 'failed',
-                        exit_code=result.get('exit_code', 0),
-                        duration_ms=result.get('duration_ms', 0),
-                        output=result.get('output'),
-                        lines=result.get('lines'),
-                        json=result.get('json'),
-                        error=result.get('error'),
-                        truncated=result.get('truncated', False),
-                        debug=result.get('debug'),  # Include debug fields for injection metadata
-                        artifacts=result.get('artifacts')
-                    )
-                    self.state_manager.update_step(step_name, step_result)
-                    self._emit_step_summary(step_name, step, result)
-                elif 'command' in step:
-                    result = self._execute_command(step, state)
-                    publish_error = self._record_published_artifacts(step, step_name, result, state)
-                    if publish_error is not None:
-                        result = publish_error
-                    # Store result in state
-                    if 'steps' not in state:
-                        state['steps'] = {}
-                    state['steps'][step_name] = result
-
-                    # Update state manager (persist to disk)
-                    from ..state import StepResult
-                    step_result = StepResult(
-                        status='completed' if result.get('exit_code') == 0 else 'failed',
-                        exit_code=result.get('exit_code', 0),
-                        duration_ms=result.get('duration_ms', 0),
-                        output=result.get('output'),
-                        lines=result.get('lines'),
-                        json=result.get('json'),
-                        error=result.get('error'),
-                        truncated=result.get('truncated', False),
-                        artifacts=result.get('artifacts')
-                    )
-                    self.state_manager.update_step(step_name, step_result)
-                    self._emit_step_summary(step_name, step, result)
-
-            # Handle control flow after step execution (AT-56, AT-57, AT-58)
-            next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-
-            if next_step == '_end':
-                # Special target to end workflow successfully
-                break
-            elif next_step == '_stop':
-                # Stop execution due to error with strict_flow
-                return state
-            elif isinstance(next_step, int):
-                # Jump to specific step index
-                step_index = next_step
-            else:
-                # Continue to next step
-                step_index += 1
-
-        # Update run status to completed when workflow finishes successfully
-        self.state_manager.update_status('completed')
-        # Return the updated state
-        return self.state_manager.load().to_dict()
+        state['status'] = terminal_status
+        return state
 
     def _resolve_step_type(self, step: Dict[str, Any]) -> str:
         """Return canonical step type label for runtime lifecycle state."""
@@ -680,6 +692,7 @@ class WorkflowExecutor:
         resolved_consumes[step_name] = step_resolved_consumes
         workflow_version = self.workflow.get("version")
         materialize_relpath_consume_pointer = workflow_version in {"1.2", "1.3"}
+        freshness_uses_step_scope = workflow_version == "1.4"
 
         for consume in consumes:
             if not isinstance(consume, dict):
@@ -730,7 +743,10 @@ class WorkflowExecutor:
                 )
 
             freshness = consume.get('freshness', 'any')
-            last_consumed = global_consumes.get(artifact_name, 0)
+            if freshness_uses_step_scope:
+                last_consumed = step_consumes.get(artifact_name, 0)
+            else:
+                last_consumed = global_consumes.get(artifact_name, 0)
             if not isinstance(last_consumed, int):
                 last_consumed = 0
 
