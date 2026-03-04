@@ -33,6 +33,8 @@ Status: Normative master. This index defines scope, versioning, conformance, and
   - Injection modes and caps: `dependencies.md#injection`
   - Output capture limits and tee semantics: `io.md#output-capture`
   - CLI safety rails: `cli.md#safety`
+  - Orchestration concept model (informative): `../docs/orchestration_start_here.md`
+  - Runtime execution lifecycle (informative): `../docs/runtime_execution_lifecycle.md`
   - Workflow drafting guide (informative): `../docs/workflow_drafting_guide.md`
 
 ## Executive Summary
