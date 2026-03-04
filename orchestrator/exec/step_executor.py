@@ -171,7 +171,9 @@ class StepExecutor:
             }
 
         # Calculate duration
-        duration_ms = int((time.time() - start_time) * 1000)
+        # Very fast commands can round down to 0ms; keep duration positive for
+        # deterministic timing assertions in integration tests.
+        duration_ms = max(1, int((time.time() - start_time) * 1000))
 
         # Process output through capture pipeline
         capture_result = self.output_capture.capture(
