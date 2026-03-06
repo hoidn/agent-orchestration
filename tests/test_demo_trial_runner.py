@@ -12,6 +12,7 @@ from orchestrator.demo.trial_runner import (
     build_direct_command,
     build_parser,
     build_workflow_command,
+    render_workflow_for_provider,
     run_trial,
 )
 from tests.test_demo_provisioning import _init_seed_repo
@@ -26,7 +27,7 @@ NANOBRAGG_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py
 def test_build_direct_command_matches_expected_cli_shape():
     prompt = "Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md."
 
-    command = build_direct_command(prompt)
+    command = build_direct_command(prompt, model="claude-sonnet-4-6", effort="medium")
 
     assert command == [
         "claude",
@@ -35,6 +36,31 @@ def test_build_direct_command_matches_expected_cli_shape():
         "--dangerously-skip-permissions",
         "--model",
         "claude-sonnet-4-6",
+        "--effort",
+        "medium",
+    ]
+
+
+def test_build_direct_command_supports_codex_provider():
+    prompt = "Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md."
+
+    command = build_direct_command(
+        prompt,
+        provider="codex",
+        model="gpt-5.3-codex",
+        effort="medium",
+    )
+
+    assert command == [
+        "codex",
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--skip-git-repo-check",
+        "--model",
+        "gpt-5.3-codex",
+        "--config",
+        "model_reasoning_effort=medium",
+        prompt,
     ]
 
 
@@ -43,6 +69,8 @@ def test_build_workflow_command_matches_expected_cli_shape():
     command = build_workflow_command(
         workflow_path=local_workflow,
         repo_root=ROOT,
+        model="claude-opus-4-6",
+        effort="low",
     )
 
     assert command == [
@@ -53,6 +81,10 @@ def test_build_workflow_command_matches_expected_cli_shape():
         "orchestrator",
         "run",
         str(local_workflow),
+        "--context",
+        "workflow_model=claude-opus-4-6",
+        "--context",
+        "workflow_effort=low",
     ]
 
 
@@ -72,6 +104,74 @@ def test_build_parser_supports_stream_output_flag():
     )
 
     assert args.stream_output is False
+
+
+def test_build_parser_supports_direct_and_workflow_model_and_effort_flags():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "--seed-repo",
+            "/tmp/seed",
+            "--experiment-root",
+            "/tmp/experiment",
+            "--task-file",
+            "/tmp/task.md",
+            "--direct-model",
+            "claude-opus-4-6",
+            "--direct-effort",
+            "high",
+            "--workflow-model",
+            "claude-opus-4-6",
+            "--workflow-effort",
+            "low",
+        ]
+    )
+
+    assert args.direct_model == "claude-opus-4-6"
+    assert args.direct_effort == "high"
+    assert args.workflow_model == "claude-opus-4-6"
+    assert args.workflow_effort == "low"
+
+
+def test_build_parser_supports_direct_and_workflow_provider_flags():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "--seed-repo",
+            "/tmp/seed",
+            "--experiment-root",
+            "/tmp/experiment",
+            "--task-file",
+            "/tmp/task.md",
+            "--direct-provider",
+            "codex",
+            "--workflow-provider",
+            "codex",
+        ]
+    )
+
+    assert args.direct_provider == "codex"
+    assert args.workflow_provider == "codex"
+
+
+def test_render_workflow_for_provider_rewrites_provider_block_and_bindings(tmp_path: Path):
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        WORKFLOW.read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+
+    render_workflow_for_provider(workflow_path, provider="codex")
+
+    rendered = workflow_path.read_text(encoding="utf-8")
+    assert "providers:\n  codex:" in rendered
+    assert "provider: codex" in rendered
+    assert "--config" in rendered
+    assert "model_reasoning_effort=${reasoning_effort}" in rendered
+    assert "provider: claude" not in rendered
+    assert "  claude:\n" not in rendered
 
 
 def test_select_evaluator_picks_nanobragg_hidden_evaluator_for_seed_and_task_names():
@@ -177,6 +277,12 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
         workflow_path=WORKFLOW,
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
+        direct_provider="claude",
+        direct_model="claude-opus-4-6",
+        direct_effort="high",
+        workflow_provider="claude",
+        workflow_model="claude-opus-4-6",
+        workflow_effort="low",
     )
 
     assert provision_calls == [
@@ -209,7 +315,9 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
                 "Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
                 "--dangerously-skip-permissions",
                 "--model",
-                "claude-sonnet-4-6",
+                "claude-opus-4-6",
+                "--effort",
+                "high",
             ],
             direct_workspace,
         ),
@@ -222,6 +330,10 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
                 "orchestrator",
                 "run",
                 "workflows/examples/generic_task_plan_execute_review_loop.yaml",
+                "--context",
+                "workflow_model=claude-opus-4-6",
+                "--context",
+                "workflow_effort=low",
             ],
             workflow_workspace,
         ),
@@ -298,6 +410,12 @@ def test_run_trial_works_with_real_provisioner_contract(tmp_path: Path, monkeypa
         direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
         commitish="HEAD",
         stream_output=False,
+        direct_provider="claude",
+        direct_model="claude-opus-4-6",
+        direct_effort="medium",
+        workflow_provider="claude",
+        workflow_model="claude-opus-4-6",
+        workflow_effort="low",
     )
 
     assert (experiment_root / "archive" / "trial-result.json").is_file()
@@ -306,6 +424,61 @@ def test_run_trial_works_with_real_provisioner_contract(tmp_path: Path, monkeypa
     assert (experiment_root / "workflow-run").is_dir()
     assert result["direct"]["evaluation"]["verdict"] == "PASS"
     assert result["workflow"]["evaluation"]["verdict"] == "PASS"
+
+
+def test_run_trial_renders_staged_workflow_for_codex_provider(tmp_path: Path, monkeypatch):
+    seed_repo, _ = _init_seed_repo(tmp_path)
+    task_file = tmp_path / "task.md"
+    task_file.write_text("translate the module\n")
+    experiment_root = tmp_path / "experiment"
+
+    def fake_run_command(command, *, cwd, archive_dir, arm, timeout_sec=None, stream_output=True):
+        arm_dir = archive_dir / arm
+        arm_dir.mkdir(parents=True, exist_ok=True)
+        (arm_dir / "stdout.log").write_text("ok\n")
+        (arm_dir / "stderr.log").write_text("")
+        return {
+            "command": command,
+            "cwd": str(cwd),
+            "exit_code": 0,
+            "duration_ms": 1,
+            "timed_out": False,
+            "timeout_sec": timeout_sec,
+            "stdout": "ok\n",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr("orchestrator.demo.trial_runner._run_command", fake_run_command)
+    monkeypatch.setattr("orchestrator.demo.trial_runner._run_git_capture", lambda *_args: "abc123")
+    monkeypatch.setattr("orchestrator.demo.trial_runner._select_evaluator", lambda **_kwargs: None)
+
+    run_trial(
+        seed_repo=seed_repo,
+        experiment_root=experiment_root,
+        task_file=task_file,
+        workflow_path=WORKFLOW,
+        direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
+        commitish="HEAD",
+        stream_output=False,
+        direct_provider="codex",
+        direct_model="gpt-5.3-codex",
+        direct_effort="medium",
+        workflow_provider="codex",
+        workflow_model="gpt-5.3-codex",
+        workflow_effort="medium",
+    )
+
+    staged_workflow = (
+        experiment_root
+        / "workflow-run"
+        / "workflows"
+        / "examples"
+        / "generic_task_plan_execute_review_loop.yaml"
+    )
+    rendered = staged_workflow.read_text(encoding="utf-8")
+    assert "providers:\n  codex:" in rendered
+    assert "provider: codex" in rendered
+    assert "model_reasoning_effort=${reasoning_effort}" in rendered
 
 
 def test_run_trial_streams_direct_output_to_console(tmp_path: Path, monkeypatch):
@@ -383,6 +556,12 @@ def test_run_trial_streams_direct_output_to_console(tmp_path: Path, monkeypatch)
             workflow_path=WORKFLOW,
             direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
             commitish="HEAD",
+            direct_provider="claude",
+            direct_model="claude-opus-4-6",
+            direct_effort="medium",
+            workflow_provider="claude",
+            workflow_model="claude-opus-4-6",
+            workflow_effort="low",
         )
 
     assert "[direct][stdout] direct ok" in fake_stdout.getvalue()
@@ -464,6 +643,12 @@ def test_run_trial_streams_workflow_output_to_console(tmp_path: Path, monkeypatc
             workflow_path=WORKFLOW,
             direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
             commitish="HEAD",
+            direct_provider="claude",
+            direct_model="claude-opus-4-6",
+            direct_effort="medium",
+            workflow_provider="claude",
+            workflow_model="claude-opus-4-6",
+            workflow_effort="low",
         )
 
     captured = fake_stdout.getvalue()

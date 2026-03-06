@@ -10,6 +10,7 @@ import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
+from shutil import copy2
 from typing import Any
 
 from orchestrator.demo.provisioning import provision_trial
@@ -23,18 +24,64 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
-def build_direct_command(prompt: str) -> list[str]:
-    return [
-        "claude",
-        "-p",
-        prompt,
-        "--dangerously-skip-permissions",
-        "--model",
-        "claude-sonnet-4-6",
-    ]
+def build_direct_command(
+    prompt: str,
+    *,
+    provider: str = "claude",
+    model: str = "claude-sonnet-4-6",
+    effort: str = "medium",
+) -> list[str]:
+    if provider == "claude":
+        return [
+            "claude",
+            "-p",
+            prompt,
+            "--dangerously-skip-permissions",
+            "--model",
+            model,
+            "--effort",
+            effort,
+        ]
+    if provider == "codex":
+        return [
+            "codex",
+            "exec",
+            "--dangerously-bypass-approvals-and-sandbox",
+            "--skip-git-repo-check",
+            "--model",
+            model,
+            "--config",
+            f"model_reasoning_effort={effort}",
+            prompt,
+        ]
+    raise ValueError(f"Unsupported direct provider: {provider}")
 
 
-def build_workflow_command(*, workflow_path: Path, repo_root: Path) -> list[str]:
+def render_workflow_for_provider(workflow_path: Path, *, provider: str) -> None:
+    content = workflow_path.read_text(encoding="utf-8")
+    if provider == "claude":
+        return
+    if provider == "codex":
+        rendered = content.replace("providers:\n  claude:\n", "providers:\n  codex:\n", 1)
+        rendered = rendered.replace("provider: claude", "provider: codex")
+        rendered = rendered.replace(
+            '      [\n        "claude",\n        "-p",\n        "${PROMPT}",\n        "--dangerously-skip-permissions",\n        "--model",\n        "${model}",\n        "--effort",\n        "${effort}",\n      ]',
+            '      [\n        "codex",\n        "exec",\n        "--dangerously-bypass-approvals-and-sandbox",\n        "--skip-git-repo-check",\n        "--model",\n        "${model}",\n        "--config",\n        "model_reasoning_effort=${reasoning_effort}",\n      ]',
+            1,
+        )
+        rendered = rendered.replace("      effort: \"${context.workflow_effort}\"", "      reasoning_effort: \"${context.workflow_effort}\"", 1)
+        workflow_path.write_text(rendered, encoding="utf-8")
+        return
+    raise ValueError(f"Unsupported workflow provider: {provider}")
+
+
+def build_workflow_command(
+    *,
+    workflow_path: Path,
+    repo_root: Path,
+    model: str = "claude-sonnet-4-6",
+    effort: str = "medium",
+) -> list[str]:
     return [
         "env",
         f"PYTHONPATH={repo_root}",
@@ -43,6 +90,10 @@ def build_workflow_command(*, workflow_path: Path, repo_root: Path) -> list[str]
         "orchestrator",
         "run",
         str(Path(workflow_path)),
+        "--context",
+        f"workflow_model={model}",
+        "--context",
+        f"workflow_effort={effort}",
     ]
 
 
@@ -306,6 +357,12 @@ def run_trial(
     direct_timeout_sec: int | None = None,
     workflow_timeout_sec: int | None = None,
     stream_output: bool = True,
+    direct_provider: str = "claude",
+    direct_model: str = "claude-sonnet-4-6",
+    direct_effort: str = "medium",
+    workflow_provider: str = "claude",
+    workflow_model: str = "claude-sonnet-4-6",
+    workflow_effort: str = "medium",
 ) -> dict[str, Any]:
     started_at = _now_iso()
     metadata = provision_trial(
@@ -328,6 +385,11 @@ def run_trial(
     direct_workspace = Path(workspaces["direct_run"])
     workflow_workspace = Path(workspaces["workflow_run"])
     staged_workflow_path = Path("workflows") / "examples" / Path(workflow_path).name
+    rendered_workflow_path = workflow_workspace / staged_workflow_path
+    if not rendered_workflow_path.exists():
+        rendered_workflow_path.parent.mkdir(parents=True, exist_ok=True)
+        copy2(workflow_path, rendered_workflow_path)
+    render_workflow_for_provider(rendered_workflow_path, provider=workflow_provider)
 
     state: dict[str, Any] = {
         "started_at": started_at,
@@ -359,10 +421,17 @@ def run_trial(
     _append_event(archive_dir, "provisioning_completed", start_commit=metadata["start_commit"])
     _write_runner_state(archive_dir, state)
 
-    direct_command = build_direct_command(direct_prompt)
+    direct_command = build_direct_command(
+        direct_prompt,
+        provider=direct_provider,
+        model=direct_model,
+        effort=direct_effort,
+    )
     workflow_command = build_workflow_command(
         workflow_path=staged_workflow_path,
         repo_root=_repo_root(),
+        model=workflow_model,
+        effort=workflow_effort,
     )
     _write_command_record(archive_dir, "direct-command", direct_command)
     _write_command_record(archive_dir, "workflow-command", workflow_command)
@@ -518,6 +587,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="Single prompt for the direct arm.",
     )
     parser.add_argument("--commitish", default="HEAD", help="Seed revision to provision. Defaults to HEAD.")
+    parser.add_argument(
+        "--direct-provider",
+        default="claude",
+        choices=["claude", "codex"],
+        help="Provider family for the direct arm.",
+    )
+    parser.add_argument(
+        "--direct-model",
+        default="claude-sonnet-4-6",
+        help="Model alias/name for the direct arm provider.",
+    )
+    parser.add_argument(
+        "--direct-effort",
+        default="medium",
+        choices=["low", "medium", "high"],
+        help="Reasoning/effort level for the direct arm provider.",
+    )
+    parser.add_argument(
+        "--workflow-provider",
+        default="claude",
+        choices=["claude", "codex"],
+        help="Provider family for workflow provider steps.",
+    )
+    parser.add_argument(
+        "--workflow-model",
+        default="claude-sonnet-4-6",
+        help="Model alias/name for workflow provider steps.",
+    )
+    parser.add_argument(
+        "--workflow-effort",
+        default="medium",
+        choices=["low", "medium", "high"],
+        help="Reasoning/effort level for workflow provider steps.",
+    )
     parser.add_argument("--direct-timeout-sec", type=int, default=None, help="Timeout for the direct arm.")
     parser.add_argument("--workflow-timeout-sec", type=int, default=None, help="Timeout for the workflow arm.")
     parser.add_argument(
@@ -539,6 +642,12 @@ def main(argv: list[str] | None = None) -> int:
         workflow_path=Path(args.workflow),
         direct_prompt=args.direct_prompt,
         commitish=args.commitish,
+        direct_provider=args.direct_provider,
+        direct_model=args.direct_model,
+        direct_effort=args.direct_effort,
+        workflow_provider=args.workflow_provider,
+        workflow_model=args.workflow_model,
+        workflow_effort=args.workflow_effort,
         direct_timeout_sec=args.direct_timeout_sec,
         workflow_timeout_sec=args.workflow_timeout_sec,
         stream_output=args.stream_output,
