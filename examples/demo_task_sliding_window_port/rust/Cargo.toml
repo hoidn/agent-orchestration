@@ -1,0 +1,8 @@
+[package]
+name = "sliding_window"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "sliding_window"
+path = "src/lib.rs"

@@ -559,7 +559,7 @@ This is partially implemented now:
 
 Current state:
 - one concrete linear-classifier seed exists and is evaluator-backed
-- a second seed is still pending
+- a second sliding-window seed now exists but is not evaluator-backed yet
 
 ### 8.3 Provisioning utility
 
@@ -587,8 +587,7 @@ Implemented artifacts now exist at:
 - `tests/test_demo_linear_classifier_evaluator.py`
 
 The most important remaining implementation work is now:
-- add the second task seed
-- add evaluator integration for that seed
+- add evaluator integration for the second seed
 - harden the archived result schema if the current one proves too thin
 
 ### 8.5 Possibly add stronger end-to-end validation around the workflow demo path
@@ -671,6 +670,7 @@ The task domain is meant to arrive via runtime artifacts, not baked-in prompt te
 - Files:
   - `examples/demo_scaffold/`
   - `examples/demo_task_linear_classifier_port/`
+  - `examples/demo_task_sliding_window_port/`
   - `orchestrator/demo/provisioning.py`
   - `orchestrator/demo/evaluators/linear_classifier.py`
   - `orchestrator/demo/trial_runner.py`
@@ -681,6 +681,7 @@ The task domain is meant to arrive via runtime artifacts, not baked-in prompt te
   - `tests/test_demo_provisioning.py`
   - `tests/test_demo_linear_classifier_evaluator.py`
   - `tests/test_demo_task_seed.py`
+  - `tests/test_demo_task_sliding_window_seed.py`
   - `tests/test_demo_trial_smoke.py`
   - `tests/test_demo_trial_runner.py`
 - Commits created after the original design session:
@@ -711,9 +712,10 @@ What now exists:
 - a provisioning utility
 - a trial runner API and CLI
 - smoke and runner pytest coverage for the first evaluated path
+- a second candidate seed for sliding-window translation
 
 What does not yet exist:
-- a second evaluator-backed task seed
+- evaluator integration for the second task seed
 - a real end-to-end executed demo proving the direct-vs-workflow gap
 - stronger evaluator-selection metadata than the current seed-name dispatch
 
