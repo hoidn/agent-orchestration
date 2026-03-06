@@ -10,6 +10,12 @@ Purpose: Central place for how to run, scope, and reason about E2E tests in this
 - Do not weaken verification just to get green. If a test or smoke check is wrong, fix the test or the implementation and document the reason.
 - Changes that affect workflow execution, provider prompting, artifact contracts, or demo trial mechanics should rerun at least one orchestrator/demo smoke check in addition to unit tests.
 
+## Test Placement
+- Default to flat test modules under `tests/`, named `test_<subject>.py`.
+- Put end-to-end coverage under `tests/e2e/`.
+- Introduce a subdirectory like `tests/<domain>/` only when a test surface is large enough to justify grouped fixtures, helpers, or selectors.
+- Do not create new test subtrees preemptively; use them when the flat layout is no longer helping.
+
 ## Test Taxonomy
 - Unit: Small, isolated modules with fast feedback.
 - Integration: Cross-module behavior under the same process; no real providers.
