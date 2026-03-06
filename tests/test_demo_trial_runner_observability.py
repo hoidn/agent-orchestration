@@ -52,7 +52,7 @@ def _install_runner_doubles(
             return subprocess.CompletedProcess(args=command, returncode=0, stdout="abc123\n", stderr="")
         if command[:5] == ["env", f"PYTHONPATH={ROOT}", sys.executable, "-m", "orchestrator"]:
             return subprocess.CompletedProcess(args=command, returncode=0, stdout="workflow ok\n", stderr="")
-        if command[:2] == [sys.executable, str(LINEAR_EVAL)]:
+        if command[:2] == [sys.executable, str(LINEAR_EVAL)] or command[:2] == [sys.executable, str(NANOBRAGG_EVAL)]:
             workspace = Path(command[2])
             verdict = "PASS" if workspace == workflow_workspace else "FAIL"
             return subprocess.CompletedProcess(

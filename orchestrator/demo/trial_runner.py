@@ -191,6 +191,10 @@ def _write_freeze_manifest(*, archive_dir: Path, arm: str, workspace: Path) -> N
 
 
 def _select_evaluator(*, seed_repo: Path, task_file: Path) -> list[str] | None:
+    if task_file.name == "port_nanobragg_accumulation_to_pytorch.md":
+        return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py")]
+    if seed_repo.name == "demo_task_nanobragg_accumulation_port":
+        return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py")]
     if task_file.name == "port_linear_classifier_to_rust.md":
         return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_linear_classifier.py")]
     if seed_repo.name == "demo_task_linear_classifier_port":
