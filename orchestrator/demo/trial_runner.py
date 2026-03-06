@@ -66,7 +66,7 @@ def render_workflow_for_provider(workflow_path: Path, *, provider: str) -> None:
         rendered = rendered.replace("provider: claude", "provider: codex")
         rendered = rendered.replace(
             '      [\n        "claude",\n        "-p",\n        "${PROMPT}",\n        "--dangerously-skip-permissions",\n        "--model",\n        "${model}",\n        "--effort",\n        "${effort}",\n      ]',
-            '      [\n        "codex",\n        "exec",\n        "--dangerously-bypass-approvals-and-sandbox",\n        "--skip-git-repo-check",\n        "--model",\n        "${model}",\n        "--config",\n        "model_reasoning_effort=${reasoning_effort}",\n      ]',
+            '      [\n        "codex",\n        "exec",\n        "--dangerously-bypass-approvals-and-sandbox",\n        "--skip-git-repo-check",\n        "--model",\n        "${model}",\n        "--config",\n        "model_reasoning_effort=${reasoning_effort}",\n        "${PROMPT}",\n      ]',
             1,
         )
         rendered = rendered.replace("      effort: \"${context.workflow_effort}\"", "      reasoning_effort: \"${context.workflow_effort}\"", 1)
@@ -309,6 +309,10 @@ def _write_freeze_manifest(*, archive_dir: Path, arm: str, workspace: Path) -> N
 
 
 def _select_evaluator(*, seed_repo: Path, task_file: Path) -> list[str] | None:
+    if task_file.name == "port_nanobragg_entrypoint_to_pytorch.md":
+        return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_nanobragg_entrypoint.py")]
+    if seed_repo.name == "demo_task_nanobragg_entrypoint_port":
+        return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_nanobragg_entrypoint.py")]
     if task_file.name == "port_nanobragg_accumulation_to_pytorch.md":
         return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py")]
     if seed_repo.name == "demo_task_nanobragg_accumulation_port":

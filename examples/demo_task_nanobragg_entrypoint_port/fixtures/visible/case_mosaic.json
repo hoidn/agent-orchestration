@@ -1,0 +1,40 @@
+{
+  "case_id": "case_mosaic",
+  "output_shape": [
+    4,
+    4
+  ],
+  "argv": [
+    "-cell",
+    "10",
+    "11",
+    "12",
+    "90",
+    "90",
+    "90",
+    "-default_F",
+    "1",
+    "-detpixels_x",
+    "4",
+    "-detpixels_y",
+    "4",
+    "-pixel",
+    "0.1",
+    "-distance",
+    "100",
+    "-lambda",
+    "1",
+    "-N",
+    "2",
+    "-oversample",
+    "1",
+    "-mosaic",
+    "0.2",
+    "-mosaic_domains",
+    "3",
+    "-phisteps",
+    "2",
+    "-osc",
+    "0.1"
+  ]
+}

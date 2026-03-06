@@ -22,6 +22,7 @@ ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"
 LINEAR_EVAL = ROOT / "scripts" / "demo" / "evaluate_linear_classifier.py"
 NANOBRAGG_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py"
+NANOBRAGG_ENTRYPOINT_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_entrypoint.py"
 
 
 def test_build_direct_command_matches_expected_cli_shape():
@@ -168,8 +169,10 @@ def test_render_workflow_for_provider_rewrites_provider_block_and_bindings(tmp_p
     rendered = workflow_path.read_text(encoding="utf-8")
     assert "providers:\n  codex:" in rendered
     assert "provider: codex" in rendered
+    assert '"${PROMPT}"' in rendered
     assert "--config" in rendered
     assert "model_reasoning_effort=${reasoning_effort}" in rendered
+    assert 'reasoning_effort: "${context.workflow_effort}"' in rendered
     assert "provider: claude" not in rendered
     assert "  claude:\n" not in rendered
 
@@ -186,6 +189,20 @@ def test_select_evaluator_picks_nanobragg_hidden_evaluator_for_seed_and_task_nam
 
     assert by_task == [sys.executable, str(NANOBRAGG_EVAL)]
     assert by_seed == [sys.executable, str(NANOBRAGG_EVAL)]
+
+
+def test_select_evaluator_picks_nanobragg_entrypoint_hidden_evaluator_for_seed_and_task_names():
+    by_task = _select_evaluator(
+        seed_repo=Path("/tmp/other-seed"),
+        task_file=Path("/tmp/port_nanobragg_entrypoint_to_pytorch.md"),
+    )
+    by_seed = _select_evaluator(
+        seed_repo=Path("/tmp/demo_task_nanobragg_entrypoint_port"),
+        task_file=Path("/tmp/other-task.md"),
+    )
+
+    assert by_task == [sys.executable, str(NANOBRAGG_ENTRYPOINT_EVAL)]
+    assert by_seed == [sys.executable, str(NANOBRAGG_ENTRYPOINT_EVAL)]
 
 
 def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, monkeypatch):

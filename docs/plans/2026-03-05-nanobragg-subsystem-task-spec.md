@@ -1,5 +1,8 @@
 # nanoBragg Subsystem Task Spec
 
+> Superseded as the flagship benchmark by `docs/plans/2026-03-06-harder-nanobragg-entrypoint-design.md`.
+> Keep this document as historical context for the older narrowed accumulation task only.
+
 ## Goal
 
 Define a significantly harder flagship demo task than the current linear-classifier port by scoping a single numerically meaningful subsystem from `nanoBragg.c` and requiring a PyTorch port with restructuring plus tensor-level numerical parity.

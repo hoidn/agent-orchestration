@@ -38,12 +38,11 @@ The user also wants multiple candidate tasks eventually, because not every candi
 
 As of the latest continuation work:
 - the old linear-classifier seed is only a bootstrap baseline
-- the intended flagship path is the nanoBragg accumulation task
-- the visible flagship seed now exists at `examples/demo_task_nanobragg_accumulation_port/`
-- the hidden flagship evaluator now exists at `scripts/demo/evaluate_nanobragg_accumulation.py`
-- the trial runner now dispatches that evaluator for `port_nanobragg_accumulation_to_pytorch.md`
-- the hidden evaluator corpus is no longer backed by arbitrary constant tensors
-- the hidden evaluator now uses an offline C-backed reference runner for the simplified scoped model
+- the intended flagship path is now the harder nanoBragg entrypoint task
+- the visible flagship seed now exists at `examples/demo_task_nanobragg_entrypoint_port/`
+- the hidden flagship evaluator now exists at `scripts/demo/evaluate_nanobragg_entrypoint.py`
+- the trial runner now dispatches that evaluator for `port_nanobragg_entrypoint_to_pytorch.md`
+- the hidden evaluator corpus is backed by a broad-call-chain main-wrapper harness, not an arbitrary tensor table
 
 ## 1.2 Ground-Truth hardening status
 
@@ -87,7 +86,7 @@ Freshly verified in the latest continuation:
   - result: workflow validation successful
 
 The new reference runner also works directly:
-- `python scripts/demo/nanobragg_reference/run_reference_case.py examples/demo_task_nanobragg_accumulation_port/fixtures/visible/case_small.json`
+- `python scripts/demo/nanobragg_entrypoint_reference/run_reference_case.py examples/demo_task_nanobragg_entrypoint_port/fixtures/visible/case_basic.json`
   - returns a JSON payload with:
     - `shape`
     - `dtype`
@@ -201,17 +200,17 @@ Use this section as the file-level map for continuation.
 - `docs/plans/2026-03-05-demo-provisioning-script.md`
 - `docs/plans/2026-03-05-nanobragg-reference-ground-truth-hardening-plan.md`
 - `scripts/demo/provision_trial.py`
-- `examples/demo_task_nanobragg_accumulation_port/`
-- `orchestrator/demo/evaluators/nanobragg_accumulation.py`
-- `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/`
-- `scripts/demo/evaluate_nanobragg_accumulation.py`
-- `scripts/demo/build_nanobragg_reference_cases.py`
-- `scripts/demo/nanobragg_reference/`
+- `examples/demo_task_nanobragg_entrypoint_port/`
+- `orchestrator/demo/evaluators/nanobragg_entrypoint.py`
+- `orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/`
+- `scripts/demo/evaluate_nanobragg_entrypoint.py`
+- `scripts/demo/build_nanobragg_entrypoint_cases.py`
+- `scripts/demo/nanobragg_entrypoint_reference/`
 - `tests/test_demo_nanobragg_reference_harness.py`
 - `tests/test_demo_nanobragg_reference_generation.py`
 - `tests/test_demo_nanobragg_reference_provenance.py`
 
-These adjacent assets were not the main focus of the design thread captured here, but they are directly relevant to continuation and should be reconciled with the workflow/prompt/contract design before duplicating effort.
+These are now the preferred flagship assets for continuation and should take precedence over the older narrowed-accumulation assets unless you are explicitly maintaining historical comparisons.
 
 ## 3. Major design decisions made
 
@@ -861,7 +860,7 @@ This is an important handoff point because older launch assumptions in the sessi
 - Earlier nanoBragg launch attempts exposed real coordinator/provisioning issues and required manual workarounds.
 - Those old manual-launch notes are still useful as history, but they are no longer the current recommended path.
 - Current preferred launch path is:
-  - create a temporary git snapshot of `examples/demo_task_nanobragg_accumulation_port`
+  - create a temporary git snapshot of `examples/demo_task_nanobragg_entrypoint_port`
   - run `python scripts/demo/run_trial.py ...` against that snapshot
   - pass explicit model/effort flags when comparing provider settings
 
@@ -940,9 +939,9 @@ This command has been prepared for the first real flagship trial, but should not
 
 ```bash
 python scripts/demo/run_trial.py \
-  --seed-repo /tmp/path/to/git-snapshotted-demo_task_nanobragg_accumulation_port \
+  --seed-repo /tmp/path/to/git-snapshotted-demo_task_nanobragg_entrypoint_port \
   --experiment-root /tmp/nanobragg-demo-trial \
-  --task-file examples/demo_task_nanobragg_accumulation_port/docs/tasks/port_nanobragg_accumulation_to_pytorch.md \
+  --task-file examples/demo_task_nanobragg_entrypoint_port/docs/tasks/port_nanobragg_entrypoint_to_pytorch.md \
   --direct-model claude-opus-4-6 \
   --direct-effort medium \
   --workflow-model claude-opus-4-6 \

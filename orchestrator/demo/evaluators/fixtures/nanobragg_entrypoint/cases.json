@@ -1,0 +1,105 @@
+{
+  "entrypoint": "nanobragg_run",
+  "reference_method": "nanobragg_main_wrapper",
+  "cases": [
+    {
+      "case_id": "case_basic",
+      "input_fixture_relpath": "fixtures/visible/case_basic.json",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_basic.pt",
+      "output_shape": [
+        4,
+        4
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c"
+    },
+    {
+      "case_id": "case_thickness",
+      "input_fixture_relpath": "fixtures/visible/case_thickness.json",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_thickness.pt",
+      "output_shape": [
+        4,
+        4
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c"
+    },
+    {
+      "case_id": "case_mosaic",
+      "input_fixture_relpath": "fixtures/visible/case_mosaic.json",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_mosaic.pt",
+      "output_shape": [
+        4,
+        4
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c"
+    }
+  ]
+}
