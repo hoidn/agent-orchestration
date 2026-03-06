@@ -5,8 +5,8 @@ Start here.
 ## Key Files
 
 - `state/task.md`: canonical task description injected at runtime
-- `docs/tasks/port_multiclass_metrics_to_rust.md`: canonical task fixture for this seed
-- `src_py/multiclass_metrics.py`: Python reference behavior to port
+- `docs/tasks/port_linear_classifier_to_rust.md`: canonical task fixture for this seed
+- `src_py/linear_classifier.py`: Python reference behavior to port
 - `rust/`: Rust crate target area
 - `docs/dev_guidelines.md`: local engineering rules
 - `docs/plans/templates/`: optional planning and review aids
@@ -18,4 +18,4 @@ Start here.
 - Read the injected task first. If it mirrors the canonical task fixture, follow the injected file.
 - Keep the port standard-library only unless the task explicitly says otherwise.
 - Derive visible checks from the Rust crate and the task.
-- Preserve documented semantics, especially edge cases and validation behavior.
+- Preserve documented semantics, especially shape validation, softmax behavior, tie-breaking, and loss/report logic.

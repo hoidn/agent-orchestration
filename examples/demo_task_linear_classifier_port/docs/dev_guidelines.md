@@ -14,4 +14,4 @@ Make the smallest set of changes that completes the Rust port and its visible ch
 
 - Avoid external Python dependencies, FFI, async runtimes, and unrelated refactors.
 - Keep numeric behavior explicit and documented.
-- Preserve deterministic tie-breaking and validation rules.
+- Preserve deterministic tie-breaking, stable softmax behavior, and validation rules.

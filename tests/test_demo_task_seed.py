@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parent.parent
-SEED = ROOT / "examples" / "demo_task_multiclass_metrics_port"
+SEED = ROOT / "examples" / "demo_task_linear_classifier_port"
 
 
 def test_task_seed_contains_expected_shared_and_task_specific_files():
@@ -13,11 +13,11 @@ def test_task_seed_contains_expected_shared_and_task_specific_files():
         SEED / "docs" / "index.md",
         SEED / "docs" / "dev_guidelines.md",
         SEED / "docs" / "plans" / "templates" / "artifact_contracts.md",
-        SEED / "docs" / "tasks" / "port_multiclass_metrics_to_rust.md",
-        SEED / "src_py" / "multiclass_metrics.py",
+        SEED / "docs" / "tasks" / "port_linear_classifier_to_rust.md",
+        SEED / "src_py" / "linear_classifier.py",
         SEED / "rust" / "Cargo.toml",
         SEED / "rust" / "src" / "lib.rs",
-        SEED / "rust" / "tests" / "smoke_metrics.rs",
+        SEED / "rust" / "tests" / "smoke_linear_classifier.rs",
     ]
 
     missing = [str(path.relative_to(ROOT)) for path in required if not path.exists()]
@@ -25,9 +25,7 @@ def test_task_seed_contains_expected_shared_and_task_specific_files():
 
 
 def test_task_fixture_targets_bounded_python_to_rust_translation():
-    task_text = (
-        SEED / "docs" / "tasks" / "port_multiclass_metrics_to_rust.md"
-    ).read_text()
+    task_text = (SEED / "docs" / "tasks" / "port_linear_classifier_to_rust.md").read_text()
 
     assert "Python" in task_text
     assert "Rust" in task_text
@@ -35,12 +33,14 @@ def test_task_fixture_targets_bounded_python_to_rust_translation():
     assert "do not add FFI" in task_text
     assert "do not add external Python dependencies" in task_text
     assert "multiclass" in task_text
-    assert "expected calibration error" in task_text
+    assert "softmax" in task_text
+    assert "cross-entropy" in task_text
+    assert "linear classifier" in task_text
 
 
 
 def test_task_seed_stays_in_tractable_dependency_band():
-    python_source = (SEED / "src_py" / "multiclass_metrics.py").read_text()
+    python_source = (SEED / "src_py" / "linear_classifier.py").read_text()
     cargo_toml = (SEED / "rust" / "Cargo.toml").read_text()
 
     forbidden_python = ["numpy", "pandas", "torch", "sklearn"]
@@ -54,9 +54,10 @@ def test_task_seed_stays_in_tractable_dependency_band():
 
 
 def test_task_seed_exposes_local_visible_check_entrypoint():
-    smoke_test = (SEED / "rust" / "tests" / "smoke_metrics.rs").read_text()
+    smoke_test = (SEED / "rust" / "tests" / "smoke_linear_classifier.rs").read_text()
     cargo_toml = (SEED / "rust" / "Cargo.toml").read_text()
 
     assert "[package]" in cargo_toml
     assert "#[test]" in smoke_test
-    assert "top_k_accuracy" in smoke_test
+    assert "predict_batch" in smoke_test
+    assert "cross_entropy_loss" in smoke_test

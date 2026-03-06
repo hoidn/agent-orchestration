@@ -1,8 +1,8 @@
 [package]
-name = "multiclass_metrics"
+name = "linear_classifier"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "multiclass_metrics"
+name = "linear_classifier"
 path = "src/lib.rs"

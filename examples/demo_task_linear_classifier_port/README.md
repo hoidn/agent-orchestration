@@ -1,10 +1,11 @@
-# Demo Task Seed: Multiclass Metrics Port
+# Demo Task Seed: Linear Classifier Port
 
 This task-specific seed extends the generic demo scaffold with a bounded Python-to-Rust translation problem.
 
 Design style:
-- inspired by the same virtues as Karpathy-style pure Python references: small, readable, self-contained numerical code
-- intentionally narrower than a full learner or training loop so the demo measures workflow hygiene, not dependency wrestling
+- inspired by the same virtues as small pure Python ML references: readable, self-contained numerical code
+- intentionally centered on inference and evaluation rather than training loops or framework integration
+- harder than a metrics-only port, but still small enough for a single workflow run
 
 Task shape:
 - visible Python reference implementation under `src_py/`
