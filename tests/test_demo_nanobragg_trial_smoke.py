@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from io import StringIO
 import subprocess
 import sys
 from pathlib import Path
@@ -67,11 +68,11 @@ def test_run_trial_smoke_archives_nanobragg_results(tmp_path: Path, monkeypatch)
             self.cwd = cwd
             self.pid = 4242 if command[:2] == ["claude", "-p"] else 5252
             self.returncode = 0
-            self._stdout = "ok\n"
-            self._stderr = ""
+            self.stdout = StringIO("ok\n")
+            self.stderr = StringIO("")
 
-        def communicate(self, timeout=None):
-            return self._stdout, self._stderr
+        def wait(self, timeout=None):
+            return self.returncode
 
     monkeypatch.setattr("orchestrator.demo.trial_runner.provision_trial", fake_provision_trial)
     monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.run", fake_run)
