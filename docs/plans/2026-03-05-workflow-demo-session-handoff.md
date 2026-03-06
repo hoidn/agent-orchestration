@@ -42,6 +42,59 @@ As of the latest continuation work:
 - the visible flagship seed now exists at `examples/demo_task_nanobragg_accumulation_port/`
 - the hidden flagship evaluator now exists at `scripts/demo/evaluate_nanobragg_accumulation.py`
 - the trial runner now dispatches that evaluator for `port_nanobragg_accumulation_to_pytorch.md`
+- the hidden evaluator corpus is no longer backed by arbitrary constant tensors
+- the hidden evaluator now uses an offline C-backed reference runner for the simplified scoped model
+
+## 1.2 Ground-Truth hardening status
+
+The original nanoBragg hidden evaluator had a major correctness limitation:
+- `scripts/demo/build_nanobragg_reference_cases.py` generated hidden `.pt` tensors from hard-coded synthetic values
+- that made the hidden evaluator stronger than the visible smoke checks, but not trustworthy as scientific ground truth
+
+That concern has now been addressed materially, though not perfectly.
+
+Current state:
+- `docs/plans/2026-03-05-nanobragg-reference-ground-truth-hardening-plan.md` now records the hardening work
+- `scripts/demo/build_nanobragg_reference_cases.py` no longer contains a `REFERENCE_TENSORS` table
+- `scripts/demo/nanobragg_reference/` now contains:
+  - `extract_accumulation_slice.py`
+  - `reference_types.h`
+  - `reference_harness.c`
+  - `run_reference_case.py`
+  - `README.md`
+- the hidden tensors under `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/expected_*.pt` were regenerated from that backend
+- `orchestrator/demo/evaluators/nanobragg_accumulation.py` now includes compact per-case provenance details in failure payloads
+- new regression tests now guard against slipping back to fake hard-coded hidden tensors
+
+Important limitation:
+- this is still a **scoped simplified C-backed reference harness**
+- it is not a compile-and-run of the full original `../nanoBragg/golden_suite_generator/nanoBragg.c` program
+- omitted factors remain omitted where the visible fixture/task contract omits the required source data
+
+This means the hidden evaluator is now materially better than before:
+- not arbitrary
+- provenance-carrying
+- offline-regenerable
+
+But it is not yet “full original-program parity.”
+
+## 1.3 Latest verified state
+
+Freshly verified in the latest continuation:
+- `pytest tests/test_demo_nanobragg_evaluator.py tests/test_demo_nanobragg_evaluator_smoke.py tests/test_demo_nanobragg_reference_harness.py tests/test_demo_nanobragg_reference_generation.py tests/test_demo_nanobragg_reference_provenance.py tests/test_demo_nanobragg_trial_smoke.py tests/test_demo_trial_runner.py tests/test_demo_trial_runner_observability.py -q`
+  - result: `34 passed`
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run`
+  - result: workflow validation successful
+
+The new reference runner also works directly:
+- `python scripts/demo/nanobragg_reference/run_reference_case.py examples/demo_task_nanobragg_accumulation_port/fixtures/visible/case_small.json`
+  - returns a JSON payload with:
+    - `shape`
+    - `dtype`
+    - `flat_data`
+    - `reference_method`
+    - `reference_source`
+    - `reference_snapshot`
 
 ## 2. Core hypothesis agreed in this session
 
@@ -146,11 +199,17 @@ Use this section as the file-level map for continuation.
 - `examples/demo_scaffold/rust/README.md`
 - `docs/plans/2026-03-05-demo-scaffold-and-runbook.md`
 - `docs/plans/2026-03-05-demo-provisioning-script.md`
+- `docs/plans/2026-03-05-nanobragg-reference-ground-truth-hardening-plan.md`
 - `scripts/demo/provision_trial.py`
 - `examples/demo_task_nanobragg_accumulation_port/`
 - `orchestrator/demo/evaluators/nanobragg_accumulation.py`
 - `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/`
 - `scripts/demo/evaluate_nanobragg_accumulation.py`
+- `scripts/demo/build_nanobragg_reference_cases.py`
+- `scripts/demo/nanobragg_reference/`
+- `tests/test_demo_nanobragg_reference_harness.py`
+- `tests/test_demo_nanobragg_reference_generation.py`
+- `tests/test_demo_nanobragg_reference_provenance.py`
 
 These adjacent assets were not the main focus of the design thread captured here, but they are directly relevant to continuation and should be reconciled with the workflow/prompt/contract design before duplicating effort.
 
@@ -799,50 +858,40 @@ This is an important handoff point because older launch assumptions in the sessi
   - move from the current small Python-to-Rust classifier port to a much harder deterministic task based on porting a single numerically meaningful subsystem from `nanoBragg.c` into PyTorch
 
 ### Latest real nanoBragg launch attempts
-- First attempt via `python scripts/demo/run_trial.py` against `examples/demo_task_nanobragg_accumulation_port` failed before either arm started.
-- Failure cause:
-  - `run_trial(...)` creates `archive/` before calling `provision_trial(...)`
-  - `provision_trial(...)` rejects non-empty experiment roots
-  - this currently makes the built-in coordinator unusable for a fresh real trial without a code fix
-- Observed failing roots:
-  - `/tmp/nanobragg-demo-trial-sxVOSg`
-  - `/tmp/nanobragg-demo-trial-4uQcX1`
-- Working workaround used in this session:
-  - provision once directly with `orchestrator.demo.provisioning.provision_trial(...)` from a temporary git seed snapshot
-  - launch the direct arm manually in one tmux session
-  - launch the workflow arm manually in another tmux session
-- Current manual trial root:
-  - `/tmp/nanobragg-manual-trial-qCYtXF`
-- Current manual seed repo snapshot:
-  - `/tmp/nanobragg-seed-repo-nDlOg8`
-- Current live tmux sessions:
-  - `nanobragg-direct`
-  - `nanobragg-workflow`
-- Current observed live state at last poll:
-  - direct `claude` process alive in `direct-run`
-  - workflow orchestrator alive in `workflow-run`
-  - workflow nested provider alive
-  - workflow run id: `20260306T063604Z-u0ou8y`
-  - workflow current step: `DraftPlan`
-  - workflow heartbeat observed advancing to `2026-03-06T06:37:04Z`
+- Earlier nanoBragg launch attempts exposed real coordinator/provisioning issues and required manual workarounds.
+- Those old manual-launch notes are still useful as history, but they are no longer the current recommended path.
+- Current preferred launch path is:
+  - create a temporary git snapshot of `examples/demo_task_nanobragg_accumulation_port`
+  - run `python scripts/demo/run_trial.py ...` against that snapshot
+  - pass explicit model/effort flags when comparing provider settings
+
+### Latest evaluator hardening status
+- The nanoBragg hidden corpus is no longer based on synthetic constant tensors.
+- The hidden expected tensors are now regenerated by:
+  - `scripts/demo/build_nanobragg_reference_cases.py`
+  - which delegates to `scripts/demo/nanobragg_reference/run_reference_case.py`
+  - which uses the offline C-backed harness in `scripts/demo/nanobragg_reference/reference_harness.c`
+- Current per-case provenance in `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/cases.json`:
+  - `reference_method = offline_reference_harness`
+  - `reference_source = ../nanoBragg/golden_suite_generator/nanoBragg.c`
+  - `reference_snapshot = scoped-simplified-harness-v1`
+- The hidden evaluator now reports compact per-case provenance and trace-tap metadata on failure.
 
 ### Current uncommitted local state that matters
-- The working tree currently includes uncommitted changes switching the workflow example and direct-arm runner over to Claude Sonnet for live experimentation.
-- This local state was used to launch:
-  - `workflow-demo-sonnet` in tmux
-  - `direct-demo-sonnet` in tmux
-- These changes were intentionally left uncommitted as of this handoff and should not be assumed to exist from `HEAD` alone.
+- The working tree currently includes uncommitted changes for:
+  - runtime-tunable Claude model/effort flags in the runner and workflow example
+  - the hardened nanoBragg reference backend
+  - updated runbook/task wording for the stronger loop-to-tensor requirement
+- These changes exist in the current workspace and should not be assumed to exist from `HEAD` alone until committed.
 
 ## 11. Recommended continuation order
 
 If picking up from this handoff, the recommended order is:
 
-1. Fix the `run_trial.py` / `provision_trial(...)` contract bug so the built-in coordinator can provision into a fresh experiment root without tripping its own non-empty-root guard.
-2. Continue monitoring the live manual nanoBragg arm sessions under `/tmp/nanobragg-manual-trial-qCYtXF` and archive their outcomes.
-3. Once the runner bug is fixed, repeat the same nanoBragg trial through the built-in coordinator and compare it to the manual launch.
-4. Decide whether the hidden tensor corpus is numerically faithful enough, or whether `scripts/demo/build_nanobragg_reference_cases.py` needs a stronger reference implementation behind it.
-5. If the corpus changes, regenerate `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/*.pt` and rerun the focused demo suite.
-6. Keep the current linear-classifier seed only as a smoke/demo fixture.
+1. Run a fresh built-in coordinator trial against a temporary git snapshot of the nanoBragg seed using the desired Claude model/effort settings.
+2. Archive and inspect the direct/workflow results under the new C-backed hidden corpus.
+3. Decide whether the current `scoped-simplified-harness-v1` backend is sufficient, or whether more original `nanoBragg.c` math needs to be pulled into the reference harness.
+4. Keep the current linear-classifier seed only as a smoke/demo fixture.
 
 ## 12. Bottom line
 
@@ -862,19 +911,21 @@ What now exists:
 - a second candidate seed for sliding-window translation
 - a third, harder seed for the nanoBragg accumulation subsystem
 - a hidden evaluator and hidden tensor corpus for that nanoBragg seed
+- a C-backed offline reference generator for the nanoBragg hidden corpus
 - runner dispatch and smoke coverage for the nanoBragg path
-- a discovered real coordinator bug in `run_trial.py`/`provision_trial(...)` during the first flagship launch attempt
-- a live manual workaround launch for both nanoBragg arms in tmux
+- historical evidence of an earlier coordinator launch bug and manual workaround path
 - one partial real direct-arm execution showing that the environment currently lacks the Rust toolchain needed to complete the task
 - a fixed workflow/provisioning contract that lets the workflow launch correctly from a provisioned workspace
 - a completed real direct-arm run showing that the linear-classifier task is too easy
 - a drafted harder flagship task spec based on a `nanoBragg.c` subsystem
+- a hardened nanoBragg evaluator that now carries provenance metadata instead of arbitrary hidden targets
 
 What does not yet exist:
 - evaluator integration for the second task seed
 - a completed archived built-in coordinator run for the nanoBragg flagship task
 - a real end-to-end executed demo proving the direct-vs-workflow gap on a task that is actually hard enough
 - stronger evaluator-selection metadata than the current seed-name dispatch
+- a completed archived real flagship trial against the hardened nanoBragg corpus
 
 A new engineer should be able to continue from here without needing the original chat, provided they start by reading:
 1. this handoff document
@@ -889,9 +940,13 @@ This command has been prepared for the first real flagship trial, but should not
 
 ```bash
 python scripts/demo/run_trial.py \
-  --seed-repo examples/demo_task_nanobragg_accumulation_port \
+  --seed-repo /tmp/path/to/git-snapshotted-demo_task_nanobragg_accumulation_port \
   --experiment-root /tmp/nanobragg-demo-trial \
   --task-file examples/demo_task_nanobragg_accumulation_port/docs/tasks/port_nanobragg_accumulation_to_pytorch.md \
+  --direct-model claude-opus-4-6 \
+  --direct-effort medium \
+  --workflow-model claude-opus-4-6 \
+  --workflow-effort medium \
   --direct-timeout-sec 1800 \
   --workflow-timeout-sec 3600
 ```
