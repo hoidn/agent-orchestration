@@ -187,7 +187,7 @@ Operational rules:
 
 ### Trial Runner
 
-The repo now includes a thin runner that provisions a trial, launches both arms, freezes workspace metadata, invokes the selected evaluator, and writes one comparison record.
+The repo now includes a thin runner that provisions a trial, launches both arms, writes runner-owned status and archive artifacts while the trial progresses, freezes workspace metadata, invokes the selected evaluator, and writes comparison records.
 
 Related prompt files:
 - coordinator prompt: `prompts/demo/run_direct_vs_workflow_trial.md`
@@ -199,13 +199,17 @@ Concrete command:
 python scripts/demo/run_trial.py \
   --seed-repo /path/to/task-seed-repo \
   --experiment-root /path/to/experiment-root \
-  --task-file /path/to/task.md
+  --task-file /path/to/task.md \
+  --direct-timeout-sec 600 \
+  --workflow-timeout-sec 1800
 ```
 
 Current defaults:
 - workflow: `workflows/examples/generic_task_plan_execute_review_loop.yaml`
 - direct prompt: `Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.`
 - the runner stages the selected workflow YAML and `prompts/workflows/` into `workflow-run/` before launch
+- the runner is still serial: direct arm first, then workflow arm
+- the current direct-arm launcher uses `claude -p ... --dangerously-skip-permissions --model claude-sonnet-4-6`
 
 ## Freeze and Archive
 
@@ -226,9 +230,35 @@ Minimum archive contents:
 Current archive files produced by the runner:
 - `archive/direct-command.json`
 - `archive/workflow-command.json`
+- `archive/runner-state.json`
+- `archive/runner-events.jsonl`
+- `archive/partial-trial-result.json`
 - `archive/direct-run-metadata.json`
 - `archive/workflow-run-metadata.json`
+- `archive/direct/process.json`
+- `archive/direct/heartbeat.json`
+- `archive/direct/stdout.log`
+- `archive/direct/stderr.log`
+- `archive/direct/freeze/workspace-status.txt`
+- `archive/direct/freeze/workspace-head.txt`
+- `archive/direct/freeze/tree.txt`
+- `archive/workflow/process.json`
+- `archive/workflow/heartbeat.json`
+- `archive/workflow/stdout.log`
+- `archive/workflow/stderr.log`
+- `archive/workflow/freeze/workspace-status.txt`
+- `archive/workflow/freeze/workspace-head.txt`
+- `archive/workflow/freeze/tree.txt`
+- `archive/evaluator/status.json`
+- `archive/evaluator/direct-result.json`
+- `archive/evaluator/workflow-result.json`
 - `archive/trial-result.json`
+
+Operational notes:
+- `runner-state.json` is the canonical in-flight snapshot for the whole trial
+- `runner-events.jsonl` is append-only and records major trial transitions
+- `partial-trial-result.json` is rewritten during execution so interrupted trials still leave a useful summary
+- the current freeze contract is a metadata + tree-manifest freeze, not a full tarball snapshot
 
 ## Grading Flow
 

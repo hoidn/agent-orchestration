@@ -24,11 +24,12 @@ def _now_iso() -> str:
 
 def build_direct_command(prompt: str) -> list[str]:
     return [
-        "codex",
-        "exec",
-        "--dangerously-bypass-approvals-and-sandbox",
-        "--skip-git-repo-check",
+        "claude",
+        "-p",
         prompt,
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-sonnet-4-6",
     ]
 
 
@@ -44,22 +45,78 @@ def build_workflow_command(*, workflow_path: Path, repo_root: Path) -> list[str]
     ]
 
 
-def _run_command(command: list[str], *, cwd: Path) -> dict[str, Any]:
+def _run_command(
+    command: list[str],
+    *,
+    cwd: Path,
+    archive_dir: Path,
+    arm: str,
+    timeout_sec: int | None = None,
+) -> dict[str, Any]:
+    arm_dir = archive_dir / arm
+    arm_dir.mkdir(parents=True, exist_ok=True)
     started = time.time()
-    result = subprocess.run(
+    process = subprocess.Popen(
         command,
         cwd=cwd,
-        capture_output=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         text=True,
-        check=False,
+    )
+    _write_json(
+        arm_dir / "process.json",
+        {
+            "backend": "subprocess",
+            "command": command,
+            "cwd": str(cwd),
+            "pid": process.pid,
+            "started_at": _now_iso(),
+        },
+    )
+    _write_json(
+        arm_dir / "heartbeat.json",
+        {
+            "timestamp": _now_iso(),
+            "alive": True,
+            "elapsed_sec": 0.0,
+            "stdout_bytes": 0,
+            "stderr_bytes": 0,
+        },
+    )
+    timed_out = False
+    try:
+        stdout, stderr = process.communicate(timeout=timeout_sec)
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        stdout = ""
+        stderr = f"{arm} timed out after {timeout_sec} seconds\n"
+        process.terminate()
+        try:
+            process.wait(timeout=1)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=1)
+    (arm_dir / "stdout.log").write_text(stdout, encoding="utf-8")
+    (arm_dir / "stderr.log").write_text(stderr, encoding="utf-8")
+    _write_json(
+        arm_dir / "heartbeat.json",
+        {
+            "timestamp": _now_iso(),
+            "alive": False,
+            "elapsed_sec": max(0.0, time.time() - started),
+            "stdout_bytes": len(stdout.encode("utf-8")),
+            "stderr_bytes": len(stderr.encode("utf-8")),
+        },
     )
     return {
         "command": command,
         "cwd": str(cwd),
-        "exit_code": result.returncode,
+        "exit_code": process.returncode,
         "duration_ms": int((time.time() - started) * 1000),
-        "stdout": result.stdout,
-        "stderr": result.stderr,
+        "timed_out": timed_out,
+        "timeout_sec": timeout_sec,
+        "stdout": stdout,
+        "stderr": stderr,
     }
 
 
@@ -114,6 +171,25 @@ def _write_partial_result(archive_dir: Path, payload: dict[str, Any]) -> None:
     _write_json(archive_dir / "partial-trial-result.json", payload)
 
 
+def _write_freeze_manifest(*, archive_dir: Path, arm: str, workspace: Path) -> None:
+    freeze_dir = archive_dir / arm / "freeze"
+    freeze_dir.mkdir(parents=True, exist_ok=True)
+    (freeze_dir / "workspace-status.txt").write_text(
+        _run_git_capture(workspace, "status", "--short") + "\n",
+        encoding="utf-8",
+    )
+    (freeze_dir / "workspace-head.txt").write_text(
+        _run_git_capture(workspace, "rev-parse", "HEAD") + "\n",
+        encoding="utf-8",
+    )
+    entries = sorted(
+        str(path.relative_to(workspace))
+        for path in workspace.rglob("*")
+        if path.is_file()
+    )
+    (freeze_dir / "tree.txt").write_text("\n".join(entries) + ("\n" if entries else ""), encoding="utf-8")
+
+
 def _select_evaluator(*, seed_repo: Path, task_file: Path) -> list[str] | None:
     if task_file.name == "port_linear_classifier_to_rust.md":
         return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_linear_classifier.py")]
@@ -156,6 +232,8 @@ def run_trial(
     workflow_path: Path,
     direct_prompt: str,
     commitish: str = "HEAD",
+    direct_timeout_sec: int | None = None,
+    workflow_timeout_sec: int | None = None,
 ) -> dict[str, Any]:
     started_at = _now_iso()
     archive_dir = experiment_root / "archive"
@@ -193,11 +271,13 @@ def run_trial(
             "status": "pending",
             "workspace": str(direct_workspace),
             "exit_code": None,
+            "timed_out": False,
         },
         "workflow": {
             "status": "pending",
             "workspace": str(workflow_workspace),
             "exit_code": None,
+            "timed_out": False,
         },
         "evaluation": {
             "status": "pending",
@@ -228,9 +308,20 @@ def run_trial(
     state["direct"]["status"] = "running"
     _append_event(archive_dir, "arm_started", arm="direct", command=direct_command)
     _write_runner_state(archive_dir, state)
-    direct_execution = _run_command(direct_command, cwd=direct_workspace)
-    state["direct"]["status"] = "succeeded" if direct_execution["exit_code"] == 0 else "failed"
+    direct_execution = _run_command(
+        direct_command,
+        cwd=direct_workspace,
+        archive_dir=archive_dir,
+        arm="direct",
+        timeout_sec=direct_timeout_sec,
+    )
+    state["direct"]["status"] = (
+        "timed_out" if direct_execution["timed_out"] else ("succeeded" if direct_execution["exit_code"] == 0 else "failed")
+    )
     state["direct"]["exit_code"] = direct_execution["exit_code"]
+    state["direct"]["timed_out"] = direct_execution["timed_out"]
+    if direct_execution["timed_out"]:
+        _append_event(archive_dir, "arm_timeout", arm="direct", timeout_sec=direct_timeout_sec)
     _append_event(archive_dir, "arm_completed", arm="direct", exit_code=direct_execution["exit_code"])
     _write_partial_result(
         archive_dir,
@@ -246,9 +337,22 @@ def run_trial(
     state["workflow"]["status"] = "running"
     _append_event(archive_dir, "arm_started", arm="workflow", command=workflow_command)
     _write_runner_state(archive_dir, state)
-    workflow_execution = _run_command(workflow_command, cwd=workflow_workspace)
-    state["workflow"]["status"] = "succeeded" if workflow_execution["exit_code"] == 0 else "failed"
+    workflow_execution = _run_command(
+        workflow_command,
+        cwd=workflow_workspace,
+        archive_dir=archive_dir,
+        arm="workflow",
+        timeout_sec=workflow_timeout_sec,
+    )
+    state["workflow"]["status"] = (
+        "timed_out"
+        if workflow_execution["timed_out"]
+        else ("succeeded" if workflow_execution["exit_code"] == 0 else "failed")
+    )
     state["workflow"]["exit_code"] = workflow_execution["exit_code"]
+    state["workflow"]["timed_out"] = workflow_execution["timed_out"]
+    if workflow_execution["timed_out"]:
+        _append_event(archive_dir, "arm_timeout", arm="workflow", timeout_sec=workflow_timeout_sec)
     _append_event(archive_dir, "arm_completed", arm="workflow", exit_code=workflow_execution["exit_code"])
     _write_runner_state(archive_dir, state)
 
@@ -258,22 +362,39 @@ def run_trial(
         workspace=direct_workspace,
         command=direct_command,
     )
+    _write_freeze_manifest(archive_dir=archive_dir, arm="direct", workspace=direct_workspace)
     workflow_metadata = archive_workspace_metadata(
         archive_dir=archive_dir,
         label="workflow-run",
         workspace=workflow_workspace,
         command=workflow_command,
     )
+    _write_freeze_manifest(archive_dir=archive_dir, arm="workflow", workspace=workflow_workspace)
 
     evaluator_command = _select_evaluator(seed_repo=Path(seed_repo), task_file=Path(task_file))
     direct_evaluation = None
     workflow_evaluation = None
     if evaluator_command is not None:
+        _write_json(
+            archive_dir / "evaluator" / "status.json",
+            {"status": "running", "command": [*evaluator_command]},
+        )
         state["current_phase"] = "evaluation"
         state["evaluation"]["status"] = "running"
         _write_runner_state(archive_dir, state)
         direct_evaluation = _run_evaluator(evaluator_command, direct_workspace)
         workflow_evaluation = _run_evaluator(evaluator_command, workflow_workspace)
+        _write_json(archive_dir / "evaluator" / "direct-result.json", direct_evaluation)
+        _write_json(archive_dir / "evaluator" / "workflow-result.json", workflow_evaluation)
+        _write_json(
+            archive_dir / "evaluator" / "status.json",
+            {
+                "status": "completed",
+                "command": [*evaluator_command],
+                "direct_verdict": direct_evaluation.get("verdict"),
+                "workflow_verdict": workflow_evaluation.get("verdict"),
+            },
+        )
         state["evaluation"]["status"] = "completed"
         state["evaluation"]["direct_verdict"] = direct_evaluation.get("verdict")
         state["evaluation"]["workflow_verdict"] = workflow_evaluation.get("verdict")
@@ -324,6 +445,8 @@ def build_parser() -> argparse.ArgumentParser:
         help="Single prompt for the direct arm.",
     )
     parser.add_argument("--commitish", default="HEAD", help="Seed revision to provision. Defaults to HEAD.")
+    parser.add_argument("--direct-timeout-sec", type=int, default=None, help="Timeout for the direct arm.")
+    parser.add_argument("--workflow-timeout-sec", type=int, default=None, help="Timeout for the workflow arm.")
     return parser
 
 
@@ -337,6 +460,8 @@ def main(argv: list[str] | None = None) -> int:
         workflow_path=Path(args.workflow),
         direct_prompt=args.direct_prompt,
         commitish=args.commitish,
+        direct_timeout_sec=args.direct_timeout_sec,
+        workflow_timeout_sec=args.workflow_timeout_sec,
     )
     print(json.dumps(result, indent=2))
     direct_verdict = (result["direct"]["evaluation"] or {}).get("verdict")

@@ -88,6 +88,12 @@ pytest tests/test_demo_linear_classifier_evaluator.py -q
 
 If you add or change the trial runner, also run the targeted trial smoke or runner tests for that surface.
 
+Recommended selector for the current runner observability surface:
+
+```bash
+pytest tests/test_demo_trial_runner.py tests/test_demo_trial_runner_observability.py -q
+```
+
 ## Conventions
 - Keep E2E fixtures explicit about filesystem layout (e.g., `inbox/`, `processed/`, `failed/`, `artifacts/`).
 - Prefer real provider CLI invocations only when necessary; otherwise, simulate via test doubles that honor `specs/providers.md` contracts.

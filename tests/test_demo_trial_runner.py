@@ -19,11 +19,12 @@ def test_build_direct_command_matches_expected_cli_shape():
     command = build_direct_command(prompt)
 
     assert command == [
-        "codex",
-        "exec",
-        "--dangerously-bypass-approvals-and-sandbox",
-        "--skip-git-repo-check",
+        "claude",
+        "-p",
         prompt,
+        "--dangerously-skip-permissions",
+        "--model",
+        "claude-sonnet-4-6",
     ]
 
 
@@ -58,6 +59,7 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
 
     provision_calls: list[dict[str, object]] = []
     subprocess_calls: list[tuple[list[str], Path | None]] = []
+    popen_calls: list[tuple[list[str], Path | None]] = []
 
     def fake_provision_trial(**kwargs):
         provision_calls.append(kwargs)
@@ -79,10 +81,10 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
             return subprocess.CompletedProcess(args=command, returncode=0, stdout=" M changed.txt\n", stderr="")
         if command[:2] == ["git", "rev-parse"]:
             return subprocess.CompletedProcess(args=command, returncode=0, stdout="abc123\n", stderr="")
-        if command[:2] == ["codex", "exec"]:
-            return subprocess.CompletedProcess(args=command, returncode=0, stdout="direct ok\n", stderr="")
-        if command[:5] == ["env", f"PYTHONPATH={ROOT}", sys.executable, "-m", "orchestrator"]:
-            return subprocess.CompletedProcess(args=command, returncode=0, stdout="workflow ok\n", stderr="")
+        if command[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout=" M changed.txt\n", stderr="")
+        if command[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout="abc123\n", stderr="")
         if command[:2] == [sys.executable, str(LINEAR_EVAL)]:
             workspace = Path(command[2])
             verdict = "PASS" if workspace == workflow_workspace else "FAIL"
@@ -101,8 +103,30 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
             )
         raise AssertionError(f"Unexpected subprocess call: {command}")
 
+    class FakePopen:
+        def __init__(self, args, cwd=None, stdout=None, stderr=None, text=None, **_):
+            command = list(args)
+            popen_calls.append((command, Path(cwd) if cwd is not None else None))
+            self.args = command
+            self.cwd = cwd
+            self.pid = 4242 if command[:2] == ["claude", "-p"] else 5252
+            if command[:2] == ["claude", "-p"]:
+                self.returncode = 0
+                self._stdout = "direct ok\n"
+                self._stderr = ""
+            elif command[:2] == ["env", f"PYTHONPATH={ROOT}"]:
+                self.returncode = 0
+                self._stdout = "workflow ok\n"
+                self._stderr = ""
+            else:
+                raise AssertionError(f"Unexpected Popen call: {command}")
+
+        def communicate(self, timeout=None):
+            return self._stdout, self._stderr
+
     monkeypatch.setattr("orchestrator.demo.trial_runner.provision_trial", fake_provision_trial)
     monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.run", fake_run)
+    monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.Popen", FakePopen)
 
     result = run_trial(
         seed_repo=seed_repo,
@@ -124,13 +148,26 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
         }
     ]
     assert subprocess_calls == [
+        (["git", "status", "--short"], direct_workspace),
+        (["git", "rev-parse", "HEAD"], direct_workspace),
+        (["git", "status", "--short"], direct_workspace),
+        (["git", "rev-parse", "HEAD"], direct_workspace),
+        (["git", "status", "--short"], workflow_workspace),
+        (["git", "rev-parse", "HEAD"], workflow_workspace),
+        (["git", "status", "--short"], workflow_workspace),
+        (["git", "rev-parse", "HEAD"], workflow_workspace),
+        ([sys.executable, str(LINEAR_EVAL), str(direct_workspace)], ROOT),
+        ([sys.executable, str(LINEAR_EVAL), str(workflow_workspace)], ROOT),
+    ]
+    assert popen_calls == [
         (
             [
-                "codex",
-                "exec",
-                "--dangerously-bypass-approvals-and-sandbox",
-                "--skip-git-repo-check",
+                "claude",
+                "-p",
                 "Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
+                "--dangerously-skip-permissions",
+                "--model",
+                "claude-sonnet-4-6",
             ],
             direct_workspace,
         ),
@@ -146,12 +183,6 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
             ],
             workflow_workspace,
         ),
-        (["git", "status", "--short"], direct_workspace),
-        (["git", "rev-parse", "HEAD"], direct_workspace),
-        (["git", "status", "--short"], workflow_workspace),
-        (["git", "rev-parse", "HEAD"], workflow_workspace),
-        ([sys.executable, str(LINEAR_EVAL), str(direct_workspace)], ROOT),
-        ([sys.executable, str(LINEAR_EVAL), str(workflow_workspace)], ROOT),
     ]
 
     direct_command_path = archive_dir / "direct-command.json"
@@ -166,7 +197,7 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
     assert workflow_metadata_path.is_file()
     assert trial_result_path.is_file()
 
-    assert json.loads(direct_command_path.read_text())["command"][0] == "codex"
+    assert json.loads(direct_command_path.read_text())["command"][:2] == ["claude", "-p"]
     assert json.loads(workflow_command_path.read_text())["command"][:5] == [
         "env",
         f"PYTHONPATH={ROOT}",
