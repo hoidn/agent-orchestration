@@ -23,12 +23,12 @@ Templates in this directory are authoring aids only.
 - Primary consumers: plan review, execution, implementation review, fix
 - Meaning: the current executable plan for the task
 
-### `check_plan`
+### `check_strategy`
 - Kind: relpath
-- Suggested canonical path: `state/check_plan.json`
+- Suggested canonical path: `state/check_strategy.md`
 - Producer: plan-drafting or plan-revision step
-- Primary consumers: plan review, check runner, implementation review, fix
-- Meaning: the current visible verification plan for the task
+- Primary consumers: plan review, execution, implementation review, fix
+- Meaning: the current visible verification strategy for the task, including intended checks, expected gaps, and why the chosen checks are high-signal
 
 ## Plan-Loop Artifacts
 
@@ -45,8 +45,8 @@ Templates in this directory are authoring aids only.
 - Producer: plan-review step
 - Primary consumers: plan-loop gate
 - Meaning:
-  - `APPROVE`: plan is executable and verification is adequate enough to proceed
-  - `REVISE`: plan or check plan has blocking issues and must be updated before execution
+  - `APPROVE`: plan is executable and verification strategy is credible enough to proceed
+  - `REVISE`: plan or verification strategy has blocking issues and must be updated before execution
 
 ## Implementation-Loop Artifacts
 
@@ -65,12 +65,19 @@ Required content:
 - claimed completion status
 - blockers or unresolved risks
 
+### `check_plan`
+- Kind: relpath
+- Suggested canonical path: `state/check_plan.json`
+- Producer: execution or fix step
+- Primary consumers: check runner, implementation review, later fix steps
+- Meaning: the current runnable visible verification plan derived from the task, plan, repo state, and any tests/checks created during implementation
+
 ### `check_results`
 - Kind: relpath
 - Suggested canonical path: `artifacts/checks/check-results.json`
 - Producer: check-running step
 - Primary consumers: implementation review, fix
-- Meaning: structured result of executing the current `check_plan`
+- Meaning: structured result of executing the current `check_plan`, including malformed-check and missing-executable failures when those occur
 
 ### `implementation_review_report`
 - Kind: relpath
@@ -90,7 +97,8 @@ Required content:
 
 ## Contract Discipline
 
-- `task`, `plan`, and `check_plan` are backbone artifacts and should usually be consumed by later provider steps.
+- `task`, `plan`, and `check_strategy` are backbone artifacts and should usually be consumed by later provider steps.
+- `check_plan` is implementation-loop state and should be refreshed when execution adds or changes runnable verification.
 - Stage-local artifacts should be consumed only where they add signal.
 - Review reports are evidence artifacts, not conversational transcripts.
 - Decision artifacts must be binary and machine-usable.

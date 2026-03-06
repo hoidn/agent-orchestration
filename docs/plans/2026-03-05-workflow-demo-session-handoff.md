@@ -71,7 +71,7 @@ Use this section as the file-level map for continuation.
 - `docs/plans/templates/artifact_contracts.md`
   - workflow-facing artifact vocabulary
 - `docs/plans/templates/check_plan_schema.md`
-  - machine-readable `check_plan` schema
+  - guidance for plan-time `check_strategy` and runtime `check_plan`
 - `docs/plans/templates/plan_template.md`
   - optional authoring aid for the `plan` artifact
 - `docs/plans/templates/review_template.md`
@@ -189,7 +189,7 @@ However, both arms still need to infer the likely success condition from:
 - the repo scaffold
 - their own analysis
 
-This is why the workflow includes an explicit `check_plan` artifact: it formalizes the agent's visible verification strategy without revealing hidden evaluator details.
+This is why the workflow includes an explicit plan-time `check_strategy` artifact and an implementation-time `check_plan` artifact: they formalize visible verification without revealing hidden evaluator details.
 
 ### 3.5 `RunChecks` is required
 
@@ -213,7 +213,7 @@ Decision:
 
 Concretely:
 - the workflow always has a `RunChecks` step
-- the checks are described in a machine-readable `check_plan` artifact
+- the runnable checks are described in a machine-readable `check_plan` artifact
 - `RunChecks` executes that plan generically
 - the workflow YAML does not hard-code `cargo test`, `pytest`, or any other domain-specific command
 
@@ -252,7 +252,7 @@ Decision:
 Backbone artifacts agreed in this session:
 - `task`
 - `plan`
-- `check_plan`
+- `check_strategy`
 
 These are meant to be broadly reused by later provider steps.
 
@@ -301,7 +301,7 @@ We created the following scaffold-facing docs under `docs/plans/templates/`:
 - backbone artifacts:
   - `task`
   - `plan`
-  - `check_plan`
+  - `check_strategy`
 - stage artifacts:
   - `plan_review_report`
   - `plan_review_decision`
@@ -311,7 +311,7 @@ We created the following scaffold-facing docs under `docs/plans/templates/`:
   - `implementation_review_decision`
 
 2. `check_plan_schema.md`
-- defines the recommended JSON structure for `check_plan`
+- defines the split between plan-time `check_strategy` and runtime `check_plan`
 - uses a constrained schema with:
   - `name`
   - `argv`
@@ -391,10 +391,10 @@ Context values in the example:
 3. `DraftPlan`
 - consumes `task`
 - uses the generic `draft_plan.md` prompt
-- produces and publishes `plan` and `check_plan`
+- produces and publishes `plan` and `check_strategy`
 
 4. `ReviewPlan`
-- consumes `task`, `plan`, `check_plan`
+- consumes `task`, `plan`, `check_strategy`
 - uses the generic `review_plan.md` prompt
 - produces and publishes `plan_review_report` and `plan_review_decision`
 
@@ -406,28 +406,28 @@ Context values in the example:
 - enforces `max_plan_cycles`
 
 7. `RevisePlan`
-- consumes `task`, `plan`, `check_plan`, `plan_review_report`
+- consumes `task`, `plan`, `check_strategy`, `plan_review_report`
 - uses the generic `revise_plan.md` prompt
-- republishes updated `plan` and `check_plan`
+- republishes updated `plan` and `check_strategy`
 
 8. `IncrementPlanCycle`
 - increments the plan loop counter and returns to `ReviewPlan`
 
 9. `ExecutePlan`
-- consumes `task` and `plan`
+- consumes `task`, `plan`, and `check_strategy`
 - uses the generic `execute_plan.md` prompt
-- produces and publishes `execution_report`
+- produces and publishes `execution_report` and `check_plan`
 
 10. `RunChecks`
 - consumes `check_plan` via `consume_bundle`
 - reads the JSON check plan from the resolved artifact
 - executes each check's `argv`
 - writes per-check logs under `artifacts/checks/logs/`
-- writes structured results to `artifacts/checks/check-results.json`
+- writes structured results to `artifacts/checks/check-results.json`, including malformed or stale check-plan failures when possible
 - publishes `check_results`
 
 11. `ReviewImplementation`
-- consumes `task`, `plan`, `check_plan`, `execution_report`, `check_results`
+- consumes `task`, `plan`, `check_strategy`, `check_plan`, `execution_report`, `check_results`
 - uses the generic `review_implementation.md` prompt
 - produces and publishes `implementation_review_report` and `implementation_review_decision`
 
@@ -439,9 +439,9 @@ Context values in the example:
 - enforces `max_impl_cycles`
 
 14. `FixIssues`
-- consumes `task`, `plan`, `check_plan`, `execution_report`, `check_results`, `implementation_review_report`
+- consumes `task`, `plan`, `check_strategy`, `check_plan`, `execution_report`, `check_results`, `implementation_review_report`
 - uses the generic `fix_issues.md` prompt
-- republishes updated `execution_report`
+- republishes updated `execution_report` and `check_plan`
 
 15. `IncrementImplementationCycle`
 - increments the implementation loop counter and returns to `RunChecks`
@@ -455,6 +455,7 @@ Context values in the example:
 Top-level artifacts in the example workflow:
 - `task` (relpath)
 - `plan` (relpath)
+- `check_strategy` (relpath)
 - `check_plan` (relpath)
 - `plan_review_report` (relpath)
 - `plan_review_decision` (scalar enum)
@@ -616,7 +617,8 @@ The prompts and workflow should not say things like:
 Instead they say things like:
 - read the task artifact
 - derive a plan
-- derive a runnable check plan
+- derive a visible verification strategy
+- materialize a runnable check plan during execution
 - review for blocking correctness and verification gaps
 - write outputs to the contract paths
 

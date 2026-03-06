@@ -40,6 +40,7 @@ steps:
 
         printf '%s\n' 'state/task.md' > state/task_path.txt
         printf '%s\n' 'docs/plans/current-plan.md' > state/plan_path.txt
+        printf '%s\n' 'state/check_strategy.md' > state/check_strategy_path.txt
         printf '%s\n' 'state/check_plan.json' > state/check_plan_path.txt
         printf '%s\n' 'artifacts/review/plan-review.md' > state/plan_review_report_path.txt
         printf '%s\n' 'artifacts/work/execution-report.md' > state/execution_report_path.txt
@@ -56,6 +57,10 @@ steps:
         path: state/plan_path.txt
         type: relpath
         under: docs/plans
+      - name: check_strategy_path
+        path: state/check_strategy_path.txt
+        type: relpath
+        under: state
       - name: check_plan_path
         path: state/check_plan_path.txt
         type: relpath
@@ -123,16 +128,16 @@ steps:
         type: relpath
         under: docs/plans
         must_exist_target: true
-      - name: check_plan_path
-        path: state/check_plan_path.txt
+      - name: check_strategy_path
+        path: state/check_strategy_path.txt
         type: relpath
         under: state
         must_exist_target: true
     publishes:
       - artifact: plan
         from: plan_path
-      - artifact: check_plan
-        from: check_plan_path
+      - artifact: check_strategy
+        from: check_strategy_path
 
   - name: ReviewPlan
     provider: codex
@@ -147,11 +152,11 @@ steps:
         producers: ["DraftPlan", "RevisePlan"]
         policy: latest_successful
         freshness: any
-      - artifact: check_plan
+      - artifact: check_strategy
         producers: ["DraftPlan", "RevisePlan"]
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["task", "plan", "check_plan"]
+    prompt_consumes: ["task", "plan", "check_strategy"]
     expected_outputs:
       - name: plan_review_report_path
         path: state/plan_review_report_path.txt
@@ -203,7 +208,7 @@ steps:
         producers: ["DraftPlan", "RevisePlan"]
         policy: latest_successful
         freshness: any
-      - artifact: check_plan
+      - artifact: check_strategy
         producers: ["DraftPlan", "RevisePlan"]
         policy: latest_successful
         freshness: any
@@ -211,23 +216,23 @@ steps:
         producers: ["ReviewPlan"]
         policy: latest_successful
         freshness: since_last_consume
-    prompt_consumes: ["task", "plan", "check_plan", "plan_review_report"]
+    prompt_consumes: ["task", "plan", "check_strategy", "plan_review_report"]
     expected_outputs:
       - name: plan_path
         path: state/plan_path.txt
         type: relpath
         under: docs/plans
         must_exist_target: true
-      - name: check_plan_path
-        path: state/check_plan_path.txt
+      - name: check_strategy_path
+        path: state/check_strategy_path.txt
         type: relpath
         under: state
         must_exist_target: true
     publishes:
       - artifact: plan
         from: plan_path
-      - artifact: check_plan
-        from: check_plan_path
+      - artifact: check_strategy
+        from: check_strategy_path
     on:
       success:
         goto: IncrementPlanCycle
@@ -258,21 +263,32 @@ steps:
         producers: ["DraftPlan", "RevisePlan"]
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["task", "plan"]
+      - artifact: check_strategy
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["task", "plan", "check_strategy"]
     expected_outputs:
       - name: execution_report_path
         path: state/execution_report_path.txt
         type: relpath
         under: artifacts/work
         must_exist_target: true
+      - name: check_plan_path
+        path: state/check_plan_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
     publishes:
       - artifact: execution_report
         from: execution_report_path
+      - artifact: check_plan
+        from: check_plan_path
 
   - name: RunChecks
     consumes:
       - artifact: check_plan
-        producers: ["DraftPlan", "RevisePlan"]
+        producers: ["ExecutePlan", "FixIssues"]
         policy: latest_successful
         freshness: any
     consume_bundle:
@@ -288,41 +304,218 @@ steps:
         import time
         from pathlib import Path
 
-        bundle = json.loads(Path("state/consumes/run_checks.json").read_text(encoding="utf-8"))
-        check_plan_rel = bundle.get("check_plan")
-        if not isinstance(check_plan_rel, str) or not check_plan_rel:
-            raise SystemExit("check_plan missing from consume bundle")
-
-        check_plan_path = Path(check_plan_rel)
-        if check_plan_path.is_absolute() or ".." in check_plan_path.parts:
-            raise SystemExit(f"Unsafe check_plan path: {check_plan_rel}")
-
-        payload = json.loads(check_plan_path.read_text(encoding="utf-8"))
-        checks = payload.get("checks")
-        if not isinstance(checks, list) or not checks:
-            raise SystemExit("check_plan.json must contain a non-empty checks list")
-
         results = {"checks": [], "required_failed": 0, "optional_failed": 0}
         logs_dir = Path("artifacts/checks/logs")
         logs_dir.mkdir(parents=True, exist_ok=True)
+        log_counter = 0
+
+        def next_log_path(name):
+            global log_counter
+            log_counter += 1
+            safe_name = "".join(ch if ch.isalnum() or ch in ("-", "_") else "_" for ch in name)
+            return logs_dir / f"{log_counter:02d}-{safe_name}.log"
+
+        def record_result(
+            *,
+            name,
+            argv,
+            timeout_sec,
+            required,
+            exit_code,
+            timed_out,
+            duration_ms,
+            failure_category=None,
+            message=None,
+            stdout="",
+            stderr="",
+        ):
+            log_path = next_log_path(name)
+            parts = [
+                f"$ {' '.join(argv) if argv else '<invalid>'}\n",
+                f"exit_code={exit_code}\n",
+                f"timed_out={str(timed_out).lower()}\n",
+            ]
+            if failure_category:
+                parts.append(f"failure_category={failure_category}\n")
+            if message:
+                parts.append(f"message={message}\n")
+            if stdout:
+                parts.extend(["[stdout]\n", stdout if stdout.endswith("\n") else stdout + "\n"])
+            if stderr:
+                parts.extend(["[stderr]\n", stderr if stderr.endswith("\n") else stderr + "\n"])
+            log_path.write_text("".join(parts), encoding="utf-8")
+
+            if exit_code != 0:
+                if required:
+                    results["required_failed"] += 1
+                else:
+                    results["optional_failed"] += 1
+
+            entry = {
+                "name": name,
+                "argv": argv,
+                "timeout_sec": timeout_sec,
+                "required": required,
+                "exit_code": exit_code,
+                "timed_out": timed_out,
+                "duration_ms": duration_ms,
+                "log_path": str(log_path.as_posix()),
+                "passed": exit_code == 0,
+            }
+            if failure_category:
+                entry["failure_category"] = failure_category
+            if message:
+                entry["message"] = message
+            results["checks"].append(entry)
+
+        def finalize():
+            results["all_required_passed"] = results["required_failed"] == 0
+            Path("artifacts/checks/check-results.json").write_text(
+                json.dumps(results, indent=2) + "\n",
+                encoding="utf-8",
+            )
+
+        bundle = json.loads(Path("state/consumes/run_checks.json").read_text(encoding="utf-8"))
+        check_plan_rel = bundle.get("check_plan")
+        if not isinstance(check_plan_rel, str) or not check_plan_rel:
+            record_result(
+                name="check-plan-missing",
+                argv=[],
+                timeout_sec=0,
+                required=True,
+                exit_code=125,
+                timed_out=False,
+                duration_ms=0,
+                failure_category="invalid_check_plan",
+                message="check_plan missing from consume bundle",
+            )
+            finalize()
+            raise SystemExit(0)
+
+        check_plan_path = Path(check_plan_rel)
+        if check_plan_path.is_absolute() or ".." in check_plan_path.parts:
+            record_result(
+                name="check-plan-path-invalid",
+                argv=[],
+                timeout_sec=0,
+                required=True,
+                exit_code=125,
+                timed_out=False,
+                duration_ms=0,
+                failure_category="invalid_check_plan",
+                message=f"Unsafe check_plan path: {check_plan_rel}",
+            )
+            finalize()
+            raise SystemExit(0)
+
+        try:
+            payload = json.loads(check_plan_path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            record_result(
+                name="check-plan-missing-file",
+                argv=[],
+                timeout_sec=0,
+                required=True,
+                exit_code=125,
+                timed_out=False,
+                duration_ms=0,
+                failure_category="invalid_check_plan",
+                message=f"check_plan file does not exist: {check_plan_rel}",
+            )
+            finalize()
+            raise SystemExit(0)
+        except json.JSONDecodeError as exc:
+            record_result(
+                name="check-plan-json-invalid",
+                argv=[],
+                timeout_sec=0,
+                required=True,
+                exit_code=125,
+                timed_out=False,
+                duration_ms=0,
+                failure_category="invalid_check_plan",
+                message=f"check_plan is not valid JSON: {exc}",
+            )
+            finalize()
+            raise SystemExit(0)
+
+        checks = payload.get("checks")
+        if not isinstance(checks, list) or not checks:
+            record_result(
+                name="check-plan-empty",
+                argv=[],
+                timeout_sec=0,
+                required=True,
+                exit_code=125,
+                timed_out=False,
+                duration_ms=0,
+                failure_category="invalid_check_plan",
+                message="check_plan.json must contain a non-empty checks list",
+            )
+            finalize()
+            raise SystemExit(0)
 
         for index, check in enumerate(checks, start=1):
             if not isinstance(check, dict):
-                raise SystemExit(f"Invalid check entry at index {index}")
+                record_result(
+                    name=f"invalid-check-{index}",
+                    argv=[],
+                    timeout_sec=0,
+                    required=True,
+                    exit_code=125,
+                    timed_out=False,
+                    duration_ms=0,
+                    failure_category="invalid_check_definition",
+                    message=f"Invalid check entry at index {index}",
+                )
+                continue
             name = check.get("name")
             argv = check.get("argv")
             timeout_sec = check.get("timeout_sec")
             required = bool(check.get("required"))
             if not isinstance(name, str) or not name:
-                raise SystemExit(f"Check {index} missing name")
+                record_result(
+                    name=f"invalid-check-{index}",
+                    argv=argv if isinstance(argv, list) else [],
+                    timeout_sec=timeout_sec if isinstance(timeout_sec, int) else 0,
+                    required=True,
+                    exit_code=125,
+                    timed_out=False,
+                    duration_ms=0,
+                    failure_category="invalid_check_definition",
+                    message=f"Check {index} missing name",
+                )
+                continue
             if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
-                raise SystemExit(f"Check {name} has invalid argv")
+                record_result(
+                    name=name,
+                    argv=argv if isinstance(argv, list) else [],
+                    timeout_sec=timeout_sec if isinstance(timeout_sec, int) else 0,
+                    required=True,
+                    exit_code=125,
+                    timed_out=False,
+                    duration_ms=0,
+                    failure_category="invalid_check_definition",
+                    message=f"Check {name} has invalid argv",
+                )
+                continue
             if not isinstance(timeout_sec, int) or timeout_sec <= 0:
-                raise SystemExit(f"Check {name} has invalid timeout_sec")
+                record_result(
+                    name=name,
+                    argv=argv,
+                    timeout_sec=timeout_sec if isinstance(timeout_sec, int) else 0,
+                    required=True,
+                    exit_code=125,
+                    timed_out=False,
+                    duration_ms=0,
+                    failure_category="invalid_check_definition",
+                    message=f"Check {name} has invalid timeout_sec",
+                )
+                continue
 
-            safe_name = "".join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in name)
-            log_path = logs_dir / f"{index:02d}-{safe_name}.log"
+            log_path = next_log_path(name)
             started = time.time()
+            failure_category = None
             try:
                 proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout_sec)
                 timed_out = False
@@ -334,9 +527,24 @@ steps:
                 exit_code = 124
                 stdout = exc.stdout or ""
                 stderr = exc.stderr or ""
+                failure_category = "timeout"
+            except FileNotFoundError as exc:
+                timed_out = False
+                exit_code = 127
+                stdout = ""
+                stderr = str(exc)
+                failure_category = "missing_executable"
+            except OSError as exc:
+                timed_out = False
+                exit_code = 126
+                stdout = ""
+                stderr = str(exc)
+                failure_category = "execution_error"
 
             duration_ms = int((time.time() - started) * 1000)
             parts = [f"$ {' '.join(argv)}\n", f"exit_code={exit_code}\n", f"timed_out={str(timed_out).lower()}\n"]
+            if failure_category:
+                parts.append(f"failure_category={failure_category}\n")
             if stdout:
                 parts.extend(["[stdout]\n", stdout if stdout.endswith("\n") else stdout + "\n"])
             if stderr:
@@ -362,12 +570,10 @@ steps:
                     "passed": exit_code == 0,
                 }
             )
+            if failure_category:
+                results["checks"][-1]["failure_category"] = failure_category
 
-        results["all_required_passed"] = results["required_failed"] == 0
-        Path("artifacts/checks/check-results.json").write_text(
-            json.dumps(results, indent=2) + "\n",
-            encoding="utf-8",
-        )
+        finalize()
         PY
     expected_outputs:
       - name: check_results_path
@@ -392,8 +598,12 @@ steps:
         producers: ["DraftPlan", "RevisePlan"]
         policy: latest_successful
         freshness: any
-      - artifact: check_plan
+      - artifact: check_strategy
         producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: check_plan
+        producers: ["ExecutePlan", "FixIssues"]
         policy: latest_successful
         freshness: any
       - artifact: execution_report
@@ -404,7 +614,7 @@ steps:
         producers: ["RunChecks"]
         policy: latest_successful
         freshness: since_last_consume
-    prompt_consumes: ["task", "plan", "check_plan", "execution_report", "check_results"]
+    prompt_consumes: ["task", "plan", "check_strategy", "check_plan", "execution_report", "check_results"]
     expected_outputs:
       - name: implementation_review_report_path
         path: state/implementation_review_report_path.txt
@@ -456,8 +666,12 @@ steps:
         producers: ["DraftPlan", "RevisePlan"]
         policy: latest_successful
         freshness: any
-      - artifact: check_plan
+      - artifact: check_strategy
         producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: check_plan
+        producers: ["ExecutePlan", "FixIssues"]
         policy: latest_successful
         freshness: any
       - artifact: execution_report
@@ -476,6 +690,7 @@ steps:
       [
         "task",
         "plan",
+        "check_strategy",
         "check_plan",
         "execution_report",
         "check_results",
@@ -487,9 +702,16 @@ steps:
         type: relpath
         under: artifacts/work
         must_exist_target: true
+      - name: check_plan_path
+        path: state/check_plan_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
     publishes:
       - artifact: execution_report
         from: execution_report_path
+      - artifact: check_plan
+        from: check_plan_path
     on:
       success:
         goto: IncrementImplementationCycle
@@ -529,6 +751,11 @@ artifacts:
     pointer: state/plan_path.txt
     type: relpath
     under: docs/plans
+    must_exist_target: true
+  check_strategy:
+    pointer: state/check_strategy_path.txt
+    type: relpath
+    under: state
     must_exist_target: true
   check_plan:
     pointer: state/check_plan_path.txt

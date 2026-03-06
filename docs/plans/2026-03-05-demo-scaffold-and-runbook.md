@@ -94,6 +94,7 @@ Purpose:
 - provide visible planning and review aids in both arms
 - reinforce the same artifact vocabulary the workflow uses
 - avoid giving the workflow exclusive structure advantages
+- expose both plan-time verification strategy guidance and runtime check-plan guidance
 
 ## Workspace Provisioning
 

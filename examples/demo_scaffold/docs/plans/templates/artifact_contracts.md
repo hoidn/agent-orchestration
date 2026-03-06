@@ -4,7 +4,7 @@
 
 - `task`: `state/task.md`
 - `plan`: `docs/plans/current-plan.md`
-- `check_plan`: `state/check_plan.json`
+- `check_strategy`: `state/check_strategy.md`
 
 ## Review Artifacts
 
@@ -16,4 +16,5 @@
 ## Execution Artifacts
 
 - `execution_report`: `artifacts/work/execution-report.md`
+- `check_plan`: `state/check_plan.json`
 - `check_results`: `artifacts/checks/check-results.json`

@@ -219,11 +219,11 @@ These are expected to be reused across multiple steps.
 - Purpose: implementation plan derived from the task
 - Typical consumers: plan review, plan revision, execution, implementation review, fix
 
-#### `check_plan`
+#### `check_strategy`
 - Type: relpath
-- Canonical path: `state/check_plan.json`
-- Purpose: machine-readable visible verification plan
-- Typical consumers: plan review, run checks, implementation review, fix
+- Canonical path: `state/check_strategy.md`
+- Purpose: plan-time visible verification strategy
+- Typical consumers: plan review, execution, implementation review, fix
 
 ### Stage Artifacts
 
@@ -232,12 +232,18 @@ These are local to a phase or loop.
 #### `plan_review_report`
 - Type: relpath
 - Canonical path: `artifacts/review/plan-review.md`
-- Purpose: evidence-backed critique of the current plan/check plan
+- Purpose: evidence-backed critique of the current plan/check strategy
 
 #### `plan_review_decision`
 - Type: scalar enum
 - Allowed: `APPROVE`, `REVISE`
 - Purpose: binary gate for the plan loop
+
+#### `check_plan`
+- Type: relpath
+- Canonical path: `state/check_plan.json`
+- Purpose: runnable visible verification plan materialized during execution
+- Typical consumers: run checks, implementation review, fix
 
 #### `execution_report`
 - Type: relpath
@@ -266,11 +272,20 @@ These are local to a phase or loop.
 - Allowed: `APPROVE`, `REVISE`
 - Purpose: binary gate for the implementation loop
 
-## Check Plan Schema
+## Check Strategy and Check Plan Contract
 
-The workflow should use a fixed execution mechanism with runtime-derived commands.
+The workflow should use a fixed execution mechanism with runtime-derived commands, but should not force the plan loop to pretend that future tests already exist.
 
-Recommended schema:
+Plan-time `check_strategy`:
+- describes intended visible verification
+- distinguishes between checks that already exist and checks that should be created during execution
+- does not need every future command to already be runnable
+
+Implementation-time `check_plan`:
+- contains only runnable commands
+- is refreshed by execution/fix steps when verification changes
+
+Recommended `check_plan` schema:
 
 ```json
 {
@@ -295,7 +310,7 @@ Rationale:
 - keeps the workflow general
 - avoids hard-coding language or domain into the YAML
 - gives deterministic, structured execution
-- is reviewable before execution
+- keeps plan review honest about current repo state
 - produces concrete pass/fail evidence for later steps
 
 Do not rely on arbitrary shell strings by default. If needed later, a constrained escape hatch can be added, but the initial design should prefer structured `argv`.
@@ -313,24 +328,24 @@ Do not rely on arbitrary shell strings by default. If needed later, a constraine
 
 2. `DraftPlan`
 - Consumes: `task`
-- Produces: `plan`, `check_plan`
+- Produces: `plan`, `check_strategy`
 - Responsibility:
   - derive executable scope from the task
   - define implementation steps
   - define visible verification strategy
 
 3. `ReviewPlan`
-- Consumes: `task`, `plan`, `check_plan`
+- Consumes: `task`, `plan`, `check_strategy`
 - Produces: `plan_review_report`, `plan_review_decision`
 - Reject when:
   - plan is underspecified
   - plan has obvious correctness gaps
-  - verification strategy is weak, circular, or non-runnable
-  - check plan is too narrow for the stated task
+  - verification strategy is weak, circular, or implausible
+  - strategy does not credibly explain how runnable verification will exist by the implementation loop
 
 4. `RevisePlan`
-- Consumes: `task`, `plan`, `check_plan`, `plan_review_report`
-- Produces: updated `plan`, updated `check_plan`
+- Consumes: `task`, `plan`, `check_strategy`, `plan_review_report`
+- Produces: updated `plan`, updated `check_strategy`
 - Loop: returns to `ReviewPlan`
 
 This loop is bounded by `max_plan_cycles`.
@@ -338,17 +353,18 @@ This loop is bounded by `max_plan_cycles`.
 ### Phase 2: Implementation Loop
 
 5. `ExecutePlan`
-- Consumes: `task`, `plan`
-- Produces: `execution_report`
-- Responsibility: perform implementation work within the plan's scope
+- Consumes: `task`, `plan`, `check_strategy`
+- Produces: `execution_report`, `check_plan`
+- Responsibility: perform implementation work within the plan's scope and materialize the runnable verification plan
 
 6. `RunChecks`
 - Consumes: `check_plan`
 - Produces: `check_results`
 - Responsibility: execute the current verification plan exactly as written and persist logs/results
+- Failure mode: stale or malformed check plans should normally become structured `check_results`, not abort the workflow
 
 7. `ReviewImplementation`
-- Consumes: `task`, `plan`, `check_plan`, `execution_report`, `check_results`
+- Consumes: `task`, `plan`, `check_strategy`, `check_plan`, `execution_report`, `check_results`
 - Produces: `implementation_review_report`, `implementation_review_decision`
 - Reject when:
   - checks failed
@@ -357,8 +373,8 @@ This loop is bounded by `max_plan_cycles`.
 - Do not reject for style-only concerns
 
 8. `FixIssues`
-- Consumes: `task`, `plan`, `check_plan`, `execution_report`, `check_results`, `implementation_review_report`
-- Produces: updated code/tests and a refreshed `execution_report`
+- Consumes: `task`, `plan`, `check_strategy`, `check_plan`, `execution_report`, `check_results`, `implementation_review_report`
+- Produces: updated code/tests, a refreshed `execution_report`, and a refreshed `check_plan`
 - Loop: returns to `RunChecks`, then `ReviewImplementation`
 
 This loop is bounded by `max_impl_cycles`.
@@ -374,7 +390,8 @@ The prompts should be generic. They should not say things like:
 They should say things like:
 - read the consumed artifacts before acting
 - draft an implementation plan for the task
-- derive a runnable check plan from task requirements and repo state
+- derive a visible verification strategy from task requirements and repo state
+- materialize a runnable check plan after execution has created the relevant checks
 - review for blocking correctness and verification gaps
 - keep work scoped to the task and plan
 - produce outputs exactly at the contract paths
@@ -421,7 +438,8 @@ Even if the plan says tests should be written, a dedicated check step is still r
 - a weak or incomplete test suite should be visible as a review concern
 
 So the intended split is:
-- planning/execution may add or modify tests
+- planning defines verification intent
+- execution/fix may add or modify tests
 - `RunChecks` executes the current check plan
 - review inspects both the code and the concrete check results
 

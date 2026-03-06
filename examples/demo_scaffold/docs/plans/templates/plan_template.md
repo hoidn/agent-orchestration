@@ -10,4 +10,6 @@
 
 ## Verification Strategy
 
+Document what visible verification should exist by the end of execution, and which parts must be created during implementation.
+
 ## Completion Criteria

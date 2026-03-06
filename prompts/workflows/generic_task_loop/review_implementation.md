@@ -6,7 +6,7 @@ Also read these repo-local references:
 - `docs/plans/templates/review_template.md`
 
 Task:
-Review the implementation for blocking correctness issues using the task, current plan, check plan, execution report, and concrete check results.
+Review the implementation for blocking correctness issues using the task, current plan, check strategy, runnable check plan, execution report, and concrete check results.
 
 Decision rule:
 - `APPROVE` only if no blocking correctness issues remain.

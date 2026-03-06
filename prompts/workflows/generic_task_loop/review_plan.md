@@ -7,17 +7,18 @@ Also read these repo-local references:
 - `docs/plans/templates/review_template.md`
 
 Task:
-Review the current plan and check plan for executability and verification quality.
+Review the current plan and check strategy for executability and verification quality.
 
 Decision rule:
-- `APPROVE` only if the plan is concrete enough to execute and the check plan is runnable and sufficiently strong for visible verification.
+- `APPROVE` only if the plan is concrete enough to execute and the check strategy provides a credible path to strong visible verification.
 - `REVISE` if there are blocking scope, execution, or verification gaps.
 
 Reject for:
 - underspecified implementation steps
 - obvious correctness or scope gaps
-- weak, circular, or non-runnable verification
-- checks that are too narrow for the stated task
+- weak, circular, or implausible verification strategy
+- failure to explain how runnable verification will exist by the implementation loop
+- a strategy that is too narrow for the stated task
 
 Do not reject for:
 - style preferences

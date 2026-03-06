@@ -8,11 +8,11 @@ Also read these repo-local references before drafting outputs:
 
 Task:
 - Derive an executable implementation plan from the current task.
-- Derive a runnable visible verification plan from the task and current repo state.
+- Derive a visible verification strategy from the task and current repo state.
 
 Required outputs:
 - Produce a `plan` artifact that is concrete, scoped, and executable.
-- Produce a `check_plan` artifact that follows the check-plan schema and contains runnable checks.
+- Produce a `check_strategy` artifact that explains the intended visible verification and expected runnable checks.
 - Write every required artifact exactly as specified by the output contract for this invocation.
 
 Planning requirements:
@@ -22,10 +22,10 @@ Planning requirements:
 - Describe the implementation sequence.
 - Align the plan with a realistic visible verification strategy.
 
-Check-plan requirements:
-- Use structured `argv` commands, not shell strings, unless the surrounding contract explicitly allows otherwise.
-- Include only checks that are runnable in the current repo.
-- Prefer high-signal checks over broad or noisy ones.
+Verification-strategy requirements:
+- Prefer high-signal behavioral checks over broad or noisy ones.
+- Distinguish between checks that already exist and checks that should be created during execution.
+- Do not fabricate runnable commands that do not exist yet.
 - Do not rely on hidden evaluator behavior.
 
 Constraints:
