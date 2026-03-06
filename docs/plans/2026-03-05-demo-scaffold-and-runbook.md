@@ -113,6 +113,15 @@ Recommended provisioning method:
 2. materialize `direct-run/` and `workflow-run/` from that same commit
 3. record the starting commit SHA in both workspaces
 
+Recommended command:
+
+```bash
+python scripts/demo/provision_trial.py \
+  --seed-repo /path/to/task-seed-repo \
+  --experiment-root /path/to/experiment-root \
+  --task-file /path/to/task.md
+```
+
 Git policy:
 - each arm gets an isolated branch or detached worktree label
 - commits are allowed but not required

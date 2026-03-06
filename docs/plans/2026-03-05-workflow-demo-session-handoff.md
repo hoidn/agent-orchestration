@@ -437,26 +437,21 @@ The current design direction is:
 
 ## 8. What still needs to be done next
 
-The next unimplemented pieces are:
+Some items originally listed as pending have since been implemented in the repository. The remaining and updated next steps are below.
 
-### 8.1 Build the shared scaffold seed
+### 8.1 Shared scaffold seed and runbook
 
-This is the most immediate next step.
+This is no longer pending.
 
-Needed outputs:
-- a scaffold repo or scaffold seed directory that both arms can start from
-- common files such as:
-  - `AGENTS.md`
-  - `docs/index.md`
-  - `docs/dev_guidelines.md`
-  - `docs/backlog/active/`
-  - `docs/plans/templates/`
-  - `artifacts/`
-  - `state/`
-  - a Python reference module
-  - a Rust crate skeleton
+Implemented artifacts now exist at:
+- `examples/demo_scaffold/`
+- `docs/plans/2026-03-05-demo-scaffold-and-runbook.md`
 
-This step has not been completed in this session.
+These files provide:
+- the seed workspace tree
+- shared `AGENTS.md`, `docs/index.md`, and `docs/dev_guidelines.md`
+- planning/review/check-plan templates
+- provisioning, launch, freeze, and grading conventions
 
 ### 8.2 Build candidate tasks
 
@@ -471,31 +466,38 @@ The first recommended candidate is numerical ML utility translation because it i
 
 No concrete task fixture was built in this session.
 
-### 8.3 Write the experiment runbook
+### 8.3 Provisioning utility
 
-The design doc currently describes experiment operations at the policy level, but there is still no dedicated runbook for mechanics.
+This is no longer pending.
 
-A future runbook should specify:
-- provisioning commands
-- launch commands for the direct and workflow arms
-- whether to start them truly in parallel or simply independently from the same seed
-- timeout and wait behavior
-- freeze/archive behavior
-- hidden evaluator invocation
-- result schema and grading summary format
-- rerun policy
+Implemented artifacts now exist at:
+- `orchestrator/demo/provisioning.py`
+- `scripts/demo/provision_trial.py`
+- `tests/test_demo_provisioning.py`
 
-This runbook does not exist yet.
+The provisioning utility now:
+- stamps out `seed/`, `direct-run/`, and `workflow-run/` from one commit using git worktrees
+- creates `archive/` and `evaluator/` directories
+- injects identical task content into both run workspaces
+- records start-commit metadata in `trial-metadata.json`
 
-### 8.4 Possibly add tests or stronger validation around the new workflow
+### 8.4 Add a first task fixture and hidden evaluator
+
+The most important remaining implementation work is now:
+- create the first task-specific Python-to-Rust ML-adjacent seed repo
+- add the hidden evaluator for that task family
+- define the archived result schema for trial comparisons
+
+### 8.5 Possibly add stronger end-to-end validation around the workflow demo path
 
 Current validation status:
-- prompt/contract docs: documentation-only, no tests
-- workflow example: dry-run validation only
+- prompt/contract docs: documentation-only
+- workflow example: dry-run validation succeeded
+- provisioning utility: targeted pytest coverage exists
 
 Possible future hardening:
-- add a smoke test or example validation test for the new workflow
-- add a runbook that demonstrates a minimal end-to-end execution against a toy task
+- add a smoke test that provisions a toy seed and validates expected workspace outputs
+- add a minimal end-to-end demo run against a toy task
 
 ## 9. Things that came up during the session and matter for anyone continuing
 
