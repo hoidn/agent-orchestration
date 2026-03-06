@@ -1,0 +1,565 @@
+version: "1.4"
+name: "generic-task-plan-execute-review-loop"
+context:
+  task_source: "docs/backlog/active/task.md"
+  max_plan_cycles: "2"
+  max_impl_cycles: "4"
+
+providers:
+  codex:
+    command:
+      [
+        "codex",
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--skip-git-repo-check",
+        "--model",
+        "${model}",
+        "--config",
+        "reasoning_effort=${reasoning_effort}",
+      ]
+    input_mode: stdin
+    defaults:
+      model: "gpt-5.3-codex"
+      reasoning_effort: "high"
+
+steps:
+  - name: InitializeWorkflowState
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p \
+          state \
+          state/consumes \
+          docs/backlog/active \
+          docs/plans \
+          artifacts/work \
+          artifacts/checks/logs \
+          artifacts/review
+
+        printf '%s\n' 'state/task.md' > state/task_path.txt
+        printf '%s\n' 'docs/plans/current-plan.md' > state/plan_path.txt
+        printf '%s\n' 'state/check_plan.json' > state/check_plan_path.txt
+        printf '%s\n' 'artifacts/review/plan-review.md' > state/plan_review_report_path.txt
+        printf '%s\n' 'artifacts/work/execution-report.md' > state/execution_report_path.txt
+        printf '%s\n' 'artifacts/checks/check-results.json' > state/check_results_path.txt
+        printf '%s\n' 'artifacts/review/implementation-review.md' > state/implementation_review_report_path.txt
+        printf '0\n' > state/plan_cycle.txt
+        printf '0\n' > state/implementation_cycle.txt
+    expected_outputs:
+      - name: task_path
+        path: state/task_path.txt
+        type: relpath
+        under: state
+      - name: plan_path
+        path: state/plan_path.txt
+        type: relpath
+        under: docs/plans
+      - name: check_plan_path
+        path: state/check_plan_path.txt
+        type: relpath
+        under: state
+      - name: plan_review_report_path
+        path: state/plan_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+      - name: execution_report_path
+        path: state/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+      - name: check_results_path
+        path: state/check_results_path.txt
+        type: relpath
+        under: artifacts/checks
+      - name: implementation_review_report_path
+        path: state/implementation_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+      - name: plan_cycle
+        path: state/plan_cycle.txt
+        type: integer
+      - name: implementation_cycle
+        path: state/implementation_cycle.txt
+        type: integer
+
+  - name: CaptureTask
+    command:
+      - bash
+      - -lc
+      - |
+        src="${context.task_source}"
+        dst="state/task.md"
+
+        if [ ! -f "$src" ]; then
+          echo "Missing task source: $src" >&2
+          exit 1
+        fi
+
+        cp "$src" "$dst"
+    expected_outputs:
+      - name: task_path
+        path: state/task_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+    publishes:
+      - artifact: task
+        from: task_path
+
+  - name: DraftPlan
+    provider: codex
+    input_file: prompts/workflows/generic_task_loop/draft_plan.md
+    timeout_sec: 3600
+    consumes:
+      - artifact: task
+        producers: ["CaptureTask"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["task"]
+    expected_outputs:
+      - name: plan_path
+        path: state/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+      - name: check_plan_path
+        path: state/check_plan_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+    publishes:
+      - artifact: plan
+        from: plan_path
+      - artifact: check_plan
+        from: check_plan_path
+
+  - name: ReviewPlan
+    provider: codex
+    input_file: prompts/workflows/generic_task_loop/review_plan.md
+    timeout_sec: 1800
+    consumes:
+      - artifact: task
+        producers: ["CaptureTask"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: check_plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["task", "plan", "check_plan"]
+    expected_outputs:
+      - name: plan_review_report_path
+        path: state/plan_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: plan_review_decision
+        path: state/plan_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]
+    publishes:
+      - artifact: plan_review_report
+        from: plan_review_report_path
+      - artifact: plan_review_decision
+        from: plan_review_decision
+
+  - name: PlanReviewGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/plan_review_decision.txt)" = "APPROVE"'
+    on:
+      success:
+        goto: ExecutePlan
+      failure:
+        goto: PlanCycleGate
+
+  - name: PlanCycleGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/plan_cycle.txt)" -lt "${context.max_plan_cycles}"'
+    on:
+      success:
+        goto: RevisePlan
+      failure:
+        goto: MaxPlanCyclesExceeded
+
+  - name: RevisePlan
+    provider: codex
+    input_file: prompts/workflows/generic_task_loop/revise_plan.md
+    timeout_sec: 3600
+    consumes:
+      - artifact: task
+        producers: ["CaptureTask"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: check_plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan_review_report
+        producers: ["ReviewPlan"]
+        policy: latest_successful
+        freshness: since_last_consume
+    prompt_consumes: ["task", "plan", "check_plan", "plan_review_report"]
+    expected_outputs:
+      - name: plan_path
+        path: state/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+      - name: check_plan_path
+        path: state/check_plan_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+    publishes:
+      - artifact: plan
+        from: plan_path
+      - artifact: check_plan
+        from: check_plan_path
+    on:
+      success:
+        goto: IncrementPlanCycle
+
+  - name: IncrementPlanCycle
+    command:
+      - bash
+      - -lc
+      - 'c=$(cat state/plan_cycle.txt); printf "%s\n" "$((c+1))" > state/plan_cycle.txt'
+    expected_outputs:
+      - name: plan_cycle
+        path: state/plan_cycle.txt
+        type: integer
+    on:
+      success:
+        goto: ReviewPlan
+
+  - name: ExecutePlan
+    provider: codex
+    input_file: prompts/workflows/generic_task_loop/execute_plan.md
+    timeout_sec: 43200
+    consumes:
+      - artifact: task
+        producers: ["CaptureTask"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["task", "plan"]
+    expected_outputs:
+      - name: execution_report_path
+        path: state/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_report
+        from: execution_report_path
+
+  - name: RunChecks
+    consumes:
+      - artifact: check_plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+    consume_bundle:
+      path: state/consumes/run_checks.json
+      include: ["check_plan"]
+    command:
+      - bash
+      - -lc
+      - |
+        python - <<'PY'
+        import json
+        import subprocess
+        import time
+        from pathlib import Path
+
+        bundle = json.loads(Path("state/consumes/run_checks.json").read_text(encoding="utf-8"))
+        check_plan_rel = bundle.get("check_plan")
+        if not isinstance(check_plan_rel, str) or not check_plan_rel:
+            raise SystemExit("check_plan missing from consume bundle")
+
+        check_plan_path = Path(check_plan_rel)
+        if check_plan_path.is_absolute() or ".." in check_plan_path.parts:
+            raise SystemExit(f"Unsafe check_plan path: {check_plan_rel}")
+
+        payload = json.loads(check_plan_path.read_text(encoding="utf-8"))
+        checks = payload.get("checks")
+        if not isinstance(checks, list) or not checks:
+            raise SystemExit("check_plan.json must contain a non-empty checks list")
+
+        results = {"checks": [], "required_failed": 0, "optional_failed": 0}
+        logs_dir = Path("artifacts/checks/logs")
+        logs_dir.mkdir(parents=True, exist_ok=True)
+
+        for index, check in enumerate(checks, start=1):
+            if not isinstance(check, dict):
+                raise SystemExit(f"Invalid check entry at index {index}")
+            name = check.get("name")
+            argv = check.get("argv")
+            timeout_sec = check.get("timeout_sec")
+            required = bool(check.get("required"))
+            if not isinstance(name, str) or not name:
+                raise SystemExit(f"Check {index} missing name")
+            if not isinstance(argv, list) or not argv or not all(isinstance(arg, str) for arg in argv):
+                raise SystemExit(f"Check {name} has invalid argv")
+            if not isinstance(timeout_sec, int) or timeout_sec <= 0:
+                raise SystemExit(f"Check {name} has invalid timeout_sec")
+
+            safe_name = "".join(ch if ch.isalnum() or ch in ('-', '_') else '_' for ch in name)
+            log_path = logs_dir / f"{index:02d}-{safe_name}.log"
+            started = time.time()
+            try:
+                proc = subprocess.run(argv, capture_output=True, text=True, timeout=timeout_sec)
+                timed_out = False
+                exit_code = proc.returncode
+                stdout = proc.stdout
+                stderr = proc.stderr
+            except subprocess.TimeoutExpired as exc:
+                timed_out = True
+                exit_code = 124
+                stdout = exc.stdout or ""
+                stderr = exc.stderr or ""
+
+            duration_ms = int((time.time() - started) * 1000)
+            parts = [f"$ {' '.join(argv)}\n", f"exit_code={exit_code}\n", f"timed_out={str(timed_out).lower()}\n"]
+            if stdout:
+                parts.extend(["[stdout]\n", stdout if stdout.endswith("\n") else stdout + "\n"])
+            if stderr:
+                parts.extend(["[stderr]\n", stderr if stderr.endswith("\n") else stderr + "\n"])
+            log_path.write_text("".join(parts), encoding="utf-8")
+
+            if exit_code != 0:
+                if required:
+                    results["required_failed"] += 1
+                else:
+                    results["optional_failed"] += 1
+
+            results["checks"].append(
+                {
+                    "name": name,
+                    "argv": argv,
+                    "timeout_sec": timeout_sec,
+                    "required": required,
+                    "exit_code": exit_code,
+                    "timed_out": timed_out,
+                    "duration_ms": duration_ms,
+                    "log_path": str(log_path.as_posix()),
+                    "passed": exit_code == 0,
+                }
+            )
+
+        results["all_required_passed"] = results["required_failed"] == 0
+        Path("artifacts/checks/check-results.json").write_text(
+            json.dumps(results, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        PY
+    expected_outputs:
+      - name: check_results_path
+        path: state/check_results_path.txt
+        type: relpath
+        under: artifacts/checks
+        must_exist_target: true
+    publishes:
+      - artifact: check_results
+        from: check_results_path
+
+  - name: ReviewImplementation
+    provider: codex
+    input_file: prompts/workflows/generic_task_loop/review_implementation.md
+    timeout_sec: 1800
+    consumes:
+      - artifact: task
+        producers: ["CaptureTask"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: check_plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: execution_report
+        producers: ["ExecutePlan", "FixIssues"]
+        policy: latest_successful
+        freshness: any
+      - artifact: check_results
+        producers: ["RunChecks"]
+        policy: latest_successful
+        freshness: since_last_consume
+    prompt_consumes: ["task", "plan", "check_plan", "execution_report", "check_results"]
+    expected_outputs:
+      - name: implementation_review_report_path
+        path: state/implementation_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: implementation_review_decision
+        path: state/implementation_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]
+    publishes:
+      - artifact: implementation_review_report
+        from: implementation_review_report_path
+      - artifact: implementation_review_decision
+        from: implementation_review_decision
+
+  - name: ImplementationReviewGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/implementation_review_decision.txt)" = "APPROVE"'
+    on:
+      success:
+        goto: _end
+      failure:
+        goto: ImplementationCycleGate
+
+  - name: ImplementationCycleGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/implementation_cycle.txt)" -lt "${context.max_impl_cycles}"'
+    on:
+      success:
+        goto: FixIssues
+      failure:
+        goto: MaxImplementationCyclesExceeded
+
+  - name: FixIssues
+    provider: codex
+    input_file: prompts/workflows/generic_task_loop/fix_issues.md
+    timeout_sec: 43200
+    consumes:
+      - artifact: task
+        producers: ["CaptureTask"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: check_plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: execution_report
+        producers: ["ExecutePlan", "FixIssues"]
+        policy: latest_successful
+        freshness: any
+      - artifact: check_results
+        producers: ["RunChecks"]
+        policy: latest_successful
+        freshness: any
+      - artifact: implementation_review_report
+        producers: ["ReviewImplementation"]
+        policy: latest_successful
+        freshness: since_last_consume
+    prompt_consumes:
+      [
+        "task",
+        "plan",
+        "check_plan",
+        "execution_report",
+        "check_results",
+        "implementation_review_report",
+      ]
+    expected_outputs:
+      - name: execution_report_path
+        path: state/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_report
+        from: execution_report_path
+    on:
+      success:
+        goto: IncrementImplementationCycle
+
+  - name: IncrementImplementationCycle
+    command:
+      - bash
+      - -lc
+      - 'c=$(cat state/implementation_cycle.txt); printf "%s\n" "$((c+1))" > state/implementation_cycle.txt'
+    expected_outputs:
+      - name: implementation_cycle
+        path: state/implementation_cycle.txt
+        type: integer
+    on:
+      success:
+        goto: RunChecks
+
+  - name: MaxPlanCyclesExceeded
+    command:
+      - bash
+      - -lc
+      - 'echo "Reached max plan cycles without plan approval" >&2; exit 1'
+
+  - name: MaxImplementationCyclesExceeded
+    command:
+      - bash
+      - -lc
+      - 'echo "Reached max implementation cycles without approval" >&2; exit 1'
+
+artifacts:
+  task:
+    pointer: state/task_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
+  plan:
+    pointer: state/plan_path.txt
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  check_plan:
+    pointer: state/check_plan_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
+  plan_review_report:
+    pointer: state/plan_review_report_path.txt
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+  execution_report:
+    pointer: state/execution_report_path.txt
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+  check_results:
+    pointer: state/check_results_path.txt
+    type: relpath
+    under: artifacts/checks
+    must_exist_target: true
+  implementation_review_report:
+    pointer: state/implementation_review_report_path.txt
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
