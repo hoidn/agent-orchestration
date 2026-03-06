@@ -207,7 +207,15 @@ Evaluation rules:
 Recommended evaluator outputs:
 - verdict: `PASS` or `FAIL`
 - machine-readable score summary
+- separate soft-quality report that does not override the hard verdict
 - failure categories such as:
+
+Task-specific evaluator command for the first seed:
+
+```bash
+python scripts/demo/evaluate_linear_classifier.py /path/to/frozen-workspace
+```
+
   - behavioral mismatch
   - missing required files
   - inadequate edge-case handling
