@@ -180,6 +180,23 @@ Operational rules:
 - preserve the workflow artifact tree after completion
 - do not patch prompts between trials unless you are intentionally changing the experiment definition
 
+### Trial Runner
+
+The repo now includes a thin runner that provisions a trial, launches both arms, freezes workspace metadata, invokes the selected evaluator, and writes one comparison record.
+
+Concrete command:
+
+```bash
+python scripts/demo/run_trial.py \
+  --seed-repo /path/to/task-seed-repo \
+  --experiment-root /path/to/experiment-root \
+  --task-file /path/to/task.md
+```
+
+Current defaults:
+- workflow: `workflows/examples/generic_task_plan_execute_review_loop.yaml`
+- direct prompt: `Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.`
+
 ## Freeze and Archive
 
 At end-of-run:
@@ -195,6 +212,13 @@ Minimum archive contents:
 - workflow-run launcher command
 - workflow artifact outputs
 - timestamps and duration
+
+Current archive files produced by the runner:
+- `archive/direct-command.json`
+- `archive/workflow-command.json`
+- `archive/direct-run-metadata.json`
+- `archive/workflow-run-metadata.json`
+- `archive/trial-result.json`
 
 ## Grading Flow
 
@@ -217,6 +241,11 @@ Task-specific evaluator command for the first seed:
 python scripts/demo/evaluate_linear_classifier.py /path/to/frozen-workspace
 ```
 
+Current evaluator dispatch note:
+- evaluator selection is minimal and currently keyed by seed directory name inside `orchestrator/demo/trial_runner.py`
+- `demo_task_linear_classifier_port` dispatches to `scripts/demo/evaluate_linear_classifier.py`
+- additional seeds will need either matching dispatch entries or a stronger explicit metadata contract
+
   - behavioral mismatch
   - missing required files
   - inadequate edge-case handling
@@ -235,6 +264,9 @@ Each trial should produce one comparison record with:
 - notable failure categories
 - whether the workflow exercised plan revision
 - whether the workflow exercised implementation revision
+
+Current result location:
+- `archive/trial-result.json`
 
 ## Immediate Follow-On Work
 

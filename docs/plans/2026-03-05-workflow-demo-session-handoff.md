@@ -550,7 +550,16 @@ Candidate families discussed:
 
 The first recommended candidate is numerical ML utility translation because it is easiest to scaffold and explain.
 
-No concrete task fixture was built in this session.
+This is partially implemented now:
+- `examples/demo_task_linear_classifier_port/`
+- `orchestrator/demo/evaluators/linear_classifier.py`
+- `scripts/demo/evaluate_linear_classifier.py`
+- `tests/test_demo_linear_classifier_evaluator.py`
+- `tests/test_demo_task_seed.py`
+
+Current state:
+- one concrete linear-classifier seed exists and is evaluator-backed
+- a second seed is still pending
 
 ### 8.3 Provisioning utility
 
@@ -569,10 +578,18 @@ The provisioning utility now:
 
 ### 8.4 Add a first task fixture and hidden evaluator
 
+This is no longer pending for the first task.
+
+Implemented artifacts now exist at:
+- `examples/demo_task_linear_classifier_port/`
+- `orchestrator/demo/evaluators/linear_classifier.py`
+- `scripts/demo/evaluate_linear_classifier.py`
+- `tests/test_demo_linear_classifier_evaluator.py`
+
 The most important remaining implementation work is now:
-- create the first task-specific Python-to-Rust ML-adjacent seed repo
-- add the hidden evaluator for that task family
-- define the archived result schema for trial comparisons
+- add the second task seed
+- add evaluator integration for that seed
+- harden the archived result schema if the current one proves too thin
 
 ### 8.5 Possibly add stronger end-to-end validation around the workflow demo path
 
@@ -580,6 +597,8 @@ Current validation status:
 - prompt/contract docs: documentation-only
 - workflow example: dry-run validation succeeded
 - provisioning utility: targeted pytest coverage exists
+- trial runner: targeted pytest coverage exists
+- provisioned-workspace smoke path for the first seed: targeted pytest coverage exists
 
 Possible future hardening:
 - add a smoke test that provisions a toy seed and validates expected workspace outputs
@@ -648,17 +667,35 @@ The task domain is meant to arrive via runtime artifacts, not baked-in prompt te
 - File: `workflows/examples/generic_task_plan_execute_review_loop.yaml`
 - Commit: `9b22a24` `docs: add generic task workflow example`
 
+### Demo scaffold, provisioning, runner, and first evaluated seed
+- Files:
+  - `examples/demo_scaffold/`
+  - `examples/demo_task_linear_classifier_port/`
+  - `orchestrator/demo/provisioning.py`
+  - `orchestrator/demo/evaluators/linear_classifier.py`
+  - `orchestrator/demo/trial_runner.py`
+  - `scripts/demo/provision_trial.py`
+  - `scripts/demo/evaluate_linear_classifier.py`
+  - `scripts/demo/run_trial.py`
+  - `tests/demo_helpers.py`
+  - `tests/test_demo_provisioning.py`
+  - `tests/test_demo_linear_classifier_evaluator.py`
+  - `tests/test_demo_task_seed.py`
+  - `tests/test_demo_trial_smoke.py`
+  - `tests/test_demo_trial_runner.py`
+- Commits created after the original design session:
+  - `ce3b788` `test: add demo trial smoke coverage`
+
 ## 11. Recommended continuation order
 
 If picking up from this handoff, the recommended order is:
 
-1. Build the shared scaffold seed directory or repo.
-2. Decide where the experiment root will live on disk.
-3. Add a runbook for provisioning, launching, freezing, and grading both arms.
-4. Create the first concrete Python-to-Rust ML-adjacent task fixture.
-5. Run the direct and workflow arms against that fixture.
-6. Observe whether the workflow naturally exercises at least one revision cycle.
-7. If not, adjust the task family or visible-check design until the workflow advantage becomes visible but remains fair.
+1. Finish the trial runner and archive/reporting docs integration.
+2. Add the second concrete Python-to-Rust ML-adjacent task seed.
+3. Add evaluator integration for that second seed.
+4. Run the direct and workflow arms against the first seed using the new runner.
+5. Observe whether the workflow naturally exercises at least one revision cycle.
+6. If not, adjust the task family or visible-check design until the workflow advantage becomes visible but remains fair.
 
 ## 12. Bottom line
 
@@ -669,12 +706,16 @@ What now exists:
 - artifact-contract and template docs
 - a generic prompt set for the two-loop workflow
 - a validating example workflow YAML
+- a shared scaffold seed
+- a first task-specific seed and evaluator
+- a provisioning utility
+- a trial runner API and CLI
+- smoke and runner pytest coverage for the first evaluated path
 
 What does not yet exist:
-- the actual shared scaffold repo contents for the experiment
-- the experiment runbook for launching and grading both arms
-- the first concrete candidate task fixture
-- an end-to-end executed demo proving the direct-vs-workflow gap
+- a second evaluator-backed task seed
+- a real end-to-end executed demo proving the direct-vs-workflow gap
+- stronger evaluator-selection metadata than the current seed-name dispatch
 
 A new engineer should be able to continue from here without needing the original chat, provided they start by reading:
 1. this handoff document

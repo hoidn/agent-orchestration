@@ -1,0 +1,173 @@
+from __future__ import annotations
+
+import json
+import subprocess
+import sys
+from pathlib import Path
+
+from orchestrator.demo.trial_runner import build_direct_command, build_workflow_command, run_trial
+
+
+ROOT = Path(__file__).resolve().parent.parent
+WORKFLOW = ROOT / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"
+LINEAR_EVAL = ROOT / "scripts" / "demo" / "evaluate_linear_classifier.py"
+
+
+def test_build_direct_command_matches_expected_cli_shape():
+    prompt = "Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md."
+
+    command = build_direct_command(prompt)
+
+    assert command == [
+        "codex",
+        "exec",
+        "--dangerously-bypass-approvals-and-sandbox",
+        "--skip-git-repo-check",
+        prompt,
+    ]
+
+
+def test_build_workflow_command_matches_expected_cli_shape():
+    command = build_workflow_command(
+        workflow_path=WORKFLOW,
+        task_source="state/task.md",
+        repo_root=ROOT,
+    )
+
+    assert command == [
+        sys.executable,
+        "-m",
+        "orchestrator",
+        "run",
+        str(WORKFLOW),
+        "--context",
+        "task_source=state/task.md",
+    ]
+
+
+def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, monkeypatch):
+    experiment_root = tmp_path / "experiment"
+    seed_repo = tmp_path / "demo_task_linear_classifier_port"
+    task_file = tmp_path / "task.md"
+    task_file.write_text("translate the module\n")
+    direct_workspace = experiment_root / "direct-run"
+    workflow_workspace = experiment_root / "workflow-run"
+    archive_dir = experiment_root / "archive"
+    for path in (direct_workspace, workflow_workspace, archive_dir):
+        path.mkdir(parents=True, exist_ok=True)
+
+    provision_calls: list[dict[str, object]] = []
+    subprocess_calls: list[tuple[list[str], Path | None]] = []
+
+    def fake_provision_trial(**kwargs):
+        provision_calls.append(kwargs)
+        return {
+            "seed_repo": str(seed_repo),
+            "task_file": str(task_file),
+            "start_commit": "abc123",
+            "workspaces": {
+                "seed": str(experiment_root / "seed"),
+                "direct_run": str(direct_workspace),
+                "workflow_run": str(workflow_workspace),
+            },
+        }
+
+    def fake_run(args, cwd=None, check=False, capture_output=False, text=False, **_):
+        subprocess_calls.append((list(args), Path(cwd) if cwd is not None else None))
+        command = list(args)
+        if command[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout=" M changed.txt\n", stderr="")
+        if command[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout="abc123\n", stderr="")
+        if command[:2] == ["codex", "exec"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout="direct ok\n", stderr="")
+        if command[:4] == [sys.executable, "-m", "orchestrator", "run"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout="workflow ok\n", stderr="")
+        if command[:2] == [sys.executable, str(LINEAR_EVAL)]:
+            workspace = Path(command[2])
+            verdict = "PASS" if workspace == workflow_workspace else "FAIL"
+            return subprocess.CompletedProcess(
+                args=command,
+                returncode=0 if verdict == "PASS" else 1,
+                stdout=json.dumps(
+                    {
+                        "verdict": verdict,
+                        "failure_categories": [] if verdict == "PASS" else ["hidden_acceptance_failed"],
+                        "summary": {"hidden_tests_passed": verdict == "PASS"},
+                        "soft_quality": {"score": 1.0 if verdict == "PASS" else 0.2, "findings": []},
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected subprocess call: {command}")
+
+    monkeypatch.setattr("orchestrator.demo.trial_runner.provision_trial", fake_provision_trial)
+    monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.run", fake_run)
+
+    result = run_trial(
+        seed_repo=seed_repo,
+        experiment_root=experiment_root,
+        task_file=task_file,
+        workflow_path=WORKFLOW,
+        direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
+        commitish="HEAD",
+    )
+
+    assert provision_calls == [
+        {
+            "seed_repo": seed_repo,
+            "experiment_root": experiment_root,
+            "task_file": task_file,
+            "commitish": "HEAD",
+        }
+    ]
+    assert subprocess_calls == [
+        (
+            [
+                "codex",
+                "exec",
+                "--dangerously-bypass-approvals-and-sandbox",
+                "--skip-git-repo-check",
+                "Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
+            ],
+            direct_workspace,
+        ),
+        (
+            [
+                sys.executable,
+                "-m",
+                "orchestrator",
+                "run",
+                str(WORKFLOW),
+                "--context",
+                "task_source=state/task.md",
+            ],
+            workflow_workspace,
+        ),
+        (["git", "status", "--short"], direct_workspace),
+        (["git", "rev-parse", "HEAD"], direct_workspace),
+        (["git", "status", "--short"], workflow_workspace),
+        (["git", "rev-parse", "HEAD"], workflow_workspace),
+        ([sys.executable, str(LINEAR_EVAL), str(direct_workspace)], ROOT),
+        ([sys.executable, str(LINEAR_EVAL), str(workflow_workspace)], ROOT),
+    ]
+
+    direct_command_path = archive_dir / "direct-command.json"
+    workflow_command_path = archive_dir / "workflow-command.json"
+    trial_result_path = archive_dir / "trial-result.json"
+    direct_metadata_path = archive_dir / "direct-run-metadata.json"
+    workflow_metadata_path = archive_dir / "workflow-run-metadata.json"
+
+    assert direct_command_path.is_file()
+    assert workflow_command_path.is_file()
+    assert direct_metadata_path.is_file()
+    assert workflow_metadata_path.is_file()
+    assert trial_result_path.is_file()
+
+    assert json.loads(direct_command_path.read_text())["command"][0] == "codex"
+    assert json.loads(workflow_command_path.read_text())["command"][:4] == [sys.executable, "-m", "orchestrator", "run"]
+
+    persisted_result = json.loads(trial_result_path.read_text())
+    assert persisted_result == result
+    assert result["direct"]["evaluation"]["verdict"] == "FAIL"
+    assert result["workflow"]["evaluation"]["verdict"] == "PASS"
