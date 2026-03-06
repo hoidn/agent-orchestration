@@ -116,6 +116,24 @@ For execute/review/fix loops, separate "doing" from "deciding":
 
 Add at least one hard closure assertion step if "looks done" is not good enough.
 
+### Plan-Time Strategy vs Runtime Check Plan
+
+Do not force the planning loop to publish the final runnable verification commands if execution is expected to create or modify tests.
+
+Use this split instead:
+
+| Artifact | Phase | Purpose |
+| --- | --- | --- |
+| `check_strategy` | Plan loop | Explain intended visible verification, current gaps, and what runnable checks should exist after execution. |
+| `check_plan` | Implementation loop | Contain only runnable commands that `RunChecks` can execute now. |
+
+Why this matters:
+- it avoids plan steps fabricating commands for tests that do not exist yet
+- it lets execution/fix steps strengthen verification without violating artifact contracts
+- it keeps `RunChecks` deterministic while still allowing verification to evolve during the implementation loop
+
+For this pattern, `RunChecks` should usually consume `check_plan` from execution/fix producers, not from plan-drafting producers. Malformed or stale check definitions should normally become structured `check_results` evidence for review/fix, rather than terminating the workflow immediately.
+
 ## 7) Drafting Checklist
 
 Before running a new workflow, confirm the basics:
