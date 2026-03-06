@@ -1,0 +1,595 @@
+# Workflow Demo Session Handoff
+
+**Status:** Active handoff / continuation document  
+**Date:** 2026-03-05  
+**Audience:** Any engineer continuing the workflow-demo effort with no prior chat context
+
+## 1. What the user wanted
+
+The user wants a demo for the orchestrator that compares two ways of solving the same coding task:
+
+1. a direct, single-shot agent run in a fresh workspace
+2. a workflow-driven agent run in an equivalent fresh workspace
+
+The intended outcome is that the workflow-driven run succeeds more reliably than the direct run because the workflow enforces better process hygiene, not because it gets better instructions or extra information.
+
+The user explicitly wanted the workflow to demonstrate the value of:
+- planning before execution
+- revision of plans and/or implementation
+- concrete feedback loops
+- verifiable outcomes
+
+The user also explicitly constrained the setup:
+- both arms are single-shot from the human's perspective
+- neither arm gets user feedback during execution
+- both arms should use the same `AGENTS.md`
+- both arms should start from equivalent fresh directory trees
+- the workflow should stay general-purpose rather than hard-coding the task domain into prompts or YAML
+- the only task-specific input should be the original user task description, persisted into the workspace as a runtime artifact
+
+The user prefers the first task family to be:
+- coding-oriented rather than documentation-oriented
+- Python-to-Rust if possible
+- ML-adjacent if possible
+
+The user also wants multiple candidate tasks eventually, because not every candidate will produce a convincing direct-vs-workflow gap.
+
+## 2. Core hypothesis agreed in this session
+
+The workflow should win because of enforced process structure, not because of privileged instructions.
+
+That means the comparison must preserve information equality:
+- same repo scaffold
+- same `AGENTS.md`
+- same initial task description
+- same visible files
+- same hidden evaluator model (external to both arms)
+
+The only meaningful difference should be execution process.
+
+The workflow therefore needs to enforce a sequence that a direct run might skip or underperform on:
+- derive a plan
+- derive a visible verification strategy
+- review the plan and verification strategy
+- revise them if needed
+- execute the work
+- run checks deterministically
+- review the implementation using both artifacts and check results
+- fix issues
+- repeat in bounded loops
+
+## 3. Major design decisions made
+
+### 3.1 General shape of the workflow
+
+We agreed on a **single top-level task item** for the first demo, not multi-item backlog decomposition.
+
+Reason:
+- it isolates the process advantage more cleanly
+- it is easier to debug and explain
+- it avoids mixing in decomposition-quality as a second confounding variable
+
+Backlog directories may still exist in the scaffold because they are useful general process primitives, but the first workflow does not depend on splitting one task into multiple queue items.
+
+### 3.2 Two explicit feedback loops
+
+We agreed the workflow should contain two loops:
+
+1. **Plan loop**
+   - draft plan
+   - review plan and check strategy
+   - revise plan if needed
+
+2. **Implementation loop**
+   - execute plan
+   - run checks
+   - review implementation
+   - fix issues if needed
+
+The user specifically objected to a design that had no real feedback loops. The workflow must visibly exercise revision, otherwise it does not demonstrate the process advantage.
+
+### 3.3 Revision should usually happen at least once
+
+The user explicitly said the demo should aim for at least one revision cycle, because zero revisions would make the workflow advantage mostly invisible.
+
+We therefore designed the workflow so:
+- one-shot success is possible but should not be the common case
+- visible checks are intentionally useful but incomplete
+- review can reject based on blocking correctness issues even if visible checks pass
+
+### 3.4 Hidden evaluation is external
+
+The final evaluator is out of scope for both the direct run and the workflow run.
+
+However, both arms still need to infer the likely success condition from:
+- the original task description
+- the repo scaffold
+- their own analysis
+
+This is why the workflow includes an explicit `check_plan` artifact: it formalizes the agent's visible verification strategy without revealing hidden evaluator details.
+
+### 3.5 `RunChecks` is required
+
+The user asked whether `RunChecks` was necessary if the plan requires tests to be written.
+
+Decision:
+- yes, a dedicated `RunChecks` step is still necessary
+
+Reason:
+- writing tests is not the same as running them
+- the workflow needs deterministic execution evidence
+- review and fix steps need structured check results, not self-reported success
+- a weak or incomplete test suite should remain visible as a review concern
+
+### 3.6 Check execution mechanism should be general
+
+The user objected to a fixed command that would effectively hard-code a domain like Python-to-Rust.
+
+Decision:
+- use a **fixed mechanism** with **runtime-derived commands**
+
+Concretely:
+- the workflow always has a `RunChecks` step
+- the checks are described in a machine-readable `check_plan` artifact
+- `RunChecks` executes that plan generically
+- the workflow YAML does not hard-code `cargo test`, `pytest`, or any other domain-specific command
+
+### 3.7 Contracts are I/O contracts
+
+The user clarified that “contract” should mean an artifact I/O interface that maps naturally to `consumes` / `publishes`, not a prose structure requirement.
+
+Decision:
+- separate artifact contracts from authoring templates
+
+This yielded the split:
+- artifact contracts define what gets produced and consumed
+- templates are optional authoring aids for agents
+
+### 3.8 Execution handoff should be structured, not a raw transcript
+
+The user asked whether a session transcript handoff, like the PtychoPINN workflow, was needed.
+
+Decision:
+- keep a structured execution report as a first-class artifact
+- do not make full transcripts a primary contract
+
+Reason:
+- review/fix loops need evidence about what happened
+- raw transcripts are too noisy and prompt-sensitive
+- outcome-oriented artifacts are more reusable and general-purpose
+
+### 3.9 Shared backbone artifacts
+
+The user asked whether some artifacts, like the plan, should be consumed by most workflow steps.
+
+Decision:
+- yes, some artifacts act as a shared backbone
+- but consumption should still be declared explicitly per step
+
+Backbone artifacts agreed in this session:
+- `task`
+- `plan`
+- `check_plan`
+
+These are meant to be broadly reused by later provider steps.
+
+## 4. High-level experiment design produced in this session
+
+We produced a design doc for the overall experiment.
+
+File created:
+- `docs/plans/2026-03-05-workflow-demo-design.md`
+
+Commit created:
+- `5b83896` `docs: add workflow demo design`
+
+What the design doc covers:
+- objective of the demo
+- equality constraints between direct and workflow arms
+- decision to use one top-level task with two bounded loops
+- shared scaffold repo shape
+- artifact vocabulary
+- check-plan schema
+- generic workflow shape
+- reviewer policy
+- execution handoff recommendation
+- reasons for keeping `RunChecks`
+- candidate Python-to-Rust / ML-adjacent task families
+- experiment setup conventions (workspace layout, git policy, run lifecycle, task injection, cleanup)
+
+Important sections in the design doc:
+- shared scaffold and equality model
+- experiment setup conventions
+- artifact contracts and backbone artifacts
+- workflow shape
+- candidate task portfolio
+
+The design doc is conceptual and prescriptive. It is not the final runbook for actually launching and grading both arms.
+
+## 5. Concrete files created from the design
+
+### 5.1 Artifact-contract and template docs
+
+We created the following scaffold-facing docs under `docs/plans/templates/`:
+
+1. `artifact_contracts.md`
+- defines the artifact vocabulary for the demo workflow
+- artifact meanings are intended to map directly to workflow `publishes` / `consumes`
+- backbone artifacts:
+  - `task`
+  - `plan`
+  - `check_plan`
+- stage artifacts:
+  - `plan_review_report`
+  - `plan_review_decision`
+  - `execution_report`
+  - `check_results`
+  - `implementation_review_report`
+  - `implementation_review_decision`
+
+2. `check_plan_schema.md`
+- defines the recommended JSON structure for `check_plan`
+- uses a constrained schema with:
+  - `name`
+  - `argv`
+  - `timeout_sec`
+  - `required`
+- explicitly prefers structured `argv` over arbitrary shell strings
+
+3. `plan_template.md`
+- optional authoring aid for the `plan` artifact
+- not normative
+- includes suggested sections like task restatement, scope, risks, implementation steps, verification strategy, completion criteria
+
+4. `review_template.md`
+- optional authoring aid for review artifacts
+- not normative
+- emphasizes blocking findings, evidence, required fixes, and binary decision
+
+Commit created:
+- `193fce2` `docs: add generic workflow prompt and contract templates`
+
+### 5.2 Generic workflow prompt set
+
+We created a generic prompt set under:
+- `prompts/workflows/generic_task_loop/`
+
+Files created:
+- `draft_plan.md`
+- `review_plan.md`
+- `revise_plan.md`
+- `execute_plan.md`
+- `review_implementation.md`
+- `fix_issues.md`
+
+Prompt design principles used:
+- prompts are generic, not domain-specific
+- prompts read `Consumed Artifacts` first
+- prompts refer to the artifact contract docs and templates in `docs/plans/templates/`
+- prompts rely on the workflow-injected output contract rather than hard-coded domain paths
+- prompts prohibit unrelated refactors and fabricated results
+- review prompts are strict about correctness but explicitly not style-policing
+
+These prompts are intended to be reusable across task families so long as the scaffold and workflow honor the artifact contracts.
+
+## 6. Workflow YAML created in this session
+
+We created a concrete example workflow:
+- `workflows/examples/generic_task_plan_execute_review_loop.yaml`
+
+Commit created:
+- `9b22a24` `docs: add generic task workflow example`
+
+### 6.1 Workflow version and general shape
+
+The workflow uses:
+- `version: "1.4"`
+- a codex provider template using stdin
+- two bounded loops:
+  - plan loop
+  - implementation loop
+
+Context values in the example:
+- `task_source: "docs/backlog/active/task.md"`
+- `max_plan_cycles: "2"`
+- `max_impl_cycles: "4"`
+
+### 6.2 Steps implemented
+
+1. `InitializeWorkflowState`
+- creates required directories
+- writes all pointer-path files under `state/`
+- initializes cycle counters
+
+2. `CaptureTask`
+- copies the task from `context.task_source` into `state/task.md`
+- publishes `task`
+
+3. `DraftPlan`
+- consumes `task`
+- uses the generic `draft_plan.md` prompt
+- produces and publishes `plan` and `check_plan`
+
+4. `ReviewPlan`
+- consumes `task`, `plan`, `check_plan`
+- uses the generic `review_plan.md` prompt
+- produces and publishes `plan_review_report` and `plan_review_decision`
+
+5. `PlanReviewGate`
+- routes to execution on `APPROVE`
+- routes to the plan-cycle gate on `REVISE`
+
+6. `PlanCycleGate`
+- enforces `max_plan_cycles`
+
+7. `RevisePlan`
+- consumes `task`, `plan`, `check_plan`, `plan_review_report`
+- uses the generic `revise_plan.md` prompt
+- republishes updated `plan` and `check_plan`
+
+8. `IncrementPlanCycle`
+- increments the plan loop counter and returns to `ReviewPlan`
+
+9. `ExecutePlan`
+- consumes `task` and `plan`
+- uses the generic `execute_plan.md` prompt
+- produces and publishes `execution_report`
+
+10. `RunChecks`
+- consumes `check_plan` via `consume_bundle`
+- reads the JSON check plan from the resolved artifact
+- executes each check's `argv`
+- writes per-check logs under `artifacts/checks/logs/`
+- writes structured results to `artifacts/checks/check-results.json`
+- publishes `check_results`
+
+11. `ReviewImplementation`
+- consumes `task`, `plan`, `check_plan`, `execution_report`, `check_results`
+- uses the generic `review_implementation.md` prompt
+- produces and publishes `implementation_review_report` and `implementation_review_decision`
+
+12. `ImplementationReviewGate`
+- ends successfully on `APPROVE`
+- routes to the implementation-cycle gate on `REVISE`
+
+13. `ImplementationCycleGate`
+- enforces `max_impl_cycles`
+
+14. `FixIssues`
+- consumes `task`, `plan`, `check_plan`, `execution_report`, `check_results`, `implementation_review_report`
+- uses the generic `fix_issues.md` prompt
+- republishes updated `execution_report`
+
+15. `IncrementImplementationCycle`
+- increments the implementation loop counter and returns to `RunChecks`
+
+16. Failure terminals
+- `MaxPlanCyclesExceeded`
+- `MaxImplementationCyclesExceeded`
+
+### 6.3 Workflow artifacts declared
+
+Top-level artifacts in the example workflow:
+- `task` (relpath)
+- `plan` (relpath)
+- `check_plan` (relpath)
+- `plan_review_report` (relpath)
+- `plan_review_decision` (scalar enum)
+- `execution_report` (relpath)
+- `check_results` (relpath)
+- `implementation_review_report` (relpath)
+- `implementation_review_decision` (scalar enum)
+
+### 6.4 Validation performed
+
+We validated the YAML with a dry run:
+
+```bash
+PYTHONPATH=/home/ollie/Documents/agent-orchestration \
+python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
+```
+
+Result:
+- validation succeeded
+
+No runtime integration test was added yet.
+No real end-to-end demo run has been executed with a scaffold and task.
+
+## 7. Important operational decisions that were discussed but not fully implemented
+
+### 7.1 Workspace layout for future experiment runs
+
+The agreed design direction is:
+
+```text
+<experiment-root>/
+  scaffold-template/
+  direct-run/
+  workflow-run/
+  evaluator/
+```
+
+Intent:
+- `scaffold-template/` is the canonical source snapshot
+- `direct-run/` and `workflow-run/` are seeded from the same commit
+- `evaluator/` contains the hidden grading harness outside the agent-visible workspaces
+
+Recommended provisioning model:
+- use git worktrees if convenient and clean
+- otherwise use separate sibling clones from the same source commit
+
+### 7.2 Git usage policy for the experiment
+
+The design direction is:
+- both arms may create commits
+- commits are not required for success
+- final grading should be based on filesystem state, not commit existence
+- both arms must start from the same commit
+- neither arm should see the other's filesystem state
+
+### 7.3 Task injection convention
+
+The current design direction is:
+- persist the original task into `state/task.md`
+- optionally mirror it into `docs/backlog/active/task.md`
+- the workflow treats the `task` artifact as canonical
+- the direct arm is free to read the same files voluntarily
+
+## 8. What still needs to be done next
+
+The next unimplemented pieces are:
+
+### 8.1 Build the shared scaffold seed
+
+This is the most immediate next step.
+
+Needed outputs:
+- a scaffold repo or scaffold seed directory that both arms can start from
+- common files such as:
+  - `AGENTS.md`
+  - `docs/index.md`
+  - `docs/dev_guidelines.md`
+  - `docs/backlog/active/`
+  - `docs/plans/templates/`
+  - `artifacts/`
+  - `state/`
+  - a Python reference module
+  - a Rust crate skeleton
+
+This step has not been completed in this session.
+
+### 8.2 Build candidate tasks
+
+We agreed that the task portfolio should likely start with Python-to-Rust ML-adjacent coding tasks.
+
+Candidate families discussed:
+- numerical ML utility translation
+- inference pre/post-processing port
+- deterministic data-pipeline utility port
+
+The first recommended candidate is numerical ML utility translation because it is easiest to scaffold and explain.
+
+No concrete task fixture was built in this session.
+
+### 8.3 Write the experiment runbook
+
+The design doc currently describes experiment operations at the policy level, but there is still no dedicated runbook for mechanics.
+
+A future runbook should specify:
+- provisioning commands
+- launch commands for the direct and workflow arms
+- whether to start them truly in parallel or simply independently from the same seed
+- timeout and wait behavior
+- freeze/archive behavior
+- hidden evaluator invocation
+- result schema and grading summary format
+- rerun policy
+
+This runbook does not exist yet.
+
+### 8.4 Possibly add tests or stronger validation around the new workflow
+
+Current validation status:
+- prompt/contract docs: documentation-only, no tests
+- workflow example: dry-run validation only
+
+Possible future hardening:
+- add a smoke test or example validation test for the new workflow
+- add a runbook that demonstrates a minimal end-to-end execution against a toy task
+
+## 9. Things that came up during the session and matter for anyone continuing
+
+### 9.1 Dirty worktree caveat
+
+While working, we discovered this repository had many unrelated modified and untracked files.
+
+We explicitly avoided bundling unrelated changes.
+Commits made from this session were limited to targeted files only.
+
+Anyone continuing should continue to be careful about staging only intended files.
+
+### 9.2 Existing examples used as inspiration
+
+We used the v1.4-style design direction from the downstream PtychoPINN workflow, especially:
+- explicit artifact handoff
+- review/fix loops
+- step-local prompt files
+- path-pointer pattern for relpath artifacts
+
+However, we intentionally generalized away from the domain-specific details in the PtychoPINN workflow and prompts.
+
+### 9.3 Why the workflow remains general-purpose
+
+The prompts and workflow should not say things like:
+- translate Python to Rust
+- use Cargo
+- use PyO3
+- use ML-specific tools
+
+Instead they say things like:
+- read the task artifact
+- derive a plan
+- derive a runnable check plan
+- review for blocking correctness and verification gaps
+- write outputs to the contract paths
+
+The task domain is meant to arrive via runtime artifacts, not baked-in prompt text.
+
+## 10. Files and commits created by this session
+
+### Design doc
+- File: `docs/plans/2026-03-05-workflow-demo-design.md`
+- Commit: `5b83896` `docs: add workflow demo design`
+
+### Prompt and contract templates
+- Files:
+  - `docs/plans/templates/artifact_contracts.md`
+  - `docs/plans/templates/check_plan_schema.md`
+  - `docs/plans/templates/plan_template.md`
+  - `docs/plans/templates/review_template.md`
+  - `prompts/workflows/generic_task_loop/draft_plan.md`
+  - `prompts/workflows/generic_task_loop/review_plan.md`
+  - `prompts/workflows/generic_task_loop/revise_plan.md`
+  - `prompts/workflows/generic_task_loop/execute_plan.md`
+  - `prompts/workflows/generic_task_loop/review_implementation.md`
+  - `prompts/workflows/generic_task_loop/fix_issues.md`
+- Commit: `193fce2` `docs: add generic workflow prompt and contract templates`
+
+### Generic workflow example
+- File: `workflows/examples/generic_task_plan_execute_review_loop.yaml`
+- Commit: `9b22a24` `docs: add generic task workflow example`
+
+## 11. Recommended continuation order
+
+If picking up from this handoff, the recommended order is:
+
+1. Build the shared scaffold seed directory or repo.
+2. Decide where the experiment root will live on disk.
+3. Add a runbook for provisioning, launching, freezing, and grading both arms.
+4. Create the first concrete Python-to-Rust ML-adjacent task fixture.
+5. Run the direct and workflow arms against that fixture.
+6. Observe whether the workflow naturally exercises at least one revision cycle.
+7. If not, adjust the task family or visible-check design until the workflow advantage becomes visible but remains fair.
+
+## 12. Bottom line
+
+This session produced the conceptual design and the first concrete workflow/prompt/contract assets.
+
+What now exists:
+- a detailed design doc for the experiment
+- artifact-contract and template docs
+- a generic prompt set for the two-loop workflow
+- a validating example workflow YAML
+
+What does not yet exist:
+- the actual shared scaffold repo contents for the experiment
+- the experiment runbook for launching and grading both arms
+- the first concrete candidate task fixture
+- an end-to-end executed demo proving the direct-vs-workflow gap
+
+A new engineer should be able to continue from here without needing the original chat, provided they start by reading:
+1. this handoff document
+2. `docs/plans/2026-03-05-workflow-demo-design.md`
+3. `docs/plans/templates/artifact_contracts.md`
+4. `workflows/examples/generic_task_plan_execute_review_loop.yaml`
+5. the prompt files under `prompts/workflows/generic_task_loop/`
