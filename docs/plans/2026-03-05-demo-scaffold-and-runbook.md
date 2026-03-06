@@ -6,7 +6,7 @@
 
 **Architecture:** A single seed scaffold is materialized into two sibling workspaces, `direct-run/` and `workflow-run/`, from the same starting commit. The direct arm receives one prompt over the seeded repo; the workflow arm runs the generic task loop over the same repo shape and same task artifact.
 
-**Tech Stack:** Git, Codex CLI, the orchestrator CLI, filesystem artifact contracts, hidden external evaluator.
+**Tech Stack:** Git, Claude CLI, the orchestrator CLI, filesystem artifact contracts, hidden external evaluator.
 
 ---
 
@@ -19,11 +19,15 @@ This document specifies the operational layer that sits on top of [2026-03-05-wo
 - how both arms are launched
 - how runs are frozen and graded
 
-This document does not define the hidden evaluator internals or the specific Python-to-Rust task itself.
+This document does not define the hidden evaluator internals or the specific task internals themselves.
+
+Current seed status:
+- flagship seed: `examples/demo_task_nanobragg_accumulation_port`
+- bootstrap baseline seed: `examples/demo_task_linear_classifier_port`
 
 ## Seed Scaffold
 
-The canonical seed lives at [examples/demo_scaffold](/home/ollie/Documents/agent-orchestration/examples/demo_scaffold). It is the visible repo shape given to both arms.
+The generic scaffold lives at [examples/demo_scaffold](/home/ollie/Documents/agent-orchestration/examples/demo_scaffold). Task-specific seeds such as [demo_task_nanobragg_accumulation_port](/home/ollie/Documents/agent-orchestration/examples/demo_task_nanobragg_accumulation_port) extend that shape for a concrete trial.
 
 Seed tree:
 
@@ -159,8 +163,9 @@ Prompt file:
 Recommended command shape:
 
 ```bash
-codex exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check \
-  "Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md."
+claude -p "Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md." \
+  --dangerously-skip-permissions \
+  --model claude-sonnet-4-6
 ```
 
 Operational rules:
@@ -275,15 +280,17 @@ Recommended evaluator outputs:
 - separate soft-quality report that does not override the hard verdict
 - failure categories such as:
 
-Task-specific evaluator command for the first seed:
+Task-specific evaluator commands:
 
 ```bash
 python scripts/demo/evaluate_linear_classifier.py /path/to/frozen-workspace
+python scripts/demo/evaluate_nanobragg_accumulation.py /path/to/frozen-workspace
 ```
 
 Current evaluator dispatch note:
 - evaluator selection is still minimal, but now prefers the task fixture basename passed to the runner
 - `port_linear_classifier_to_rust.md` dispatches to `scripts/demo/evaluate_linear_classifier.py`
+- `port_nanobragg_accumulation_to_pytorch.md` dispatches to `scripts/demo/evaluate_nanobragg_accumulation.py`
 - the old seed-directory-name check remains only as a backward-compatible fallback
 - additional seeds will need either matching dispatch entries or a stronger explicit metadata contract
 
@@ -311,6 +318,6 @@ Current result location:
 
 ## Immediate Follow-On Work
 
-1. Build the first task-specific seed repo by copying and extending [examples/demo_scaffold](/home/ollie/Documents/agent-orchestration/examples/demo_scaffold).
-2. Add a small provisioning script that stamps out `direct-run/` and `workflow-run/` from the same seed commit.
-3. Add a task-specific hidden evaluator and archive its outputs outside the seeded workspaces.
+1. Run a real trial against `examples/demo_task_nanobragg_accumulation_port` and archive the result.
+2. Decide whether basename-based evaluator dispatch is good enough or should be replaced with explicit seed metadata.
+3. Keep the linear-classifier seed only as a smaller bootstrap baseline.

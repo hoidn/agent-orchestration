@@ -34,6 +34,15 @@ The user prefers the first task family to be:
 
 The user also wants multiple candidate tasks eventually, because not every candidate will produce a convincing direct-vs-workflow gap.
 
+## 1.1 Current flagship status
+
+As of the latest continuation work:
+- the old linear-classifier seed is only a bootstrap baseline
+- the intended flagship path is the nanoBragg accumulation task
+- the visible flagship seed now exists at `examples/demo_task_nanobragg_accumulation_port/`
+- the hidden flagship evaluator now exists at `scripts/demo/evaluate_nanobragg_accumulation.py`
+- the trial runner now dispatches that evaluator for `port_nanobragg_accumulation_to_pytorch.md`
+
 ## 2. Core hypothesis agreed in this session
 
 The workflow should win because of enforced process structure, not because of privileged instructions.
@@ -138,6 +147,10 @@ Use this section as the file-level map for continuation.
 - `docs/plans/2026-03-05-demo-scaffold-and-runbook.md`
 - `docs/plans/2026-03-05-demo-provisioning-script.md`
 - `scripts/demo/provision_trial.py`
+- `examples/demo_task_nanobragg_accumulation_port/`
+- `orchestrator/demo/evaluators/nanobragg_accumulation.py`
+- `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/`
+- `scripts/demo/evaluate_nanobragg_accumulation.py`
 
 These adjacent assets were not the main focus of the design thread captured here, but they are directly relevant to continuation and should be reconciled with the workflow/prompt/contract design before duplicating effort.
 
@@ -559,6 +572,7 @@ This is partially implemented now:
 Current state:
 - one concrete linear-classifier seed exists and is evaluator-backed
 - a second sliding-window seed now exists but is not evaluator-backed yet
+- a third nanoBragg seed now exists and is evaluator-backed
 
 ### 8.3 Provisioning utility
 
@@ -598,15 +612,35 @@ Current validation status:
 - trial runner: targeted pytest coverage exists
 - provisioned-workspace smoke path for the first seed: targeted pytest coverage exists
 - a real direct-arm execution was attempted in a freshly provisioned workspace using the demo direct-arm prompt
+- a later real direct-arm execution completed in a provisioned workspace and passed the hidden linear-classifier evaluator
+- a later real workflow launch completed startup successfully in a provisioned workspace after the workflow/provisioning contract was fixed
 
 Remaining gap:
-- the trial runner has been exercised through mocked subprocess boundaries, not through a real local direct-arm plus workflow-arm trial
-- the direct-arm prompt was exercised against the first seed, but the run could not complete because the local environment did not have `cargo` or `rustc`
-- there is still no recorded end-to-end run where both arms complete and are evaluated under the local environment
+- the trial runner has been exercised through mocked subprocess boundaries, not through a full real local direct-arm plus workflow-arm coordinated trial record
+- there is still no recorded end-to-end comparison where both arms complete under the runner and are archived/evaluated together
+- the first evaluated task is now known to be too easy because the direct arm can pass the hidden evaluator in one shot
 
 Possible future hardening:
 - add a smoke test that provisions a toy seed and validates expected workspace outputs
 - add a minimal end-to-end demo run against a toy task
+
+### 8.6 Harder flagship task direction
+
+The current linear-classifier task is no longer a good flagship comparison task.
+
+Why:
+- the direct arm passed the hidden evaluator
+- this weakens the intended demonstration of workflow advantage
+
+New recommended direction:
+- use a substantially harder deterministic task built around a single numerically meaningful subsystem from `nanoBragg.c`
+- prefer tensor-level numerical parity over subjective or purely visual judging
+
+Current recommendation:
+- port the detector pixel intensity accumulation subsystem from `nanoBragg.c` into PyTorch with required restructuring and deterministic tensor-level parity
+
+Task-spec doc added:
+- `docs/plans/2026-03-05-nanobragg-subsystem-task-spec.md`
 
 ## 9. Things that came up during the session and matter for anyone continuing
 
@@ -646,6 +680,24 @@ Instead they say things like:
 - write outputs to the contract paths
 
 The task domain is meant to arrive via runtime artifacts, not baked-in prompt text.
+
+### 9.4 Workflow/provisioning contract fix
+
+Two real runtime issues were discovered and then fixed:
+
+1. The orchestrator rejects workflow files outside the provisioned workspace tree.
+2. The old workflow startup path tried to copy `state/task.md` onto itself.
+
+The corrected contract is now:
+- provisioning stages the workflow YAML into `workflow-run/workflows/examples/`
+- provisioning stages `prompts/workflows/` into `workflow-run/prompts/workflows/`
+- provisioning injects the canonical task artifact at `state/task.md`
+- the workflow publishes `state/task.md` directly via `PublishTask` instead of copying from a separate `task_source`
+
+Commit:
+- `bbd19d6` `fix: align demo workflow provisioning contract`
+
+This is an important handoff point because older launch assumptions in the session no longer apply.
 
 ## 10. Files and commits created by this session
 
@@ -694,6 +746,8 @@ The task domain is meant to arrive via runtime artifacts, not baked-in prompt te
   - `9c9ac59` `feat: add demo trial runner`
   - `b79f076` `feat: add sliding window demo task seed`
   - `4654aa3` `docs: finalize demo next-step runbook notes`
+  - `6ec82d6` `feat: add demo trial runner observability artifacts`
+  - `bbd19d6` `fix: align demo workflow provisioning contract`
 
 ### Demo coordination prompts and runbook wiring
 - Files:
@@ -721,16 +775,44 @@ The task domain is meant to arrive via runtime artifacts, not baked-in prompt te
   - this was a partial real execution of the direct arm, not a successful completed trial
   - it surfaced an environment prerequisite that the current docs and runner should make more explicit
 
+### First completed real direct-arm evaluation on the linear-classifier seed
+- Provisioned trial root:
+  - `/tmp/workflow-sonnet-trial-AWJR3j`
+- Direct workspace:
+  - `/tmp/workflow-sonnet-trial-AWJR3j/direct-run`
+- Hidden evaluation command run after completion:
+  - `python scripts/demo/evaluate_linear_classifier.py /tmp/workflow-sonnet-trial-AWJR3j/direct-run`
+- Result:
+  - evaluator verdict: `PASS`
+  - hidden tests passed: `true`
+- Meaning:
+  - the direct arm succeeded on the current linear-classifier seed
+  - this is strong evidence that the task is too easy for the intended demo
+
+### Harder task-spec direction
+- File:
+  - `docs/plans/2026-03-05-nanobragg-subsystem-task-spec.md`
+- Commit:
+  - `cc06cfa` `docs: add nanoBragg subsystem task spec`
+- Key direction:
+  - move from the current small Python-to-Rust classifier port to a much harder deterministic task based on porting a single numerically meaningful subsystem from `nanoBragg.c` into PyTorch
+
+### Current uncommitted local state that matters
+- The working tree currently includes uncommitted changes switching the workflow example and direct-arm runner over to Claude Sonnet for live experimentation.
+- This local state was used to launch:
+  - `workflow-demo-sonnet` in tmux
+  - `direct-demo-sonnet` in tmux
+- These changes were intentionally left uncommitted as of this handoff and should not be assumed to exist from `HEAD` alone.
+
 ## 11. Recommended continuation order
 
 If picking up from this handoff, the recommended order is:
 
-1. Finish the trial runner and archive/reporting docs integration.
-2. Make the Rust toolchain requirement explicit in the runbook and runner-facing docs, or provision an environment that already has `cargo` and `rustc`.
-3. Add evaluator integration for the second concrete Python-to-Rust ML-adjacent task seed.
-4. Run the direct and workflow arms against the first seed using the new runner in an environment where both arms can actually execute Rust checks.
-5. Observe whether the workflow naturally exercises at least one revision cycle.
-6. If not, adjust the task family or visible-check design until the workflow advantage becomes visible but remains fair.
+1. Run and archive one real `run_trial.py` invocation against `examples/demo_task_nanobragg_accumulation_port`.
+2. Decide whether the hidden tensor corpus is numerically faithful enough, or whether `scripts/demo/build_nanobragg_reference_cases.py` needs a stronger reference implementation behind it.
+3. If the corpus changes, regenerate `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/*.pt` and rerun the focused demo suite.
+4. Add runner-level provider/model toggles cleanly if continued provider experimentation is desired.
+5. Keep the current linear-classifier seed only as a smoke/demo fixture.
 
 ## 12. Bottom line
 
@@ -748,11 +830,17 @@ What now exists:
 - demo coordination prompts for the overall trial and the direct arm
 - smoke and runner pytest coverage for the first evaluated path
 - a second candidate seed for sliding-window translation
+- a third, harder seed for the nanoBragg accumulation subsystem
+- a hidden evaluator and hidden tensor corpus for that nanoBragg seed
+- runner dispatch and smoke coverage for the nanoBragg path
 - one partial real direct-arm execution showing that the environment currently lacks the Rust toolchain needed to complete the task
+- a fixed workflow/provisioning contract that lets the workflow launch correctly from a provisioned workspace
+- a completed real direct-arm run showing that the linear-classifier task is too easy
+- a drafted harder flagship task spec based on a `nanoBragg.c` subsystem
 
 What does not yet exist:
 - evaluator integration for the second task seed
-- a real end-to-end executed demo proving the direct-vs-workflow gap in an environment with a working Rust toolchain
+- a real end-to-end executed demo proving the direct-vs-workflow gap on a task that is actually hard enough
 - stronger evaluator-selection metadata than the current seed-name dispatch
 
 A new engineer should be able to continue from here without needing the original chat, provided they start by reading:
@@ -761,3 +849,16 @@ A new engineer should be able to continue from here without needing the original
 3. `docs/plans/templates/artifact_contracts.md`
 4. `workflows/examples/generic_task_plan_execute_review_loop.yaml`
 5. the prompt files under `prompts/workflows/generic_task_loop/`
+
+### Real nanoBragg trial command
+
+This command has been prepared for the first real flagship trial, but should not be treated as already executed unless a result archive is present:
+
+```bash
+python scripts/demo/run_trial.py \
+  --seed-repo examples/demo_task_nanobragg_accumulation_port \
+  --experiment-root /tmp/nanobragg-demo-trial \
+  --task-file examples/demo_task_nanobragg_accumulation_port/docs/tasks/port_nanobragg_accumulation_to_pytorch.md \
+  --direct-timeout-sec 1800 \
+  --workflow-timeout-sec 3600
+```
