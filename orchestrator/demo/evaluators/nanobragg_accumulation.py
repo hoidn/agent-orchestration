@@ -55,24 +55,29 @@ def load_workspace_module(workspace: Path) -> ModuleType:
         raise FileNotFoundError(module_path)
 
     package_name = f"demo_nanobragg_candidate_{abs(hash(str(workspace)))}"
-    package_spec = importlib.util.spec_from_file_location(
-        package_name,
-        package_root / "__init__.py",
-        submodule_search_locations=[str(package_root)],
-    )
-    if package_spec is None or package_spec.loader is None:
-        raise RuntimeError(f"Unable to load package spec from {package_root}")
-    package_module = importlib.util.module_from_spec(package_spec)
-    sys.modules[package_name] = package_module
-    package_spec.loader.exec_module(package_module)
+    previous_setting = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        package_spec = importlib.util.spec_from_file_location(
+            package_name,
+            package_root / "__init__.py",
+            submodule_search_locations=[str(package_root)],
+        )
+        if package_spec is None or package_spec.loader is None:
+            raise RuntimeError(f"Unable to load package spec from {package_root}")
+        package_module = importlib.util.module_from_spec(package_spec)
+        sys.modules[package_name] = package_module
+        package_spec.loader.exec_module(package_module)
 
-    module_name = f"{package_name}.accumulation"
-    module_spec = importlib.util.spec_from_file_location(module_name, module_path)
-    if module_spec is None or module_spec.loader is None:
-        raise RuntimeError(f"Unable to load candidate module from {module_path}")
-    module = importlib.util.module_from_spec(module_spec)
-    sys.modules[module_name] = module
-    module_spec.loader.exec_module(module)
+        module_name = f"{package_name}.accumulation"
+        module_spec = importlib.util.spec_from_file_location(module_name, module_path)
+        if module_spec is None or module_spec.loader is None:
+            raise RuntimeError(f"Unable to load candidate module from {module_path}")
+        module = importlib.util.module_from_spec(module_spec)
+        sys.modules[module_name] = module
+        module_spec.loader.exec_module(module)
+    finally:
+        sys.dont_write_bytecode = previous_setting
     return module
 
 
