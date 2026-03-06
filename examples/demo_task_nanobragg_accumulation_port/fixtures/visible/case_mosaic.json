@@ -38,6 +38,9 @@
       "weight": 0.25
     }
   ],
+  "crystal": {
+    "default_F": 1.0
+  },
   "geometry": {
     "detector_origin": [0.0, 0.0, 90.0],
     "fast_axis": [1.0, 0.0, 0.0],
