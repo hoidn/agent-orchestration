@@ -17,5 +17,6 @@ Start here.
 
 - Read the injected task first. If it mirrors the canonical task fixture, follow the injected file.
 - The benchmark target is the `nanobragg_run` program-level call chain derived from `nanoBragg.c`'s `main` simulation path.
+- The task is not satisfied by a naive scalar transliteration; the intended port should use PyTorch tensor operations for the dominant detector/pixel computation where feasible.
 - Visible verification command is `pytest -q`.
 - Visible smoke checks are intentionally incomplete.

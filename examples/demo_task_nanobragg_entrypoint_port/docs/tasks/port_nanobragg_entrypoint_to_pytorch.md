@@ -8,4 +8,6 @@ Requirements:
 - use the visible fixtures under `fixtures/visible/`
 - match the reference output tensor shape and numerical behavior on the provided cases
 - keep the implementation scoped to this entrypoint task
-- restructure away from a naive scalar translation where practical
+- do not solve this as a wholesale scalar transliteration of the C loops
+- use PyTorch tensor operations for the dominant detector/pixel work where feasible
+- residual scalar loops are acceptable only where real data dependencies make batching impractical
