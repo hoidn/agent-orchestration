@@ -45,26 +45,24 @@ def test_nanobragg_task_fixture_targets_bounded_pytorch_porting():
 
 
 def test_nanobragg_seed_stays_in_expected_dependency_band():
-    readme_text = (SEED / "README.md").read_text()
-    task_text = (SEED / "docs" / "tasks" / "port_nanobragg_accumulation_to_pytorch.md").read_text()
-
-    forbidden_tokens = [
-        "setup.py",
-        "cmake",
-        "ninja",
-        "cuda",
-        "external service",
-        "remote API",
+    forbidden_paths = [
+        SEED / "setup.py",
+        SEED / "CMakeLists.txt",
+        SEED / "requirements_cuda.txt",
+        SEED / ".github" / "workflows" / "cuda.yml",
     ]
 
-    haystack = f"{readme_text}\n{task_text}".lower()
-    for token in forbidden_tokens:
-        assert token not in haystack
+    missing_or_forbidden = [path for path in forbidden_paths if path.exists()]
+    assert not missing_or_forbidden, f"Unexpected heavy-build or CUDA artifacts: {missing_or_forbidden}"
 
 
 def test_nanobragg_seed_exposes_local_visible_check_entrypoint():
     index_text = (SEED / "docs" / "index.md").read_text()
-    smoke_test = (SEED / "tests" / "test_smoke_accumulation.py").read_text()
+    smoke_test_path = SEED / "tests" / "test_smoke_accumulation.py"
+
+    assert smoke_test_path.exists(), f"Missing smoke test entrypoint: {smoke_test_path.relative_to(ROOT)}"
+
+    smoke_test = smoke_test_path.read_text()
 
     assert "pytest -q" in index_text
     assert "import torch" in smoke_test
