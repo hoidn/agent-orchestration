@@ -1,0 +1,52 @@
+{
+  "case_id": "case_thickness",
+  "detector": {
+    "spixels": 2,
+    "fpixels": 2,
+    "subpixel_size": 0.05,
+    "pixel_size": 0.15,
+    "close_distance": 120.0
+  },
+  "oversample": {
+    "oversample_omega": true,
+    "oversample_thick": true,
+    "subpixel_steps": 2,
+    "detector_thicksteps": 3
+  },
+  "sources": [
+    {
+      "direction": [0.0, 0.1, -0.995],
+      "wavelength": 0.9,
+      "weight": 0.7
+    },
+    {
+      "direction": [0.0, -0.1, -0.995],
+      "wavelength": 1.1,
+      "weight": 0.3
+    }
+  ],
+  "phi_values": [0.0, 0.02],
+  "mosaic_domains": [
+    {
+      "domain_id": 0,
+      "rotation_matrix": [[1.0, 0.0, 0.0], [0.0, 0.9998, -0.02], [0.0, 0.02, 0.9998]],
+      "weight": 0.5
+    },
+    {
+      "domain_id": 1,
+      "rotation_matrix": [[0.9998, 0.0, 0.02], [0.0, 1.0, 0.0], [-0.02, 0.0, 0.9998]],
+      "weight": 0.5
+    }
+  ],
+  "geometry": {
+    "detector_origin": [0.0, 0.0, 120.0],
+    "fast_axis": [1.0, 0.0, 0.0],
+    "slow_axis": [0.0, 1.0, 0.0],
+    "thickness": 0.08,
+    "mu": 1.2
+  },
+  "expected": {
+    "shape": [2, 2],
+    "trace_tap_pixel": [1, 1]
+  }
+}
