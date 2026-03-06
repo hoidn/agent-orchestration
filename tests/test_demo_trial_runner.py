@@ -14,6 +14,7 @@ from orchestrator.demo.trial_runner import (
     build_workflow_command,
     run_trial,
 )
+from tests.test_demo_provisioning import _init_seed_repo
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -250,6 +251,60 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
     persisted_result = json.loads(trial_result_path.read_text())
     assert persisted_result == result
     assert result["direct"]["evaluation"]["verdict"] == "FAIL"
+    assert result["workflow"]["evaluation"]["verdict"] == "PASS"
+
+
+def test_run_trial_works_with_real_provisioner_contract(tmp_path: Path, monkeypatch):
+    seed_repo, _ = _init_seed_repo(tmp_path)
+    task_file = tmp_path / "task.md"
+    task_file.write_text("translate the module\n")
+    experiment_root = tmp_path / "experiment"
+
+    def fake_run_command(command, *, cwd, archive_dir, arm, timeout_sec=None, stream_output=True):
+        arm_dir = archive_dir / arm
+        arm_dir.mkdir(parents=True, exist_ok=True)
+        (arm_dir / "stdout.log").write_text("ok\n")
+        (arm_dir / "stderr.log").write_text("")
+        return {
+            "command": command,
+            "cwd": str(cwd),
+            "exit_code": 0,
+            "duration_ms": 1,
+            "timed_out": False,
+            "timeout_sec": timeout_sec,
+            "stdout": "ok\n",
+            "stderr": "",
+        }
+
+    monkeypatch.setattr("orchestrator.demo.trial_runner._run_command", fake_run_command)
+    monkeypatch.setattr("orchestrator.demo.trial_runner._run_git_capture", lambda *_args: "abc123")
+    monkeypatch.setattr("orchestrator.demo.trial_runner._select_evaluator", lambda **_kwargs: ["stub-evaluator"])
+    monkeypatch.setattr(
+        "orchestrator.demo.trial_runner._run_evaluator",
+        lambda *_args, **_kwargs: {
+            "verdict": "PASS",
+            "failure_categories": [],
+            "summary": {"hidden_tests_passed": True},
+            "soft_quality": {"score": 1.0, "findings": []},
+            "process_exit_code": 0,
+        },
+    )
+
+    result = run_trial(
+        seed_repo=seed_repo,
+        experiment_root=experiment_root,
+        task_file=task_file,
+        workflow_path=WORKFLOW,
+        direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
+        commitish="HEAD",
+        stream_output=False,
+    )
+
+    assert (experiment_root / "archive" / "trial-result.json").is_file()
+    assert (experiment_root / "seed").is_dir()
+    assert (experiment_root / "direct-run").is_dir()
+    assert (experiment_root / "workflow-run").is_dir()
+    assert result["direct"]["evaluation"]["verdict"] == "PASS"
     assert result["workflow"]["evaluation"]["verdict"] == "PASS"
 
 

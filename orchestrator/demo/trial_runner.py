@@ -308,15 +308,6 @@ def run_trial(
     stream_output: bool = True,
 ) -> dict[str, Any]:
     started_at = _now_iso()
-    archive_dir = experiment_root / "archive"
-    archive_dir.mkdir(parents=True, exist_ok=True)
-    _append_event(
-        archive_dir,
-        "trial_started",
-        seed_repo=str(seed_repo),
-        task_file=str(task_file),
-        workflow_path=str(workflow_path),
-    )
     metadata = provision_trial(
         seed_repo=seed_repo,
         experiment_root=experiment_root,
@@ -324,6 +315,14 @@ def run_trial(
         workflow_path=workflow_path,
         workflow_prompts_dir=_repo_root() / "prompts" / "workflows",
         commitish=commitish,
+    )
+    archive_dir = experiment_root / "archive"
+    _append_event(
+        archive_dir,
+        "trial_started",
+        seed_repo=str(seed_repo),
+        task_file=str(task_file),
+        workflow_path=str(workflow_path),
     )
     workspaces = metadata["workspaces"]
     direct_workspace = Path(workspaces["direct_run"])
