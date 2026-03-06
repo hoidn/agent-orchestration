@@ -58,6 +58,7 @@ def nanobragg_run(fixture):
     assert "hidden_tests_passed" in result["summary"]
     assert "score" in result["summary"]
     assert "score" in result["soft_quality"]
+    assert "case_details" in result["summary"]
 
 
 def test_entrypoint_evaluator_fails_when_target_module_missing(tmp_path: Path):
@@ -69,6 +70,31 @@ def test_entrypoint_evaluator_fails_when_target_module_missing(tmp_path: Path):
 
 
 def test_entrypoint_evaluator_passes_when_expected_tensor_matches(tmp_path: Path):
+    module = _load_module()
+    cases = module.load_hidden_cases()
+    expected_by_case = {}
+    for case in cases:
+        expected = torch.load(ROOT / case["expected_output_path"], map_location="cpu")
+        expected_by_case[case["case_id"]] = expected.tolist()
+    workspace = _write_workspace(
+        tmp_path,
+        f"""
+from __future__ import annotations
+import torch
+
+EXPECTED_BY_CASE = {expected_by_case!r}
+
+def nanobragg_run(fixture):
+    return torch.tensor(EXPECTED_BY_CASE[fixture["case_id"]], dtype=torch.float32)
+""",
+    )
+    result = module.evaluate_workspace(workspace)
+    assert result["verdict"] == "PASS"
+    assert result["failure_categories"] == []
+    assert result["summary"]["score"] == 1.0
+
+
+def test_entrypoint_evaluator_executes_hidden_only_cases(tmp_path: Path):
     module = _load_module()
     expected = torch.load(
         ROOT
@@ -87,10 +113,17 @@ from __future__ import annotations
 import torch
 
 def nanobragg_run(fixture):
-    return torch.tensor({expected.tolist()}, dtype=torch.float32)
+    if fixture.get("case_id") == "case_basic":
+        return torch.tensor({expected.tolist()}, dtype=torch.float32)
+    shape = fixture["output_shape"]
+    return torch.zeros(shape, dtype=torch.float32)
 """,
     )
     result = module.evaluate_workspace(workspace)
-    assert result["verdict"] == "PASS"
-    assert result["failure_categories"] == []
-    assert result["summary"]["score"] == 1.0
+    assert result["verdict"] == "FAIL"
+    hidden_only = [
+        detail["case_id"]
+        for detail in result["summary"]["case_details"]
+        if detail["case_id"] != "case_basic"
+    ]
+    assert hidden_only

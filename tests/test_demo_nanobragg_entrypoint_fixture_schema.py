@@ -31,11 +31,22 @@ def test_hidden_cases_include_shape_and_provenance():
     payload = json.loads(HIDDEN_CASES.read_text())
     assert payload["entrypoint"] == "nanobragg_run"
     assert payload["reference_method"] == "nanobragg_main_wrapper"
+    assert len(payload["cases"]) >= 10
+
+    hidden_only_cases = []
+    output_shapes = set()
 
     for case in payload["cases"]:
         assert case["case_id"]
         assert case["input_fixture_relpath"]
+        assert case["input_fixture_origin"] in {"workspace", "evaluator_fixture_root"}
         assert case["expected_output_path"]
         assert case["output_shape"]
         assert case["probe_sites"]
         assert case["reference_source"].endswith("nanoBragg.c")
+        output_shapes.add(tuple(case["output_shape"]))
+        if case["input_fixture_origin"] == "evaluator_fixture_root":
+            hidden_only_cases.append(case["case_id"])
+
+    assert len(hidden_only_cases) >= 5
+    assert len(output_shapes) >= 2

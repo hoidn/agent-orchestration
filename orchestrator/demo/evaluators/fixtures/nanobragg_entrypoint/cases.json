@@ -4,7 +4,6 @@
   "cases": [
     {
       "case_id": "case_basic",
-      "input_fixture_relpath": "fixtures/visible/case_basic.json",
       "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_basic.pt",
       "output_shape": [
         4,
@@ -33,11 +32,12 @@
         ]
       ],
       "reference_method": "nanobragg_main_wrapper",
-      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c"
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "workspace",
+      "input_fixture_relpath": "fixtures/visible/case_basic.json"
     },
     {
       "case_id": "case_thickness",
-      "input_fixture_relpath": "fixtures/visible/case_thickness.json",
       "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_thickness.pt",
       "output_shape": [
         4,
@@ -66,11 +66,12 @@
         ]
       ],
       "reference_method": "nanobragg_main_wrapper",
-      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c"
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "workspace",
+      "input_fixture_relpath": "fixtures/visible/case_thickness.json"
     },
     {
       "case_id": "case_mosaic",
-      "input_fixture_relpath": "fixtures/visible/case_mosaic.json",
       "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_case_mosaic.pt",
       "output_shape": [
         4,
@@ -99,7 +100,349 @@
         ]
       ],
       "reference_method": "nanobragg_main_wrapper",
-      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c"
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "workspace",
+      "input_fixture_relpath": "fixtures/visible/case_mosaic.json"
+    },
+    {
+      "case_id": "hidden_rect_basic",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_basic.pt",
+      "output_shape": [
+        3,
+        5
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          4
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_rect_basic.json"
+    },
+    {
+      "case_id": "hidden_rect_large_n",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_rect_large_n.pt",
+      "output_shape": [
+        5,
+        6
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          5
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_rect_large_n.json"
+    },
+    {
+      "case_id": "hidden_oversample2",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_oversample2.pt",
+      "output_shape": [
+        4,
+        4
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_oversample2.json"
+    },
+    {
+      "case_id": "hidden_thickness_post",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_post.pt",
+      "output_shape": [
+        4,
+        4
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_thickness_post.json"
+    },
+    {
+      "case_id": "hidden_thickness_rect",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_thickness_rect.pt",
+      "output_shape": [
+        3,
+        5
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          4
+        ],
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          0
+        ],
+        [
+          2,
+          4
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_thickness_rect.json"
+    },
+    {
+      "case_id": "hidden_mosaic_small",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_small.pt",
+      "output_shape": [
+        4,
+        4
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_mosaic_small.json"
+    },
+    {
+      "case_id": "hidden_mosaic_rect",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_mosaic_rect.pt",
+      "output_shape": [
+        5,
+        6
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          5
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_mosaic_rect.json"
+    },
+    {
+      "case_id": "hidden_distance_pixel",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_distance_pixel.pt",
+      "output_shape": [
+        4,
+        4
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_distance_pixel.json"
+    },
+    {
+      "case_id": "hidden_lambda_n",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_lambda_n.pt",
+      "output_shape": [
+        4,
+        4
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          3
+        ],
+        [
+          2,
+          2
+        ],
+        [
+          3,
+          0
+        ],
+        [
+          3,
+          3
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_lambda_n.json"
+    },
+    {
+      "case_id": "hidden_combo_all",
+      "expected_output_path": "orchestrator/demo/evaluators/fixtures/nanobragg_entrypoint/expected_hidden_combo_all.pt",
+      "output_shape": [
+        5,
+        6
+      ],
+      "probe_sites": [
+        [
+          0,
+          0
+        ],
+        [
+          0,
+          5
+        ],
+        [
+          2,
+          3
+        ],
+        [
+          4,
+          0
+        ],
+        [
+          4,
+          5
+        ]
+      ],
+      "reference_method": "nanobragg_main_wrapper",
+      "reference_source": "/home/ollie/Documents/nanoBragg/golden_suite_generator/nanoBragg.c",
+      "input_fixture_origin": "evaluator_fixture_root",
+      "input_fixture_relpath": "inputs/hidden_combo_all.json"
     }
   ]
 }

@@ -25,6 +25,14 @@ def load_hidden_cases() -> list[dict[str, Any]]:
     return list(payload["cases"])
 
 
+def _resolve_fixture_path(workspace: Path, case: dict[str, Any]) -> Path:
+    relpath = case.get("input_fixture_relpath") or case.get("fixture_path")
+    origin = case.get("input_fixture_origin", "workspace")
+    if origin == "evaluator_fixture_root":
+        return _fixture_root() / relpath
+    return workspace / relpath
+
+
 def _score_fraction_close(actual: torch.Tensor, expected: torch.Tensor, *, rtol: float, atol: float) -> float:
     actual64 = actual.to(dtype=torch.float64)
     expected64 = expected.to(dtype=torch.float64)
@@ -130,8 +138,7 @@ def _soft_quality_report(workspace: Path) -> dict[str, Any]:
 
 
 def _evaluate_case(module: ModuleType, workspace: Path, case: dict[str, Any]) -> None:
-    fixture_relpath = case.get("input_fixture_relpath") or case.get("fixture_path")
-    fixture = json.loads((workspace / fixture_relpath).read_text())
+    fixture = json.loads(_resolve_fixture_path(workspace, case).read_text())
     actual = module.nanobragg_run(fixture)
     expected = torch.load(_repo_root() / case["expected_output_path"], map_location="cpu")
     if not isinstance(actual, torch.Tensor):
@@ -180,8 +187,7 @@ def evaluate_workspace(workspace: Path | str) -> dict[str, Any]:
     case_details: list[dict[str, Any]] = []
     total_score = 0.0
     for case in load_hidden_cases():
-        fixture_relpath = case.get("input_fixture_relpath") or case.get("fixture_path")
-        fixture_path = workspace / fixture_relpath
+        fixture_path = _resolve_fixture_path(workspace, case)
         if not fixture_path.is_file():
             continue
         executed_cases.append(case["case_id"])

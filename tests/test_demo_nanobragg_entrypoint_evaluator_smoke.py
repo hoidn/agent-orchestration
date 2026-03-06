@@ -15,4 +15,5 @@ def test_entrypoint_seed_current_stub_fails_hidden_evaluator():
     assert result["verdict"] == "FAIL"
     assert "hidden_acceptance_failed" in result["failure_categories"]
     assert result["summary"]["executed_cases"]
+    assert len(result["summary"]["executed_cases"]) >= 10
     assert 0.0 <= result["summary"]["score"] < 0.95

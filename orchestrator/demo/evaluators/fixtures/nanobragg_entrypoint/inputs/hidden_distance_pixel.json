@@ -1,0 +1,32 @@
+{
+  "case_id": "hidden_distance_pixel",
+  "output_shape": [
+    4,
+    4
+  ],
+  "argv": [
+    "-cell",
+    "10",
+    "10",
+    "10",
+    "90",
+    "90",
+    "90",
+    "-default_F",
+    "1",
+    "-detpixels_x",
+    "4",
+    "-detpixels_y",
+    "4",
+    "-pixel",
+    "0.06",
+    "-distance",
+    "180",
+    "-lambda",
+    "1",
+    "-N",
+    "1",
+    "-oversample",
+    "1"
+  ]
+}

@@ -1,0 +1,39 @@
+{
+  "case_id": "hidden_thickness_rect",
+  "output_shape": [
+    3,
+    5
+  ],
+  "argv": [
+    "-cell",
+    "9",
+    "10",
+    "11",
+    "90",
+    "90",
+    "90",
+    "-default_F",
+    "1",
+    "-detpixels_x",
+    "5",
+    "-detpixels_y",
+    "3",
+    "-pixel",
+    "0.08",
+    "-distance",
+    "120",
+    "-lambda",
+    "0.95",
+    "-N",
+    "2",
+    "-oversample",
+    "1",
+    "-detector_abs",
+    "180",
+    "-detector_thick",
+    "90",
+    "-detector_thicksteps",
+    "3",
+    "-oversample_thick"
+  ]
+}
