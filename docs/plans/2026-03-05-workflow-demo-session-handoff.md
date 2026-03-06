@@ -599,6 +599,9 @@ Current validation status:
 - trial runner: targeted pytest coverage exists
 - provisioned-workspace smoke path for the first seed: targeted pytest coverage exists
 
+Remaining gap:
+- the trial runner has been exercised through mocked subprocess boundaries, not through a real local direct-arm plus workflow-arm trial
+
 Possible future hardening:
 - add a smoke test that provisions a toy seed and validates expected workspace outputs
 - add a minimal end-to-end demo run against a toy task
