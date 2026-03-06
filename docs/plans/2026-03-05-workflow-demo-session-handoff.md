@@ -58,6 +58,89 @@ The workflow therefore needs to enforce a sequence that a direct run might skip 
 - fix issues
 - repeat in bounded loops
 
+## 2.1 Key Repo References
+
+Use this section as the file-level map for continuation.
+
+### Core session outputs
+
+- `docs/plans/2026-03-05-workflow-demo-session-handoff.md`
+  - this handoff document
+- `docs/plans/2026-03-05-workflow-demo-design.md`
+  - primary design/spec for the demo experiment
+- `docs/plans/templates/artifact_contracts.md`
+  - workflow-facing artifact vocabulary
+- `docs/plans/templates/check_plan_schema.md`
+  - machine-readable `check_plan` schema
+- `docs/plans/templates/plan_template.md`
+  - optional authoring aid for the `plan` artifact
+- `docs/plans/templates/review_template.md`
+  - optional authoring aid for review artifacts
+- `prompts/workflows/generic_task_loop/draft_plan.md`
+- `prompts/workflows/generic_task_loop/review_plan.md`
+- `prompts/workflows/generic_task_loop/revise_plan.md`
+- `prompts/workflows/generic_task_loop/execute_plan.md`
+- `prompts/workflows/generic_task_loop/review_implementation.md`
+- `prompts/workflows/generic_task_loop/fix_issues.md`
+- `workflows/examples/generic_task_plan_execute_review_loop.yaml`
+  - the generic two-loop workflow example created from this design
+
+### Core DSL and workflow authoring references
+
+- `docs/index.md`
+  - documentation hub for the repo
+- `docs/orchestration_start_here.md`
+  - conceptual model for orchestration, workflow, DSL, and runtime boundaries
+- `docs/runtime_execution_lifecycle.md`
+  - step sequencing and runtime state behavior
+- `docs/workflow_drafting_guide.md`
+  - informative authoring guidance for prompts, contracts, and gates
+- `specs/index.md`
+  - normative spec entrypoint
+- `specs/dsl.md`
+  - normative workflow schema and control flow
+- `specs/providers.md`
+  - provider prompt delivery and provider step semantics
+- `specs/io.md`
+  - output capture and deterministic output-contract behavior
+- `specs/state.md`
+  - state representation and artifact ledger semantics
+- `specs/versioning.md`
+  - feature/version gating, including v1.4 consume semantics
+- `specs/queue.md`
+  - queue and backlog-process semantics when those primitives are used
+- `specs/observability.md`
+  - run artifact and log expectations
+
+### Example workflows and runbooks worth comparing against
+
+- `workflows/examples/README_v0_artifact_contract.md`
+  - existing runbook for artifact-contract workflows
+- `workflows/examples/backlog_plan_execute_v1_2_dataflow.yaml`
+  - compact v1.2 publish/consume example
+- `workflows/examples/backlog_plan_execute_v1_3_json_bundles.yaml`
+  - example of JSON-bundle based assessment/gating
+- `workflows/examples/test_fix_loop_v0.yaml`
+  - minimal test/fix loop
+- `workflows/examples/unit_of_work_plus_test_fix_v0.yaml`
+  - example of unit-of-work plus verification loop
+- `workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml`
+  - informative downstream reference copied from the PtychoPINN workflow family
+
+### Adjacent scaffold and experiment-operation assets now present in the repo
+
+- `examples/demo_scaffold/AGENTS.md`
+- `examples/demo_scaffold/README.md`
+- `examples/demo_scaffold/docs/index.md`
+- `examples/demo_scaffold/docs/dev_guidelines.md`
+- `examples/demo_scaffold/src_py/README.md`
+- `examples/demo_scaffold/rust/README.md`
+- `docs/plans/2026-03-05-demo-scaffold-and-runbook.md`
+- `docs/plans/2026-03-05-demo-provisioning-script.md`
+- `scripts/demo/provision_trial.py`
+
+These adjacent assets were not the main focus of the design thread captured here, but they are directly relevant to continuation and should be reconciled with the workflow/prompt/contract design before duplicating effort.
+
 ## 3. Major design decisions made
 
 ### 3.1 General shape of the workflow
