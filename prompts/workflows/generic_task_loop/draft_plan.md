@@ -9,6 +9,7 @@ Also read these repo-local references before drafting outputs:
 Task:
 - Derive an executable implementation plan from the current task.
 - Derive a visible verification strategy from the task and current repo state.
+- Derive and document the proposed design before listing implementation steps.
 
 Required outputs:
 - Produce a `plan` artifact that is concrete, scoped, and executable.
@@ -19,6 +20,7 @@ Planning requirements:
 - Restate the task in engineering terms.
 - Define scope and non-goals.
 - Call out assumptions and risks.
+- Describe the proposed design, including module/function boundaries, important interfaces or data shapes, and key invariants.
 - Describe the implementation sequence.
 - Align the plan with a realistic visible verification strategy.
 

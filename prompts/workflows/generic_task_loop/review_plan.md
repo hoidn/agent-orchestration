@@ -14,6 +14,8 @@ Decision rule:
 - `REVISE` if there are blocking scope, execution, or verification gaps.
 
 Reject for:
+- weak or missing design reasoning for a task that requires nontrivial decomposition
+- unclear module or function boundaries, interfaces, or invariants
 - underspecified implementation steps
 - obvious correctness or scope gaps
 - weak, circular, or implausible verification strategy

@@ -21,6 +21,15 @@ The artifact contract is defined in `docs/plans/templates/artifact_contracts.md`
 - Assumptions
 - Known risks or uncertainty
 
+## Proposed Design
+- Describe the architecture before listing execution steps.
+- Call out module or function boundaries.
+- Note important interfaces, data shapes, or state transitions.
+
+## Key Invariants
+- List the semantic properties that must remain true after implementation.
+- Call out the correctness-sensitive areas the checks must protect.
+
 ## Implementation Steps
 1. First concrete step
 2. Second concrete step

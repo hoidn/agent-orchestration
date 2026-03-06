@@ -12,6 +12,8 @@ Design a fair demo that compares:
 
 The workflow should outperform the direct run because it enforces planning, verification, review, and bounded revision loops. The workflow must stay general-purpose. It must not hard-code the task domain into the YAML or prompts.
 
+For harder tasks, the planning phase must include architectural design, not just implementation sequencing, because many likely failures come from poor decomposition rather than missed steps.
+
 The first task family should be a coding task where agent use is self-explanatory, with an initial emphasis on Python-to-Rust translation for ML-adjacent code.
 
 ## Non-Goals
@@ -217,7 +219,7 @@ These are expected to be reused across multiple steps.
 #### `plan`
 - Type: relpath
 - Canonical path: `docs/plans/current-plan.md`
-- Purpose: implementation plan derived from the task
+- Purpose: implementation plan derived from the task, including the proposed design and key invariants
 - Typical consumers: plan review, plan revision, execution, implementation review, fix
 
 #### `check_strategy`
