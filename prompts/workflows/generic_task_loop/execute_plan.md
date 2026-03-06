@@ -33,3 +33,5 @@ Constraints:
 - No fabricated results.
 - Do not treat the task as complete merely because code was written.
 - Do not write outputs anywhere except the contract paths required by this invocation.
+- Do not generate expected numerical outputs, oracle artifacts, or reference metrics from the candidate implementation.
+- Any visible oracle artifact must come from a reference path or a pre-existing artifact with documented external provenance.

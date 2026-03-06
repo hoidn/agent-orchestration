@@ -19,6 +19,7 @@ Review priorities:
 - task/plan alignment
 - adequacy of visible verification
 - evidence from concrete artifacts and check results
+- provenance of any expected outputs, oracle artifacts, or reference metrics used by visible verification
 
 Do not reject for:
 - formatting
@@ -35,3 +36,5 @@ Constraints:
 - Base the verdict on concrete evidence.
 - Treat out-of-contract improvements as non-blocking unless the task explicitly requires them.
 - If checks passed but hidden-evaluator-like risks remain visible from code or artifacts, call them out and reject only if they are genuinely blocking.
+- Treat any oracle or expected-number artifact generated from the candidate implementation as a blocking verification defect.
+- Require documented external provenance for visible numerical oracle artifacts before approving the implementation.

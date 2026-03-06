@@ -23,6 +23,7 @@ Reject for:
 - weak, circular, or implausible verification strategy
 - failure to explain how runnable verification will exist by the implementation loop
 - a strategy that is too narrow for the stated task
+- any numerical oracle strategy that would generate expected outputs from the candidate implementation instead of from a reference path or a checked-in artifact with documented external provenance
 
 Do not reject for:
 - style preferences
@@ -38,3 +39,5 @@ Constraints:
 - Focus on whether the plan is safe and useful to execute next.
 - Treat out-of-contract improvements as non-blocking unless the task explicitly requires them.
 - Required fixes should be specific and actionable.
+- Treat self-generated numerical oracles as blocking verification failures.
+- If the plan uses expected numbers, metrics, or oracle artifacts, require a credible external source for them; do not approve plans that derive them from the candidate implementation.
