@@ -1,11 +1,19 @@
 from __future__ import annotations
 
 import json
+from io import StringIO
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
-from orchestrator.demo.trial_runner import _select_evaluator, build_direct_command, build_workflow_command, run_trial
+from orchestrator.demo.trial_runner import (
+    _select_evaluator,
+    build_direct_command,
+    build_parser,
+    build_workflow_command,
+    run_trial,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -45,6 +53,24 @@ def test_build_workflow_command_matches_expected_cli_shape():
         "run",
         str(local_workflow),
     ]
+
+
+def test_build_parser_supports_stream_output_flag():
+    parser = build_parser()
+
+    args = parser.parse_args(
+        [
+            "--seed-repo",
+            "/tmp/seed",
+            "--experiment-root",
+            "/tmp/experiment",
+            "--task-file",
+            "/tmp/task.md",
+            "--no-stream-output",
+        ]
+    )
+
+    assert args.stream_output is False
 
 
 def test_select_evaluator_picks_nanobragg_hidden_evaluator_for_seed_and_task_names():
@@ -127,17 +153,17 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
             self.pid = 4242 if command[:2] == ["claude", "-p"] else 5252
             if command[:2] == ["claude", "-p"]:
                 self.returncode = 0
-                self._stdout = "direct ok\n"
-                self._stderr = ""
+                self.stdout = StringIO("direct ok\n")
+                self.stderr = StringIO("")
             elif command[:2] == ["env", f"PYTHONPATH={ROOT}"]:
                 self.returncode = 0
-                self._stdout = "workflow ok\n"
-                self._stderr = ""
+                self.stdout = StringIO("workflow ok\n")
+                self.stderr = StringIO("")
             else:
                 raise AssertionError(f"Unexpected Popen call: {command}")
 
-        def communicate(self, timeout=None):
-            return self._stdout, self._stderr
+        def wait(self, timeout=None):
+            return self.returncode
 
     monkeypatch.setattr("orchestrator.demo.trial_runner.provision_trial", fake_provision_trial)
     monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.run", fake_run)
@@ -225,3 +251,167 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
     assert persisted_result == result
     assert result["direct"]["evaluation"]["verdict"] == "FAIL"
     assert result["workflow"]["evaluation"]["verdict"] == "PASS"
+
+
+def test_run_trial_streams_direct_output_to_console(tmp_path: Path, monkeypatch):
+    experiment_root = tmp_path / "experiment"
+    seed_repo = tmp_path / "seed-repo"
+    task_file = tmp_path / "port_linear_classifier_to_rust.md"
+    task_file.write_text("translate the module\n")
+    direct_workspace = experiment_root / "direct-run"
+    workflow_workspace = experiment_root / "workflow-run"
+    archive_dir = experiment_root / "archive"
+    for path in (direct_workspace, workflow_workspace, archive_dir):
+        path.mkdir(parents=True, exist_ok=True)
+
+    def fake_provision_trial(**_kwargs):
+        return {
+            "seed_repo": str(seed_repo),
+            "task_file": str(task_file),
+            "start_commit": "abc123",
+            "workspaces": {
+                "seed": str(experiment_root / "seed"),
+                "direct_run": str(direct_workspace),
+                "workflow_run": str(workflow_workspace),
+            },
+        }
+
+    def fake_run(args, cwd=None, check=False, capture_output=False, text=False, **_):
+        command = list(args)
+        if command[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout="", stderr="")
+        if command[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout="abc123\n", stderr="")
+        if command[:2] == [sys.executable, str(LINEAR_EVAL)]:
+            return subprocess.CompletedProcess(
+                args=command,
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "verdict": "PASS",
+                        "failure_categories": [],
+                        "summary": {"hidden_tests_passed": True},
+                        "soft_quality": {"score": 1.0, "findings": []},
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected subprocess call: {command}")
+
+    class FakePopen:
+        def __init__(self, args, cwd=None, stdout=None, stderr=None, text=None, **_):
+            command = list(args)
+            self.args = command
+            self.pid = 4242 if command[:2] == ["claude", "-p"] else 5252
+            if command[:2] == ["claude", "-p"]:
+                self.returncode = 0
+                self.stdout = StringIO("direct ok\n")
+                self.stderr = StringIO("")
+            else:
+                self.returncode = 0
+                self.stdout = StringIO("workflow ok\n")
+                self.stderr = StringIO("")
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr("orchestrator.demo.trial_runner.provision_trial", fake_provision_trial)
+    monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.run", fake_run)
+    monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.Popen", FakePopen)
+
+    fake_stdout = StringIO()
+    with patch("sys.stdout", fake_stdout):
+        run_trial(
+            seed_repo=seed_repo,
+            experiment_root=experiment_root,
+            task_file=task_file,
+            workflow_path=WORKFLOW,
+            direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
+            commitish="HEAD",
+        )
+
+    assert "[direct][stdout] direct ok" in fake_stdout.getvalue()
+    assert "direct ok" in (archive_dir / "direct" / "stdout.log").read_text()
+
+
+def test_run_trial_streams_workflow_output_to_console(tmp_path: Path, monkeypatch):
+    experiment_root = tmp_path / "experiment"
+    seed_repo = tmp_path / "seed-repo"
+    task_file = tmp_path / "port_linear_classifier_to_rust.md"
+    task_file.write_text("translate the module\n")
+    direct_workspace = experiment_root / "direct-run"
+    workflow_workspace = experiment_root / "workflow-run"
+    archive_dir = experiment_root / "archive"
+    for path in (direct_workspace, workflow_workspace, archive_dir):
+        path.mkdir(parents=True, exist_ok=True)
+
+    def fake_provision_trial(**_kwargs):
+        return {
+            "seed_repo": str(seed_repo),
+            "task_file": str(task_file),
+            "start_commit": "abc123",
+            "workspaces": {
+                "seed": str(experiment_root / "seed"),
+                "direct_run": str(direct_workspace),
+                "workflow_run": str(workflow_workspace),
+            },
+        }
+
+    def fake_run(args, cwd=None, check=False, capture_output=False, text=False, **_):
+        command = list(args)
+        if command[:2] == ["git", "status"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout="", stderr="")
+        if command[:2] == ["git", "rev-parse"]:
+            return subprocess.CompletedProcess(args=command, returncode=0, stdout="abc123\n", stderr="")
+        if command[:2] == [sys.executable, str(LINEAR_EVAL)]:
+            return subprocess.CompletedProcess(
+                args=command,
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "verdict": "PASS",
+                        "failure_categories": [],
+                        "summary": {"hidden_tests_passed": True},
+                        "soft_quality": {"score": 1.0, "findings": []},
+                    }
+                ),
+                stderr="",
+            )
+        raise AssertionError(f"Unexpected subprocess call: {command}")
+
+    class FakePopen:
+        def __init__(self, args, cwd=None, stdout=None, stderr=None, text=None, **_):
+            command = list(args)
+            self.args = command
+            self.pid = 4242 if command[:2] == ["claude", "-p"] else 5252
+            if command[:2] == ["claude", "-p"]:
+                self.returncode = 0
+                self.stdout = StringIO("direct ok\n")
+                self.stderr = StringIO("")
+            else:
+                self.returncode = 0
+                self.stdout = StringIO("workflow ok\n")
+                self.stderr = StringIO("workflow warn\n")
+
+        def wait(self, timeout=None):
+            return self.returncode
+
+    monkeypatch.setattr("orchestrator.demo.trial_runner.provision_trial", fake_provision_trial)
+    monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.run", fake_run)
+    monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.Popen", FakePopen)
+
+    fake_stdout = StringIO()
+    with patch("sys.stdout", fake_stdout):
+        run_trial(
+            seed_repo=seed_repo,
+            experiment_root=experiment_root,
+            task_file=task_file,
+            workflow_path=WORKFLOW,
+            direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
+            commitish="HEAD",
+        )
+
+    captured = fake_stdout.getvalue()
+    assert "[workflow][stdout] workflow ok" in captured
+    assert "[workflow][stderr] workflow warn" in captured
+    assert "workflow ok" in (archive_dir / "workflow" / "stdout.log").read_text()

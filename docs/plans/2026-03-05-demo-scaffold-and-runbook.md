@@ -205,6 +205,7 @@ python scripts/demo/run_trial.py \
   --seed-repo /path/to/task-seed-repo \
   --experiment-root /path/to/experiment-root \
   --task-file /path/to/task.md \
+  --stream-output \
   --direct-timeout-sec 600 \
   --workflow-timeout-sec 1800
 ```
@@ -215,6 +216,17 @@ Current defaults:
 - the runner stages the selected workflow YAML and `prompts/workflows/` into `workflow-run/` before launch
 - the runner is still serial: direct arm first, then workflow arm
 - the current direct-arm launcher uses `claude -p ... --dangerously-skip-permissions --model claude-sonnet-4-6`
+- output streaming is enabled by default; pass `--no-stream-output` to suppress live console teeing
+
+Console streaming format:
+- direct stdout lines: `[direct][stdout] ...`
+- direct stderr lines: `[direct][stderr] ...`
+- workflow stdout lines: `[workflow][stdout] ...`
+- workflow stderr lines: `[workflow][stderr] ...`
+
+Streaming notes:
+- console streaming is a tee, not the source of truth; archived log files remain authoritative
+- the runner streams child-process output as it arrives, but workflow-internal provider buffering may still make some workflow output arrive in chunks rather than line-by-line from the operator perspective
 
 ## Freeze and Archive
 

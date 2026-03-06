@@ -6,6 +6,7 @@ import argparse
 import json
 import subprocess
 import sys
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -52,9 +53,12 @@ def _run_command(
     archive_dir: Path,
     arm: str,
     timeout_sec: int | None = None,
+    stream_output: bool = True,
 ) -> dict[str, Any]:
     arm_dir = archive_dir / arm
     arm_dir.mkdir(parents=True, exist_ok=True)
+    stdout_log = arm_dir / "stdout.log"
+    stderr_log = arm_dir / "stderr.log"
     started = time.time()
     process = subprocess.Popen(
         command,
@@ -62,6 +66,7 @@ def _run_command(
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
         text=True,
+        bufsize=1,
     )
     _write_json(
         arm_dir / "process.json",
@@ -83,21 +88,59 @@ def _run_command(
             "stderr_bytes": 0,
         },
     )
+    stdout_chunks: list[str] = []
+    stderr_chunks: list[str] = []
+
+    stdout_thread = threading.Thread(
+        target=_stream_pipe,
+        kwargs={
+            "pipe": process.stdout,
+            "log_path": stdout_log,
+            "arm": arm,
+            "stream_name": "stdout",
+            "buffer": stdout_chunks,
+            "emit_console": stream_output,
+        },
+        daemon=True,
+    )
+    stderr_thread = threading.Thread(
+        target=_stream_pipe,
+        kwargs={
+            "pipe": process.stderr,
+            "log_path": stderr_log,
+            "arm": arm,
+            "stream_name": "stderr",
+            "buffer": stderr_chunks,
+            "emit_console": stream_output,
+        },
+        daemon=True,
+    )
+    stdout_thread.start()
+    stderr_thread.start()
+
     timed_out = False
     try:
-        stdout, stderr = process.communicate(timeout=timeout_sec)
+        process.wait(timeout=timeout_sec)
     except subprocess.TimeoutExpired:
         timed_out = True
-        stdout = ""
-        stderr = f"{arm} timed out after {timeout_sec} seconds\n"
         process.terminate()
         try:
             process.wait(timeout=1)
         except subprocess.TimeoutExpired:
             process.kill()
             process.wait(timeout=1)
-    (arm_dir / "stdout.log").write_text(stdout, encoding="utf-8")
-    (arm_dir / "stderr.log").write_text(stderr, encoding="utf-8")
+        timeout_line = f"{arm} timed out after {timeout_sec} seconds\n"
+        stderr_chunks.append(timeout_line)
+        with stderr_log.open("a", encoding="utf-8") as handle:
+            handle.write(timeout_line)
+            handle.flush()
+        if stream_output:
+            print(f"[{arm}][stderr] {timeout_line.rstrip()}", flush=True)
+
+    stdout_thread.join(timeout=2)
+    stderr_thread.join(timeout=2)
+    stdout = "".join(stdout_chunks)
+    stderr = "".join(stderr_chunks)
     _write_json(
         arm_dir / "heartbeat.json",
         {
@@ -171,6 +214,30 @@ def _write_partial_result(archive_dir: Path, payload: dict[str, Any]) -> None:
     _write_json(archive_dir / "partial-trial-result.json", payload)
 
 
+def _emit_stream_to_console(*, arm: str, stream_name: str, content: str) -> None:
+    for line in content.splitlines():
+        print(f"[{arm}][{stream_name}] {line}", flush=True)
+
+
+def _stream_pipe(
+    *,
+    pipe,
+    log_path: Path,
+    arm: str,
+    stream_name: str,
+    buffer: list[str],
+    emit_console: bool,
+) -> None:
+    with log_path.open("w", encoding="utf-8") as handle:
+        for line in iter(pipe.readline, ""):
+            buffer.append(line)
+            handle.write(line)
+            handle.flush()
+            if emit_console:
+                print(f"[{arm}][{stream_name}] {line.rstrip()}", flush=True)
+    pipe.close()
+
+
 def _write_freeze_manifest(*, archive_dir: Path, arm: str, workspace: Path) -> None:
     freeze_dir = archive_dir / arm / "freeze"
     freeze_dir.mkdir(parents=True, exist_ok=True)
@@ -238,6 +305,7 @@ def run_trial(
     commitish: str = "HEAD",
     direct_timeout_sec: int | None = None,
     workflow_timeout_sec: int | None = None,
+    stream_output: bool = True,
 ) -> dict[str, Any]:
     started_at = _now_iso()
     archive_dir = experiment_root / "archive"
@@ -318,6 +386,7 @@ def run_trial(
         archive_dir=archive_dir,
         arm="direct",
         timeout_sec=direct_timeout_sec,
+        stream_output=stream_output,
     )
     state["direct"]["status"] = (
         "timed_out" if direct_execution["timed_out"] else ("succeeded" if direct_execution["exit_code"] == 0 else "failed")
@@ -347,6 +416,7 @@ def run_trial(
         archive_dir=archive_dir,
         arm="workflow",
         timeout_sec=workflow_timeout_sec,
+        stream_output=stream_output,
     )
     state["workflow"]["status"] = (
         "timed_out"
@@ -451,6 +521,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--commitish", default="HEAD", help="Seed revision to provision. Defaults to HEAD.")
     parser.add_argument("--direct-timeout-sec", type=int, default=None, help="Timeout for the direct arm.")
     parser.add_argument("--workflow-timeout-sec", type=int, default=None, help="Timeout for the workflow arm.")
+    parser.add_argument(
+        "--stream-output",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Stream direct/workflow stdout and stderr to the console while preserving archive logs.",
+    )
     return parser
 
 
@@ -466,6 +542,7 @@ def main(argv: list[str] | None = None) -> int:
         commitish=args.commitish,
         direct_timeout_sec=args.direct_timeout_sec,
         workflow_timeout_sec=args.workflow_timeout_sec,
+        stream_output=args.stream_output,
     )
     print(json.dumps(result, indent=2))
     direct_verdict = (result["direct"]["evaluation"] or {}).get("verdict")

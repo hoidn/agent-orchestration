@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import threading
+import time
+from io import StringIO
 import subprocess
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
-from orchestrator.demo.trial_runner import run_trial
+from orchestrator.demo.trial_runner import _run_command, run_trial
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -78,17 +82,17 @@ def _install_runner_doubles(
             self.pid = 4242 if command[:2] == ["claude", "-p"] else 5252
             if command[:2] == ["claude", "-p"]:
                 self.returncode = 0
-                self._stdout = "direct ok\n"
-                self._stderr = ""
+                self.stdout = StringIO("direct ok\n")
+                self.stderr = StringIO("")
             elif command[:5] == ["env", f"PYTHONPATH={ROOT}", sys.executable, "-m", "orchestrator"]:
                 self.returncode = 0
-                self._stdout = "workflow ok\n"
-                self._stderr = ""
+                self.stdout = StringIO("workflow ok\n")
+                self.stderr = StringIO("")
             else:
                 raise AssertionError(f"Unexpected Popen call: {command}")
 
-        def communicate(self, timeout=None):
-            return self._stdout, self._stderr
+        def wait(self, timeout=None):
+            return self.returncode
 
     monkeypatch.setattr("orchestrator.demo.trial_runner.provision_trial", fake_provision_trial)
     monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.run", fake_run)
@@ -316,23 +320,21 @@ def test_run_trial_records_direct_timeout(tmp_path: Path, monkeypatch):
             self.pid = 4242 if command[:2] == ["claude", "-p"] else 5252
             self.returncode = None
             self._timed_out = command[:2] == ["claude", "-p"]
+            self.stdout = StringIO("" if self._timed_out else "workflow ok\n")
+            self.stderr = StringIO("")
 
-        def communicate(self, timeout=None):
-            if self._timed_out:
+        def wait(self, timeout=None):
+            if self._timed_out and self.returncode is None:
                 raise subprocess.TimeoutExpired(cmd=self.args, timeout=timeout or 1)
-            self.returncode = 0
-            return "workflow ok\n", ""
+            if self.returncode is None:
+                self.returncode = 0
+            return self.returncode
 
         def terminate(self):
             self.returncode = -15
 
         def kill(self):
             self.returncode = -9
-
-        def wait(self, timeout=None):
-            if self.returncode is None:
-                self.returncode = -15
-            return self.returncode
 
     monkeypatch.setattr("orchestrator.demo.trial_runner.provision_trial", fake_provision_trial)
     monkeypatch.setattr("orchestrator.demo.trial_runner.subprocess.run", fake_run)
@@ -398,3 +400,47 @@ def test_run_trial_writes_freeze_and_evaluator_artifacts(tmp_path: Path, monkeyp
 
     evaluator_status = json.loads((evaluator_dir / "status.json").read_text())
     assert evaluator_status["status"] == "completed"
+
+
+def test_streaming_logs_grow_before_process_exit(tmp_path: Path):
+    archive_dir = tmp_path / "archive"
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+
+    command = [
+        sys.executable,
+        "-u",
+        "-c",
+        (
+            "import sys, time; "
+            "print('first line'); sys.stdout.flush(); "
+            "time.sleep(0.5); "
+            "print('second line'); sys.stdout.flush(); "
+            "print('warn line', file=sys.stderr); sys.stderr.flush()"
+        ),
+    ]
+
+    result_holder: dict[str, object] = {}
+    fake_stdout = StringIO()
+
+    def run_command():
+        result_holder["result"] = _run_command(
+            command,
+            cwd=workspace,
+            archive_dir=archive_dir,
+            arm="direct",
+            timeout_sec=5,
+        )
+
+    thread = threading.Thread(target=run_command)
+    with patch("sys.stdout", fake_stdout):
+        thread.start()
+        time.sleep(0.2)
+        stdout_log = archive_dir / "direct" / "stdout.log"
+        streamed = fake_stdout.getvalue()
+        thread.join()
+
+    assert stdout_log.is_file()
+    assert "first line" in stdout_log.read_text()
+    assert "[direct][stdout] first line" in streamed
+    assert result_holder["result"]["exit_code"] == 0
