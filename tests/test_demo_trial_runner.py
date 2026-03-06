@@ -5,12 +5,13 @@ import subprocess
 import sys
 from pathlib import Path
 
-from orchestrator.demo.trial_runner import build_direct_command, build_workflow_command, run_trial
+from orchestrator.demo.trial_runner import _select_evaluator, build_direct_command, build_workflow_command, run_trial
 
 
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"
 LINEAR_EVAL = ROOT / "scripts" / "demo" / "evaluate_linear_classifier.py"
+NANOBRAGG_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py"
 
 
 def test_build_direct_command_matches_expected_cli_shape():
@@ -44,6 +45,20 @@ def test_build_workflow_command_matches_expected_cli_shape():
         "run",
         str(local_workflow),
     ]
+
+
+def test_select_evaluator_picks_nanobragg_hidden_evaluator_for_seed_and_task_names():
+    by_task = _select_evaluator(
+        seed_repo=Path("/tmp/other-seed"),
+        task_file=Path("/tmp/port_nanobragg_accumulation_to_pytorch.md"),
+    )
+    by_seed = _select_evaluator(
+        seed_repo=Path("/tmp/demo_task_nanobragg_accumulation_port"),
+        task_file=Path("/tmp/other-task.md"),
+    )
+
+    assert by_task == [sys.executable, str(NANOBRAGG_EVAL)]
+    assert by_seed == [sys.executable, str(NANOBRAGG_EVAL)]
 
 
 def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, monkeypatch):

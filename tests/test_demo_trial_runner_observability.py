@@ -11,6 +11,7 @@ from orchestrator.demo.trial_runner import run_trial
 ROOT = Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / "workflows" / "examples" / "generic_task_plan_execute_review_loop.yaml"
 LINEAR_EVAL = ROOT / "scripts" / "demo" / "evaluate_linear_classifier.py"
+NANOBRAGG_EVAL = ROOT / "scripts" / "demo" / "evaluate_nanobragg_accumulation.py"
 
 
 def _install_runner_doubles(
@@ -232,6 +233,34 @@ def test_run_trial_writes_heartbeat_files(tmp_path: Path, monkeypatch):
     direct_heartbeat = json.loads(direct_heartbeat_path.read_text())
     assert direct_heartbeat["alive"] is False
     assert direct_heartbeat["elapsed_sec"] >= 0
+
+
+def test_run_trial_records_nanobragg_evaluator_status(tmp_path: Path, monkeypatch):
+    experiment_root = tmp_path / "experiment"
+    seed_repo = tmp_path / "demo_task_nanobragg_accumulation_port"
+    task_file = tmp_path / "port_nanobragg_accumulation_to_pytorch.md"
+    task_file.write_text("translate the module\n")
+    _install_runner_doubles(
+        monkeypatch=monkeypatch,
+        experiment_root=experiment_root,
+        seed_repo=seed_repo,
+        task_file=task_file,
+    )
+
+    run_trial(
+        seed_repo=seed_repo,
+        experiment_root=experiment_root,
+        task_file=task_file,
+        workflow_path=WORKFLOW,
+        direct_prompt="Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.",
+        commitish="HEAD",
+    )
+
+    evaluator_status_path = experiment_root / "archive" / "evaluator" / "status.json"
+    status = json.loads(evaluator_status_path.read_text())
+
+    assert status["status"] == "completed"
+    assert status["command"] == [sys.executable, str(NANOBRAGG_EVAL)]
 
 
 def test_run_trial_records_direct_timeout(tmp_path: Path, monkeypatch):
