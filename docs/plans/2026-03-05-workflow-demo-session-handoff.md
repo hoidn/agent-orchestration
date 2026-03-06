@@ -748,6 +748,7 @@ This is an important handoff point because older launch assumptions in the sessi
   - `4654aa3` `docs: finalize demo next-step runbook notes`
   - `6ec82d6` `feat: add demo trial runner observability artifacts`
   - `bbd19d6` `fix: align demo workflow provisioning contract`
+  - `a4e9191` `test: align nanoBragg trial smoke with streaming runner`
 
 ### Demo coordination prompts and runbook wiring
 - Files:
@@ -797,6 +798,34 @@ This is an important handoff point because older launch assumptions in the sessi
 - Key direction:
   - move from the current small Python-to-Rust classifier port to a much harder deterministic task based on porting a single numerically meaningful subsystem from `nanoBragg.c` into PyTorch
 
+### Latest real nanoBragg launch attempts
+- First attempt via `python scripts/demo/run_trial.py` against `examples/demo_task_nanobragg_accumulation_port` failed before either arm started.
+- Failure cause:
+  - `run_trial(...)` creates `archive/` before calling `provision_trial(...)`
+  - `provision_trial(...)` rejects non-empty experiment roots
+  - this currently makes the built-in coordinator unusable for a fresh real trial without a code fix
+- Observed failing roots:
+  - `/tmp/nanobragg-demo-trial-sxVOSg`
+  - `/tmp/nanobragg-demo-trial-4uQcX1`
+- Working workaround used in this session:
+  - provision once directly with `orchestrator.demo.provisioning.provision_trial(...)` from a temporary git seed snapshot
+  - launch the direct arm manually in one tmux session
+  - launch the workflow arm manually in another tmux session
+- Current manual trial root:
+  - `/tmp/nanobragg-manual-trial-qCYtXF`
+- Current manual seed repo snapshot:
+  - `/tmp/nanobragg-seed-repo-nDlOg8`
+- Current live tmux sessions:
+  - `nanobragg-direct`
+  - `nanobragg-workflow`
+- Current observed live state at last poll:
+  - direct `claude` process alive in `direct-run`
+  - workflow orchestrator alive in `workflow-run`
+  - workflow nested provider alive
+  - workflow run id: `20260306T063604Z-u0ou8y`
+  - workflow current step: `DraftPlan`
+  - workflow heartbeat observed advancing to `2026-03-06T06:37:04Z`
+
 ### Current uncommitted local state that matters
 - The working tree currently includes uncommitted changes switching the workflow example and direct-arm runner over to Claude Sonnet for live experimentation.
 - This local state was used to launch:
@@ -808,11 +837,12 @@ This is an important handoff point because older launch assumptions in the sessi
 
 If picking up from this handoff, the recommended order is:
 
-1. Run and archive one real `run_trial.py` invocation against `examples/demo_task_nanobragg_accumulation_port`.
-2. Decide whether the hidden tensor corpus is numerically faithful enough, or whether `scripts/demo/build_nanobragg_reference_cases.py` needs a stronger reference implementation behind it.
-3. If the corpus changes, regenerate `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/*.pt` and rerun the focused demo suite.
-4. Add runner-level provider/model toggles cleanly if continued provider experimentation is desired.
-5. Keep the current linear-classifier seed only as a smoke/demo fixture.
+1. Fix the `run_trial.py` / `provision_trial(...)` contract bug so the built-in coordinator can provision into a fresh experiment root without tripping its own non-empty-root guard.
+2. Continue monitoring the live manual nanoBragg arm sessions under `/tmp/nanobragg-manual-trial-qCYtXF` and archive their outcomes.
+3. Once the runner bug is fixed, repeat the same nanoBragg trial through the built-in coordinator and compare it to the manual launch.
+4. Decide whether the hidden tensor corpus is numerically faithful enough, or whether `scripts/demo/build_nanobragg_reference_cases.py` needs a stronger reference implementation behind it.
+5. If the corpus changes, regenerate `orchestrator/demo/evaluators/fixtures/nanobragg_accumulation/*.pt` and rerun the focused demo suite.
+6. Keep the current linear-classifier seed only as a smoke/demo fixture.
 
 ## 12. Bottom line
 
@@ -833,6 +863,8 @@ What now exists:
 - a third, harder seed for the nanoBragg accumulation subsystem
 - a hidden evaluator and hidden tensor corpus for that nanoBragg seed
 - runner dispatch and smoke coverage for the nanoBragg path
+- a discovered real coordinator bug in `run_trial.py`/`provision_trial(...)` during the first flagship launch attempt
+- a live manual workaround launch for both nanoBragg arms in tmux
 - one partial real direct-arm execution showing that the environment currently lacks the Rust toolchain needed to complete the task
 - a fixed workflow/provisioning contract that lets the workflow launch correctly from a provisioned workspace
 - a completed real direct-arm run showing that the linear-classifier task is too easy
@@ -840,6 +872,7 @@ What now exists:
 
 What does not yet exist:
 - evaluator integration for the second task seed
+- a completed archived built-in coordinator run for the nanoBragg flagship task
 - a real end-to-end executed demo proving the direct-vs-workflow gap on a task that is actually hard enough
 - stronger evaluator-selection metadata than the current seed-name dispatch
 
