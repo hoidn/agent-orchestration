@@ -86,6 +86,32 @@ def test_provision_trial_injects_identical_task_into_both_run_workspaces(tmp_pat
         assert (workspace / "docs" / "backlog" / "active" / "task.md").read_text() == task_text
 
 
+def test_provision_trial_stages_workflow_assets_into_workflow_workspace(tmp_path: Path):
+    seed_repo, _ = _init_seed_repo(tmp_path)
+    task_file = tmp_path / "task.md"
+    task_file.write_text("task\n")
+    workflow_file = tmp_path / "generic_task_plan_execute_review_loop.yaml"
+    workflow_file.write_text("name: demo\n")
+    prompt_root = tmp_path / "prompt-root"
+    (prompt_root / "generic_task_loop").mkdir(parents=True)
+    (prompt_root / "generic_task_loop" / "draft_plan.md").write_text("draft\n")
+    experiment_root = tmp_path / "experiment"
+
+    provision_trial(
+        seed_repo=seed_repo,
+        experiment_root=experiment_root,
+        task_file=task_file,
+        workflow_path=workflow_file,
+        workflow_prompts_dir=prompt_root,
+    )
+
+    workflow_workspace = experiment_root / "workflow-run"
+    assert (workflow_workspace / "workflows" / "examples" / workflow_file.name).read_text() == "name: demo\n"
+    assert (
+        workflow_workspace / "prompts" / "workflows" / "generic_task_loop" / "draft_plan.md"
+    ).read_text() == "draft\n"
+
+
 def test_provision_trial_writes_metadata_with_start_commit(tmp_path: Path):
     seed_repo, commit = _init_seed_repo(tmp_path)
     task_file = tmp_path / "task.md"

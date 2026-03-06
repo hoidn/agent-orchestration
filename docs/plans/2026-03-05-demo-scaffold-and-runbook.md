@@ -120,7 +120,9 @@ Recommended command:
 python scripts/demo/provision_trial.py \
   --seed-repo /path/to/task-seed-repo \
   --experiment-root /path/to/experiment-root \
-  --task-file /path/to/task.md
+  --task-file /path/to/task.md \
+  --workflow-path /path/to/agent-orchestration/workflows/examples/generic_task_plan_execute_review_loop.yaml \
+  --workflow-prompts-dir /path/to/agent-orchestration/prompts/workflows
 ```
 
 Git policy:
@@ -143,6 +145,7 @@ Task injection rules:
 - the file content must be byte-identical in both arms
 - any supporting visible files must also be byte-identical
 - hidden evaluator assets stay outside the workspace
+- if provisioning a workflow trial, stage the workflow YAML and `prompts/workflows/` into `workflow-run/` before launch so the orchestrator can resolve them within the workspace tree
 
 ## Launch Mechanics
 
@@ -174,8 +177,7 @@ Recommended command shape:
 ```bash
 PYTHONPATH=/path/to/agent-orchestration \
 python -m orchestrator run \
-  /path/to/agent-orchestration/workflows/examples/generic_task_plan_execute_review_loop.yaml \
-  --context task_source=state/task.md
+  workflows/examples/generic_task_plan_execute_review_loop.yaml
 ```
 
 Operational rules:
@@ -203,6 +205,7 @@ python scripts/demo/run_trial.py \
 Current defaults:
 - workflow: `workflows/examples/generic_task_plan_execute_review_loop.yaml`
 - direct prompt: `Complete the repository task described in state/task.md. Follow AGENTS.md and docs/index.md.`
+- the runner stages the selected workflow YAML and `prompts/workflows/` into `workflow-run/` before launch
 
 ## Freeze and Archive
 

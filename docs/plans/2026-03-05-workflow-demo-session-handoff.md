@@ -373,7 +373,6 @@ The workflow uses:
   - implementation loop
 
 Context values in the example:
-- `task_source: "docs/backlog/active/task.md"`
 - `max_plan_cycles: "2"`
 - `max_impl_cycles: "4"`
 
@@ -384,8 +383,8 @@ Context values in the example:
 - writes all pointer-path files under `state/`
 - initializes cycle counters
 
-2. `CaptureTask`
-- copies the task from `context.task_source` into `state/task.md`
+2. `PublishTask`
+- validates the injected canonical task artifact at `state/task.md`
 - publishes `task`
 
 3. `DraftPlan`

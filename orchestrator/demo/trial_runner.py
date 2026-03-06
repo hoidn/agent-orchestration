@@ -7,6 +7,7 @@ import json
 import subprocess
 import sys
 import time
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -15,6 +16,10 @@ from orchestrator.demo.provisioning import provision_trial
 
 def _repo_root() -> Path:
     return Path(__file__).resolve().parents[2]
+
+
+def _now_iso() -> str:
+    return datetime.now(UTC).isoformat().replace("+00:00", "Z")
 
 
 def build_direct_command(prompt: str) -> list[str]:
@@ -88,6 +93,27 @@ def _write_command_record(archive_dir: Path, name: str, command: list[str]) -> N
     )
 
 
+def _write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+
+
+def _append_event(archive_dir: Path, event: str, **details: Any) -> None:
+    event_path = archive_dir / "runner-events.jsonl"
+    payload = {"event": event, "timestamp": _now_iso(), **details}
+    with event_path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(payload) + "\n")
+
+
+def _write_runner_state(archive_dir: Path, payload: dict[str, Any]) -> None:
+    payload = {**payload, "updated_at": _now_iso()}
+    _write_json(archive_dir / "runner-state.json", payload)
+
+
+def _write_partial_result(archive_dir: Path, payload: dict[str, Any]) -> None:
+    _write_json(archive_dir / "partial-trial-result.json", payload)
+
+
 def _select_evaluator(*, seed_repo: Path, task_file: Path) -> list[str] | None:
     if task_file.name == "port_linear_classifier_to_rust.md":
         return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_linear_classifier.py")]
@@ -131,6 +157,16 @@ def run_trial(
     direct_prompt: str,
     commitish: str = "HEAD",
 ) -> dict[str, Any]:
+    started_at = _now_iso()
+    archive_dir = experiment_root / "archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    _append_event(
+        archive_dir,
+        "trial_started",
+        seed_repo=str(seed_repo),
+        task_file=str(task_file),
+        workflow_path=str(workflow_path),
+    )
     metadata = provision_trial(
         seed_repo=seed_repo,
         experiment_root=experiment_root,
@@ -142,9 +178,35 @@ def run_trial(
     workspaces = metadata["workspaces"]
     direct_workspace = Path(workspaces["direct_run"])
     workflow_workspace = Path(workspaces["workflow_run"])
-    archive_dir = experiment_root / "archive"
-    archive_dir.mkdir(parents=True, exist_ok=True)
     staged_workflow_path = Path("workflows") / "examples" / Path(workflow_path).name
+
+    state: dict[str, Any] = {
+        "started_at": started_at,
+        "status": "running",
+        "mode": "serial",
+        "start_commit": metadata["start_commit"],
+        "seed_repo": str(seed_repo),
+        "task_file": str(task_file),
+        "workflow_path": str(workflow_path),
+        "current_phase": "provisioned",
+        "direct": {
+            "status": "pending",
+            "workspace": str(direct_workspace),
+            "exit_code": None,
+        },
+        "workflow": {
+            "status": "pending",
+            "workspace": str(workflow_workspace),
+            "exit_code": None,
+        },
+        "evaluation": {
+            "status": "pending",
+            "direct_verdict": None,
+            "workflow_verdict": None,
+        },
+    }
+    _append_event(archive_dir, "provisioning_completed", start_commit=metadata["start_commit"])
+    _write_runner_state(archive_dir, state)
 
     direct_command = build_direct_command(direct_prompt)
     workflow_command = build_workflow_command(
@@ -153,9 +215,42 @@ def run_trial(
     )
     _write_command_record(archive_dir, "direct-command", direct_command)
     _write_command_record(archive_dir, "workflow-command", workflow_command)
+    _write_partial_result(
+        archive_dir,
+        {
+            "start_commit": metadata["start_commit"],
+            "direct": {"workspace": str(direct_workspace), "command": direct_command, "execution": None},
+            "workflow": {"workspace": str(workflow_workspace), "command": workflow_command, "execution": None},
+        },
+    )
 
+    state["current_phase"] = "direct_execution"
+    state["direct"]["status"] = "running"
+    _append_event(archive_dir, "arm_started", arm="direct", command=direct_command)
+    _write_runner_state(archive_dir, state)
     direct_execution = _run_command(direct_command, cwd=direct_workspace)
+    state["direct"]["status"] = "succeeded" if direct_execution["exit_code"] == 0 else "failed"
+    state["direct"]["exit_code"] = direct_execution["exit_code"]
+    _append_event(archive_dir, "arm_completed", arm="direct", exit_code=direct_execution["exit_code"])
+    _write_partial_result(
+        archive_dir,
+        {
+            "start_commit": metadata["start_commit"],
+            "direct": {"workspace": str(direct_workspace), "command": direct_command, "execution": direct_execution},
+            "workflow": {"workspace": str(workflow_workspace), "command": workflow_command, "execution": None},
+        },
+    )
+    _write_runner_state(archive_dir, state)
+
+    state["current_phase"] = "workflow_execution"
+    state["workflow"]["status"] = "running"
+    _append_event(archive_dir, "arm_started", arm="workflow", command=workflow_command)
+    _write_runner_state(archive_dir, state)
     workflow_execution = _run_command(workflow_command, cwd=workflow_workspace)
+    state["workflow"]["status"] = "succeeded" if workflow_execution["exit_code"] == 0 else "failed"
+    state["workflow"]["exit_code"] = workflow_execution["exit_code"]
+    _append_event(archive_dir, "arm_completed", arm="workflow", exit_code=workflow_execution["exit_code"])
+    _write_runner_state(archive_dir, state)
 
     direct_metadata = archive_workspace_metadata(
         archive_dir=archive_dir,
@@ -174,8 +269,15 @@ def run_trial(
     direct_evaluation = None
     workflow_evaluation = None
     if evaluator_command is not None:
+        state["current_phase"] = "evaluation"
+        state["evaluation"]["status"] = "running"
+        _write_runner_state(archive_dir, state)
         direct_evaluation = _run_evaluator(evaluator_command, direct_workspace)
         workflow_evaluation = _run_evaluator(evaluator_command, workflow_workspace)
+        state["evaluation"]["status"] = "completed"
+        state["evaluation"]["direct_verdict"] = direct_evaluation.get("verdict")
+        state["evaluation"]["workflow_verdict"] = workflow_evaluation.get("verdict")
+        _write_runner_state(archive_dir, state)
 
     result = {
         "seed_repo": str(seed_repo),
@@ -197,6 +299,11 @@ def run_trial(
             "evaluation": workflow_evaluation,
         },
     }
+    _write_partial_result(archive_dir, result)
+    state["status"] = "completed"
+    state["current_phase"] = "completed"
+    _append_event(archive_dir, "trial_completed")
+    _write_runner_state(archive_dir, state)
     (archive_dir / "trial-result.json").write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     return result
 

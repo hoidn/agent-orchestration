@@ -122,6 +122,7 @@ Recommendation:
 - create both `direct-run/` and `workflow-run/` from the same template commit
 - do not let either arm share a working directory with the other
 - do not let the hidden evaluator write into either workspace during agent execution
+- if the orchestrator requires workflow files to live under the workspace root, stage the workflow YAML and its prompt tree into `workflow-run/` during provisioning
 
 For the first implementation, prefer **separate sibling directories created from the same source snapshot** over clever sharing. This is easier to reason about than trying to make one workspace serve both arms.
 
@@ -317,12 +318,12 @@ Do not rely on arbitrary shell strings by default. If needed later, a constraine
 
 ## Workflow Shape
 
-### Phase 0: Task Capture
+### Phase 0: Task Publication
 
-1. `CaptureTask`
-- Input: external task description
+1. `PublishTask`
+- Input: injected `state/task.md`
 - Produces: `task`
-- Responsibility: persist the original user request into the workspace without transformation
+- Responsibility: validate that the provisioned canonical task artifact exists and publish it for the rest of the workflow
 
 ### Phase 1: Plan Loop
 

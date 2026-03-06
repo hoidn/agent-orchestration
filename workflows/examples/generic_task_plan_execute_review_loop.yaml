@@ -1,7 +1,6 @@
 version: "1.4"
 name: "generic-task-plan-execute-review-loop"
 context:
-  task_source: "docs/backlog/active/task.md"
   max_plan_cycles: "2"
   max_impl_cycles: "4"
 
@@ -88,20 +87,16 @@ steps:
         path: state/implementation_cycle.txt
         type: integer
 
-  - name: CaptureTask
+  - name: PublishTask
     command:
       - bash
       - -lc
       - |
-        src="${context.task_source}"
-        dst="state/task.md"
-
-        if [ ! -f "$src" ]; then
-          echo "Missing task source: $src" >&2
+        task="state/task.md"
+        if [ ! -f "$task" ]; then
+          echo "Missing injected task artifact: $task" >&2
           exit 1
         fi
-
-        cp "$src" "$dst"
     expected_outputs:
       - name: task_path
         path: state/task_path.txt
@@ -118,7 +113,7 @@ steps:
     timeout_sec: 3600
     consumes:
       - artifact: task
-        producers: ["CaptureTask"]
+        producers: ["PublishTask"]
         policy: latest_successful
         freshness: any
     prompt_consumes: ["task"]
@@ -145,7 +140,7 @@ steps:
     timeout_sec: 1800
     consumes:
       - artifact: task
-        producers: ["CaptureTask"]
+        producers: ["PublishTask"]
         policy: latest_successful
         freshness: any
       - artifact: plan
@@ -201,7 +196,7 @@ steps:
     timeout_sec: 3600
     consumes:
       - artifact: task
-        producers: ["CaptureTask"]
+        producers: ["PublishTask"]
         policy: latest_successful
         freshness: any
       - artifact: plan
@@ -256,7 +251,7 @@ steps:
     timeout_sec: 43200
     consumes:
       - artifact: task
-        producers: ["CaptureTask"]
+        producers: ["PublishTask"]
         policy: latest_successful
         freshness: any
       - artifact: plan
@@ -591,7 +586,7 @@ steps:
     timeout_sec: 1800
     consumes:
       - artifact: task
-        producers: ["CaptureTask"]
+        producers: ["PublishTask"]
         policy: latest_successful
         freshness: any
       - artifact: plan
@@ -659,7 +654,7 @@ steps:
     timeout_sec: 43200
     consumes:
       - artifact: task
-        producers: ["CaptureTask"]
+        producers: ["PublishTask"]
         policy: latest_successful
         freshness: any
       - artifact: plan
