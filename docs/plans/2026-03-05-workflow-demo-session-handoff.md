@@ -486,16 +486,18 @@ The agreed design direction is:
 
 ```text
 <experiment-root>/
-  scaffold-template/
+  seed/
   direct-run/
   workflow-run/
   evaluator/
+  archive/
 ```
 
 Intent:
-- `scaffold-template/` is the canonical source snapshot
+- `seed/` is the provisioned source snapshot for the trial
 - `direct-run/` and `workflow-run/` are seeded from the same commit
 - `evaluator/` contains the hidden grading harness outside the agent-visible workspaces
+- `archive/` stores frozen outputs and comparison artifacts after the run
 
 Recommended provisioning model:
 - use git worktrees if convenient and clean
