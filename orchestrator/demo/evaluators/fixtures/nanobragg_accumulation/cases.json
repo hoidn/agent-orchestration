@@ -1,0 +1,31 @@
+{
+  "cases": [
+    {
+      "case_id": "case_small",
+      "input_fixture_relpath": "fixtures/visible/case_small.json",
+      "expected_tensor_relpath": "expected_case_small.pt",
+      "rtol": 1e-6,
+      "atol": 1e-8,
+      "trace_taps": [[0, 0]],
+      "notes": "Minimal shape-and-value parity case."
+    },
+    {
+      "case_id": "case_thickness",
+      "input_fixture_relpath": "fixtures/visible/case_thickness.json",
+      "expected_tensor_relpath": "expected_case_thickness.pt",
+      "rtol": 1e-6,
+      "atol": 1e-8,
+      "trace_taps": [[1, 1]],
+      "notes": "Exercises detector-thickness-related terms."
+    },
+    {
+      "case_id": "case_mosaic",
+      "input_fixture_relpath": "fixtures/visible/case_mosaic.json",
+      "expected_tensor_relpath": "expected_case_mosaic.pt",
+      "rtol": 1e-6,
+      "atol": 1e-8,
+      "trace_taps": [[2, 1]],
+      "notes": "Exercises multiple phi and mosaic-domain combinations."
+    }
+  ]
+}
