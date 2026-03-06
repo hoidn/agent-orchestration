@@ -176,9 +176,9 @@ These are the highest-impact terminology and contract confusions.
 ## Testing and Validation
 
 ### [E2E Testing Guide](../tests/README.md)
-**Description:** Test taxonomy, markers, execution commands, and recommended local/CI testing strategy.  
-**Keywords:** testing, e2e, pytest, verification  
-**Use this when:** Validating workflow behavior changes before merge.
+**Description:** Canonical testing guidance for this repo, including targeted pytest usage, collection checks for new tests, and workflow/demo smoke commands.  
+**Keywords:** testing, e2e, pytest, verification, smoke-checks  
+**Use this when:** Choosing verification commands for workflow, runtime, prompt, and demo changes before merge.
 
 ### [Acceptance Criteria](../specs/acceptance/index.md)
 **Description:** Canonical acceptance checklist mapped to DSL/runtime/CLI/security contracts.  

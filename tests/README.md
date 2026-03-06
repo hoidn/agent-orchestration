@@ -2,6 +2,14 @@
 
 Purpose: Central place for how to run, scope, and reason about E2E tests in this repo. This document is informative; acceptance criteria remain in `specs/acceptance/index.md`.
 
+## General Testing Practice
+- Run commands from the repository root so imports, relative paths, and fixture layout stay stable.
+- Treat fresh command output as mandatory evidence. Do not claim a change is verified unless you just ran the relevant check.
+- Prefer the narrowest relevant `pytest` selector first. Expand to broader suites only when the changed surface justifies it.
+- If you add or rename tests, run `pytest --collect-only` on those modules before claiming coverage exists.
+- Do not weaken verification just to get green. If a test or smoke check is wrong, fix the test or the implementation and document the reason.
+- Changes that affect workflow execution, provider prompting, artifact contracts, or demo trial mechanics should rerun at least one orchestrator/demo smoke check in addition to unit tests.
+
 ## Test Taxonomy
 - Unit: Small, isolated modules with fast feedback.
 - Integration: Cross-module behavior under the same process; no real providers.
@@ -59,6 +67,20 @@ ORCHESTRATE_E2E=1 pytest -v -m e2e tests/e2e/test_e2e_multistep_prompted_loop.py
 1) Local development: default to unit/integration (`pytest -m "not e2e" -v`).
 2) Before merging a feature that touches orchestration flow or provider integration, run E2E locally (with required secrets).
 3) CI: keep E2E in a separate job or schedule (nightly). Skip when secrets/network are unavailable.
+
+## Workflow And Demo Smoke Checks
+
+Use these when the change touches workflow semantics, prompts, demo provisioning, or trial execution:
+
+```bash
+PYTHONPATH=/home/ollie/Documents/agent-orchestration \
+python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
+
+pytest tests/test_demo_provisioning.py -q
+pytest tests/test_demo_linear_classifier_evaluator.py -q
+```
+
+If you add or change the trial runner, also run the targeted trial smoke or runner tests for that surface.
 
 ## Conventions
 - Keep E2E fixtures explicit about filesystem layout (e.g., `inbox/`, `processed/`, `failed/`, `artifacts/`).
