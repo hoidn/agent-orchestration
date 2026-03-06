@@ -28,27 +28,27 @@ def test_build_direct_command_matches_expected_cli_shape():
 
 
 def test_build_workflow_command_matches_expected_cli_shape():
+    local_workflow = Path("workflows/examples/generic_task_plan_execute_review_loop.yaml")
     command = build_workflow_command(
-        workflow_path=WORKFLOW,
-        task_source="state/task.md",
+        workflow_path=local_workflow,
         repo_root=ROOT,
     )
 
     assert command == [
+        "env",
+        f"PYTHONPATH={ROOT}",
         sys.executable,
         "-m",
         "orchestrator",
         "run",
-        str(WORKFLOW),
-        "--context",
-        "task_source=state/task.md",
+        str(local_workflow),
     ]
 
 
 def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, monkeypatch):
     experiment_root = tmp_path / "experiment"
-    seed_repo = tmp_path / "demo_task_linear_classifier_port"
-    task_file = tmp_path / "task.md"
+    seed_repo = tmp_path / "seed-repo"
+    task_file = tmp_path / "port_linear_classifier_to_rust.md"
     task_file.write_text("translate the module\n")
     direct_workspace = experiment_root / "direct-run"
     workflow_workspace = experiment_root / "workflow-run"
@@ -81,7 +81,7 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
             return subprocess.CompletedProcess(args=command, returncode=0, stdout="abc123\n", stderr="")
         if command[:2] == ["codex", "exec"]:
             return subprocess.CompletedProcess(args=command, returncode=0, stdout="direct ok\n", stderr="")
-        if command[:4] == [sys.executable, "-m", "orchestrator", "run"]:
+        if command[:5] == ["env", f"PYTHONPATH={ROOT}", sys.executable, "-m", "orchestrator"]:
             return subprocess.CompletedProcess(args=command, returncode=0, stdout="workflow ok\n", stderr="")
         if command[:2] == [sys.executable, str(LINEAR_EVAL)]:
             workspace = Path(command[2])
@@ -118,6 +118,8 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
             "seed_repo": seed_repo,
             "experiment_root": experiment_root,
             "task_file": task_file,
+            "workflow_path": WORKFLOW,
+            "workflow_prompts_dir": ROOT / "prompts" / "workflows",
             "commitish": "HEAD",
         }
     ]
@@ -134,13 +136,13 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
         ),
         (
             [
+                "env",
+                f"PYTHONPATH={ROOT}",
                 sys.executable,
                 "-m",
                 "orchestrator",
                 "run",
-                str(WORKFLOW),
-                "--context",
-                "task_source=state/task.md",
+                "workflows/examples/generic_task_plan_execute_review_loop.yaml",
             ],
             workflow_workspace,
         ),
@@ -165,7 +167,13 @@ def test_run_trial_provisions_launches_archives_and_evaluates(tmp_path: Path, mo
     assert trial_result_path.is_file()
 
     assert json.loads(direct_command_path.read_text())["command"][0] == "codex"
-    assert json.loads(workflow_command_path.read_text())["command"][:4] == [sys.executable, "-m", "orchestrator", "run"]
+    assert json.loads(workflow_command_path.read_text())["command"][:5] == [
+        "env",
+        f"PYTHONPATH={ROOT}",
+        sys.executable,
+        "-m",
+        "orchestrator",
+    ]
 
     persisted_result = json.loads(trial_result_path.read_text())
     assert persisted_result == result

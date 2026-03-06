@@ -598,9 +598,12 @@ Current validation status:
 - provisioning utility: targeted pytest coverage exists
 - trial runner: targeted pytest coverage exists
 - provisioned-workspace smoke path for the first seed: targeted pytest coverage exists
+- a real direct-arm execution was attempted in a freshly provisioned workspace using the demo direct-arm prompt
 
 Remaining gap:
 - the trial runner has been exercised through mocked subprocess boundaries, not through a real local direct-arm plus workflow-arm trial
+- the direct-arm prompt was exercised against the first seed, but the run could not complete because the local environment did not have `cargo` or `rustc`
+- there is still no recorded end-to-end run where both arms complete and are evaluated under the local environment
 
 Possible future hardening:
 - add a smoke test that provisions a toy seed and validates expected workspace outputs
@@ -689,15 +692,44 @@ The task domain is meant to arrive via runtime artifacts, not baked-in prompt te
   - `tests/test_demo_trial_runner.py`
 - Commits created after the original design session:
   - `ce3b788` `test: add demo trial smoke coverage`
+  - `9c9ac59` `feat: add demo trial runner`
+  - `b79f076` `feat: add sliding window demo task seed`
+  - `4654aa3` `docs: finalize demo next-step runbook notes`
+
+### Demo coordination prompts and runbook wiring
+- Files:
+  - `prompts/demo/run_direct_vs_workflow_trial.md`
+  - `prompts/demo/run_direct_arm_task.md`
+  - `docs/plans/2026-03-05-demo-scaffold-and-runbook.md`
+- Status:
+  - the runbook now points to both prompt files
+  - the runner still uses its built-in default direct-arm prompt string unless explicitly updated to load prompt files
+  - these prompt additions were created after the earlier committed runner work and may still need their own commit depending on repository state
+
+### First real direct-arm prompt execution attempt
+- Provisioned temporary trial paths:
+  - seed repo: `/tmp/direct-arm-seed-iB80Wh`
+  - experiment root: `/tmp/direct-arm-trial-yoUiqo`
+  - direct workspace: `/tmp/direct-arm-trial-yoUiqo/direct-run`
+- What the direct arm did:
+  - read `AGENTS.md`, `docs/index.md`, and `state/task.md`
+  - created `docs/plans/2026-03-05-linear-classifier-port.md`
+  - modified `rust/tests/smoke_linear_classifier.rs`
+- What blocked completion:
+  - `cargo` was not installed or discoverable
+  - `rustc` was not installed or discoverable
+- Result:
+  - this was a partial real execution of the direct arm, not a successful completed trial
+  - it surfaced an environment prerequisite that the current docs and runner should make more explicit
 
 ## 11. Recommended continuation order
 
 If picking up from this handoff, the recommended order is:
 
 1. Finish the trial runner and archive/reporting docs integration.
-2. Add the second concrete Python-to-Rust ML-adjacent task seed.
-3. Add evaluator integration for that second seed.
-4. Run the direct and workflow arms against the first seed using the new runner.
+2. Make the Rust toolchain requirement explicit in the runbook and runner-facing docs, or provision an environment that already has `cargo` and `rustc`.
+3. Add evaluator integration for the second concrete Python-to-Rust ML-adjacent task seed.
+4. Run the direct and workflow arms against the first seed using the new runner in an environment where both arms can actually execute Rust checks.
 5. Observe whether the workflow naturally exercises at least one revision cycle.
 6. If not, adjust the task family or visible-check design until the workflow advantage becomes visible but remains fair.
 
@@ -714,12 +746,14 @@ What now exists:
 - a first task-specific seed and evaluator
 - a provisioning utility
 - a trial runner API and CLI
+- demo coordination prompts for the overall trial and the direct arm
 - smoke and runner pytest coverage for the first evaluated path
 - a second candidate seed for sliding-window translation
+- one partial real direct-arm execution showing that the environment currently lacks the Rust toolchain needed to complete the task
 
 What does not yet exist:
 - evaluator integration for the second task seed
-- a real end-to-end executed demo proving the direct-vs-workflow gap
+- a real end-to-end executed demo proving the direct-vs-workflow gap in an environment with a working Rust toolchain
 - stronger evaluator-selection metadata than the current seed-name dispatch
 
 A new engineer should be able to continue from here without needing the original chat, provided they start by reading:

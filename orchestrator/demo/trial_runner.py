@@ -27,16 +27,15 @@ def build_direct_command(prompt: str) -> list[str]:
     ]
 
 
-def build_workflow_command(*, workflow_path: Path, task_source: str, repo_root: Path) -> list[str]:
-    _ = repo_root
+def build_workflow_command(*, workflow_path: Path, repo_root: Path) -> list[str]:
     return [
+        "env",
+        f"PYTHONPATH={repo_root}",
         sys.executable,
         "-m",
         "orchestrator",
         "run",
         str(Path(workflow_path)),
-        "--context",
-        f"task_source={task_source}",
     ]
 
 
@@ -89,7 +88,9 @@ def _write_command_record(archive_dir: Path, name: str, command: list[str]) -> N
     )
 
 
-def _select_evaluator(seed_repo: Path) -> list[str] | None:
+def _select_evaluator(*, seed_repo: Path, task_file: Path) -> list[str] | None:
+    if task_file.name == "port_linear_classifier_to_rust.md":
+        return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_linear_classifier.py")]
     if seed_repo.name == "demo_task_linear_classifier_port":
         return [sys.executable, str(_repo_root() / "scripts" / "demo" / "evaluate_linear_classifier.py")]
     return None
@@ -134,6 +135,8 @@ def run_trial(
         seed_repo=seed_repo,
         experiment_root=experiment_root,
         task_file=task_file,
+        workflow_path=workflow_path,
+        workflow_prompts_dir=_repo_root() / "prompts" / "workflows",
         commitish=commitish,
     )
     workspaces = metadata["workspaces"]
@@ -141,11 +144,11 @@ def run_trial(
     workflow_workspace = Path(workspaces["workflow_run"])
     archive_dir = experiment_root / "archive"
     archive_dir.mkdir(parents=True, exist_ok=True)
+    staged_workflow_path = Path("workflows") / "examples" / Path(workflow_path).name
 
     direct_command = build_direct_command(direct_prompt)
     workflow_command = build_workflow_command(
-        workflow_path=workflow_path,
-        task_source="state/task.md",
+        workflow_path=staged_workflow_path,
         repo_root=_repo_root(),
     )
     _write_command_record(archive_dir, "direct-command", direct_command)
@@ -167,7 +170,7 @@ def run_trial(
         command=workflow_command,
     )
 
-    evaluator_command = _select_evaluator(Path(seed_repo))
+    evaluator_command = _select_evaluator(seed_repo=Path(seed_repo), task_file=Path(task_file))
     direct_evaluation = None
     workflow_evaluation = None
     if evaluator_command is not None:

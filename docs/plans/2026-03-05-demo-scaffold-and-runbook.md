@@ -150,6 +150,9 @@ Task injection rules:
 
 The direct arm gets one prompt and no workflow-enforced stages.
 
+Prompt file:
+- `prompts/demo/run_direct_arm_task.md`
+
 Recommended command shape:
 
 ```bash
@@ -183,6 +186,10 @@ Operational rules:
 ### Trial Runner
 
 The repo now includes a thin runner that provisions a trial, launches both arms, freezes workspace metadata, invokes the selected evaluator, and writes one comparison record.
+
+Related prompt files:
+- coordinator prompt: `prompts/demo/run_direct_vs_workflow_trial.md`
+- direct-arm prompt: `prompts/demo/run_direct_arm_task.md`
 
 Concrete command:
 
@@ -242,8 +249,9 @@ python scripts/demo/evaluate_linear_classifier.py /path/to/frozen-workspace
 ```
 
 Current evaluator dispatch note:
-- evaluator selection is minimal and currently keyed by seed directory name inside `orchestrator/demo/trial_runner.py`
-- `demo_task_linear_classifier_port` dispatches to `scripts/demo/evaluate_linear_classifier.py`
+- evaluator selection is still minimal, but now prefers the task fixture basename passed to the runner
+- `port_linear_classifier_to_rust.md` dispatches to `scripts/demo/evaluate_linear_classifier.py`
+- the old seed-directory-name check remains only as a backward-compatible fallback
 - additional seeds will need either matching dispatch entries or a stronger explicit metadata contract
 
   - behavioral mismatch
