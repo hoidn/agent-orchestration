@@ -9,6 +9,8 @@ Also read these repo-local references:
 Task:
 Review the current plan and check strategy for executability and verification quality.
 
+If the task defines a scoped contract, review against that scoped contract rather than against broader inferred domain behavior.
+
 Decision rule:
 - `APPROVE` only if the plan is concrete enough to execute and the check strategy provides a credible path to strong visible verification.
 - `REVISE` if there are blocking scope, execution, or verification gaps.
@@ -34,4 +36,5 @@ Required outputs:
 
 Constraints:
 - Focus on whether the plan is safe and useful to execute next.
+- Treat out-of-contract improvements as non-blocking unless the task explicitly requires them.
 - Required fixes should be specific and actionable.

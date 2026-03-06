@@ -523,3 +523,5 @@ The workflow should win because of process control, not because of privileged in
 3. Draft the general workflow YAML with explicit artifact contracts and bounded loops.
 4. Build 2-3 candidate Python-to-Rust ML-adjacent tasks against the scaffold.
 5. Validate that at least one candidate usually triggers a meaningful revision cycle.
+
+For contract-scoped tasks such as the current nanoBragg flagship, review and implementation gates should judge against the scoped contract rather than a broader inferred domain model.

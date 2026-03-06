@@ -15,6 +15,7 @@ FIXTURE_DIR = PROJECT_ROOT / "fixtures" / "visible"
 
 
 def test_case_small_matches_declared_shape():
+    """Contract smoke: shape must match the visible fixture expectation."""
     fixture = load_visible_fixture(FIXTURE_DIR / "case_small.json")
     image = accumulate_detector_image(fixture)
 
@@ -26,6 +27,7 @@ def test_case_small_matches_declared_shape():
 
 
 def test_case_thickness_outputs_are_finite():
+    """Contract smoke: scoped outputs should remain finite on the visible thickness case."""
     fixture = load_visible_fixture(FIXTURE_DIR / "case_thickness.json")
     image = accumulate_detector_image(fixture)
 

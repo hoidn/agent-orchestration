@@ -6,6 +6,22 @@ Define a significantly harder flagship demo task than the current linear-classif
 
 This task is intended for the direct-vs-workflow demo. It should be hard enough that a direct single-shot agent often produces a plausible but incomplete result, while the workflow has a realistic path to succeed via plan, review, checks, and fix loops.
 
+
+## Current Flagship Contract
+
+The current flagship demo task is narrower than the original aspirational subsystem described below.
+
+For demo fairness, the authoritative acceptance target is now the scoped contract in:
+- `examples/demo_task_nanobragg_accumulation_port/docs/tasks/nanobragg_accumulation_contract.md`
+
+That narrowed contract is derived from the offline reference harness and is the source of truth for:
+- user-facing task wording
+- visible seed guidance
+- workflow review expectations
+- hidden evaluator behavior
+
+Broader expansion toward a richer nanoBragg-like subsystem remains future work, not current acceptance criteria.
+
 ## Source Location
 
 Local copies found during this session:
@@ -29,17 +45,17 @@ Scope the task to the detector sweep and intensity accumulation slice centered o
 - `for(spixel=0;spixel<spixels;++spixel)` at approximately line 2839
 - `for(fpixel=0;fpixel<fpixels;++fpixel)` at approximately line 2887
 
-And specifically include the numerically meaningful accumulation path around:
+And specifically include the numerically meaningful accumulation path around the current narrowed contract:
 - detector subpixel coordinate construction
 - diffracted ray / airpath computation
 - pixel solid angle computation (`omega_pixel`)
 - detector thickness capture fraction (`capture_fraction`)
-- source sweep
-- scattering vector construction
-- polarization factor
-- phi and mosaic domain sweeps
-- lattice/unit-cell contribution multiplication
+- source-weight contribution
+- phi-count iteration
+- mosaic-weight contribution
 - final accumulation into `floatimage[imgidx]`
+
+Out-of-contract richer physics terms such as scattering-vector behavior, polarization, and lattice-related factors are future work unless and until the reference harness is broadened with them.
 
 Key accumulation points appear around:
 - `omega_pixel` and `capture_fraction` setup near lines 2916-2981
@@ -222,8 +238,8 @@ Before building the seed, do one more narrowing pass:
 
 ## Bottom Line
 
-The recommended next hard flagship task is:
+The current flagship task is:
 
-Port the `nanoBragg.c` detector pixel intensity accumulation subsystem into PyTorch, with required restructuring and deterministic tensor-level parity against a fixed corpus of cases.
+Port the narrowed, harness-backed nanoBragg accumulation contract into PyTorch, with required restructuring and deterministic tensor-level parity against a fixed corpus of cases.
 
-This is substantially harder than the current linear-classifier task while still remaining narrow enough to serve as a fair direct-vs-workflow comparison.
+This keeps the demo fair by making task text, visible guidance, workflow review, and hidden evaluation point at the same acceptance target. Broader nanoBragg-like expansion is future work.

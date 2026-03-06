@@ -1,6 +1,9 @@
 # Visible fixture schema
 
-These fixtures are visible smoke inputs for the bounded nanoBragg accumulation task. They are intentionally incomplete and do not include hidden expected output tensors.
+These fixtures are visible smoke inputs for the bounded nanoBragg accumulation task. The authoritative scoped behavior target is:
+- `docs/tasks/nanobragg_accumulation_contract.md`
+
+These fixtures are intentionally incomplete and do not include hidden expected output tensors.
 
 Each fixture file uses only JSON primitive types and arrays. The schema is:
 - `case_id`: short case name
@@ -13,6 +16,6 @@ Each fixture file uses only JSON primitive types and arrays. The schema is:
 - `geometry`: object containing per-pixel coordinate inputs and scalar detector terms used by the bounded subsystem
 - `expected`: object containing only visible smoke expectations such as tensor shape and optional trace-tap coordinates
 
-These fixtures are for local smoke checks only. Hidden parity expectations live outside the visible seed.
+These fixtures are for contract smoke checks only. Hidden parity expectations live outside the visible seed.
 
 Parity-relevant inputs that affect the scoped subsystem should be explicit in the visible fixture contract. Agents should use those values as inputs rather than guessing hidden defaults.

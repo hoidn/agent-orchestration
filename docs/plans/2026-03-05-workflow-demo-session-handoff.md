@@ -445,8 +445,8 @@ The workflow uses:
   - implementation loop
 
 Context values in the example:
-- `max_plan_cycles: "2"`
-- `max_impl_cycles: "4"`
+- `max_plan_cycles: "4"`
+- `max_impl_cycles: "6"`
 
 ### 6.2 Steps implemented
 
@@ -950,3 +950,7 @@ python scripts/demo/run_trial.py \
   --direct-timeout-sec 1800 \
   --workflow-timeout-sec 3600
 ```
+
+The current nanoBragg flagship task should now be treated as a scoped contract task, with task text, visible seed guidance, workflow review, and hidden evaluation all aligned to the same narrowed acceptance target.
+
+Contract-alignment work in this session narrowed the current nanoBragg flagship to the harness-backed scoped contract and added maintenance tests so task text, visible seed guidance, workflow review prompts, and evaluator docs stay aligned.

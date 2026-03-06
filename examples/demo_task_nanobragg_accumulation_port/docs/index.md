@@ -6,6 +6,7 @@ Start here.
 
 - `state/task.md`: canonical task description injected at runtime
 - `docs/tasks/port_nanobragg_accumulation_to_pytorch.md`: canonical task fixture for this seed
+- `docs/tasks/nanobragg_accumulation_contract.md`: authoritative scoped behavior contract for this seed
 - `src_c/nanoBragg.c`: legacy source file containing the scoped subsystem
 - `src_c/README.md`: guidance on which `nanoBragg.c` regions matter for this task
 - `torch_port/`: PyTorch target area
@@ -19,6 +20,7 @@ Start here.
 ## Expectations
 
 - Read the injected task first. If it mirrors the canonical task fixture, follow the injected file.
+- Use `docs/tasks/nanobragg_accumulation_contract.md` as the authoritative mathematical scope for the task.
 - The trial environment is assumed to already provide `torch`; verify availability with `python -c "import torch; print(torch.__version__)"`.
 - Keep the task bounded to the documented detector pixel accumulation subsystem.
 - Visible verification command is `pytest -q`.
