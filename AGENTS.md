@@ -18,3 +18,4 @@ Repo expectations:
 
 Do not assume success from inspection alone when runnable checks are available.
 Do not weaken verification just to make a failure disappear.
+Do not create worktrees, especially not when executing plans or implementing features
