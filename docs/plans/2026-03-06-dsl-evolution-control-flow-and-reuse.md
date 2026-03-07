@@ -478,6 +478,9 @@ Execution model must be explicit:
 - only declared call outputs cross the call boundary into the caller
 - exported callee outputs are materialized by evaluating the callee's declared `outputs[*].from` bindings at call completion
 - exported callee outputs surface on the caller as `steps.<CallStep>.artifacts.<name>`; downstream predicates, `publishes.from`, and consumers should compose through that existing step-artifact surface
+- callee-internal artifacts must also have **call-scoped internal identities**, not just call-scoped step IDs
+- bare callee-local artifact names must not be inserted into the caller-global artifact registry, pointer namespace, or freshness ledger
+- if the existing artifact registry / pointer model cannot represent call-scoped internal artifact identities, D9 requires an explicit versioned artifact-state change before shipping
 - internal publish/consume lineage uses **qualified producer/consumer identities** rooted in the call frame, for example `<CallStep>::<InnerStep>` or a stable derived `step_id`
 - `since_last_consume` freshness for callee-internal artifacts must be keyed by those qualified consumer identities, not by bare step display names
 - authored workspace-relative paths must keep their normal meaning whether a workflow is run top-level or under `call`
@@ -511,9 +514,11 @@ Import boundary must also be explicit:
 - reusable provider workflows that depend on bundled prompt/template/schema assets therefore need an explicit workflow-source-relative field as part of D9's required surface area, not as a vague later improvement
 - proposed first-class syntax should be explicit, for example:
   - `asset_file: prompts/fix.md`
+  - `asset_depends_on: [rubrics/review.md, schemas/review.json]`
   - resolved relative to the imported workflow file
   - validated to stay within the imported workflow's source tree
   - distinct from `input_file`, which remains workspace-relative
+- first-tranche reusable provider workflows must express bundled source-relative dependencies only through that explicit source-relative asset surface; plain `depends_on` remains workspace-relative and is not a substitute
 - `input_file` should remain workspace-relative; do not overload it with import-local asset semantics
 - first-tranche imported workflows must not depend on undeclared provider/command relative file effects beyond the declared DSL-managed write roots and explicit source-relative assets above
 - imported workflows bring their own private `providers`, `artifacts`, and `context` defaults unless explicitly bound/exported
@@ -606,16 +611,22 @@ Loops are valuable, but they are not the next correctness improvement. They depe
 - iteration 0 always executes once
 - the condition is evaluated after each completed iteration
 - resume state must record the current iteration index and whether condition evaluation for that iteration already occurred
+- post-test loop conditions must read only declared loop-body outputs materialized onto the loop frame after each iteration
+- they must not directly dereference multi-visit inner-step names such as `self.steps.<Inner>...`
 
 Example target style:
 
 ```yaml
 - name: ReviewLoop
   repeat_until:
+    outputs:
+      review_decision:
+        from:
+          ref: self.steps.Review.artifacts.review_decision
     condition:
       compare:
         left:
-          ref: self.steps.Review.artifacts.review_decision
+          ref: self.outputs.review_decision
         op: eq
         right: APPROVE
     max_iterations: 6
@@ -623,7 +634,7 @@ Example target style:
       - call: ExecuteAndCheck
       - call: Review
       - match:
-          ref: self.steps.Review.artifacts.review_decision
+          ref: self.outputs.review_decision
           cases:
             REVISE:
               - call: FixIssues
