@@ -1,5 +1,6 @@
 """Integration tests for runtime step lifecycle state updates."""
 
+import hashlib
 import json
 import threading
 import time
@@ -147,3 +148,101 @@ def test_set_scalar_persists_local_artifacts_in_step_state(tmp_path: Path):
 
     assert state["steps"]["InitializeCount"]["status"] == "completed"
     assert state["steps"]["InitializeCount"]["artifacts"] == {"failed_count": 1}
+
+
+def test_resume_skips_only_until_restart_point_not_after_loop_back(tmp_path: Path):
+    workflow = {
+        "version": "1.1",
+        "name": "resume-loop-runtime",
+        "steps": [
+            {
+                "name": "ReviewImplementation",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "count=$(cat state/review_count.txt 2>/dev/null || printf '0')",
+                            "count=$((count + 1))",
+                            "printf '%s\\n' \"$count\" > state/review_count.txt",
+                            "if [ \"$count\" -ge 2 ]; then",
+                            "  printf 'APPROVE\\n' > state/decision.txt",
+                            "else",
+                            "  printf 'REVISE\\n' > state/decision.txt",
+                            "fi",
+                            "printf 'review-%s\\n' \"$count\" >> state/history.log",
+                        ]
+                    ),
+                ],
+            },
+            {
+                "name": "ImplementationReviewGate",
+                "command": ["bash", "-lc", "test \"$(cat state/decision.txt)\" = APPROVE"],
+                "on": {"success": {"goto": "_end"}, "failure": {"goto": "ImplementationCycleGate"}},
+            },
+            {
+                "name": "ImplementationCycleGate",
+                "command": ["bash", "-lc", "test \"$(cat state/cycle.txt)\" -lt 20"],
+                "on": {"success": {"goto": "FixImplementation"}, "failure": {"goto": "MaxImplementationCyclesExceeded"}},
+            },
+            {
+                "name": "FixImplementation",
+                "command": ["bash", "-lc", "printf 'fix\\n' >> state/history.log"],
+                "on": {"success": {"goto": "IncrementImplementationCycle"}},
+            },
+            {
+                "name": "IncrementImplementationCycle",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "count=$(cat state/cycle.txt 2>/dev/null || printf '0')",
+                            "count=$((count + 1))",
+                            "printf '%s\\n' \"$count\" > state/cycle.txt",
+                            "printf 'increment-%s\\n' \"$count\" >> state/history.log",
+                        ]
+                    ),
+                ],
+                "on": {"success": {"goto": "ReviewImplementation"}},
+            },
+            {
+                "name": "MaxImplementationCyclesExceeded",
+                "command": ["bash", "-lc", "printf 'maxed\\n' >> state/history.log && exit 1"],
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "review_count.txt").write_text("1\n")
+    (state_dir / "cycle.txt").write_text("1\n")
+    (state_dir / "decision.txt").write_text("REVISE\n")
+    (state_dir / "history.log").write_text("review-1\nfix\nincrement-1\n")
+
+    state_manager = StateManager(workspace=tmp_path, run_id="resume-loop-runtime")
+    state_manager.initialize("workflow.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.workflow_checksum = f"sha256:{hashlib.sha256(workflow_file.read_bytes()).hexdigest()}"
+    state_manager.state.steps = {
+        "ReviewImplementation": {"status": "completed", "exit_code": 0},
+        "ImplementationReviewGate": {"status": "failed", "exit_code": 1},
+        "ImplementationCycleGate": {"status": "completed", "exit_code": 0},
+        "FixImplementation": {"status": "completed", "exit_code": 0},
+        "IncrementImplementationCycle": {"status": "completed", "exit_code": 0},
+    }
+    state_manager._write_state()
+    state_manager.load()
+
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute(resume=True)
+
+    assert state["status"] == "completed"
+    assert (state_dir / "review_count.txt").read_text() == "2\n"
+    history = (state_dir / "history.log").read_text()
+    assert "review-2\n" in history
+    assert "maxed\n" not in history

@@ -7,10 +7,101 @@ import tempfile
 import shutil
 from unittest.mock import patch, MagicMock
 import hashlib
+import yaml
 
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
+
+
+def _build_resume_loop_workflow() -> dict:
+    return {
+        "version": "1.1",
+        "name": "Resume Loop Workflow",
+        "steps": [
+            {
+                "name": "ReviewImplementation",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "count=$(cat state/review_count.txt 2>/dev/null || printf '0')",
+                            "count=$((count + 1))",
+                            "printf '%s\\n' \"$count\" > state/review_count.txt",
+                            "if [ \"$count\" -ge 2 ]; then",
+                            "  printf 'APPROVE\\n' > state/decision.txt",
+                            "else",
+                            "  printf 'REVISE\\n' > state/decision.txt",
+                            "fi",
+                            "printf 'review-%s\\n' \"$count\" >> state/history.log",
+                        ]
+                    ),
+                ],
+            },
+            {
+                "name": "ImplementationReviewGate",
+                "command": ["bash", "-lc", "test \"$(cat state/decision.txt)\" = APPROVE"],
+                "on": {"success": {"goto": "_end"}, "failure": {"goto": "ImplementationCycleGate"}},
+            },
+            {
+                "name": "ImplementationCycleGate",
+                "command": ["bash", "-lc", "test \"$(cat state/cycle.txt)\" -lt 20"],
+                "on": {"success": {"goto": "FixImplementation"}, "failure": {"goto": "MaxImplementationCyclesExceeded"}},
+            },
+            {
+                "name": "FixImplementation",
+                "command": ["bash", "-lc", "printf 'fix\\n' >> state/history.log"],
+                "on": {"success": {"goto": "IncrementImplementationCycle"}},
+            },
+            {
+                "name": "IncrementImplementationCycle",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "count=$(cat state/cycle.txt 2>/dev/null || printf '0')",
+                            "count=$((count + 1))",
+                            "printf '%s\\n' \"$count\" > state/cycle.txt",
+                            "printf 'increment-%s\\n' \"$count\" >> state/history.log",
+                        ]
+                    ),
+                ],
+                "on": {"success": {"goto": "ReviewImplementation"}},
+            },
+            {
+                "name": "MaxImplementationCyclesExceeded",
+                "command": ["bash", "-lc", "printf 'maxed\\n' >> state/history.log && exit 1"],
+            },
+        ],
+    }
+
+
+def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
+    workflow_path = workspace / "resume_loop.yaml"
+    workflow_path.write_text(yaml.safe_dump(_build_resume_loop_workflow(), sort_keys=False))
+
+    state_dir = workspace / "state"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "review_count.txt").write_text("1\n")
+    (state_dir / "cycle.txt").write_text("1\n")
+    (state_dir / "decision.txt").write_text("REVISE\n")
+    (state_dir / "history.log").write_text("review-1\nfix\nincrement-1\n")
+
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state_manager.initialize("resume_loop.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.steps = {
+        "ReviewImplementation": {"status": "completed", "exit_code": 0},
+        "ImplementationReviewGate": {"status": "failed", "exit_code": 1},
+        "ImplementationCycleGate": {"status": "completed", "exit_code": 0},
+        "FixImplementation": {"status": "completed", "exit_code": 0},
+        "IncrementImplementationCycle": {"status": "completed", "exit_code": 0},
+    }
+    state_manager._write_state()
+    return workflow_path, state_manager
 
 
 @pytest.fixture
@@ -356,6 +447,26 @@ steps:
         assert mock_executor.execute.call_args.kwargs.get('resume') == True
 
     assert result == 0
+
+
+def test_resume_revisits_top_level_review_step_after_fix_loop(temp_workspace):
+    """Resume should only skip to the restart point, not skip revisited loop steps forever."""
+    run_id = "resume-loop-run"
+    _seed_resume_loop_state(temp_workspace, run_id=run_id)
+
+    with patch("os.getcwd", return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert (temp_workspace / "state" / "review_count.txt").read_text() == "2\n"
+    assert (temp_workspace / "state" / "decision.txt").read_text() == "APPROVE\n"
+    history = (temp_workspace / "state" / "history.log").read_text()
+    assert "review-2\n" in history
+    assert "maxed\n" not in history
 
 
 def test_at4_resume_with_retry_parameters(temp_workspace, partial_run_state):
