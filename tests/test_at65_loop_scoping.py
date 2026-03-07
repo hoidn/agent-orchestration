@@ -14,6 +14,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 import yaml
 
+from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
 
@@ -297,6 +298,146 @@ def test_loop_scoping_legacy_v14_steps_namespace_is_unchanged(tmp_path):
 
     assert state["steps"]["LoopWithScoping[0].StepB"]["exit_code"] == 0
     assert state["steps"]["LoopWithScoping[1].StepB"]["exit_code"] == 0
+
+
+def test_v2_nested_steps_execute_with_scoped_refs_inside_for_each(tmp_path):
+    """Nested v2.0 loop steps execute real runtime behavior instead of fabricating success."""
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "ready.txt").write_text("ready", encoding="utf-8")
+
+    workflow = {
+        "version": "2.0",
+        "name": "nested-runtime-step-types",
+        "artifacts": {
+            "root_flag": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+            "counter": {
+                "kind": "scalar",
+                "type": "integer",
+            },
+            "iteration_flag": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+        },
+        "steps": [
+            {
+                "name": "RootFlag",
+                "id": "root_flag",
+                "set_scalar": {
+                    "artifact": "root_flag",
+                    "value": True,
+                },
+            },
+            {
+                "name": "SeedCounter",
+                "id": "seed_counter",
+                "set_scalar": {
+                    "artifact": "counter",
+                    "value": 0,
+                },
+                "publishes": [
+                    {
+                        "artifact": "counter",
+                        "from": "counter",
+                    }
+                ],
+            },
+            {
+                "name": "Loop",
+                "id": "loop",
+                "for_each": {
+                    "items": ["one"],
+                    "steps": [
+                        {
+                            "name": "SetIterationFlag",
+                            "id": "set_iteration_flag",
+                            "set_scalar": {
+                                "artifact": "iteration_flag",
+                                "value": True,
+                            },
+                        },
+                        {
+                            "name": "BumpCounter",
+                            "id": "bump_counter",
+                            "increment_scalar": {
+                                "artifact": "counter",
+                                "by": 1,
+                            },
+                        },
+                        {
+                            "name": "WaitReady",
+                            "id": "wait_ready",
+                            "wait_for": {
+                                "glob": "ready.txt",
+                                "timeout_sec": 1,
+                                "poll_ms": 50,
+                            },
+                        },
+                        {
+                            "name": "AssertScopes",
+                            "id": "assert_scopes",
+                            "assert": {
+                                "all_of": [
+                                    {
+                                        "artifact_bool": {
+                                            "ref": "self.steps.SetIterationFlag.artifacts.iteration_flag",
+                                        }
+                                    },
+                                    {
+                                        "artifact_bool": {
+                                            "ref": "parent.steps.RootFlag.artifacts.root_flag",
+                                        }
+                                    },
+                                    {
+                                        "compare": {
+                                            "left": {
+                                                "ref": "self.steps.BumpCounter.artifacts.counter",
+                                            },
+                                            "op": "eq",
+                                            "right": 1,
+                                        }
+                                    },
+                                    {
+                                        "compare": {
+                                            "left": {
+                                                "ref": "self.steps.WaitReady.exit_code",
+                                            },
+                                            "op": "eq",
+                                            "right": 0,
+                                        }
+                                    },
+                                ]
+                            },
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    workflow_path = tmp_path / "workflow.yaml"
+    with open(workflow_path, "w") as f:
+        yaml.dump(workflow, f)
+
+    loader = WorkflowLoader(workspace)
+    loaded = loader.load(workflow_path)
+
+    state_manager = StateManager(tmp_path / ".orchestrate")
+    state_manager.initialize(str(workflow_path))
+    executor = WorkflowExecutor(loaded, workspace, state_manager)
+
+    final_state = executor.execute()
+
+    assert final_state["steps"]["Loop[0].SetIterationFlag"]["artifacts"] == {"iteration_flag": True}
+    assert final_state["steps"]["Loop[0].BumpCounter"]["artifacts"] == {"counter": 1}
+    assert final_state["steps"]["Loop[0].WaitReady"]["status"] == "completed"
+    assert final_state["steps"]["Loop[0].WaitReady"]["files"] == ["ready.txt"]
+    assert final_state["steps"]["Loop[0].AssertScopes"]["status"] == "completed"
+    assert final_state["steps"]["Loop[0].AssertScopes"]["exit_code"] == 0
 
 def test_at65_nested_step_references_within_iteration(tmp_path):
     """

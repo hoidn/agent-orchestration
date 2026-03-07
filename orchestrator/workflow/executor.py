@@ -1466,17 +1466,12 @@ class WorkflowExecutor:
                 if consume_error is not None:
                     result = consume_error
                 else:
-                    # Execute the nested step based on its type
-                    if 'command' in nested_step:
-                        result = self._execute_command_with_context(nested_step, nested_context, state)
-                    elif 'provider' in nested_step:
-                        result = self._execute_provider_with_context(nested_step, nested_context, state)
-                    else:
-                        # Other step types within loops
-                        result = {'exit_code': 0, 'skipped': True}
-
-                    result.setdefault('name', nested_name)
-                    result.setdefault('step_id', nested_runtime_step_id)
+                    result = self._execute_nested_loop_step(
+                        nested_step,
+                        nested_context,
+                        state,
+                        iteration_state,
+                    )
                     publish_error = self._record_published_artifacts(
                         nested_step,
                         nested_name,
@@ -1490,6 +1485,7 @@ class WorkflowExecutor:
                 # Store in iteration state
                 result.setdefault('name', nested_name)
                 result.setdefault('step_id', nested_runtime_step_id)
+                result = self._attach_outcome(nested_step, result)
                 iteration_state[nested_name] = result
 
             # Store iteration results in indexed format
@@ -1510,20 +1506,53 @@ class WorkflowExecutor:
                 from ..state import StepResult
                 exit_code = result.get('exit_code', 0)
                 step_result = StepResult(
-                    status='completed' if exit_code == 0 else 'failed',
+                    status=result.get('status', 'completed' if exit_code == 0 else 'failed'),
                     name=result.get('name', nested_name),
                     step_id=result.get('step_id'),
                     exit_code=exit_code,
+                    duration_ms=result.get('duration_ms', 0),
                     output=result.get('output'),
                     lines=result.get('lines'),
                     json=result.get('json'),
                     error=result.get('error'),
                     truncated=result.get('truncated', False),
-                    artifacts=result.get('artifacts')
+                    artifacts=result.get('artifacts'),
+                    skipped=result.get('skipped', False),
+                    files=result.get('files'),
+                    wait_duration_ms=result.get('wait_duration_ms'),
+                    poll_count=result.get('poll_count'),
+                    timed_out=result.get('timed_out'),
+                    outcome=result.get('outcome'),
                 )
                 self.state_manager.update_loop_step(step_name, i, nested_name, step_result)
 
         return state
+
+    def _execute_nested_loop_step(
+        self,
+        step: Dict[str, Any],
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+        iteration_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        scope = {
+            'self_steps': iteration_state,
+            'parent_steps': state.get('steps', {}),
+            'root_steps': state.get('steps', {}),
+        }
+        if 'command' in step:
+            return self._execute_command_with_context(step, context, state)
+        if 'provider' in step:
+            return self._execute_provider_with_context(step, context, state)
+        if 'assert' in step:
+            return self._execute_assert(step, state, context=context, scope=scope)
+        if 'set_scalar' in step:
+            return self._execute_set_scalar(step)
+        if 'increment_scalar' in step:
+            return self._execute_increment_scalar(step, state)
+        if 'wait_for' in step:
+            return self._execute_wait_for_result(step)
+        return {'status': 'skipped', 'exit_code': 0, 'skipped': True}
 
     def _execute_command_with_context(
         self,
@@ -2258,13 +2287,26 @@ class WorkflowExecutor:
 
         return state
 
-    def _execute_assert(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_assert(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        if context is None:
+            context = {}
         variables = self.variable_substitutor.build_variables(
             run_state=state,
-            context=self.workflow.get('context', {}),
+            context=context.get('context', self.workflow.get('context', {})),
+            loop_vars=context.get('loop'),
+            item=context.get('item'),
         )
+        for key, value in context.items():
+            if key not in {'run', 'context', 'steps', 'loop', 'item'}:
+                variables[key] = value
         try:
-            passed = self.condition_evaluator.evaluate(step.get('assert'), variables, state)
+            passed = self.condition_evaluator.evaluate(step.get('assert'), variables, state, scope=scope)
         except Exception as exc:
             return {
                 'status': 'failed',
@@ -2563,16 +2605,7 @@ class WorkflowExecutor:
     def _execute_wait_for(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute wait_for step and record results in state (AT-60)."""
         step_name = step['name']
-        wait_config = step.get('wait_for', {})
-
-        # Call the StepExecutor to execute the wait_for
-        result = self.step_executor.execute_wait_for(step_name, wait_config)
-
-        # Get the wait-specific state dict (has custom to_state_dict method)
-        step_result = result.to_state_dict()
-
-        # Add status field based on exit code
-        step_result['status'] = 'completed' if result.exit_code == 0 else 'failed'
+        step_result = self._execute_wait_for_result(step)
         phase_hint = None
         class_hint = None
         if step_result.get('timed_out'):
@@ -2592,6 +2625,14 @@ class WorkflowExecutor:
         )
 
         return state
+
+    def _execute_wait_for_result(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        step_name = step['name']
+        wait_config = step.get('wait_for', {})
+        result = self.step_executor.execute_wait_for(step_name, wait_config)
+        step_result = result.to_state_dict()
+        step_result['status'] = 'completed' if result.exit_code == 0 else 'failed'
+        return step_result
 
     def _execute_provider(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute provider step without loop context."""

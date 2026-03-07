@@ -392,6 +392,92 @@ class TestLoaderValidation:
         assert loaded_a["steps"][1]["for_each"]["steps"][0]["step_id"] == "root.loop.process"
         assert loaded_b["steps"][2]["for_each"]["steps"][0]["step_id"] == "root.loop.process"
 
+    def test_compiler_generated_step_ids_disambiguate_colliding_names(self):
+        """Compiler-generated step ids must remain unique when names normalize alike."""
+        workflow = {
+            "version": "2.0",
+            "name": "compiler-id-collisions",
+            "steps": [
+                {
+                    "name": "Build A",
+                    "command": ["echo", "first"],
+                },
+                {
+                    "name": "Build-A",
+                    "command": ["echo", "second"],
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+
+        assert loaded["steps"][0]["step_id"] == "root.build_a"
+        assert loaded["steps"][1]["step_id"] == "root.build_a_2"
+        assert loaded["steps"][0]["step_id"] != loaded["steps"][1]["step_id"]
+
+    def test_v2_parent_refs_reject_multi_visit_targets(self):
+        """Scoped parent refs cannot target provably multi-visit parent steps."""
+        workflow = {
+            "version": "2.0",
+            "name": "parent-ref-cycle",
+            "artifacts": {
+                "flag": {
+                    "kind": "scalar",
+                    "type": "bool",
+                },
+            },
+            "steps": [
+                {
+                    "name": "Start",
+                    "id": "start",
+                    "set_scalar": {
+                        "artifact": "flag",
+                        "value": True,
+                    },
+                    "on": {
+                        "success": {
+                            "goto": "Loop",
+                        }
+                    },
+                },
+                {
+                    "name": "Loop",
+                    "id": "loop",
+                    "for_each": {
+                        "items": ["one"],
+                        "steps": [
+                            {
+                                "name": "CheckParent",
+                                "id": "check_parent",
+                                "assert": {
+                                    "artifact_bool": {
+                                        "ref": "parent.steps.Start.artifacts.flag",
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                    "on": {
+                        "success": {
+                            "goto": "Start",
+                        }
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "targets multi-visit step 'Start'" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
     def test_for_each_steps_reject_max_visits_before_stable_ids_land(self):
         """Cycle guards are limited to top-level steps in the first tranche."""
         workflow = {

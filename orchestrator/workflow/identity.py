@@ -17,13 +17,20 @@ def authored_id_is_valid(value: Any) -> bool:
 
 def assign_step_ids(steps: Iterable[Dict[str, Any]], parent_step_id: str = "root") -> None:
     """Annotate steps recursively with stable internal step ids."""
+    used_tokens = {
+        step.get("id")
+        for step in steps
+        if isinstance(step, dict) and authored_id_is_valid(step.get("id"))
+    }
     for index, step in enumerate(steps):
         if not isinstance(step, dict):
             continue
 
         token = step.get("id")
         if not authored_id_is_valid(token):
-            token = _compiler_token(step, index)
+            token = _dedupe_token(_compiler_token(step, index), used_tokens)
+        else:
+            used_tokens.add(token)
 
         step_id = f"{parent_step_id}.{token}"
         step["step_id"] = step_id
@@ -74,3 +81,13 @@ def _compiler_token(step: Dict[str, Any], index: int) -> str:
                 token = f"step_{token}"
             return token.lower()
     return f"step_{index}"
+
+
+def _dedupe_token(base_token: str, used_tokens: set[str]) -> str:
+    token = base_token
+    suffix = 2
+    while token in used_tokens:
+        token = f"{base_token}_{suffix}"
+        suffix += 1
+    used_tokens.add(token)
+    return token
