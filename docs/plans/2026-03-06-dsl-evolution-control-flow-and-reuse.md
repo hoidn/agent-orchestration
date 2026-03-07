@@ -88,7 +88,7 @@ The recommended roadmap is:
 
 ### D1. Add first-class `assert` / gate steps
 
-Introduce a dedicated gate step that evaluates a typed condition and turns it into deterministic step success/failure without requiring shell glue.
+Introduce a dedicated gate step that evaluates a condition and turns it into deterministic step success/failure without requiring shell glue.
 
 Low-risk initial example:
 
@@ -355,6 +355,10 @@ outputs:
 Recommended semantics:
 - top-level runs may bind `inputs` from CLI/context, with validation before execution starts
 - imported/called workflows must declare `inputs`/`outputs` explicitly
+- declared workflow inputs should be readable inside the workflow body through a normative workflow-level read surface:
+  - legacy interpolation form: `${inputs.<name>}`
+  - typed predicate / structured-ref form: `ref: inputs.<name>`
+- that `inputs.<name>` read surface should be available to steps inside both top-level workflows and callees invoked through `call`
 - `with:` bindings on `call` must type-check against callee `inputs`
 - every declared workflow `output` must include an explicit `from` binding to a root-scoped produced value, such as `root.steps.<Step>.artifacts.<name>`
 - top-level workflow outputs are materialized only after the workflow body and any finalization complete successfully, immediately before final result/report emission
@@ -447,6 +451,7 @@ This is intentionally weaker than full sandboxing and narrower than generic work
 Principle:
 - the first shippable `call` tranche should target controlled, DSL-managed reusable helpers
 - it should **not** claim to cover today's provider/command-heavy review-fix or plan-review-revise workflows until a stronger execution boundary exists
+- the realistic early migration path is to extract pure DSL-managed helper fragments first, while leaving provider/command-heavy orchestration patterns top-level until a stronger execution boundary exists
 
 ### D9. Add reusable subworkflow imports and calls
 
@@ -478,6 +483,8 @@ Execution model must be explicit:
 - only declared call outputs cross the call boundary into the caller
 - exported callee outputs are materialized by evaluating the callee's declared `outputs[*].from` bindings at call completion
 - exported callee outputs surface on the caller as `steps.<CallStep>.artifacts.<name>`; downstream predicates, `publishes.from`, and consumers should compose through that existing step-artifact surface
+- when an exported callee output enters the caller-visible artifact/version ledger, its **external producer identity** should be the outer `call` step
+- the runtime should retain the callee-internal `outputs[*].from` origin as secondary provenance/debug metadata rather than trying to make inner qualified producers masquerade as caller-visible producers
 - callee-internal artifacts must also have **call-scoped internal identities**, not just call-scoped step IDs
 - bare callee-local artifact names must not be inserted into the caller-global artifact registry, pointer namespace, or freshness ledger
 - if the existing artifact registry / pointer model cannot represent call-scoped internal artifact identities, D9 requires an explicit versioned artifact-state change before shipping
@@ -702,7 +709,7 @@ Reason:
 
 ### Tier 1: Best ideas
 
-1. **First-class typed `assert` / gate**
+1. **First-class `assert` / gate**
    - Best immediate correctness payoff.
    - Smallest surface-area addition.
    - Cleanest migration away from shell/jq gate steps.
@@ -773,7 +780,7 @@ These would make the DSL harder to validate, harder to teach, and easier to misu
 
 ## Proposed Surface Syntax
 
-### 1. First-class typed gate
+### 1. First-class `assert` / gate
 
 ```yaml
 - name: GateReviewApproval
@@ -1083,7 +1090,7 @@ Informative:
 
 ## Recommended Sequencing
 
-1. Ship first-class typed `assert` / gate.
+1. Ship first-class `assert` / gate.
 2. Ship typed predicates, including typed failure routing.
 3. Ship lightweight scalar bookkeeping as a dedicated runtime primitive.
 4. Ship resume-safe cycle guards.
@@ -1102,10 +1109,10 @@ This sequence maximizes correctness first, then state-model safety, then readabi
 
 ## Concrete Recommendation
 
-If only one improvement can be made next, it should be **first-class typed `assert` / gate**.
+If only one improvement can be made next, it should be **first-class `assert` / gate**.
 
 If two can be made, they should be:
-1. typed `assert` / gate
+1. first-class `assert` / gate
 2. typed predicates
 
 If three can be made, add:
