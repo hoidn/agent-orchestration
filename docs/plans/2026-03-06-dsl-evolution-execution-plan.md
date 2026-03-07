@@ -64,7 +64,7 @@ Keep the new `ref:` model opt-in and explicitly separate from legacy `${...}` in
 
 Document which tranches require `schema_version` updates, new persisted counters, qualified step identities, local produced values, finalization progress, workflow/call output-export progress, call-frame metadata, bound workflow inputs, and versioned artifact-state changes for call-scoped producer/consumer identities. State exactly which fields are presentation-only versus durable lineage/resume keys, including the split between caller-visible call outputs, external producer identity, preserved internal provenance, and qualified freshness bookkeeping.
 
-**Step 3: Add acceptance coverage entries for every new invariant**
+**Step 3: Add acceptance coverage entries for every new invariant and map them to later executable proof**
 
 Add acceptance cases for:
 - `assert_failed` vs contract/preflight failures
@@ -85,14 +85,19 @@ Add acceptance cases for:
 - call-scoped `artifact_versions`, `artifact_consumes`, and `since_last_consume` freshness across call frames
 - callee output export withholding until callee finalization completes, plus suppression on callee finalization failure
 
+For each acceptance addition, point to the later task and verification block that will make the invariant executable so Task 1 locks the rollout contract and ownership boundaries without pretending the docs-only tranche has already proven runtime behavior.
+
 **Verification:**
 
 Run:
 ```bash
-pytest tests/test_loader_validation.py -k "version or unknown" -v
+pytest tests/test_loader_validation.py -k "version or unknown or for_each" -v
+pytest tests/test_workflow_examples_v0.py -k for_each_demo -v
 ```
 
-Risk focus: avoid documenting semantics the current runtime cannot actually enforce.
+Before moving to Task 2, cross-check that every new acceptance item added here is referenced by a later task's test or smoke coverage block.
+
+Risk focus: avoid documenting semantics the current runtime cannot actually enforce, and avoid claiming Task 1 verification proves more than rollout/version-boundary stability.
 
 ### Task 2: Land D1 with first-class `assert` / gate steps
 
@@ -162,6 +167,8 @@ Risk focus: do not let `assert` silently drift into a general expression languag
 - Create: `tests/test_typed_predicates.py`
 - Modify: `tests/test_loader_validation.py`
 - Modify: `tests/test_conditional_execution.py`
+- Modify: `tests/test_runtime_step_lifecycle.py`
+- Modify: `tests/test_for_each_execution.py`
 - Modify: `tests/test_observability_report.py`
 - Create: `workflows/examples/typed_predicate_routing.yaml`
 - Modify: `workflows/README.md`
@@ -178,8 +185,10 @@ Cover:
 - static type rejection for `artifact_bool` on non-`bool` artifacts and ordered comparisons on non-numeric / `relpath` / `enum` operands
 - statically invalid refs rejected at load time
 - runtime-only missing values producing structured predicate failures
+- the normalized outcome matrix for command failure, provider failure, timeout, contract/preflight failure, and undefined-substitution-at-step-execution
+- legacy `version: "1.4"` `for_each` workflows keeping `${steps.<Name>.*}` loop-local substitution unchanged while typed `ref:` remains opt-in and version-gated
 
-**Step 2: Add normalized outcome projection**
+**Step 2: Add normalized outcome projection and make the matrix executable**
 
 Project step results into:
 - `outcome.status`
@@ -187,7 +196,7 @@ Project step results into:
 - `outcome.class`
 - `outcome.retryable`
 
-Keep this projection available only for observable step results and document the normalization matrix in the spec.
+Keep this projection available only for observable step results, document the normalization matrix in the spec, and add direct test coverage that each documented tuple maps to the expected normalized outcome fields.
 
 **Step 3: Enforce the first-tranche safety boundary in the loader**
 
@@ -202,8 +211,8 @@ Update status rendering so tests can assert on normalized outcomes and add an ex
 Run:
 ```bash
 pytest --collect-only tests/test_typed_predicates.py -q
-pytest tests/test_typed_predicates.py tests/test_loader_validation.py tests/test_conditional_execution.py tests/test_observability_report.py -v
-pytest tests/test_workflow_examples_v0.py -k typed_predicate -v
+pytest tests/test_typed_predicates.py tests/test_loader_validation.py tests/test_conditional_execution.py tests/test_runtime_step_lifecycle.py tests/test_for_each_execution.py tests/test_observability_report.py -v
+pytest tests/test_workflow_examples_v0.py -k "typed_predicate or for_each_demo" -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/typed_predicate_routing.yaml --dry-run
 ```
 
@@ -352,6 +361,7 @@ Cover:
 - stable `step_id` persistence across sibling insertion when authored IDs are preserved
 - compiler-generated IDs being checksum-stable only until the workflow file changes
 - qualified lineage keys for `for_each` iterations
+- legacy `version: "1.4"` `${steps.<Name>.*}` loop-local substitution remaining unchanged in existing `for_each` workflows after scoped refs and typed `inputs` land
 - typed `inputs` visibility through both `${inputs.<name>}` and structured `ref:`
 - persisted bound inputs being available after resume reload
 
@@ -380,7 +390,7 @@ If checksum-changing edits still invalidate resume, preserve that rule and docum
 Run:
 ```bash
 pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_cli_safety.py tests/test_resume_command.py -k "step_id or scoped_ref or inputs or outputs or bound_inputs" -v
-pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k "qualified or lineage or freshness or for_each or loop_scoping" -v
+pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k "legacy or qualified or lineage or freshness or for_each or loop_scoping" -v
 pytest tests/test_workflow_output_contract_integration.py -k "workflow output or signature" -v
 pytest tests/test_workflow_examples_v0.py -k "workflow_signature or for_each_demo" -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
@@ -779,11 +789,18 @@ pytest tests/test_loader_validation.py \
        tests/test_conditional_execution.py \
        tests/test_runtime_step_lifecycle.py \
        tests/test_typed_predicates.py \
+       tests/test_retry_behavior.py \
        tests/test_state_manager.py \
        tests/test_resume_command.py \
        tests/test_artifact_dataflow_integration.py \
+       tests/test_for_each_execution.py \
+       tests/test_at65_loop_scoping.py \
+       tests/test_workflow_output_contract_integration.py \
+       tests/test_dependency_resolution.py \
+       tests/test_dependency_injection.py \
        tests/test_prompt_contract_injection.py \
        tests/test_provider_integration.py \
+       tests/test_secrets.py \
        tests/test_structured_control_flow.py \
        tests/test_subworkflow_calls.py \
        tests/test_observability_report.py \
@@ -794,11 +811,12 @@ pytest tests/test_loader_validation.py \
        tests/test_workflow_examples_v0.py -v
 ```
 
-**Step 2: Re-run an existing orchestrator smoke check to prove legacy compatibility**
+**Step 2: Re-run existing orchestrator smoke checks to prove legacy compatibility**
 
 Run:
 ```bash
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 ```
 
 **Step 3: Re-run one new-DSL smoke example from each major tranche**
@@ -808,6 +826,7 @@ Run the dry-run commands from Tasks 2, 3, 4, 7, 11, and 14, and run the isolated
 **Completion criteria:**
 
 - Legacy `1.4` examples still validate and targeted tests pass.
+- Normalized outcome routing and legacy `${steps.<Name>.*}` loop-local substitution are both revalidated in the final sweep.
 - Each new tranche has spec coverage, implementation coverage, and at least one example workflow smoke check; stateful tranches also have at least one isolated real orchestrator run.
 - State-schema changes are paired with resume tests and explicit documentation updates.
 - No feature depends on ambiguous multi-visit refs or bare step-name lineage keys.
