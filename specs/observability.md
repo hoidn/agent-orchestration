@@ -39,6 +39,10 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - `last_result_visit_count`: visit ordinal recorded on the latest persisted result at `steps.<StepName>`
   - v2.0 status/report snapshots may expose `step_id` alongside display `name`; display names remain the human-facing label, while `step_id` is the durable lineage/resume identity.
   - v2.1 status/report snapshots may expose `bound_inputs`, `workflow_outputs`, and any run-level workflow-boundary `error` object.
+  - v2.2 lowered structured-control nodes appear in snapshots as ordinary top-level entries:
+    - branch markers use kind `structured_if_branch`
+    - statement join nodes use kind `structured_if_join`
+    - join-node `output.error` / `output.artifacts` / `output.debug.structured_if` show selected-branch materialization status
 
 ## Error Context (shape)
 

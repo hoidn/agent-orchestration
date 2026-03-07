@@ -77,6 +77,7 @@ Two practical upgrades now exist:
 - v1.8: use `max_visits` and `max_transitions` instead of shell counters or ad hoc file-backed loop budgets when the goal is simply to cap a raw `goto` loop.
 - v2.0: when authoring new typed predicates in nested scopes, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
 - v2.1: prefer typed workflow `inputs`/`outputs` over ad hoc `context` conventions when the value is part of the workflow boundary and should survive validation, resume, and later `call` reuse.
+- v2.2: prefer top-level structured `if/else` when the workflow intent is branch selection rather than a reusable raw `goto` diamond.
 
 ## 5) Prompt Authoring Guidance
 
@@ -161,6 +162,11 @@ For raw-graph review/fix loops, add an explicit cycle cap:
 - use `max_visits` when one particular gate or work step should own the retry budget
 - use `max_transitions` when you want one workflow-wide ceiling across several back-edges
 - keep the first tranche top-level only; do not try to guard nested `for_each` steps until the later stable-ID work lands
+
+For v2.2 structured branching:
+- keep branch-local work inside `then` / `else`; do not route downstream logic to branch-local step names
+- expose any downstream values through matching branch `outputs`, then read them from the statement node
+- keep the first tranche simple: top-level statements only, and do not embed raw `goto` / `_end` inside branch steps
 
 For post-v2.0 workflows, separate display names from durable identity:
 - keep `name` optimized for readable reports

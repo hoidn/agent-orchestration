@@ -393,6 +393,55 @@ class TestLoaderValidation:
         assert any("inputs requires version '2.1'" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_if_else_requires_version_2_2(self):
+        """Structured if/else is gated after workflow signatures land."""
+        workflow = {
+            "version": "2.1",
+            "name": "if-else-gated",
+            "artifacts": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetReady",
+                    "set_scalar": {
+                        "artifact": "ready",
+                        "value": True,
+                    },
+                },
+                {
+                    "name": "RouteReview",
+                    "if": {
+                        "artifact_bool": {
+                            "ref": "root.steps.SetReady.artifacts.ready",
+                        }
+                    },
+                    "then": {
+                        "steps": [
+                            {
+                                "name": "WriteApproved",
+                                "set_scalar": {
+                                    "artifact": "ready",
+                                    "value": True,
+                                },
+                            }
+                        ],
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("if/else requires version '2.2'" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_workflow_outputs_require_from_binding(self):
         """Workflow outputs must declare an explicit export source."""
         workflow = {
@@ -416,6 +465,75 @@ class TestLoaderValidation:
             self.loader.load(path)
 
         assert any("outputs.review_decision missing required 'from'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_if_else_rejects_goto_inside_branch_steps(self):
+        """The first structured-control tranche rejects branch-local goto escapes."""
+        workflow = {
+            "version": "2.2",
+            "name": "if-else-no-goto",
+            "artifacts": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetReady",
+                    "id": "set_ready",
+                    "set_scalar": {
+                        "artifact": "ready",
+                        "value": True,
+                    },
+                },
+                {
+                    "name": "RouteReview",
+                    "id": "route_review",
+                    "if": {
+                        "artifact_bool": {
+                            "ref": "root.steps.SetReady.artifacts.ready",
+                        }
+                    },
+                    "then": {
+                        "steps": [
+                            {
+                                "name": "WriteApproved",
+                                "id": "write_approved",
+                                "set_scalar": {
+                                    "artifact": "ready",
+                                    "value": True,
+                                },
+                                "on": {
+                                    "success": {
+                                        "goto": "_end",
+                                    }
+                                },
+                            }
+                        ],
+                    },
+                    "else": {
+                        "steps": [
+                            {
+                                "name": "WriteRevision",
+                                "id": "write_revision",
+                                "set_scalar": {
+                                    "artifact": "ready",
+                                    "value": False,
+                                },
+                            }
+                        ],
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("goto" in str(err.message) and "structured if/else" in str(err.message)
                   for err in exc_info.value.errors)
 
     def test_v2_scoped_refs_allow_self_and_parent_in_nested_steps(self):

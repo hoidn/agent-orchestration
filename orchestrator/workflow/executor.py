@@ -19,6 +19,7 @@ from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
 from ..contracts.output_contract import (
     OutputContractError,
+    validate_contract_value,
     validate_expected_outputs,
     validate_output_bundle,
 )
@@ -32,6 +33,7 @@ from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
 from .identity import iteration_step_id, runtime_step_id
+from .references import ReferenceResolutionError, ReferenceResolver
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 
 logger = logging.getLogger(__name__)
@@ -91,6 +93,7 @@ class WorkflowExecutor:
         self.dependency_injector = DependencyInjector(str(workspace))
         self.condition_evaluator = ConditionEvaluator(workspace)
         self.variable_substitutor = VariableSubstitutor()
+        self.reference_resolver = ReferenceResolver()
         self.summary_observer = self._create_summary_observer()
 
         # Execution state
@@ -188,8 +191,22 @@ class WorkflowExecutor:
 
     def _uses_qualified_identities(self) -> bool:
         """Return True when this workflow uses the post-Task-6 state model."""
+        return self._workflow_version_at_least("2.0")
+
+    def _workflow_version_at_least(self, minimum: str) -> bool:
+        """Return True when the loaded workflow version is at least the requested boundary."""
         version = self.workflow.get("version")
-        return isinstance(version, str) and version in {"2.0", "2.1"}
+        if not isinstance(version, str):
+            return False
+        try:
+            return self._parse_version_tuple(version) >= self._parse_version_tuple(minimum)
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _parse_version_tuple(version: str) -> tuple[int, ...]:
+        """Parse a dotted workflow version like 1.1.1 or 2.0 into a comparable tuple."""
+        return tuple(int(part) for part in version.split("."))
 
     def _persist_workflow_boundary_state(self, state: Dict[str, Any]) -> None:
         """Persist workflow-boundary inputs/outputs and run-level error metadata."""
@@ -294,6 +311,76 @@ class WorkflowExecutor:
                         self._increment_transition_count(state)
                         step_index = target_index
                     continue
+
+                # Check structured branch guards before the step's own when clause.
+                if 'structured_if_guard' in step:
+                    variables = self.variable_substitutor.build_variables(
+                        run_state=state,
+                        context=self.workflow.get('context', {})
+                    )
+                    guard = step.get('structured_if_guard', {})
+                    condition = guard.get('condition') if isinstance(guard, dict) else None
+                    invert = bool(guard.get('invert')) if isinstance(guard, dict) else False
+                    try:
+                        should_execute = self.condition_evaluator.evaluate(condition, variables, state)
+                        if invert:
+                            should_execute = not should_execute
+                    except Exception as e:
+                        error_info = {
+                            'type': 'predicate_evaluation_failed',
+                            'message': f"Condition evaluation failed: {e}",
+                            'context': {'condition': condition}
+                        }
+                        result = {
+                            'status': 'failed',
+                            'exit_code': 2,
+                            'error': error_info
+                        }
+                        self._persist_step_result(
+                            state,
+                            step_name,
+                            step,
+                            result,
+                            phase_hint='pre_execution',
+                            class_hint='pre_execution_failed',
+                            retryable_hint=False,
+                        )
+                        next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                        if next_step == '_end':
+                            break
+                        if next_step == '_stop':
+                            terminal_status = 'failed'
+                            break
+
+                        target_index = self._resolve_next_step_index(step_index, next_step)
+                        if target_index is None:
+                            step_index += 1
+                        else:
+                            self._increment_transition_count(state)
+                            step_index = target_index
+                        continue
+
+                    if not should_execute:
+                        result = {
+                            'status': 'skipped',
+                            'exit_code': 0,
+                            'skipped': True
+                        }
+                        self._persist_step_result(state, step_name, step, result)
+                        next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                        if next_step == '_end':
+                            break
+                        if next_step == '_stop':
+                            terminal_status = 'failed'
+                            break
+
+                        target_index = self._resolve_next_step_index(step_index, next_step)
+                        if target_index is None:
+                            step_index += 1
+                        else:
+                            self._increment_transition_count(state)
+                            step_index = target_index
+                        continue
 
                 # Check conditional execution (AT-37, AT-46, AT-47)
                 if 'when' in step:
@@ -454,6 +541,12 @@ class WorkflowExecutor:
                             step,
                             state.get('steps', {}).get(step_name, {'status': 'completed'}),
                         )
+                    elif 'structured_if_branch' in step:
+                        result = self._execute_structured_if_branch(step)
+                        self._persist_step_result(state, step_name, step, result)
+                    elif 'structured_if_join' in step:
+                        result = self._execute_structured_if_join(step, state)
+                        self._persist_step_result(state, step_name, step, result)
                     elif 'wait_for' in step:
                         state = self._execute_wait_for(step, state)
                     elif 'assert' in step:
@@ -533,6 +626,10 @@ class WorkflowExecutor:
 
     def _resolve_step_type(self, step: Dict[str, Any]) -> str:
         """Return canonical step type label for runtime lifecycle state."""
+        if 'structured_if_branch' in step:
+            return 'structured_if_branch'
+        if 'structured_if_join' in step:
+            return 'structured_if_join'
         if 'provider' in step:
             return 'provider'
         if 'command' in step:
@@ -1094,7 +1191,7 @@ class WorkflowExecutor:
         resolved_consumes[consumer_identity] = step_resolved_consumes
         workflow_version = self.workflow.get("version")
         materialize_relpath_consume_pointer = workflow_version in {"1.2", "1.3"}
-        freshness_uses_step_scope = workflow_version in {"1.4", "2.0"}
+        freshness_uses_step_scope = self._workflow_version_at_least("1.4")
 
         for consume in consumes:
             if not isinstance(consume, dict):
@@ -2811,6 +2908,131 @@ class WorkflowExecutor:
                 "value": candidate_value,
             },
         )
+
+    def _execute_structured_if_branch(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Record one lowered branch marker for a structured if/else statement."""
+        metadata = step.get('structured_if_branch', {})
+        branch_name = metadata.get('branch_name') if isinstance(metadata, dict) else None
+        statement_name = metadata.get('statement_name') if isinstance(metadata, dict) else None
+        return {
+            'status': 'completed',
+            'exit_code': 0,
+            'duration_ms': 0,
+            'debug': {
+                'structured_if': {
+                    'statement_name': statement_name,
+                    'selected_branch': branch_name,
+                    'branch_marker': True,
+                }
+            },
+        }
+
+    def _execute_structured_if_join(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+        """Materialize selected branch outputs onto the lowered join node."""
+        metadata = step.get('structured_if_join', {})
+        branches = metadata.get('branches', {}) if isinstance(metadata, dict) else {}
+        if not isinstance(branches, dict) or not branches:
+            return self._contract_violation_result(
+                "Structured if/else join failed",
+                {"reason": "missing_branch_metadata"},
+            )
+
+        steps_state = state.get('steps', {})
+        if not isinstance(steps_state, dict):
+            steps_state = {}
+
+        branch_statuses: Dict[str, Any] = {}
+        selected_branch: Optional[str] = None
+        for branch_name, branch in branches.items():
+            if not isinstance(branch, dict):
+                continue
+            marker_name = branch.get('marker')
+            marker_result = steps_state.get(marker_name) if isinstance(marker_name, str) else None
+            marker_status = marker_result.get('status') if isinstance(marker_result, dict) else 'pending'
+            branch_statuses[branch_name] = {
+                'status': marker_status,
+                'marker': marker_name,
+                'steps': list(branch.get('steps', [])) if isinstance(branch.get('steps'), list) else [],
+            }
+            if marker_status != 'skipped':
+                if selected_branch is not None:
+                    return self._contract_violation_result(
+                        "Structured if/else join failed",
+                        {
+                            "reason": "multiple_selected_branches",
+                            "branches": branch_statuses,
+                        },
+                    )
+                selected_branch = branch_name
+
+        if selected_branch is None:
+            return self._contract_violation_result(
+                "Structured if/else join failed",
+                {
+                    "reason": "no_selected_branch",
+                    "branches": branch_statuses,
+                },
+            )
+
+        selected = branches.get(selected_branch, {})
+        outputs = selected.get('outputs', {}) if isinstance(selected, dict) else {}
+        if not isinstance(outputs, dict):
+            outputs = {}
+
+        artifacts: Dict[str, Any] = {}
+        for output_name, spec in outputs.items():
+            if not isinstance(spec, dict):
+                continue
+            binding = spec.get('from')
+            ref = binding.get('ref') if isinstance(binding, dict) else None
+            if not isinstance(ref, str) or not ref:
+                return self._contract_violation_result(
+                    "Structured if/else join failed",
+                    {
+                        "reason": "missing_output_ref",
+                        "output": output_name,
+                        "branch": selected_branch,
+                    },
+                )
+            try:
+                raw_value = self.reference_resolver.resolve(ref, state).value
+            except ReferenceResolutionError as exc:
+                return self._contract_violation_result(
+                    "Structured if/else join failed",
+                    {
+                        "reason": "unresolved_output_ref",
+                        "output": output_name,
+                        "branch": selected_branch,
+                        "ref": ref,
+                        "error": str(exc),
+                    },
+                )
+            try:
+                artifacts[output_name] = validate_contract_value(raw_value, spec, workspace=self.workspace)
+            except OutputContractError as exc:
+                return self._contract_violation_result(
+                    "Structured if/else join failed",
+                    {
+                        "reason": "invalid_output_value",
+                        "output": output_name,
+                        "branch": selected_branch,
+                        "ref": ref,
+                        "violations": exc.violations,
+                    },
+                )
+
+        return {
+            'status': 'completed',
+            'exit_code': 0,
+            'duration_ms': 0,
+            'artifacts': artifacts,
+            'debug': {
+                'structured_if': {
+                    'selected_branch': selected_branch,
+                    'branches': branch_statuses,
+                }
+            },
+        }
 
     def _persist_step_result(
         self,

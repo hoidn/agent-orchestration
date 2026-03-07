@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
@@ -326,6 +327,99 @@ def test_since_last_consume_is_scoped_to_consumer_step(tmp_path: Path):
     assert state["steps"]["ReviewPlanLevelIssues"]["exit_code"] == 0
     assert state["steps"]["FixIssues"]["exit_code"] == 0
     consumes = persisted.get("artifact_consumes", {}).get("FixIssues", {})
+    assert consumes.get("execution_log") == 1
+
+
+@pytest.mark.parametrize("version", ["1.5", "1.6", "1.7", "1.8"])
+def test_post_v14_since_last_consume_stays_scoped_to_consumer_step(tmp_path: Path, version: str):
+    """Post-v1.4 additive releases keep step-scoped freshness on name-keyed state."""
+    workflow = {
+        "version": version,
+        "name": f"consume-freshness-step-scope-{version}",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            _publish_step("ReviewImplVsPlan", "artifacts/work/c0-review.md"),
+            {
+                "name": "ReviewPlanLevelIssues",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ReviewImplVsPlan"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo plan-review"],
+            },
+            {
+                "name": "FixIssues",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ReviewImplVsPlan"],
+                        "policy": "latest_successful",
+                        "freshness": "since_last_consume",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo fix-issues"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+
+    assert state["steps"]["ReviewPlanLevelIssues"]["exit_code"] == 0
+    assert state["steps"]["FixIssues"]["exit_code"] == 0
+    consumes = persisted.get("artifact_consumes", {}).get("FixIssues", {})
+    assert consumes.get("execution_log") == 1
+
+
+@pytest.mark.parametrize("version", ["2.0", "2.1"])
+def test_v2_since_last_consume_is_scoped_to_consumer_step(tmp_path: Path, version: str):
+    """Qualified-identity releases keep step-scoped freshness tracking."""
+    workflow = {
+        "version": version,
+        "name": f"consume-freshness-step-scope-v{version.replace('.', '_')}",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            {
+                **_publish_step("ReviewImplVsPlan", "artifacts/work/c0-review.md"),
+                "id": "review_impl_vs_plan",
+            },
+            {
+                "name": "ReviewPlanLevelIssues",
+                "id": "review_plan_level_issues",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ReviewImplVsPlan"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo plan-review"],
+            },
+            {
+                "name": "FixIssues",
+                "id": "fix_issues",
+                "consumes": [
+                    {
+                        "artifact": "execution_log",
+                        "producers": ["ReviewImplVsPlan"],
+                        "policy": "latest_successful",
+                        "freshness": "since_last_consume",
+                    }
+                ],
+                "command": ["bash", "-lc", "echo fix-issues"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+
+    assert state["steps"]["ReviewPlanLevelIssues"]["exit_code"] == 0
+    assert state["steps"]["FixIssues"]["exit_code"] == 0
+    consumes = persisted.get("artifact_consumes", {}).get("root.fix_issues", {})
     assert consumes.get("execution_log") == 1
 
 

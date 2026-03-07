@@ -16,6 +16,10 @@ def _step_name(step: Dict[str, Any], index: int) -> str:
 
 
 def _step_kind(step: Dict[str, Any]) -> str:
+    if "structured_if_branch" in step:
+        return "structured_if_branch"
+    if "structured_if_join" in step:
+        return "structured_if_join"
     if "provider" in step:
         return "provider"
     if "command" in step:

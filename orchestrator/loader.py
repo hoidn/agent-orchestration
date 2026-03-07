@@ -8,9 +8,11 @@ import yaml
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
+from orchestrator.workflow.lowering import lower_structured_steps
 from orchestrator.workflow.predicates import typed_predicate_operator_keys
 from orchestrator.workflow.references import ReferenceResolutionError, parse_structured_ref
 from orchestrator.workflow.signatures import WORKFLOW_SIGNATURE_VERSION
+from orchestrator.workflow.statements import STRUCTURED_IF_VERSION, branch_token, is_if_statement, normalize_branch_block
 
 
 class PreservingLoader(yaml.SafeLoader):
@@ -37,10 +39,10 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
-    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1"]
+    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2"]
 
     def __init__(self, workspace: Path):
         """Initialize loader with workspace root."""
@@ -103,6 +105,8 @@ class WorkflowLoader:
             self._raise_validation_errors()
 
         assign_step_ids(workflow.get('steps', []))
+        if self._version_at_least(version, STRUCTURED_IF_VERSION):
+            workflow['steps'] = lower_structured_steps(workflow.get('steps', []))
         return workflow
 
     def _validate_top_level(self, workflow: Dict[str, Any], version: str):
@@ -422,6 +426,23 @@ class WorkflowLoader:
                 else:
                     authored_ids.add(authored_id)
 
+            if is_if_statement(step):
+                self._validate_if_statement(
+                    step=step,
+                    step_name=name,
+                    version=version,
+                    artifacts_registry=artifacts_registry,
+                    root_catalog=root_catalog,
+                    scope_artifacts=scope_artifacts,
+                    scope_multi_visit=scope_multi_visit,
+                    parent_artifacts=parent_artifacts,
+                    parent_multi_visit=parent_multi_visit,
+                    scope_non_step_results=scope_non_step_results,
+                    parent_non_step_results=parent_non_step_results,
+                    top_level=top_level,
+                )
+                continue
+
             # AT-10: Provider/Command exclusivity
             execution_fields = ['provider', 'command', 'wait_for', 'assert', 'set_scalar', 'increment_scalar']
             exec_count = sum(1 for f in execution_fields if f in step)
@@ -715,6 +736,218 @@ class WorkflowLoader:
         if value < 0 or (value == 0 and not allow_zero):
             comparator = ">= 0" if allow_zero else "> 0"
             self._add_error(f"{context} must be {comparator}")
+
+    def _validate_if_statement(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        version: str,
+        artifacts_registry: Optional[Any],
+        root_catalog: Dict[str, Any],
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+        top_level: bool,
+    ) -> None:
+        """Validate one top-level structured if/else statement."""
+        if not top_level:
+            self._add_error(
+                f"Step '{step_name}': structured if/else is only supported on top-level steps in v{STRUCTURED_IF_VERSION}"
+            )
+            return
+        if not self._version_at_least(version, STRUCTURED_IF_VERSION):
+            self._add_error(f"Step '{step_name}': if/else requires version '{STRUCTURED_IF_VERSION}'")
+            return
+
+        allowed_fields = {'name', 'id', 'if', 'then', 'else'}
+        for field_name in step.keys():
+            if field_name not in allowed_fields:
+                self._add_error(
+                    f"Step '{step_name}': structured if/else does not allow field '{field_name}'"
+                )
+
+        if 'if' not in step:
+            self._add_error(f"Step '{step_name}': structured if/else requires 'if'")
+        else:
+            self._validate_when_condition(
+                step['if'],
+                step_name,
+                version,
+                root_catalog,
+                scope_artifacts,
+                scope_multi_visit,
+                parent_artifacts,
+                parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
+            )
+
+        if 'then' not in step:
+            self._add_error(f"Step '{step_name}': structured if/else requires 'then'")
+        if 'else' not in step:
+            self._add_error(f"Step '{step_name}': structured if/else requires 'else'")
+
+        then_block = normalize_branch_block(step.get('then'), 'then')
+        else_block = normalize_branch_block(step.get('else'), 'else')
+
+        then_outputs = self._validate_if_branch(
+            statement_name=step_name,
+            branch_name='then',
+            branch=then_block,
+            version=version,
+            artifacts_registry=artifacts_registry,
+            root_catalog=root_catalog,
+            parent_scope_artifacts=scope_artifacts,
+            parent_scope_multi_visit=scope_multi_visit,
+            parent_scope_non_step_results=scope_non_step_results,
+        )
+        else_outputs = self._validate_if_branch(
+            statement_name=step_name,
+            branch_name='else',
+            branch=else_block,
+            version=version,
+            artifacts_registry=artifacts_registry,
+            root_catalog=root_catalog,
+            parent_scope_artifacts=scope_artifacts,
+            parent_scope_multi_visit=scope_multi_visit,
+            parent_scope_non_step_results=scope_non_step_results,
+        )
+
+        if then_outputs is None or else_outputs is None:
+            return
+        if set(then_outputs.keys()) != set(else_outputs.keys()):
+            self._add_error(
+                f"Step '{step_name}': then/else outputs must declare the same output names"
+            )
+            return
+        for output_name in then_outputs.keys():
+            left = {
+                key: value
+                for key, value in then_outputs[output_name].items()
+                if key != 'from'
+            }
+            right = {
+                key: value
+                for key, value in else_outputs[output_name].items()
+                if key != 'from'
+            }
+            if left != right:
+                self._add_error(
+                    f"Step '{step_name}': then/else output '{output_name}' must use matching contracts"
+                )
+
+    def _validate_if_branch(
+        self,
+        statement_name: str,
+        branch_name: str,
+        branch: Optional[Dict[str, Any]],
+        version: str,
+        artifacts_registry: Optional[Any],
+        root_catalog: Dict[str, Any],
+        parent_scope_artifacts: Dict[str, Any],
+        parent_scope_multi_visit: Set[str],
+        parent_scope_non_step_results: Set[str],
+    ) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Validate one branch block of a structured if/else statement."""
+        if branch is None:
+            self._add_error(
+                f"Step '{statement_name}': {branch_name} must be a list of steps or an object with steps"
+            )
+            return None
+
+        branch_id = branch.get('id')
+        if branch_id is not None:
+            if not isinstance(branch_id, str) or not STEP_ID_PATTERN.fullmatch(branch_id):
+                self._add_error(
+                    f"Step '{statement_name}': {branch_name}.id must match {STEP_ID_PATTERN.pattern}"
+                )
+
+        branch_steps = branch.get('steps')
+        if not isinstance(branch_steps, list) or not branch_steps:
+            self._add_error(
+                f"Step '{statement_name}': {branch_name}.steps must be a non-empty list"
+            )
+            return None
+
+        if self._branch_contains_goto(branch_steps):
+            self._add_error(
+                f"Step '{statement_name}': structured if/else branches do not permit goto/_end routing in the first tranche"
+            )
+
+        branch_scope_artifacts = self._build_scope_artifact_catalog(branch_steps, artifacts_registry)
+        branch_scope_multi_visit = self._build_root_ref_catalog(branch_steps, artifacts_registry).get('multi_visit', set())
+        branch_scope_non_step_results = self._build_scope_non_step_result_targets(branch_steps)
+        self._validate_steps(
+            branch_steps,
+            version,
+            artifacts_registry,
+            root_catalog,
+            scope_artifacts=branch_scope_artifacts,
+            parent_artifacts=parent_scope_artifacts,
+            scope_multi_visit=branch_scope_multi_visit,
+            parent_multi_visit=parent_scope_multi_visit,
+            scope_non_step_results=branch_scope_non_step_results,
+            parent_non_step_results=parent_scope_non_step_results,
+            top_level=False,
+        )
+
+        outputs = branch.get('outputs', {})
+        if not isinstance(outputs, dict):
+            self._add_error(f"Step '{statement_name}': {branch_name}.outputs must be a dictionary")
+            return None
+
+        for output_name, spec in outputs.items():
+            context = f"Step '{statement_name}': {branch_name}.outputs.{output_name}"
+            self._validate_workflow_signature_contract(spec, context, allow_from=True)
+            if not isinstance(spec, dict):
+                continue
+
+            binding = spec.get('from')
+            ref = binding.get('ref') if isinstance(binding, dict) else None
+            ref_type = self._validate_structured_ref(
+                ref,
+                f"{statement_name}.{branch_name}.outputs.{output_name}",
+                version,
+                root_catalog,
+                branch_scope_artifacts,
+                branch_scope_multi_visit,
+                parent_scope_artifacts,
+                parent_scope_multi_visit,
+                branch_scope_non_step_results,
+                parent_scope_non_step_results,
+            )
+            declared_type = spec.get('type')
+            if ref_type == 'unknown' or not isinstance(declared_type, str):
+                continue
+            if declared_type == ref_type:
+                continue
+            if declared_type == 'float' and ref_type == 'integer':
+                continue
+            self._add_error(
+                f"{context}.from resolves to '{ref_type}' but output declares '{declared_type}'"
+            )
+
+        return outputs
+
+    def _branch_contains_goto(self, steps: List[Any]) -> bool:
+        """Return True when any nested step declares an explicit goto handler."""
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            on = step.get('on')
+            if isinstance(on, dict):
+                for handler in ('success', 'failure', 'always'):
+                    target = on.get(handler, {}).get('goto') if isinstance(on.get(handler), dict) else None
+                    if isinstance(target, str):
+                        return True
+            for_each = step.get('for_each')
+            if isinstance(for_each, dict) and isinstance(for_each.get('steps'), list):
+                if self._branch_contains_goto(for_each.get('steps', [])):
+                    return True
+        return False
 
     def _validate_dependencies(self, depends_on: Any, step_name: str, version: str):
         """Validate dependency configuration."""
@@ -1155,6 +1388,11 @@ class WorkflowLoader:
                 continue
 
             outputs: Dict[str, Any] = {}
+            if is_if_statement(step):
+                outputs = self._collect_if_statement_outputs(step)
+                artifact_map[name] = outputs
+                continue
+
             expected_outputs = step.get('expected_outputs')
             if isinstance(expected_outputs, list):
                 for spec in expected_outputs:
@@ -1195,6 +1433,28 @@ class WorkflowLoader:
             artifact_map[name] = outputs
 
         return artifact_map
+
+    def _collect_if_statement_outputs(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Collect block outputs exposed by a structured if/else statement."""
+        outputs: Dict[str, Dict[str, Any]] = {}
+        then_block = normalize_branch_block(step.get('then'), 'then')
+        if then_block is None:
+            return outputs
+
+        then_outputs = then_block.get('outputs')
+        if not isinstance(then_outputs, dict):
+            return outputs
+
+        for output_name, spec in then_outputs.items():
+            if not isinstance(output_name, str) or not isinstance(spec, dict):
+                continue
+            output_type = spec.get('type')
+            if isinstance(output_type, str):
+                outputs[output_name] = {
+                    'type': output_type,
+                    'persisted': True,
+                }
+        return outputs
 
     def _build_scope_non_step_result_targets(self, steps: List[Any]) -> Set[str]:
         non_step_results: Set[str] = set()

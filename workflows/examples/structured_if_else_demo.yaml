@@ -1,0 +1,61 @@
+version: "2.2"
+name: structured-if-else-demo
+artifacts:
+  ready:
+    kind: scalar
+    type: bool
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: [APPROVE, REVISE]
+steps:
+  - name: SetReady
+    id: set_ready
+    set_scalar:
+      artifact: ready
+      value: true
+
+  - name: RouteReview
+    id: route_review
+    if:
+      artifact_bool:
+        ref: root.steps.SetReady.artifacts.ready
+    then:
+      id: approve_path
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: [APPROVE, REVISE]
+          from:
+            ref: self.steps.WriteApproved.artifacts.review_decision
+      steps:
+        - name: WriteApproved
+          id: write_approved
+          set_scalar:
+            artifact: review_decision
+            value: APPROVE
+    else:
+      id: revise_path
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: [APPROVE, REVISE]
+          from:
+            ref: self.steps.WriteRevision.artifacts.review_decision
+      steps:
+        - name: WriteRevision
+          id: write_revision
+          set_scalar:
+            artifact: review_decision
+            value: REVISE
+
+  - name: AssertStatementOutput
+    id: assert_statement_output
+    assert:
+      compare:
+        left:
+          ref: root.steps.RouteReview.artifacts.review_decision
+        op: eq
+        right: APPROVE

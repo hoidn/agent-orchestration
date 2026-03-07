@@ -9,7 +9,7 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 
 ```text
 1) Load + validate workflow YAML (version-gated strict schema)
-2) Bind workflow `inputs` (v2.1+, if declared), then initialize run root and state.json
+2) Bind workflow `inputs` (v2.1+, if declared), lower any v2.2 structured `if/else`, then initialize run root and state.json
 3) Iterate steps in graph order (or goto targets)
 4) For each step:
    a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
@@ -29,6 +29,7 @@ Identity note:
 - v2.0 assigns every step a durable internal `step_id`.
 - Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping and resume-facing identity now use `step_id`.
 - `for_each` iterations derive qualified identities such as `root.loop_publish#0.produce_in_loop`.
+- v2.2 structured `if/else` lowers to branch markers, lowered branch-body nodes, and a join node that keeps the authored statement presentation key.
 - `resume` uses persisted run position only to choose the initial top-level restart point. After execution reaches that point, normal control-flow semantics resume, so a later `goto` may revisit the same top-level step name without being auto-skipped.
 - During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
 
@@ -61,6 +62,7 @@ Key notes:
 - `contract_violation` failures are represented as failed steps (typically exit code `2`).
 - Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.
 - After a resumed run terminates, `current_step` is cleared the same way it is for non-resumed runs.
+- For structured `if/else`, non-selected lowered branch nodes appear as `skipped`, while the selected-branch outputs are materialized on the join node under the authored statement name.
 
 ## Provider Step Runtime Order
 

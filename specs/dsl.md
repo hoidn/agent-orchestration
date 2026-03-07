@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", or "2.1"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", or "2.2"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -51,6 +51,16 @@
     - `set_scalar: { artifact, value }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `increment_scalar: { artifact, by }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `wait_for: { ... }` (exclusive with provider/command/for_each)
+  - Structured control (v2.2+):
+    - top-level `if: Condition|TypedPredicate`
+    - `then: Step[] | { id?, steps: Step[], outputs: WorkflowOutputMap }`
+    - `else: Step[] | { id?, steps: Step[], outputs: WorkflowOutputMap }`
+    - branch `id` uses the same pattern as step `id`
+    - branch-local steps are visible only inside that branch's local scope; downstream refs must target `root.steps.<Statement>.artifacts.<name>` from the statement outputs
+    - first tranche restrictions:
+      - top-level only
+      - `goto` / `_end` are rejected inside branch steps
+      - branch outputs must use matching contracts across `then` and `else`
   - Cycle guards:
     - `max_visits: integer` (v1.8+; optional; must be `> 0`)
     - First tranche is limited to top-level non-`for_each` steps.
@@ -162,6 +172,8 @@
         - bare `steps.<Name>...` remains invalid in the structured `ref:` model
       - v2.1 workflow signatures:
         - `inputs.<name>` addresses one bound workflow input
+      - v2.2 structured branch outputs:
+        - downstream refs target `root.steps.<IfStatement>.artifacts.<name>`
     - `assert`: gate object; any of
       - v1.5: legacy `equals|exists|not_exists`
       - v1.6+: legacy conditions or typed predicates
@@ -193,8 +205,9 @@
     - Typed predicates and structured `ref:` require `version: "1.6"` or higher.
     - `set_scalar` and `increment_scalar` require `version: "1.7"` or higher.
     - `max_transitions` and `max_visits` require `version: "1.8"` or higher.
-    - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
-    - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
+  - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
+  - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
+  - structured `if` / `then` / `else` require `version: "2.2"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.

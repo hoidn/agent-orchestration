@@ -19,6 +19,7 @@ EXAMPLE_FILES = [
     "dsl_tracked_plan_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
     "scalar_bookkeeping_demo.yaml",
+    "structured_if_else_demo.yaml",
     "test_fix_loop_v0.yaml",
     "typed_predicate_routing.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
@@ -163,6 +164,23 @@ def test_assert_gate_demo_runtime(tmp_path: Path):
     assert state["steps"]["GateApproval"]["error"]["type"] == "assert_failed"
     assert state["steps"]["WriteRevision"]["status"] == "completed"
     assert not (workspace / "approval.txt").exists()
+
+
+def test_structured_if_else_demo_runtime(tmp_path: Path):
+    """Structured if/else demo lowers branch outputs onto the statement node."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "structured_if_else_demo.yaml")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RouteReview.then.WriteApproved"]["status"] == "completed"
+    assert state["steps"]["RouteReview.else.WriteRevision"]["status"] == "skipped"
+    assert state["steps"]["RouteReview"]["artifacts"]["review_decision"] == "APPROVE"
 
 
 def test_test_fix_loop_v0_runtime(tmp_path: Path):

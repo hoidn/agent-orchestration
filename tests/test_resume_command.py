@@ -12,6 +12,7 @@ import yaml
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.executor import WorkflowExecutor
 
 
 def _build_resume_loop_workflow() -> dict:
@@ -78,6 +79,123 @@ def _build_resume_loop_workflow() -> dict:
     }
 
 
+def _build_structured_if_else_resume_workflow() -> dict:
+    return {
+        "version": "2.2",
+        "name": "Resume Structured If Else Workflow",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+            "route_result": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            },
+            {
+                "name": "RouteReview",
+                "id": "route_review",
+                "if": {
+                    "artifact_bool": {
+                        "ref": "root.steps.SetReady.artifacts.ready",
+                    }
+                },
+                "then": {
+                    "id": "approve_path",
+                    "outputs": {
+                        "route_result": {
+                            "kind": "scalar",
+                            "type": "bool",
+                            "from": {
+                                "ref": "self.steps.SetRouteResult.artifacts.route_result",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteHistory",
+                            "id": "write_history",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf 'write-one\\n' >> state/history.log",
+                            ],
+                        },
+                        {
+                            "name": "ResumeGate",
+                            "id": "resume_gate",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "\n".join(
+                                    [
+                                        "mkdir -p state",
+                                        "if [ ! -f state/resume_ready.txt ]; then",
+                                        "  printf 'gate-failed\\n' >> state/history.log",
+                                        "  exit 1",
+                                        "fi",
+                                        "printf 'gate-passed\\n' >> state/history.log",
+                                    ]
+                                ),
+                            ],
+                        },
+                        {
+                            "name": "SetRouteResult",
+                            "id": "set_route_result",
+                            "set_scalar": {
+                                "artifact": "route_result",
+                                "value": True,
+                            },
+                        },
+                    ],
+                },
+                "else": {
+                    "id": "revise_path",
+                    "outputs": {
+                        "route_result": {
+                            "kind": "scalar",
+                            "type": "bool",
+                            "from": {
+                                "ref": "self.steps.SetRouteResult.artifacts.route_result",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "SetRouteResult",
+                            "id": "set_route_result",
+                            "set_scalar": {
+                                "artifact": "route_result",
+                                "value": False,
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "name": "VerifyRouteResult",
+                "id": "verify_route_result",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "test \"${steps.RouteReview.artifacts.route_result}\" = true && "
+                    "[ \"$(grep -c '^write-one$' state/history.log)\" -eq 1 ]",
+                ],
+            },
+        ],
+    }
+
+
 def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "resume_loop.yaml"
     workflow_path.write_text(yaml.safe_dump(_build_resume_loop_workflow(), sort_keys=False))
@@ -101,6 +219,22 @@ def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, Stat
         "IncrementImplementationCycle": {"status": "completed", "exit_code": 0},
     }
     state_manager._write_state()
+    return workflow_path, state_manager
+
+
+def _seed_structured_if_else_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
+    workflow_path = workspace / "structured_if_else_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_structured_if_else_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state_manager.initialize("structured_if_else_resume.yaml")
+    workflow = WorkflowLoader(workspace).load(workflow_path)
+    state = WorkflowExecutor(workflow, workspace, state_manager).execute(on_error="stop")
+
+    assert state["status"] == "failed"
     return workflow_path, state_manager
 
 
@@ -219,6 +353,40 @@ def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, 
     assert result == 1
     assert "schema version" in captured.err
     assert "1.1.1" in captured.err
+
+
+def test_structured_if_else_smoke_resume_does_not_replay_completed_lowered_steps(temp_workspace):
+    """Resume should not replay completed lowered branch work inside structured if/else."""
+    run_id = "if-else-resume-run"
+    _seed_structured_if_else_failure(temp_workspace, run_id=run_id)
+
+    history_path = temp_workspace / "state" / "history.log"
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "write-one",
+        "gate-failed",
+    ]
+
+    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "write-one",
+        "gate-failed",
+        "gate-passed",
+    ]
+
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["RouteReview.then.WriteHistory"]["status"] == "completed"
+    assert loaded_state.steps["RouteReview.then.ResumeGate"]["status"] == "completed"
+    assert loaded_state.steps["RouteReview"]["artifacts"] == {"route_result": True}
 
 
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')

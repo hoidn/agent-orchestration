@@ -26,6 +26,9 @@
     - `steps.<PresentationKey>.name`: human-facing display name retained for reports and compatibility views
     - `current_step.step_id`: durable identity for the currently running top-level step
     - `current_step.visit_count`: visit ordinal for the in-flight top-level step visit, when the runtime has already incremented `step_visits`
+  - v2.2 structured-control additions:
+    - lowered branch markers and lowered branch-body steps are recorded as ordinary top-level step entries under presentation keys such as `RouteReview.then` and `RouteReview.then.WriteApproved`
+    - the lowered join node keeps the authored statement presentation key (for example `RouteReview`) and materializes branch outputs there
 
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
@@ -45,6 +48,7 @@
   - Tasks 1-5 of the DSL evolution roadmap were additive under schema `1.1.1`; v2.0 is the explicit stable-ID migration boundary.
   - Resume from pre-v2.0 state is rejected unless a dedicated upgrader is introduced in a later tranche.
   - v2.1 workflow signatures reuse the v2.0 state schema and append `bound_inputs` / `workflow_outputs` as additive fields under the same `schema_version: "2.0"` boundary.
+  - v2.2 structured `if/else` also reuses schema `2.0`; lowered branch markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:

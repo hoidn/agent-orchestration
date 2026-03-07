@@ -143,6 +143,12 @@
 133. v2.1 input read surfaces: workflow steps may read bound inputs through `${inputs.<name>}` and typed `ref: inputs.<name>`
 134. v2.1 output export contracts: loader rejects missing `outputs.<name>.from`, and successful runs export validated `workflow_outputs`
 135. v2.1 workflow-output failure shape: unresolved export refs or invalid exported values fail the run with a run-level `contract_violation` error scoped to `workflow_outputs`
+136. v2.2 loader gating: structured `if` / `then` / `else` is rejected below `version: "2.2"`
+137. v2.2 branch-local visibility: downstream refs may target only the statement node outputs, not branch-local inner step names
+138. v2.2 lowering stability: authored statement/branch ids preserve lowered `step_id` ancestry across sibling insertion
+139. v2.2 non-taken branches: lowered non-selected branch nodes are recorded explicitly as skipped
+140. v2.2 statement outputs: selected branch outputs materialize onto the statement node as `steps.<Statement>.artifacts`
+141. v2.2 conservative routing boundary: `goto` / `_end` is rejected inside structured `if/else` branches in the first tranche
 
 ## DSL Evolution Rollout Crosswalk
 
@@ -152,6 +158,7 @@
 - Task 5 executable proof: `tests/test_control_flow_foundations.py`, `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_retry_behavior.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/cycle_guard_demo.yaml`
 - Task 6 executable proof: `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_at65_loop_scoping.py`, and `workflows/examples/for_each_demo.yaml` dry-run verification
 - Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, `tests/test_workflow_output_contract_integration.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/workflow_signature_demo.yaml`
+- Task 8 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/structured_if_else_demo.yaml`
 - Later-task roadmap proof ownership remains as written in `docs/plans/2026-03-06-dsl-evolution-execution-plan.md`; those tranches are not accepted until their named test/smoke blocks land with the corresponding implementation.
 
 ## Future Acceptance (v1.2)

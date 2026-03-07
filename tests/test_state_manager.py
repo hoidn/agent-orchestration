@@ -190,6 +190,40 @@ steps:
         assert loaded_state.steps["ProcessItems[0].Process"]["output"] == "processed item1"
         assert loaded_state.steps["ProcessItems[1].Process"]["output"] == "processed item2"
 
+    def test_if_else_lowered_step_entries_persist_across_reload(self, temp_workspace, workflow_file):
+        """Structured-control lowered step names and ids survive state reloads."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_step(
+            "RouteReview.then.WriteApproved",
+            StepResult(
+                status="completed",
+                exit_code=0,
+                step_id="root.route_review.approve_path.write_approved",
+                artifacts={"review_decision": "APPROVE"},
+            ),
+        )
+        manager.update_step(
+            "RouteReview",
+            StepResult(
+                status="completed",
+                exit_code=0,
+                step_id="root.route_review",
+                artifacts={"review_decision": "APPROVE"},
+                debug={"structured_if": {"selected_branch": "then"}},
+            ),
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert loaded_state.steps["RouteReview.then.WriteApproved"]["step_id"] == (
+            "root.route_review.approve_path.write_approved"
+        )
+        assert loaded_state.steps["RouteReview"]["step_id"] == "root.route_review"
+        assert loaded_state.steps["RouteReview"]["artifacts"] == {"review_decision": "APPROVE"}
+        assert loaded_state.steps["RouteReview"]["debug"] == {"structured_if": {"selected_branch": "then"}}
+
     def test_at4_atomic_writes(self, temp_workspace, workflow_file):
         """AT-4: Verify atomic write behavior."""
         manager = StateManager(temp_workspace)
