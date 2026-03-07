@@ -29,6 +29,7 @@ Identity note:
 - v2.0 assigns every step a durable internal `step_id`.
 - Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping and resume-facing identity now use `step_id`.
 - `for_each` iterations derive qualified identities such as `root.loop_publish#0.produce_in_loop`.
+- `resume` uses persisted run position only to choose the initial top-level restart point. After execution reaches that point, normal control-flow semantics resume, so a later `goto` may revisit the same top-level step name without being auto-skipped.
 
 ## Run Artifacts
 
@@ -58,6 +59,7 @@ Key notes:
 - `cycle_guard_exceeded` fails the target step before body execution; explicit `on.failure.goto` may recover, otherwise the run stops.
 - `contract_violation` failures are represented as failed steps (typically exit code `2`).
 - Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.
+- After a resumed run terminates, `current_step` is cleared the same way it is for non-resumed runs.
 
 ## Provider Step Runtime Order
 

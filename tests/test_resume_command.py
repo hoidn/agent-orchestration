@@ -469,6 +469,36 @@ def test_resume_revisits_top_level_review_step_after_fix_loop(temp_workspace):
     assert "maxed\n" not in history
 
 
+def test_resume_clears_current_step_after_looped_completion(temp_workspace):
+    """Resumed completion should clear any stale current_step metadata."""
+    run_id = "resume-loop-current-step"
+    _, state_manager = _seed_resume_loop_state(temp_workspace, run_id=run_id)
+    assert state_manager.state is not None
+    state_manager.state.current_step = {
+        "name": "ImplementationReviewGate",
+        "index": 1,
+        "type": "command",
+        "status": "running",
+        "started_at": "2024-01-01T00:00:10Z",
+        "last_heartbeat_at": "2024-01-01T00:00:11Z",
+    }
+    state_manager._write_state()
+
+    with patch("os.getcwd", return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    payload = json.loads(
+        (temp_workspace / ".orchestrate" / "runs" / run_id / "state.json").read_text()
+    )
+    assert payload["status"] == "completed"
+    assert payload.get("current_step") is None
+
+
 def test_at4_resume_with_retry_parameters(temp_workspace, partial_run_state):
     """Test resume with custom retry parameters."""
     run_id, state_dir = partial_run_state

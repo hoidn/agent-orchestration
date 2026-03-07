@@ -28,6 +28,7 @@
   - `when` false → `skipped` with `exit_code: 0` and no process execution.
   - Step results may include `output`, `lines`, `json`, `text`, `error`, `debug`, and `artifacts`.
   - Step results may include `name` and `step_id`; the presentation key in `steps` remains compatibility-oriented, while `step_id` is the durable lineage/resume identity.
+  - Resume uses persisted state only to choose the initial top-level restart point. After the executor reaches that point, repeated visits to the same top-level step name follow normal control flow and are not auto-skipped solely because an earlier visit completed.
   - v1.6 step results may also include normalized `outcome`:
     - `status`: `completed|failed|skipped`
     - `phase`: `pre_execution|execution|post_execution`
@@ -154,3 +155,4 @@ orchestrate clean --older-than 7d
 
 Schema boundary note:
 - Post-v2.0 runtimes reject resume from pre-v2.0 state rather than silently remapping old name-keyed lineage/freshness data.
+- When a resumed run reaches a terminal state, `current_step` must be cleared.
