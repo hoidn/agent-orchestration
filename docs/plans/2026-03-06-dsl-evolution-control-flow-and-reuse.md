@@ -181,11 +181,12 @@ Predicate operand and failure rules should be explicit:
 - D2 should not expose raw `error.type` or `error.context` in predicates. If typed failure routing is part of D2, it should land with a normalized, orthogonal outcome surface rather than one overloaded enum.
 - recommended normalized fields are:
   - `outcome.status`: `completed|skipped|failed`
-  - `outcome.phase`: `execution|post_execution`
+  - `outcome.phase`: `pre_execution|execution|post_execution`
   - `outcome.class`: a closed, versioned enum such as `assert_failed|command_failed|provider_failed|timeout|contract_violation`
   - `outcome.retryable`: `true|false`
 - D2 must ship with a normative normalization matrix from current step execution tuples (`status`, `exit_code`, `error.type`) into those normalized outcome fields.
-- Pre-execution validation failures are workflow/run load failures, not step outcomes. They therefore have no `steps.<Step>.outcome.*` value.
+- step-level pre-execution failures such as consume/preflight failures or undefined substitution at step execution time must project into `outcome.phase: pre_execution`
+- workflow-load validation failures remain outside step outcome projection and therefore have no `steps.<Step>.outcome.*` value
 - under the current control-flow model, typed failure routing is only observable after an explicit recovery edge such as `on.failure.goto`; a later predicate step cannot observe a failed step that already terminated the workflow
 - in the first D2 tranche, `root.steps.<Step>...` refs should only be legal for steps that can execute at most once in the current scope
 - if later DSL versions need refs to multi-visit steps, they should add explicit visit/frame-qualified syntax rather than making unqualified refs depend on execution history
@@ -532,16 +533,16 @@ Import boundary must also be explicit:
   - authored `state/*` and `artifacts/*` paths
 - generic workflows may also rely on other relative file paths used by commands/providers during execution, but those remain outside the first shippable reusable subset unless a future capability/sandbox model can constrain them
 - source-path resolution and runtime-write resolution are separate concerns and should be specified as a complete taxonomy, not by ad hoc examples
-- a later provider-capable `call` tranche will need an explicit workflow-source-relative field for bundled prompt/template/schema assets; that is not part of the first shippable reusable subset
+- first-tranche provider workflows need an explicit workflow-source-relative field for bundled prompt/template/schema assets
 - proposed first-class syntax should be explicit, for example:
   - `asset_file: prompts/fix.md`
   - `asset_depends_on: [rubrics/review.md, schemas/review.json]`
   - resolved relative to the imported workflow file
   - validated to stay within the imported workflow's source tree
   - distinct from `input_file`, which remains workspace-relative
-- once provider-capable `call` exists, reusable provider workflows should express bundled source-relative dependencies only through that explicit source-relative asset surface; plain `depends_on` remains workspace-relative and is not a substitute
+- first-tranche reusable provider workflows should express bundled source-relative dependencies only through that explicit source-relative asset surface; plain `depends_on` remains workspace-relative and is not a substitute
 - `input_file` should remain workspace-relative; do not overload it with import-local asset semantics
-- first-tranche imported workflows must not depend on provider/command execution at all, and therefore must not depend on undeclared provider/command relative file effects
+- first-tranche imported workflows may include provider/command execution, but undeclared provider/command relative file effects remain part of the accepted operational risk rather than something the loader/runtime proves or isolates
 - imported workflows bring their own private `providers`, `artifacts`, and `context` defaults unless explicitly bound/exported
 - imported workflows must declare their own DSL version and be validated independently
 - for the first implementation tranche, caller and callee should require the same DSL version to avoid mixed-version lowering semantics
