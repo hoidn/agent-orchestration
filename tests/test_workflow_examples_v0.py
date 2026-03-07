@@ -13,6 +13,7 @@ EXAMPLE_FILES = [
     "backlog_plan_execute_v0.yaml",
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
+    "dsl_review_first_fix_loop.yaml",
     "test_fix_loop_v0.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
 ]
@@ -32,6 +33,13 @@ def _copy_example_to_workspace(tmp_path: Path, example_file: str) -> tuple[Path,
     return workspace, workflow_path, workflow_rel.as_posix()
 
 
+def _copy_repo_file_to_workspace(workspace: Path, repo_relpath: str) -> None:
+    src = _repo_root() / repo_relpath
+    dest = workspace / repo_relpath
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(src.read_text())
+
+
 def _write_relpath_artifact(workspace: Path, pointer_path: str, target_relpath: str, content: str) -> None:
     pointer = workspace / pointer_path
     target = workspace / target_relpath
@@ -47,7 +55,7 @@ def _run_with_mocked_providers(
     workflow_relpath: str,
     provider_sequence: list[str],
     provider_writers: dict[str, Callable[[Path], None]],
-    provider_stdout: dict[str, bytes | str] | None = None,
+    provider_stdout: dict[str, bytes | str | Callable[[Path], bytes | str]] | None = None,
     captured_prompts: list[dict[str, str]] | None = None,
 ) -> dict:
     loader = WorkflowLoader(workspace)
@@ -72,6 +80,8 @@ def _run_with_mocked_providers(
         stdout_value = b"ok"
         if provider_stdout and step_name in provider_stdout:
             configured = provider_stdout[step_name]
+            if callable(configured):
+                configured = configured(workspace)
             stdout_value = configured if isinstance(configured, bytes) else configured.encode("utf-8")
         return SimpleNamespace(
             exit_code=0,
@@ -292,3 +302,63 @@ def test_backlog_plan_execute_v1_3_json_bundles_runtime(tmp_path: Path):
     gate_bundle = workspace / "state" / "consumes" / "review_gate.json"
     assert gate_bundle.exists()
     assert '"review_decision": "APPROVE"' in gate_bundle.read_text()
+
+
+def test_dsl_review_first_fix_loop_runtime(tmp_path: Path):
+    """Review-first fix loop exits only after a review pass omits the high-severity section."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "dsl_review_first_fix_loop.yaml"
+    )
+    _copy_repo_file_to_workspace(workspace, "prompts/workflows/dsl_review_fix_loop/review.md")
+    _copy_repo_file_to_workspace(workspace, "prompts/workflows/dsl_review_fix_loop/fix.md")
+    _copy_repo_file_to_workspace(workspace, "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md")
+
+    review_calls = {"count": 0}
+    captured_prompts: list[dict[str, str]] = []
+
+    def _write_review(ws: Path) -> None:
+        review_calls["count"] += 1
+        review_relpath = (ws / "state" / "review_path.txt").read_text().strip()
+        review_path = ws / review_relpath
+        review_path.parent.mkdir(parents=True, exist_ok=True)
+        if review_calls["count"] == 1:
+            review_path.write_text(
+                "## High\n- The typed predicate boundary is underspecified.\n"
+            )
+            return
+        review_path.write_text("## Medium\n- Remaining edits are polish-level.\n")
+
+    def _apply_fix(ws: Path) -> None:
+        target = ws / "docs" / "plans" / "2026-03-06-dsl-evolution-control-flow-and-reuse.md"
+        target.write_text(target.read_text() + "\nResolved the highest-severity review feedback.\n")
+
+    state = _run_with_mocked_providers(
+        workspace=workspace,
+        workflow_path=workflow_path,
+        workflow_relpath=workflow_relpath,
+        provider_sequence=["ReviewDraft", "FixIssues", "ReviewDraft"],
+        provider_writers={
+            "ReviewDraft": _write_review,
+            "FixIssues": _apply_fix,
+        },
+        captured_prompts=captured_prompts,
+    )
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 3
+    assert state["steps"]["IncrementReviewCycle"]["artifacts"]["review_cycle"] == 1
+
+    versions = state.get("artifact_versions", {}).get("review", [])
+    assert [entry["producer"] for entry in versions] == ["ReviewDraft", "ReviewDraft"]
+    assert [entry["value"] for entry in versions] == [
+        "artifacts/review/review-cycle-0.md",
+        "artifacts/review/review-cycle-1.md",
+    ]
+
+    consumes = state.get("artifact_consumes", {}).get("FixIssues", {})
+    assert consumes.get("review") == 1
+
+    fix_prompts = [entry["prompt"] for entry in captured_prompts if entry["step"] == "FixIssues"]
+    assert len(fix_prompts) == 1
+    assert "use receiving-code-review  to address the feedback" in fix_prompts[0]
+    assert "- review: artifacts/review/review-cycle-0.md" in fix_prompts[0]
