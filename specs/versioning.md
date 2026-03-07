@@ -77,12 +77,20 @@
   - `transition_count` and `step_visits` persist under state schema `1.1.1`; skipped steps do not consume visit budget and internal retries do not consume extra visits.
   - The first tranche rejects nested/`for_each` `max_visits` usage until stable internal IDs land.
 
+- v2.0 additions (scoped refs and stable internal step ids)
+  - Steps may declare an authored stable `id` distinct from display `name`.
+  - The loader assigns internal `step_id` values to every step; authored ids stabilize those values across sibling insertion, while compiler-generated ids are only checksum-stable.
+  - Typed predicates extend structured refs to `self.steps.<Step>...` and `parent.steps.<Step>...`.
+  - State schema moves to `schema_version: "2.0"` and persists `step_id` on step/current-step records.
+  - Artifact lineage/freshness bookkeeping moves to qualified internal identities, including per-iteration `for_each` producer/consumer keys.
+  - Resume from pre-v2.0 state is rejected unless a future tranche ships an explicit upgrader.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
   - `v1.7`: D2a scalar bookkeeping
   - `v1.8`: D3 cycle guards
-  - `v2.0` (planned schema boundary): D4-D5 scoped refs + stable internal IDs
+  - `v2.0`: D4-D5 scoped refs + stable internal IDs
   - `v2.1` (planned): D6 workflow signatures
   - `v2.2` (planned): D7 structured `if/else`
   - `v2.3` (planned): D8 `finally`

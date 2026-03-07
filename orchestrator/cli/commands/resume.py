@@ -142,6 +142,15 @@ def resume_workflow(
     if state is None:
         print("Error: No state was loaded", file=sys.stderr)
         return 1
+    if state.schema_version != StateManager.SCHEMA_VERSION and not force_restart:
+        print(
+            "Error: State schema version "
+            f"'{state.schema_version}' is not resumable with orchestrator schema "
+            f"'{StateManager.SCHEMA_VERSION}'.",
+            file=sys.stderr,
+        )
+        print("Use --force-restart to start a new run on the current schema.", file=sys.stderr)
+        return 1
 
     workflow_file = state.workflow_file
     if not workflow_file:

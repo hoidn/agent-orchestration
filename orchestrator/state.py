@@ -23,6 +23,8 @@ StepStatus = Literal["pending", "running", "completed", "failed", "skipped"]
 class StepResult:
     """Result of a single step execution."""
     status: StepStatus
+    name: Optional[str] = None
+    step_id: Optional[str] = None
     exit_code: Optional[int] = None
     started_at: Optional[str] = None
     completed_at: Optional[str] = None
@@ -163,7 +165,7 @@ class RunState:
 class StateManager:
     """Manages run state with atomic writes and recovery."""
 
-    SCHEMA_VERSION = "1.1.1"
+    SCHEMA_VERSION = "2.0"
 
     def __init__(self, workspace: Path, run_id: Optional[str] = None,
                  backup_enabled: bool = False, debug: bool = False):
@@ -435,7 +437,7 @@ class StateManager:
             self.state.status = status
             self._write_state()
 
-    def start_step(self, step_name: str, step_index: int, step_type: str):
+    def start_step(self, step_name: str, step_index: int, step_type: str, step_id: Optional[str] = None):
         """Persist currently running step metadata."""
         with self._lock:
             if not self.state:
@@ -450,6 +452,8 @@ class StateManager:
                 "started_at": now,
                 "last_heartbeat_at": now,
             }
+            if step_id:
+                self.state.current_step["step_id"] = step_id
             self._write_state()
 
     def heartbeat_step(self, step_name: Optional[str] = None):

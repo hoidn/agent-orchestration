@@ -155,6 +155,7 @@ def build_status_snapshot(
 
         entry = {
             "name": name,
+            "step_id": result.get("step_id") if isinstance(result, dict) else step.get("step_id"),
             "kind": _step_kind(step),
             "status": status,
             "consumes": step.get("consumes", []),

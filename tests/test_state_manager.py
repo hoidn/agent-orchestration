@@ -42,7 +42,7 @@ steps:
         state = manager.initialize(workflow_file, context={"key": "value"})
 
         # Verify state structure
-        assert state.schema_version == "1.1.1"
+        assert state.schema_version == StateManager.SCHEMA_VERSION
         assert state.run_id == manager.run_id
         assert state.workflow_file == workflow_file
         assert state.workflow_checksum.startswith("sha256:")
@@ -58,7 +58,7 @@ steps:
             data = json.load(f)
 
         # Verify JSON structure matches spec
-        assert data["schema_version"] == "1.1.1"
+        assert data["schema_version"] == StateManager.SCHEMA_VERSION
         assert data["run_id"] == manager.run_id
         assert data["workflow_file"] == workflow_file
         assert data["workflow_checksum"].startswith("sha256:")
@@ -113,7 +113,9 @@ steps:
             completed_at=datetime.now(timezone.utc).isoformat(),
             duration_ms=1234,
             output="test output",
-            truncated=False
+            truncated=False,
+            step_id="root.test_step",
+            name="TestStep",
         )
 
         manager.update_step("TestStep", result)
@@ -132,6 +134,8 @@ steps:
         assert step_data["duration_ms"] == 1234
         assert step_data["output"] == "test output"
         assert step_data["truncated"] is False
+        assert step_data["step_id"] == "root.test_step"
+        assert step_data["name"] == "TestStep"
 
     def test_at4_loop_state_indexing(self, temp_workspace, workflow_file):
         """AT-4/AT-43: Loop state stored as steps.<LoopName>[i].<StepName>."""
@@ -344,3 +348,25 @@ steps:
         manager.update_step("LongStep", StepResult(status="completed", exit_code=0))
         loaded = manager.load()
         assert loaded.current_step is None
+
+    def test_step_id_metadata_is_persisted_for_loop_steps(self, temp_workspace, workflow_file):
+        """Loop step presentation keys persist the durable internal step id in the payload."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_loop_step(
+            "ProcessItems",
+            0,
+            "Process",
+            StepResult(
+                status="completed",
+                exit_code=0,
+                output="processed item1",
+                step_id="root.process_items#0.process",
+                name="Process",
+            ),
+        )
+
+        loaded = StateManager(temp_workspace, run_id=manager.run_id).load()
+        assert loaded.steps["ProcessItems[0].Process"]["step_id"] == "root.process_items#0.process"
+        assert loaded.steps["ProcessItems[0].Process"]["name"] == "Process"

@@ -1,13 +1,10 @@
-# DSL Evolution Task 5 Execution Report
+Implemented Task 6 of the DSL evolution plan: added v2.0 authored step `id` validation, stable internal `step_id` assignment, scoped typed refs (`root`/`self`/`parent`), state schema bump to `2.0`, resume rejection for pre-v2.0 state, and qualified `for_each` lineage/freshness identities. Updated runtime/state/report plumbing to persist `step_id`, kept legacy `steps.<Name>` loop substitution behavior unchanged for pre-v2.0 workflows, and documented the new boundary in specs/docs.
 
-Implemented Task 5 (`v1.8` cycle guards): added loader/runtime support for workflow `max_transitions` and step `max_visits`, persisted `transition_count` and `step_visits` under the existing `state.json` schema, surfaced guard diagnostics in status snapshots, updated the normative/docs pages, and added `workflows/examples/cycle_guard_demo.yaml` plus targeted test coverage for loader gating, retry/skip semantics, resume persistence, and example runtime behavior.
+Remaining risk: nested execution support is still limited to the existing `for_each` model, with presentation-oriented `state.steps` keys retained for compatibility while durable lineage moved to `step_id`; there is intentionally no upgrader for pre-v2.0 state; and later planned tranches (`inputs`/`outputs`, structured control flow, `call`) still need to build on this foundation.
 
-Remaining risk: this tranche intentionally limits `max_visits` to top-level non-`for_each` steps until the later stable-ID work lands. Also, the current CLI smoke run with `--state-dir /tmp/dsl-evolution-cycle-guard-demo` still persisted the run under the workspace `.orchestrate/runs/` tree, so any future state-root contract work should verify that path behavior explicitly.
-
-Verification:
-- `pytest --collect-only tests/test_control_flow_foundations.py -q`
-- `pytest tests/test_control_flow_foundations.py tests/test_loader_validation.py tests/test_state_manager.py tests/test_resume_command.py tests/test_retry_behavior.py -k "max_visits or max_transitions or control_flow" -v`
-- `pytest tests/test_workflow_examples_v0.py -k cycle_guard -v`
-- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/cycle_guard_demo.yaml --dry-run`
-- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/cycle_guard_demo.yaml --state-dir /tmp/dsl-evolution-cycle-guard-demo`
-- Persisted smoke-run evidence: `.orchestrate/runs/20260307T193413Z-8f4jdx/state.json` recorded `status: completed`, `transition_count: 7`, `step_visits.GuardLoop: 3`, `error.type: cycle_guard_exceeded` on `GuardLoop`, and `RecordGuardTrip.status: completed`.
+Verification run:
+- `pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_state_manager.py tests/test_resume_command.py -k 'step_id or scoped_ref or schema' -v`
+- `pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k 'legacy or qualified or lineage or freshness or for_each or loop_scoping' -v`
+- `pytest --collect-only tests/test_loader_validation.py tests/test_state_manager.py tests/test_resume_command.py tests/test_artifact_dataflow_integration.py tests/test_at65_loop_scoping.py -q`
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run`
+- `pytest tests/test_loader_validation.py tests/test_state_manager.py tests/test_resume_command.py tests/test_artifact_dataflow_integration.py tests/test_at65_loop_scoping.py -v`

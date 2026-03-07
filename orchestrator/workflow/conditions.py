@@ -38,6 +38,7 @@ class ConditionEvaluator:
         condition: Optional[Dict[str, Any]],
         variables: Dict[str, Any],
         state: Optional[Dict[str, Any]] = None,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> bool:
         """
         Evaluate a step condition.
@@ -79,7 +80,7 @@ class ConditionEvaluator:
         elif 'not_exists' in condition:
             return self._evaluate_not_exists(condition['not_exists'], variables)
         elif state is not None:
-            return self.typed_evaluator.evaluate(condition, state)
+            return self.typed_evaluator.evaluate(condition, state, scope=scope)
 
         return True
 

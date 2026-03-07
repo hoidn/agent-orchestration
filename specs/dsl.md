@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", or "1.8"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", or "2.0"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -28,6 +28,7 @@
 - Step schema (consolidated; MVP + v1.1.1)
   - Required: `name: string`.
   - Optional metadata: `agent: string` (informational).
+  - Optional stable identity: `id: string` (v2.0+; unique within the lexical sibling scope; pattern `[A-Za-z][A-Za-z0-9_]*`)
   - Execution (mutually exclusive in a single step):
     - `provider: string` (+ optional `provider_params`) OR
     - `command: string[]` OR
@@ -139,6 +140,11 @@
         - `not: TypedPredicate`
       - Initial structured refs are limited to `root.steps.<Step>.artifacts.<name>`, `root.steps.<Step>.exit_code`, and `root.steps.<Step>.outcome.{status|phase|class|retryable}`.
       - Bare `steps.<Name>`, `self.*`, `parent.*`, and untyped `context.*` are invalid in structured predicates for v1.6.
+      - v2.0 scoped refs:
+        - `root.steps.<Step>...` addresses the root workflow scope
+        - `self.steps.<Step>...` addresses the current lexical scope
+        - `parent.steps.<Step>...` addresses the immediately enclosing lexical scope
+        - bare `steps.<Name>...` remains invalid in the structured `ref:` model
     - `assert`: gate object; any of
       - v1.5: legacy `equals|exists|not_exists`
       - v1.6+: legacy conditions or typed predicates
@@ -170,6 +176,7 @@
     - Typed predicates and structured `ref:` require `version: "1.6"` or higher.
     - `set_scalar` and `increment_scalar` require `version: "1.7"` or higher.
     - `max_transitions` and `max_visits` require `version: "1.8"` or higher.
+    - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.
@@ -182,6 +189,7 @@
   - Loop variables inside `for_each`: `${item}` (or alias), `${loop.index}` (0-based), `${loop.total}`.
   - Inside the loop, `${steps.<StepName>.*}` references results from the current iteration only.
   - State storage is indexed per iteration: `steps.<LoopName>[i].<StepName>` (see `state.md`).
+  - v2.0 adds durable per-iteration internal identities for lineage/freshness bookkeeping while keeping those indexed keys as compatibility views.
 
 - For-Each pointer syntax
   - Allowed forms: `steps.<Name>.lines` or `steps.<Name>.json[.<dot.path>]`.

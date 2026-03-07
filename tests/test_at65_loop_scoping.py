@@ -268,6 +268,36 @@ def test_at65_iteration_isolation(tmp_path):
         assert final_state["steps"][counter_key]["output"] == str(i)
 
 
+def test_loop_scoping_legacy_v14_steps_namespace_is_unchanged(tmp_path):
+    """Scoped refs must not change legacy v1.4 ${steps.*} loop substitution semantics."""
+    workflow = create_test_workflow()
+    workflow["version"] = "1.4"
+    workflow["steps"][1]["for_each"]["steps"] = workflow["steps"][1]["for_each"]["steps"][:2]
+
+    workflow_path = tmp_path / "workflow.yaml"
+    with open(workflow_path, 'w') as f:
+        yaml.dump(workflow, f)
+
+    state_dir = tmp_path / "state"
+    state_dir.mkdir()
+    state_manager = StateManager(state_dir)
+    state_manager.initialize(str(workflow_path))
+    executor = WorkflowExecutor(
+        workflow,
+        tmp_path,
+        state_manager,
+        logs_dir=tmp_path / "logs",
+    )
+
+    with patch('subprocess.run') as mock_run:
+        mock_run.return_value.returncode = 0
+        mock_run.return_value.stdout = b"ok"
+        mock_run.return_value.stderr = b""
+        state = executor.execute()
+
+    assert state["steps"]["LoopWithScoping[0].StepB"]["exit_code"] == 0
+    assert state["steps"]["LoopWithScoping[1].StepB"]["exit_code"] == 0
+
 def test_at65_nested_step_references_within_iteration(tmp_path):
     """
     Test that steps within the same iteration can reference each other.

@@ -25,6 +25,11 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 6) Persist final run status and report artifacts
 ```
 
+Identity note:
+- v2.0 assigns every step a durable internal `step_id`.
+- Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping and resume-facing identity now use `step_id`.
+- `for_each` iterations derive qualified identities such as `root.loop_publish#0.produce_in_loop`.
+
 ## Run Artifacts
 
 Primary run directory:
@@ -113,6 +118,7 @@ At runtime, loop results are recorded per iteration:
 - `steps.<LoopName>[i].<NestedStepName>`
 
 Loop variables are resolved per iteration (`item`, alias, `loop.index`, `loop.total`).
+Typed predicates in v2.0 may also read scoped refs from the current loop scope (`self.steps.*`) or the enclosing scope (`parent.steps.*`) without changing legacy `${steps.*}` substitution semantics.
 
 ## Failure Taxonomy (Common)
 

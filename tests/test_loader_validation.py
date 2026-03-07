@@ -251,6 +251,147 @@ class TestLoaderValidation:
         assert any("max_transitions requires version '1.8'" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_step_ids_require_version_2_0(self):
+        """Authored stable ids are gated to the post-Task-6 DSL boundary."""
+        workflow = {
+            "version": "1.8",
+            "name": "id-gated",
+            "steps": [{
+                "name": "RunCheck",
+                "id": "run_check",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("id requires version '2.0'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_v2_scoped_refs_allow_self_and_parent_in_nested_steps(self):
+        """v2.0 typed refs can address the current loop scope and its parent."""
+        workflow = {
+            "version": "2.0",
+            "name": "scoped-refs",
+            "artifacts": {
+                "root_flag": {
+                    "kind": "scalar",
+                    "type": "bool",
+                },
+                "iteration_flag": {
+                    "kind": "scalar",
+                    "type": "bool",
+                },
+            },
+            "steps": [
+                {
+                    "name": "RootFlag",
+                    "id": "root_flag",
+                    "set_scalar": {
+                        "artifact": "root_flag",
+                        "value": True,
+                    },
+                },
+                {
+                    "name": "Loop",
+                    "id": "loop",
+                    "for_each": {
+                        "items": ["one"],
+                        "steps": [
+                            {
+                                "name": "SetIterationFlag",
+                                "id": "set_iteration_flag",
+                                "set_scalar": {
+                                    "artifact": "iteration_flag",
+                                    "value": True,
+                                },
+                            },
+                            {
+                                "name": "AssertScopes",
+                                "id": "assert_scopes",
+                                "assert": {
+                                    "all_of": [
+                                        {
+                                            "artifact_bool": {
+                                                "ref": "self.steps.SetIterationFlag.artifacts.iteration_flag",
+                                            }
+                                        },
+                                        {
+                                            "artifact_bool": {
+                                                "ref": "parent.steps.RootFlag.artifacts.root_flag",
+                                            }
+                                        },
+                                    ]
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+
+        loop_step = loaded["steps"][1]
+        assert loop_step["step_id"] == "root.loop"
+        assert loop_step["for_each"]["steps"][0]["step_id"] == "root.loop.set_iteration_flag"
+        assert loop_step["for_each"]["steps"][1]["step_id"] == "root.loop.assert_scopes"
+
+    def test_step_id_stability_from_authored_ids_survives_sibling_insertion(self):
+        """Authored ids keep internal step ids stable when siblings are inserted."""
+        workflow_a = {
+            "version": "2.0",
+            "name": "stable-ids-a",
+            "steps": [
+                {
+                    "name": "Prepare",
+                    "id": "prepare",
+                    "command": ["echo", "prepare"],
+                },
+                {
+                    "name": "Loop",
+                    "id": "loop",
+                    "for_each": {
+                        "items": ["one"],
+                        "steps": [
+                            {
+                                "name": "Process",
+                                "id": "process",
+                                "command": ["echo", "process"],
+                            }
+                        ],
+                    },
+                },
+            ],
+        }
+        workflow_b = {
+            "version": "2.0",
+            "name": "stable-ids-b",
+            "steps": [
+                {
+                    "name": "Inserted",
+                    "id": "inserted",
+                    "command": ["echo", "inserted"],
+                },
+                *workflow_a["steps"],
+            ],
+        }
+
+        path_a = self.write_workflow(workflow_a)
+        loaded_a = self.loader.load(path_a)
+        path_b = self.write_workflow(workflow_b)
+        loaded_b = self.loader.load(path_b)
+
+        assert loaded_a["steps"][1]["step_id"] == "root.loop"
+        assert loaded_b["steps"][2]["step_id"] == "root.loop"
+        assert loaded_a["steps"][1]["for_each"]["steps"][0]["step_id"] == "root.loop.process"
+        assert loaded_b["steps"][2]["for_each"]["steps"][0]["step_id"] == "root.loop.process"
+
     def test_for_each_steps_reject_max_visits_before_stable_ids_land(self):
         """Cycle guards are limited to top-level steps in the first tranche."""
         workflow = {

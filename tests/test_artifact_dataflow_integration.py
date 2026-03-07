@@ -503,6 +503,76 @@ def test_for_each_nested_publish_records_artifact_versions(tmp_path: Path):
     assert versions[0]["producer"] == "ProduceInLoop"
 
 
+def test_for_each_v2_qualified_lineage_uses_iteration_step_ids(tmp_path: Path):
+    """v2.0 for-each lineage should key producers/consumers by qualified internal step ids."""
+    workflow = {
+        "version": "2.0",
+        "name": "for-each-qualified-lineage",
+        "artifacts": _artifact_registry(),
+        "steps": [
+            {
+                "name": "LoopPublish",
+                "id": "loop_publish",
+                "for_each": {
+                    "items": ["one", "two"],
+                    "steps": [
+                        {
+                            "name": "ProduceInLoop",
+                            "id": "produce_in_loop",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                (
+                                    "mkdir -p state artifacts/work && "
+                                    "printf 'artifacts/work/from-loop-${item}.md\\n' > state/execution_log_path.txt && "
+                                    "printf 'from ${item}\\n' > artifacts/work/from-loop-${item}.md"
+                                ),
+                            ],
+                            "expected_outputs": [
+                                {
+                                    "name": "execution_log_path",
+                                    "path": "state/execution_log_path.txt",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ],
+                            "publishes": [{"artifact": "execution_log", "from": "execution_log_path"}],
+                        },
+                        {
+                            "name": "ReviewInLoop",
+                            "id": "review_in_loop",
+                            "consumes": [
+                                {
+                                    "artifact": "execution_log",
+                                    "policy": "latest_successful",
+                                    "freshness": "since_last_consume",
+                                }
+                            ],
+                            "command": ["bash", "-lc", "cat state/execution_log_path.txt"],
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow, on_error="continue")
+
+    assert state["steps"]["LoopPublish[0].ReviewInLoop"]["exit_code"] == 0
+    assert state["steps"]["LoopPublish[1].ReviewInLoop"]["exit_code"] == 0
+
+    versions = persisted.get("artifact_versions", {}).get("execution_log", [])
+    assert [entry["producer"] for entry in versions] == [
+        "root.loop_publish#0.produce_in_loop",
+        "root.loop_publish#1.produce_in_loop",
+    ]
+
+    consumes = persisted.get("artifact_consumes", {})
+    assert consumes["root.loop_publish#0.review_in_loop"]["execution_log"] == 1
+    assert consumes["root.loop_publish#1.review_in_loop"]["execution_log"] == 2
+
+
 def test_for_each_nested_consume_enforces_contracts(tmp_path: Path):
     """Nested loop steps should enforce consume freshness constraints per iteration."""
     workflow = {

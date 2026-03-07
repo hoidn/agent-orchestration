@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 
 class ReferenceResolutionError(ValueError):
@@ -20,18 +20,35 @@ class ResolvedReference:
 class ReferenceResolver:
     """Resolve v1.6 structured refs against run state."""
 
-    def resolve(self, ref: str, state: Dict[str, Any]) -> ResolvedReference:
+    def resolve(
+        self,
+        ref: str,
+        state: Dict[str, Any],
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> ResolvedReference:
         if not isinstance(ref, str) or not ref:
             raise ReferenceResolutionError("Structured ref must be a non-empty string")
-        if not ref.startswith("root.steps."):
-            raise ReferenceResolutionError(f"Unsupported structured ref '{ref}'")
+        if scope is None:
+            scope = {}
 
-        parts = ref.split(".")
+        if ref.startswith("root.steps."):
+            parts = ref.split(".")
+            step_results = scope.get("root_steps") or state.get("steps", {})
+        elif ref.startswith("self.steps."):
+            parts = ref.split(".")
+            step_results = scope.get("self_steps") or state.get("steps", {})
+        elif ref.startswith("parent.steps."):
+            parts = ref.split(".")
+            step_results = scope.get("parent_steps")
+            if not isinstance(step_results, dict):
+                raise ReferenceResolutionError(f"Structured ref target scope is unavailable for '{ref}'")
+        else:
+            raise ReferenceResolutionError(f"Unsupported structured ref '{ref}'")
         if len(parts) < 4:
             raise ReferenceResolutionError(f"Invalid structured ref '{ref}'")
 
         step_name = parts[2]
-        step_result = state.get("steps", {}).get(step_name)
+        step_result = step_results.get(step_name) if isinstance(step_results, dict) else None
         if not isinstance(step_result, dict):
             raise ReferenceResolutionError(f"Structured ref target step '{step_name}' is unavailable")
 

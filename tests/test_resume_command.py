@@ -59,7 +59,7 @@ def partial_run_state(temp_workspace, sample_workflow):
 
     # Create state.json
     state = {
-        "schema_version": "1.1.1",
+        "schema_version": StateManager.SCHEMA_VERSION,
         "run_id": run_id,
         "workflow_file": str(workflow_path),
         "workflow_checksum": checksum,
@@ -97,6 +97,39 @@ def test_at4_resume_nonexistent_run(temp_workspace):
     assert result == 1  # Should fail
 
 
+def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, capsys):
+    """Task 6 should reject resume from pre-identity-schema state without an upgrader."""
+    workflow_path, checksum = sample_workflow
+    run_id = "old-schema-run"
+    state_dir = temp_workspace / '.orchestrate' / 'runs' / run_id
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.json").write_text(json.dumps({
+        "schema_version": "1.1.1",
+        "run_id": run_id,
+        "workflow_file": str(workflow_path),
+        "workflow_checksum": checksum,
+        "started_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:01:00Z",
+        "status": "failed",
+        "context": {},
+        "steps": {
+            "Step1": {"status": "completed", "exit_code": 0},
+        },
+    }, indent=2))
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    captured = capsys.readouterr()
+    assert result == 1
+    assert "schema version" in captured.err
+    assert "1.1.1" in captured.err
+
+
 def test_at4_resume_completed_run(temp_workspace, sample_workflow):
     """Test resuming a run that has already completed."""
     workflow_path, checksum = sample_workflow
@@ -107,7 +140,7 @@ def test_at4_resume_completed_run(temp_workspace, sample_workflow):
     state_dir.mkdir(parents=True)
 
     state = {
-        "schema_version": "1.1.1",
+        "schema_version": StateManager.SCHEMA_VERSION,
         "run_id": run_id,
         "workflow_file": str(workflow_path),
         "workflow_checksum": checksum,
@@ -201,7 +234,7 @@ def test_at4_resume_corrupted_state_with_repair(temp_workspace, sample_workflow)
 
     # Create valid backup
     valid_state = {
-        "schema_version": "1.1.1",
+        "schema_version": StateManager.SCHEMA_VERSION,
         "run_id": run_id,
         "workflow_file": str(workflow_path),
         "workflow_checksum": checksum,
@@ -271,7 +304,7 @@ steps:
 
     # Create state with partial loop completion
     state = {
-        "schema_version": "1.1.1",
+        "schema_version": StateManager.SCHEMA_VERSION,
         "run_id": run_id,
         "workflow_file": str(workflow_path),
         "workflow_checksum": checksum,
@@ -377,7 +410,7 @@ steps:
     state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
     state_dir.mkdir(parents=True)
     (state_dir / "state.json").write_text(json.dumps({
-        "schema_version": "1.1.1",
+        "schema_version": StateManager.SCHEMA_VERSION,
         "run_id": run_id,
         "workflow_file": str(workflow_path),
         "workflow_checksum": checksum,
@@ -433,7 +466,7 @@ steps:
     state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
     state_dir.mkdir(parents=True)
     (state_dir / "state.json").write_text(json.dumps({
-        "schema_version": "1.1.1",
+        "schema_version": StateManager.SCHEMA_VERSION,
         "run_id": run_id,
         "workflow_file": str(workflow_path),
         "workflow_checksum": checksum,

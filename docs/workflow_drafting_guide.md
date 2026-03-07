@@ -75,6 +75,7 @@ Two practical upgrades now exist:
 - v1.5: use first-class `assert` instead of shelling out to `test`, `jq`, or tiny one-line Python gates.
 - v1.6: use typed predicates plus structured `ref:` for booleans, numeric thresholds, and recovered-failure routing instead of stringly `when.equals` hacks.
 - v1.8: use `max_visits` and `max_transitions` instead of shell counters or ad hoc file-backed loop budgets when the goal is simply to cap a raw `goto` loop.
+- v2.0: when authoring new typed predicates in nested scopes, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
 
 ## 5) Prompt Authoring Guidance
 
@@ -159,6 +160,11 @@ For raw-graph review/fix loops, add an explicit cycle cap:
 - use `max_visits` when one particular gate or work step should own the retry budget
 - use `max_transitions` when you want one workflow-wide ceiling across several back-edges
 - keep the first tranche top-level only; do not try to guard nested `for_each` steps until the later stable-ID work lands
+
+For post-v2.0 workflows, separate display names from durable identity:
+- keep `name` optimized for readable reports
+- use `id` when the step participates in lineage, scoped refs, or any flow you expect to survive sibling insertion / block reshaping
+- do not rely on compiler-generated ids for cross-edit stability; they are only safe within the same validated workflow checksum
 
 ### Plan-Time Strategy vs Runtime Check Plan
 

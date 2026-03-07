@@ -5,24 +5,29 @@
   - `RUN_ROOT`: `.orchestrate/runs/${run_id}` under WORKSPACE
 
 - State file schema (authoritative record)
-  - `schema_version: "1.1.1"`
+  - `schema_version: "2.0"`
   - `run_id`, `workflow_file`, `workflow_checksum`
   - Timestamps: `started_at`, `updated_at`
   - `status`: `running | completed | failed`
   - `context`: key/value map
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
-  - v1.2 runtime dataflow fields:
-    - `artifact_versions`: `{artifact_name: [{version, value, producer, step_index}, ...]}`
-    - `artifact_consumes`: `{consumer_step: {artifact_name: last_consumed_version}}` with optional `__global__` aggregate entry
+  - v1.2+ runtime dataflow fields:
+    - `artifact_versions`: `{artifact_name: [{version, value, producer, producer_name?, step_index}, ...]}`
+    - `artifact_consumes`: `{consumer_identity: {artifact_name: last_consumed_version}}` with optional `__global__` aggregate entry
   - v1.8 control-flow fields:
     - `transition_count`: integer count of routed top-level step-to-step transfers
     - `step_visits`: `{step_name: visit_count}` for top-level non-skipped step entries
+  - v2.0 identity fields:
+    - `steps.<PresentationKey>.step_id`: durable internal identity for the recorded step result
+    - `steps.<PresentationKey>.name`: human-facing display name retained for reports and compatibility views
+    - `current_step.step_id`: durable identity for the currently running top-level step
 
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
   - `when` false → `skipped` with `exit_code: 0` and no process execution.
   - Step results may include `output`, `lines`, `json`, `text`, `error`, `debug`, and `artifacts`.
+  - Step results may include `name` and `step_id`; the presentation key in `steps` remains compatibility-oriented, while `step_id` is the durable lineage/resume identity.
   - v1.6 step results may also include normalized `outcome`:
     - `status`: `completed|failed|skipped`
     - `phase`: `pre_execution|execution|post_execution`
@@ -31,7 +36,8 @@
   - `artifacts` is a map of typed values parsed from `expected_outputs` and is available at `steps.<Step>.artifacts` when `persist_artifacts_in_state` is not set to `false`.
   - v1.7 `set_scalar` / `increment_scalar` reuse that same `steps.<Step>.artifacts` surface for local produced scalar values; successful publication still advances `artifact_versions` only through `publishes.from`.
   - v1.8 cycle-guard failures use `error.type: "cycle_guard_exceeded"` with `outcome.phase: "pre_execution"` and `outcome.class: "pre_execution_failed"`.
-  - Tasks 1-5 of the DSL evolution roadmap remain additive under schema `1.1.1`; the first explicit state-schema migration boundary is reserved for the later scoped-ref / stable-ID tranche.
+  - Tasks 1-5 of the DSL evolution roadmap were additive under schema `1.1.1`; v2.0 is the explicit stable-ID migration boundary.
+  - Resume from pre-v2.0 state is rejected unless a dedicated upgrader is introduced in a later tranche.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:
@@ -41,6 +47,7 @@
 
 - Loop state representation
   - Per-iteration indexing: `steps.<LoopName>[i].<StepName>` stores step results for each iteration.
+  - These indexed keys are presentation views. v2.0 lineage/freshness bookkeeping uses the qualified `step_id` embedded in each result payload (for example `root.loop_publish#0.produce_in_loop`).
 
 - State integrity
   - Atomic writes: write temp file then rename.
@@ -60,7 +67,7 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
 
 ```json
 {
-  "schema_version": "1.1.1",
+  "schema_version": "2.0",
   "run_id": "20250115T143022Z-a3f8c2",
   "workflow_file": "workflows/pipeline.yaml",
   "workflow_checksum": "sha256:abcd1234...",
@@ -94,6 +101,8 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
   "steps": {
     "StepName": {
       "status": "completed",
+      "name": "StepName",
+      "step_id": "root.step_name",
       "exit_code": 0,
       "started_at": "2025-01-15T14:30:23Z",
       "completed_at": "2025-01-15T14:30:25Z",
@@ -142,3 +151,6 @@ orchestrate resume <run_id> --repair
 # Archive old runs
 orchestrate clean --older-than 7d
 ```
+
+Schema boundary note:
+- Post-v2.0 runtimes reject resume from pre-v2.0 state rather than silently remapping old name-keyed lineage/freshness data.

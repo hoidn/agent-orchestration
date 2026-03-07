@@ -31,6 +31,7 @@ from .conditions import ConditionEvaluator
 from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
+from .identity import iteration_step_id, runtime_step_id
 
 logger = logging.getLogger(__name__)
 
@@ -102,6 +103,15 @@ class WorkflowExecutor:
         self.retry_delay_ms = retry_delay_ms
         self.step_heartbeat_interval_sec = step_heartbeat_interval_sec
 
+    def _step_id(self, step: Dict[str, Any], fallback_index: Optional[int] = None) -> str:
+        """Return the durable identity for a top-level step."""
+        return runtime_step_id(step, self.current_step if fallback_index is None else fallback_index)
+
+    def _uses_qualified_identities(self) -> bool:
+        """Return True when this workflow uses the post-Task-6 state model."""
+        version = self.workflow.get("version")
+        return isinstance(version, str) and version == "2.0"
+
     def execute(self, run_id: Optional[str] = None, on_error: str = 'stop',
                 max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None,
                 resume: bool = False) -> Dict[str, Any]:
@@ -147,6 +157,7 @@ class WorkflowExecutor:
 
                 # Check if step should be executed
                 step_name = step.get('name', f'step_{step_index}')
+                step_id = self._step_id(step, step_index)
 
                 # Check if step is already completed (for resume)
                 if resume and 'steps' in state and step_name in state['steps']:
@@ -337,6 +348,7 @@ class WorkflowExecutor:
                     step_name,
                     step_index,
                     self._resolve_step_type(step),
+                    step_id=step_id,
                 )
 
                 # Execute based on step type
@@ -694,6 +706,7 @@ class WorkflowExecutor:
         step_name: str,
         result: Dict[str, Any],
         state: Dict[str, Any],
+        runtime_step_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Record artifact publications for successful steps."""
         publishes = step.get('publishes')
@@ -726,6 +739,10 @@ class WorkflowExecutor:
         if not isinstance(artifact_versions, dict):
             artifact_versions = {}
             state['artifact_versions'] = artifact_versions
+
+        producer_identity = runtime_step_id or result.get('step_id') or self._step_id(step)
+        if not self._uses_qualified_identities():
+            producer_identity = step_name
 
         for publish in publishes:
             if not isinstance(publish, dict):
@@ -783,7 +800,8 @@ class WorkflowExecutor:
                 {
                     'version': max_version + 1,
                     'value': value,
-                    'producer': step_name,
+                    'producer': producer_identity,
+                    'producer_name': step_name,
                     'step_index': self.current_step,
                 }
             )
@@ -796,6 +814,7 @@ class WorkflowExecutor:
         step: Dict[str, Any],
         step_name: str,
         state: Dict[str, Any],
+        runtime_step_id: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Resolve and enforce consumes contracts before step execution."""
         consumes = step.get('consumes')
@@ -825,19 +844,23 @@ class WorkflowExecutor:
             resolved_consumes = {}
             state['_resolved_consumes'] = resolved_consumes
 
-        step_consumes = artifact_consumes.setdefault(step_name, {})
+        consumer_identity = runtime_step_id or self._step_id(step)
+        if not self._uses_qualified_identities():
+            consumer_identity = step_name
+
+        step_consumes = artifact_consumes.setdefault(consumer_identity, {})
         if not isinstance(step_consumes, dict):
             step_consumes = {}
-            artifact_consumes[step_name] = step_consumes
+            artifact_consumes[consumer_identity] = step_consumes
         global_consumes = artifact_consumes.setdefault('__global__', {})
         if not isinstance(global_consumes, dict):
             global_consumes = {}
             artifact_consumes['__global__'] = global_consumes
         step_resolved_consumes: Dict[str, Any] = {}
-        resolved_consumes[step_name] = step_resolved_consumes
+        resolved_consumes[consumer_identity] = step_resolved_consumes
         workflow_version = self.workflow.get("version")
         materialize_relpath_consume_pointer = workflow_version in {"1.2", "1.3"}
-        freshness_uses_step_scope = workflow_version == "1.4"
+        freshness_uses_step_scope = workflow_version in {"1.4", "2.0"}
 
         for consume in consumes:
             if not isinstance(consume, dict):
@@ -856,7 +879,9 @@ class WorkflowExecutor:
                 producer_set = {p for p in producers if isinstance(p, str)}
                 candidates = [
                     c for c in candidates
-                    if isinstance(c, dict) and c.get('producer') in producer_set
+                    if isinstance(c, dict) and (
+                        c.get('producer') in producer_set or c.get('producer_name') in producer_set
+                    )
                 ]
             else:
                 candidates = [c for c in candidates if isinstance(c, dict)]
@@ -1358,6 +1383,7 @@ class WorkflowExecutor:
                             break
 
         # Execute loop iterations (starting from start_index for resume)
+        loop_step_id = self._step_id(step)
         for index in range(start_index, len(items)):
             item = items[index]
             # Setup loop scope variables
@@ -1372,8 +1398,9 @@ class WorkflowExecutor:
 
             # Execute nested steps for this iteration
             iteration_state = {}
-            for nested_step in loop_steps:
+            for nested_index, nested_step in enumerate(loop_steps):
                 nested_name = nested_step.get('name', f'nested_{index}')
+                nested_runtime_step_id = iteration_step_id(loop_step_id, index, nested_step, nested_index)
 
                 # Check conditional execution within loop (AT-37, AT-46, AT-47)
                 if 'when' in nested_step:
@@ -1387,7 +1414,16 @@ class WorkflowExecutor:
 
                     # Evaluate condition
                     try:
-                        should_execute = self.condition_evaluator.evaluate(nested_step['when'], variables, state)
+                        should_execute = self.condition_evaluator.evaluate(
+                            nested_step['when'],
+                            variables,
+                            state,
+                            scope={
+                                'self_steps': iteration_state,
+                                'parent_steps': state.get('steps', {}),
+                                'root_steps': state.get('steps', {}),
+                            },
+                        )
                     except Exception as e:
                         # Condition evaluation error
                         result = {
@@ -1421,7 +1457,12 @@ class WorkflowExecutor:
                     backup_name = f"{step_name}[{index}].{nested_name}"
                     self.state_manager.backup_state(backup_name)
 
-                consume_error = self._enforce_consumes_contract(nested_step, nested_name, state)
+                consume_error = self._enforce_consumes_contract(
+                    nested_step,
+                    nested_name,
+                    state,
+                    runtime_step_id=nested_runtime_step_id,
+                )
                 if consume_error is not None:
                     result = consume_error
                 else:
@@ -1434,11 +1475,21 @@ class WorkflowExecutor:
                         # Other step types within loops
                         result = {'exit_code': 0, 'skipped': True}
 
-                    publish_error = self._record_published_artifacts(nested_step, nested_name, result, state)
+                    result.setdefault('name', nested_name)
+                    result.setdefault('step_id', nested_runtime_step_id)
+                    publish_error = self._record_published_artifacts(
+                        nested_step,
+                        nested_name,
+                        result,
+                        state,
+                        runtime_step_id=nested_runtime_step_id,
+                    )
                     if publish_error is not None:
                         result = publish_error
 
                 # Store in iteration state
+                result.setdefault('name', nested_name)
+                result.setdefault('step_id', nested_runtime_step_id)
                 iteration_state[nested_name] = result
 
             # Store iteration results in indexed format
@@ -1460,6 +1511,8 @@ class WorkflowExecutor:
                 exit_code = result.get('exit_code', 0)
                 step_result = StepResult(
                     status='completed' if exit_code == 0 else 'failed',
+                    name=result.get('name', nested_name),
+                    step_id=result.get('step_id'),
                     exit_code=exit_code,
                     output=result.get('output'),
                     lines=result.get('lines'),
@@ -1999,6 +2052,11 @@ class WorkflowExecutor:
             return prompt
 
         step_consumed_values = resolved_consumes.get(step_name, {})
+        if (
+            self._uses_qualified_identities()
+            and (not isinstance(step_consumed_values, dict) or not step_consumed_values)
+        ):
+            step_consumed_values = resolved_consumes.get(self._step_id(step), {})
         if not isinstance(step_consumed_values, dict) or not step_consumed_values:
             return prompt
 
@@ -2398,12 +2456,16 @@ class WorkflowExecutor:
             state['steps'] = {}
 
         finalized = self._attach_outcome(step, result, phase_hint, class_hint, retryable_hint)
+        finalized.setdefault('name', step_name)
+        finalized.setdefault('step_id', self._step_id(step))
         state['steps'][step_name] = finalized
 
         from ..state import StepResult
 
         step_result = StepResult(
             status=finalized.get('status', 'completed' if finalized.get('exit_code', 0) == 0 else 'failed'),
+            name=finalized.get('name'),
+            step_id=finalized.get('step_id'),
             exit_code=finalized.get('exit_code'),
             duration_ms=finalized.get('duration_ms', 0),
             output=finalized.get('output'),

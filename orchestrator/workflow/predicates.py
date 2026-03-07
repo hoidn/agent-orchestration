@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .references import ReferenceResolutionError, ReferenceResolver
 
@@ -17,7 +17,12 @@ class TypedPredicateEvaluator:
     def __init__(self):
         self.reference_resolver = ReferenceResolver()
 
-    def evaluate(self, predicate: Dict[str, Any], state: Dict[str, Any]) -> bool:
+    def evaluate(
+        self,
+        predicate: Dict[str, Any],
+        state: Dict[str, Any],
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> bool:
         if not isinstance(predicate, dict):
             raise PredicateEvaluationError("Typed predicate must be a dictionary")
 
@@ -25,7 +30,7 @@ class TypedPredicateEvaluator:
             node = predicate["artifact_bool"]
             if not isinstance(node, dict) or "ref" not in node:
                 raise PredicateEvaluationError("artifact_bool requires a ref operand")
-            value = self._resolve_operand(node, state)
+            value = self._resolve_operand(node, state, scope)
             if not isinstance(value, bool):
                 raise PredicateEvaluationError("artifact_bool ref must resolve to a bool")
             return value
@@ -34,8 +39,8 @@ class TypedPredicateEvaluator:
             node = predicate["compare"]
             if not isinstance(node, dict):
                 raise PredicateEvaluationError("compare predicate must be a dictionary")
-            left = self._resolve_operand(node.get("left"), state)
-            right = self._resolve_operand(node.get("right"), state)
+            left = self._resolve_operand(node.get("left"), state, scope)
+            right = self._resolve_operand(node.get("right"), state, scope)
             op = node.get("op")
             if op == "eq":
                 return left == right
@@ -55,24 +60,29 @@ class TypedPredicateEvaluator:
             items = predicate["all_of"]
             if not isinstance(items, list) or not items:
                 raise PredicateEvaluationError("all_of requires a non-empty list")
-            return all(self.evaluate(item, state) for item in items)
+            return all(self.evaluate(item, state, scope) for item in items)
 
         if "any_of" in predicate:
             items = predicate["any_of"]
             if not isinstance(items, list) or not items:
                 raise PredicateEvaluationError("any_of requires a non-empty list")
-            return any(self.evaluate(item, state) for item in items)
+            return any(self.evaluate(item, state, scope) for item in items)
 
         if "not" in predicate:
-            return not self.evaluate(predicate["not"], state)
+            return not self.evaluate(predicate["not"], state, scope)
 
         raise PredicateEvaluationError("Unsupported typed predicate")
 
-    def _resolve_operand(self, operand: Any, state: Dict[str, Any]) -> Any:
+    def _resolve_operand(
+        self,
+        operand: Any,
+        state: Dict[str, Any],
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Any:
         if isinstance(operand, dict):
             if set(operand.keys()) == {"ref"}:
                 try:
-                    return self.reference_resolver.resolve(operand["ref"], state).value
+                    return self.reference_resolver.resolve(operand["ref"], state, scope=scope).value
                 except ReferenceResolutionError as exc:
                     raise PredicateEvaluationError(str(exc)) from exc
             raise PredicateEvaluationError("Operand dictionaries must contain only 'ref'")

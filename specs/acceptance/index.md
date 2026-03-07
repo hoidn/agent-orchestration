@@ -133,6 +133,11 @@
 123. v1.8 transition accounting: routed back-edge loops increment `transition_count` and fail the target step pre-execution when `max_transitions` is exceeded
 124. v1.8 resume-safe counters: `transition_count` and `step_visits` persist in `state.json` and remain available on resume
 125. v1.8 guard recovery: `on.failure.goto` may recover from `cycle_guard_exceeded`; without that edge the run stops
+126. v2.0 loader gating: authored step `id` is rejected below `version: "2.0"`
+127. v2.0 scoped refs: `self.steps.*` and `parent.steps.*` are valid only at `version: "2.0"`+, while bare `steps.*` remains invalid in structured predicates
+128. v2.0 stable identity: authored ids preserve `step_id` values across sibling insertion; compiler-generated ids are not promised stable across checksum-changing edits
+129. v2.0 qualified lineage: `for_each` producer/consumer lineage uses qualified internal identities rather than bare display names
+130. v2.0 schema boundary: resume rejects pre-v2.0 state unless an explicit upgrader exists
 
 ## DSL Evolution Rollout Crosswalk
 
@@ -140,6 +145,7 @@
 - Task 3 executable proof: `tests/test_typed_predicates.py`, `tests/test_conditional_execution.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/typed_predicate_routing.yaml`
 - Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/scalar_bookkeeping_demo.yaml`
 - Task 5 executable proof: `tests/test_control_flow_foundations.py`, `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_retry_behavior.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/cycle_guard_demo.yaml`
+- Task 6 executable proof: `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_at65_loop_scoping.py`, and `workflows/examples/for_each_demo.yaml` dry-run verification
 - Later-task roadmap proof ownership remains as written in `docs/plans/2026-03-06-dsl-evolution-execution-plan.md`; those tranches are not accepted until their named test/smoke blocks land with the corresponding implementation.
 
 ## Future Acceptance (v1.2)
