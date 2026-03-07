@@ -145,7 +145,7 @@ when:
 when:
   compare:
     left:
-      ref: root.steps.RunChecks.outcome.kind
+      ref: root.steps.RunChecks.outcome.class
     op: eq
     right: contract_violation
 ```
@@ -170,14 +170,22 @@ Predicate operand and failure rules should be explicit:
 - `compare.left` / `compare.right` may be:
   - `{ ref: root.steps.<Step>.artifacts.<name> }` for root-scoped scalar step artifacts
   - `{ ref: root.steps.<Step>.exit_code }`
-  - `{ ref: root.steps.<Step>.outcome.kind }` for a closed, versioned normalized outcome enum
+  - `{ ref: root.steps.<Step>.outcome.status }`
+  - `{ ref: root.steps.<Step>.outcome.phase }`
+  - `{ ref: root.steps.<Step>.outcome.class }`
+  - `{ ref: root.steps.<Step>.outcome.retryable }`
   - literals (`string|number|boolean`)
 - typed predicates should not reuse `${...}` string interpolation; they should resolve structured refs directly so existing string-coercion rules do not leak into the new feature.
 - `relpath` artifacts are valid only for `eq` / `ne`.
 - `lt` / `lte` / `gt` / `gte` are valid only for numeric operands (`integer|float`).
-- D2 should not expose raw `error.type` or `error.context` in predicates. If typed failure routing is part of D2, it should land with a small closed outcome surface such as `completed|skipped|assert_failed|command_failed|timeout|contract_violation`.
-- D2 must ship with a normative normalization matrix from current step execution tuples (`status`, `exit_code`, `error.type`) into `outcome.kind`.
-- Pre-execution validation failures are workflow/run load failures, not step outcomes. They therefore have no `steps.<Step>.outcome.kind` value.
+- D2 should not expose raw `error.type` or `error.context` in predicates. If typed failure routing is part of D2, it should land with a normalized, orthogonal outcome surface rather than one overloaded enum.
+- recommended normalized fields are:
+  - `outcome.status`: `completed|skipped|failed`
+  - `outcome.phase`: `execution|post_execution`
+  - `outcome.class`: a closed, versioned enum such as `assert_failed|command_failed|provider_failed|timeout|contract_violation`
+  - `outcome.retryable`: `true|false`
+- D2 must ship with a normative normalization matrix from current step execution tuples (`status`, `exit_code`, `error.type`) into those normalized outcome fields.
+- Pre-execution validation failures are workflow/run load failures, not step outcomes. They therefore have no `steps.<Step>.outcome.*` value.
 - under the current control-flow model, typed failure routing is only observable after an explicit recovery edge such as `on.failure.goto`; a later predicate step cannot observe a failed step that already terminated the workflow
 - in the first D2 tranche, `root.steps.<Step>...` refs should only be legal for steps that can execute at most once in the current scope
 - if later DSL versions need refs to multi-visit steps, they should add explicit visit/frame-qualified syntax rather than making unqualified refs depend on execution history
@@ -237,7 +245,7 @@ Required state/runtime work for D3:
 - persist workflow-level transition counters and step-level visit counters in `state.json`
 - make those counters resume-safe across revisits and mid-loop resumes
 - define acceptance coverage for revisit, retry, resume, and reporting semantics
-- `max_visits` should increment when the executor begins a real execution attempt of that step after `when` evaluation; skipped steps should not count, and retries should count as additional visits
+- `max_visits` should increment when control first enters that step as a routed control-flow node after `when` evaluation; skipped steps should not count, and internal retries should not consume additional visit budget
 - `max_transitions` should increment whenever control transfers from one completed/skipped/failed step into the next executable step after `on.*` routing is resolved; terminal workflow completion should not count as another transition
 - treat D3 as a versioned state-model change, not as a syntax-only addition
 - the first D3 tranche should be limited to top-level pre-lowering step identities; extending cycle guards cleanly to lowered/nested execution should either wait for D5 or be treated as a second migration
@@ -395,6 +403,7 @@ Structured blocks need an explicit scope/output join model:
   - any enclosing `finally` / `defer` that guards an exited frame must run before the transfer commits
   - partially traversed blocks must be recorded as exited-via-transfer rather than ambiguously "not run"
   - the lowering contract must define which transfers may escape which structured scopes instead of treating nested `goto` as an unscoped jump
+- the first structured tranche should take the conservative rule: non-local `goto` / `_end` may not escape structured boundaries at all; later support for escaping transfers would require dedicated transfer statements plus a fixed unwind/finalization contract
 
 Example target style:
 
@@ -438,27 +447,26 @@ Why this is eighth:
 - important for queue and lock correctness
 - distinct from generic branching
 
-### D8a. Add an enforceable restricted reusable-execution subset
+### D8a. Make the first reusable `call` tranche explicit about non-enforcement
 
-Before `call` can be shippable, the DSL/runtime needs an execution subset whose file effects are actually enforceable under the current no-sandbox execution model.
+Before `call` can be shippable, the ADR should be explicit about what the current runtime does **not** enforce.
 
-The current runtime cannot soundly prove or constrain arbitrary child-process writes from `command` / `provider` steps. A generic declarative write contract is therefore not enforceable today without stronger sandboxing/capability controls.
+The current runtime cannot soundly prove or constrain arbitrary child-process writes from `command` / `provider` steps. A first-tranche `call` design should therefore avoid pretending imported workflows can be statically proven safe under the current no-sandbox execution model.
 
 Recommended first-tranche direction:
-- define a **restricted reusable subset** for imported workflows rather than pretending arbitrary workflows can be proven safe
-- limit that subset to execution forms whose file effects are mechanically declared and runtime-mediated, or introduce a stronger sandbox/capability boundary first
-- exclude `command` / `provider` child-process execution entirely from the first shippable reusable subset unless a later execution model can actually constrain their filesystem effects
-- require imported workflows in that subset to write only through declared DSL-managed paths and runtime-mediated outputs
+- do **not** claim loader-enforced proof of child-process filesystem effects
+- allow imported workflows to include `command` / `provider` steps, with the understanding that undeclared side effects remain author responsibility
+- state explicitly that first-tranche `call` does not guarantee safe concurrent or reentrant reuse under shared-workspace semantics
 - require every authored DSL-managed write root used by a reusable workflow to be exposed as a typed `relpath` input
 - require call sites to bind unique per-invocation write roots for those inputs whenever multiple calls could otherwise alias the same managed paths
-- have the loader reject imported workflows that fall outside this statically checkable subset
+- treat stronger isolation or static proof of child-process file effects as a later enhancement, not a prerequisite for initial `call`
 
-This is intentionally weaker than full sandboxing and narrower than generic workflow reuse, but it is implementable only if the first tranche is explicit about excluding unconstrained child-process execution. D9 should depend on this restricted-subset model, or on a future stronger sandbox/capability mechanism, not on an unenforceable promise about arbitrary child-process writes.
+This is intentionally weaker than sandboxing and weaker than any loader-enforced reusable-execution contract. The first tranche should be presented as ergonomic reuse with accepted operational risk, not as enforced isolation.
 
 Principle:
-- the first shippable `call` tranche should target controlled, DSL-managed reusable helpers
-- it should **not** claim to cover today's provider/command-heavy review-fix or plan-review-revise workflows until a stronger execution boundary exists
-- the realistic early migration path is to extract pure DSL-managed helper fragments first, while leaving provider/command-heavy orchestration patterns top-level until a stronger execution boundary exists
+- the first shippable `call` tranche may cover today's provider/command-heavy review-fix or plan-review-revise workflows
+- it should **not** claim to isolate or statically prove their undeclared filesystem effects
+- the realistic early migration path is to add reuse and parameterized write roots first, while leaving stronger execution boundaries to a later runtime change
 
 ### D9. Add reusable subworkflow imports and calls
 
@@ -501,11 +509,10 @@ Execution model must be explicit:
 - `state/*`, `artifacts/*`, `output_file`, deterministic relpath outputs, and other declared DSL-managed write paths should therefore continue to resolve against the workflow workspace exactly as they do today
 - this means `call` namespaces logical identities, not authored workspace files
 - path-parameterization of declared write roots is mandatory for the first reusable-library tranche, because otherwise repeated calls or looped calls will alias the same DSL-managed paths
-- path-parameterization alone is still not sufficient for safe generic reuse, because the current runtime cannot enforce or sandbox undeclared relative writes from child processes
-- therefore D9 depends explicitly on D8a's restricted reusable-execution subset
-- D8a must let the loader/runtime reject imported workflows that cannot be proven to stay within declared DSL-managed writes
-- undeclared arbitrary child-process writes are incompatible with the first shippable `call` tranche
-- existing workflows with fixed shared write paths, or workflows that rely on arbitrary undeclared shell writes, must be migrated or remain top-level-only until a stronger, enforceable isolation model is defined in a later ADR
+- path-parameterization alone is still not sufficient to make generic reuse isolated or collision-free, because the current runtime cannot enforce or sandbox undeclared relative writes from child processes
+- therefore D9 depends explicitly on D8a's accepted-risk framing rather than on a loader-enforced reusable-execution subset
+- undeclared arbitrary child-process writes remain part of the operational risk accepted by the first shippable `call` tranche
+- existing workflows with fixed shared write paths should be migrated toward parameterized write roots before reuse; workflows that rely on undeclared shell writes remain reusable only on an author-beware basis until a stronger execution boundary exists in a later ADR
 - call-frame isolation should apply only to runtime-owned metadata/log roots, for example `.orchestrate/call_frames/<call-step-id>/<invocation-id>/...`
 
 Import boundary must also be explicit:
@@ -558,18 +565,17 @@ Example:
   match:
     ref: root.steps.Review.artifacts.review_decision
     cases:
-      APPROVE:
-        - goto: _end
+      APPROVE: []
       REVISE:
-        - goto: FixIssues
+        - call: FixIssues
       BLOCKED:
-        - goto: Escalate
+        - call: Escalate
 ```
 
 This should follow `if/else`, not precede it, because it depends on the same scope and identity foundation.
 Like `if/else`, `match` should operate over the new structured statement layer rather than pretending raw `goto` statements are already valid members of today's `Step[]` grammar.
 
-### D1a. Add lightweight scalar assignment/update steps as a dedicated runtime primitive
+### D2a. Add lightweight scalar assignment/update steps as a dedicated runtime primitive
 
 The DSL should remove shell glue not just for gates, but also for routine scalar bookkeeping.
 
@@ -820,7 +826,7 @@ when:
 when:
   compare:
     left:
-      ref: root.steps.RunChecks.outcome.kind
+      ref: root.steps.RunChecks.outcome.class
     op: eq
     right: contract_violation
 ```
@@ -922,12 +928,11 @@ steps:
   match:
     ref: root.steps.Review.artifacts.review_decision
     cases:
-      APPROVE:
-        - goto: _end
+      APPROVE: []
       REVISE:
-        - goto: FixIssues
+        - call: FixIssues
       BLOCKED:
-        - goto: Escalate
+        - call: Escalate
 ```
 
 ### 9. Lightweight scalar bookkeeping
@@ -986,7 +991,7 @@ Recommended implementation model:
 2. Add dedicated runtime primitives such as scalar bookkeeping with explicit execution/state semantics rather than pretending they are syntax-only sugar.
 3. Introduce resume-safe persisted counters for cycle guards, plus scoped references and stable internal step IDs, before nested lowering features ship.
 4. Lower structured forms (`if`, `match`, `repeat_until`, `call`, `finally`) into the existing internal graph model.
-5. Preserve current `state.json` semantics for D1 and D2 where practical, and introduce explicit versioned state-schema extensions for D1a, D3, and later features.
+5. Preserve current `state.json` semantics for D1 and D2 where practical, and introduce explicit versioned state-schema extensions for D2a, D3, and later features.
 
 This keeps the implementation incremental and reduces migration risk without pretending that nested flow and reuse are state-transparent changes.
 
@@ -1055,9 +1060,9 @@ Add `if/else` as an opt-in new-version feature.
 
 Add `finally` / later `defer` with explicit resume-idempotent semantics.
 
-### Phase 8: Enforceable restricted reusable-execution subset
+### Phase 8: Explicit accepted-risk reusable-call contract
 
-Add the statically checkable reusable-execution subset required for reusable imported execution units.
+Document the first reusable `call` tranche as non-isolating and non-proving, with required write-root parameterization and explicit accepted operational risks.
 
 ### Phase 9: Imports and calls
 
@@ -1109,8 +1114,8 @@ Informative:
 6. Ship stable internal step IDs and typed workflow signatures.
 7. Ship structured `if/else`.
 8. Ship structured finalization.
-9. Ship the enforceable restricted reusable-execution subset.
-10. Ship imports + `call` only once that restricted subset exists and reusable workflows have a workflow-source-relative asset mechanism.
+9. Ship the explicit accepted-risk reusable-call contract.
+10. Ship imports + `call` once that contract and the workflow-source-relative asset mechanism exist.
 11. Ship enum `match`.
 12. Ship loops such as `repeat_until`.
 13. Ship linting / normalization rules alongside the new syntax.
