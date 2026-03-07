@@ -200,6 +200,40 @@ def test_loader_rejects_refs_to_multi_visit_steps(tmp_path: Path):
     assert any("multi-visit" in str(err.message) for err in exc_info.value.errors)
 
 
+def test_loader_rejects_top_level_self_refs_to_multi_visit_steps(tmp_path: Path):
+    workflow = {
+        "version": "2.0",
+        "name": "invalid-top-level-self-multi-visit-ref",
+        "steps": [
+            {
+                "name": "Loop",
+                "id": "loop",
+                "command": ["bash", "-lc", "exit 1"],
+                "on": {"failure": {"goto": "Loop"}},
+            },
+            {
+                "name": "Gate",
+                "id": "gate",
+                "assert": {
+                    "compare": {
+                        "left": {"ref": "self.steps.Loop.exit_code"},
+                        "op": "eq",
+                        "right": 1,
+                    }
+                },
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        loader.load(workflow_file)
+
+    assert any("multi-visit" in str(err.message) for err in exc_info.value.errors)
+
+
 def test_loader_rejects_missing_root_step_exit_code_refs(tmp_path: Path):
     workflow = {
         "version": "1.6",

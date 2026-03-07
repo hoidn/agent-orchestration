@@ -612,3 +612,64 @@ steps:
         assert persisted.for_each['ProcessItems'].items == ['alpha', 'beta', 'gamma']
         assert persisted.for_each['ProcessItems'].completed_indices == [0, 1, 2]
         assert persisted.for_each['ProcessItems'].current_index is None
+
+    def test_for_each_provider_params_resolve_steps_against_iteration_scope(self):
+        """Loop-local provider params must see the current iteration's steps namespace."""
+        workflow = {
+            "version": "1.1",
+            "providers": {
+                "echo_prev": {
+                    "command": ["bash", "-lc", "printf '%s' \"${prev}\""],
+                }
+            },
+            "steps": [
+                {
+                    "name": "ProcessItems",
+                    "for_each": {
+                        "items": ["one", "two"],
+                        "steps": [
+                            {
+                                "name": "StepA",
+                                "command": ["bash", "-lc", "printf '%s' \"${item}\""],
+                                "output_capture": "text",
+                            },
+                            {
+                                "name": "StepB",
+                                "provider": "echo_prev",
+                                "provider_params": {
+                                    "prev": "${steps.StepA.output}",
+                                },
+                                "output_capture": "text",
+                            },
+                        ],
+                    },
+                }
+            ],
+        }
+        workflow_file = self.workspace / "workflow.yaml"
+        workflow_file.write_text(json.dumps(workflow))
+
+        loader = WorkflowLoader(self.workspace)
+        workflow = loader.load(str(workflow_file))
+
+        state_manager = StateManager(
+            workspace=self.workspace,
+            run_id="test_run",
+            backup_enabled=False,
+        )
+        state_manager.initialize(str(workflow_file))
+
+        executor = WorkflowExecutor(
+            workflow=workflow,
+            workspace=self.workspace,
+            state_manager=state_manager,
+        )
+
+        state = executor.execute()
+
+        first = state["steps"]["ProcessItems"][0]["StepB"]
+        second = state["steps"]["ProcessItems"][1]["StepB"]
+        assert first["status"] == "completed"
+        assert first["output"] == "one"
+        assert second["status"] == "completed"
+        assert second["output"] == "two"

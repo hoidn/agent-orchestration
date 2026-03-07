@@ -287,6 +287,7 @@ class WorkflowLoader:
                         version,
                         root_catalog,
                         scope_artifacts,
+                        scope_multi_visit,
                         parent_artifacts,
                         parent_multi_visit,
                     )
@@ -436,6 +437,7 @@ class WorkflowLoader:
                     version,
                     root_catalog,
                     scope_artifacts,
+                    scope_multi_visit,
                     parent_artifacts,
                     parent_multi_visit,
                 )
@@ -799,6 +801,7 @@ class WorkflowLoader:
         version: str,
         root_catalog: Dict[str, Any],
         scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
     ):
@@ -817,6 +820,7 @@ class WorkflowLoader:
                 version,
                 root_catalog,
                 scope_artifacts,
+                scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
             )
@@ -837,6 +841,7 @@ class WorkflowLoader:
         version: str,
         root_catalog: Dict[str, Any],
         scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
     ) -> None:
@@ -853,6 +858,7 @@ class WorkflowLoader:
                 version,
                 root_catalog,
                 scope_artifacts,
+                scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
             )
@@ -1027,6 +1033,7 @@ class WorkflowLoader:
         version: str,
         root_catalog: Dict[str, Any],
         scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
     ) -> None:
@@ -1045,6 +1052,7 @@ class WorkflowLoader:
                 version,
                 root_catalog,
                 scope_artifacts,
+                scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
             )
@@ -1063,6 +1071,7 @@ class WorkflowLoader:
                 version,
                 root_catalog,
                 scope_artifacts,
+                scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
             )
@@ -1072,6 +1081,7 @@ class WorkflowLoader:
                 version,
                 root_catalog,
                 scope_artifacts,
+                scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
             )
@@ -1099,6 +1109,7 @@ class WorkflowLoader:
                     version,
                     root_catalog,
                     scope_artifacts,
+                    scope_multi_visit,
                     parent_artifacts,
                     parent_multi_visit,
                 )
@@ -1116,6 +1127,7 @@ class WorkflowLoader:
                     version,
                     root_catalog,
                     scope_artifacts,
+                    scope_multi_visit,
                     parent_artifacts,
                     parent_multi_visit,
                 )
@@ -1128,6 +1140,7 @@ class WorkflowLoader:
                 version,
                 root_catalog,
                 scope_artifacts,
+                scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
             )
@@ -1142,6 +1155,7 @@ class WorkflowLoader:
         version: str,
         root_catalog: Dict[str, Any],
         scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
     ) -> str:
@@ -1155,6 +1169,7 @@ class WorkflowLoader:
                 version,
                 root_catalog,
                 scope_artifacts,
+                scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
             )
@@ -1178,6 +1193,7 @@ class WorkflowLoader:
         version: str,
         root_catalog: Dict[str, Any],
         scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
     ) -> str:
@@ -1242,7 +1258,7 @@ class WorkflowLoader:
         elif scope_name == 'parent':
             multi_visit = parent_multi_visit or set()
         else:
-            multi_visit = set()
+            multi_visit = scope_multi_visit
 
         if target_step in multi_visit:
             self._add_error(
