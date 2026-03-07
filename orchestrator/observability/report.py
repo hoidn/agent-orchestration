@@ -24,6 +24,10 @@ def _step_kind(step: Dict[str, Any]) -> str:
         return "for_each"
     if "wait_for" in step:
         return "wait_for"
+    if "set_scalar" in step:
+        return "set_scalar"
+    if "increment_scalar" in step:
+        return "increment_scalar"
     return "unknown"
 
 

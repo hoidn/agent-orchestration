@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", or "1.6"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", or "1.7"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -28,6 +28,8 @@
     - `provider: string` (+ optional `provider_params`) OR
     - `command: string[]` OR
     - `assert: Condition|TypedPredicate` (v1.5+; exclusive with provider/command/wait_for/for_each) OR
+    - `set_scalar: { artifact, value }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
+    - `increment_scalar: { artifact, by }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `wait_for: { ... }` (exclusive with provider/command/for_each)
   - IO:
     - `input_file: string`
@@ -96,7 +98,7 @@
   - Dataflow (v1.2+):
     - `publishes`: list of `{ artifact, from }`
       - `artifact`: artifact name from top-level `artifacts`
-      - `from`: local `expected_outputs.name` or `output_bundle.fields[*].name` produced by the same step
+      - `from`: local `expected_outputs.name`, `output_bundle.fields[*].name`, or scalar-bookkeeping output artifact name produced by the same step
       - requires `persist_artifacts_in_state` to be `true` for that step
       - runtime: on successful step, publication appends a new artifact version record
     - `consumes`: list of contracts
@@ -145,7 +147,9 @@
 
 - Mutual exclusivity and validation
   - A step may specify exactly one of `provider`, `command`, `assert`, or `wait_for`.
+  - A step may specify exactly one of `provider`, `command`, `assert`, `set_scalar`, `increment_scalar`, or `wait_for`.
   - `assert` is a first-class execution form and cannot be combined with `provider`/`command`/`wait_for`/`for_each` on the same step.
+  - `set_scalar` and `increment_scalar` are first-class execution forms and cannot be combined with `provider`/`command`/`wait_for`/`assert`/`for_each` on the same step.
   - `for_each` is a block form and cannot be combined with `provider`/`command`/`wait_for`/`assert` on the same step.
   - `goto` targets must reference an existing step name or `_end`. Unknown targets are a validation error (exit code 2) reported at workflow load time.
   - Deprecated `command_override` is not supported and must be rejected by the loader/validator.
@@ -155,6 +159,7 @@
     - `output_bundle` and `consume_bundle` require `version: "1.3"` or higher.
     - `assert` requires `version: "1.5"` or higher.
     - Typed predicates and structured `ref:` require `version: "1.6"` or higher.
+    - `set_scalar` and `increment_scalar` require `version: "1.7"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.

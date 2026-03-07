@@ -32,10 +32,10 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
-    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6"]
+    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7"]
 
     def __init__(self, workspace: Path):
         """Initialize loader with workspace root."""
@@ -120,7 +120,7 @@ class WorkflowLoader:
                 self._validate_path_safety(workflow[dir_field], dir_field)
 
         if 'artifacts' in workflow:
-            if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
+            if not self._version_at_least(version, "1.2"):
                 self._add_error("artifacts requires version '1.2'")
             else:
                 self._validate_artifacts_registry(workflow['artifacts'])
@@ -179,7 +179,7 @@ class WorkflowLoader:
             return
 
         if root_catalog is None:
-            root_catalog = self._build_root_ref_catalog(steps)
+            root_catalog = self._build_root_ref_catalog(steps, artifacts_registry)
 
         step_names = set()
 
@@ -203,7 +203,7 @@ class WorkflowLoader:
                 step_names.add(name)
 
             # AT-10: Provider/Command exclusivity
-            execution_fields = ['provider', 'command', 'wait_for', 'assert']
+            execution_fields = ['provider', 'command', 'wait_for', 'assert', 'set_scalar', 'increment_scalar']
             exec_count = sum(1 for f in execution_fields if f in step)
 
             if 'for_each' in step:
@@ -224,6 +224,30 @@ class WorkflowLoader:
                     self._add_error(f"Step '{name}': assert requires version '1.5'")
                 else:
                     self._validate_assert_condition(step['assert'], name, version, root_catalog)
+
+            if 'set_scalar' in step:
+                if not self._version_at_least(version, "1.7"):
+                    self._add_error(f"Step '{name}': set_scalar requires version '1.7'")
+                else:
+                    self._validate_scalar_bookkeeping(
+                        step=step,
+                        node=step['set_scalar'],
+                        field_name='set_scalar',
+                        step_name=name,
+                        artifacts_registry=artifacts_registry,
+                    )
+
+            if 'increment_scalar' in step:
+                if not self._version_at_least(version, "1.7"):
+                    self._add_error(f"Step '{name}': increment_scalar requires version '1.7'")
+                else:
+                    self._validate_scalar_bookkeeping(
+                        step=step,
+                        node=step['increment_scalar'],
+                        field_name='increment_scalar',
+                        step_name=name,
+                        artifacts_registry=artifacts_registry,
+                    )
 
             # AT-40: Reject deprecated command_override
             if 'command_override' in step:
@@ -246,7 +270,7 @@ class WorkflowLoader:
                 self._validate_expected_outputs(step['expected_outputs'], name)
 
             if 'output_bundle' in step:
-                if version not in {"1.3", "1.4", "1.5", "1.6"}:
+                if not self._version_at_least(version, "1.3"):
                     self._add_error(f"Step '{name}': output_bundle requires version '1.3'")
                 else:
                     self._validate_output_bundle(step['output_bundle'], name)
@@ -263,7 +287,7 @@ class WorkflowLoader:
                 self._add_error(f"Step '{name}': 'persist_artifacts_in_state' must be a boolean")
 
             if 'publishes' in step:
-                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
+                if not self._version_at_least(version, "1.2"):
                     self._add_error(f"Step '{name}': publishes requires version '1.2'")
                 else:
                     if step.get('persist_artifacts_in_state') is False:
@@ -273,13 +297,13 @@ class WorkflowLoader:
                     self._validate_publishes(step['publishes'], name)
 
             if 'consumes' in step:
-                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
+                if not self._version_at_least(version, "1.2"):
                     self._add_error(f"Step '{name}': consumes requires version '1.2'")
                 else:
                     self._validate_consumes(step['consumes'], name)
 
             if 'prompt_consumes' in step:
-                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
+                if not self._version_at_least(version, "1.2"):
                     self._add_error(f"Step '{name}': prompt_consumes requires version '1.2'")
                 else:
                     prompt_consumes = step['prompt_consumes']
@@ -309,13 +333,13 @@ class WorkflowLoader:
                                 )
 
             if 'inject_consumes' in step:
-                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
+                if not self._version_at_least(version, "1.2"):
                     self._add_error(f"Step '{name}': inject_consumes requires version '1.2'")
                 elif not isinstance(step['inject_consumes'], bool):
                     self._add_error(f"Step '{name}': 'inject_consumes' must be a boolean")
 
             if 'consumes_injection_position' in step:
-                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
+                if not self._version_at_least(version, "1.2"):
                     self._add_error(f"Step '{name}': consumes_injection_position requires version '1.2'")
                 else:
                     position = step['consumes_injection_position']
@@ -329,7 +353,7 @@ class WorkflowLoader:
                         )
 
             if 'consume_bundle' in step:
-                if version not in {"1.3", "1.4", "1.5", "1.6"}:
+                if not self._version_at_least(version, "1.3"):
                     self._add_error(f"Step '{name}': consume_bundle requires version '1.3'")
                 else:
                     self._validate_consume_bundle(step['consume_bundle'], name, step.get('consumes'))
@@ -402,6 +426,50 @@ class WorkflowLoader:
         if 'inject' in depends_on:
             if version != "1.1.1":
                 self._add_error(f"Step '{step_name}': depends_on.inject requires version '1.1.1'")
+
+    def _validate_scalar_bookkeeping(
+        self,
+        step: Dict[str, Any],
+        node: Any,
+        field_name: str,
+        step_name: str,
+        artifacts_registry: Optional[Any],
+    ) -> None:
+        context = f"Step '{step_name}': {field_name}"
+        if not isinstance(node, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        if step.get('persist_artifacts_in_state') is False:
+            self._add_error(f"{context} requires persist_artifacts_in_state to be true")
+
+        artifact_name = node.get('artifact')
+        if not isinstance(artifact_name, str) or not artifact_name.strip():
+            self._add_error(f"{context} 'artifact' must be a non-empty string")
+            return
+
+        registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
+        artifact_spec = registry.get(artifact_name)
+        if not isinstance(artifact_spec, dict) or artifact_spec.get('kind') != 'scalar':
+            self._add_error(f"{context} must target a declared scalar artifact")
+            return
+
+        artifact_type = artifact_spec.get('type')
+        if field_name == 'set_scalar':
+            if 'value' not in node:
+                self._add_error(f"{context} missing required 'value'")
+            elif isinstance(node.get('value'), (dict, list)):
+                self._add_error(f"{context} 'value' must be a scalar literal")
+            return
+
+        if 'by' not in node:
+            self._add_error(f"{context} missing required 'by'")
+            return
+        by_value = node.get('by')
+        if type(by_value) not in {int, float}:
+            self._add_error(f"{context} 'by' must be a numeric literal")
+        if artifact_type not in {'integer', 'float'}:
+            self._add_error(f"{context} requires an integer or float artifact")
 
     def _validate_variables_usage(self, step: Dict[str, Any], name: str):
         """Validate variable usage and reject ${env.*} namespace (AT-7)."""
@@ -682,9 +750,14 @@ class WorkflowLoader:
             return False
         return self.VERSION_ORDER.index(version) >= self.VERSION_ORDER.index(minimum)
 
-    def _build_root_ref_catalog(self, steps: List[Any]) -> Dict[str, Any]:
+    def _build_root_ref_catalog(
+        self,
+        steps: List[Any],
+        artifacts_registry: Optional[Any] = None,
+    ) -> Dict[str, Any]:
         artifact_map: Dict[str, Dict[str, Any]] = {}
         step_names: List[str] = []
+        registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
 
         for step in steps:
             if not isinstance(step, dict):
@@ -718,6 +791,19 @@ class WorkflowLoader:
                                 'type': artifact_type,
                                 'persisted': step.get('persist_artifacts_in_state', True) is not False,
                             }
+
+            for field_name in ('set_scalar', 'increment_scalar'):
+                node = step.get(field_name)
+                if not isinstance(node, dict):
+                    continue
+                artifact_name = node.get('artifact')
+                artifact_spec = registry.get(artifact_name) if isinstance(artifact_name, str) else None
+                artifact_type = artifact_spec.get('type') if isinstance(artifact_spec, dict) else None
+                if isinstance(artifact_name, str) and isinstance(artifact_type, str):
+                    outputs[artifact_name] = {
+                        'type': artifact_type,
+                        'persisted': True,
+                    }
 
             artifact_map[name] = outputs
 
@@ -1149,7 +1235,11 @@ class WorkflowLoader:
                 if guidance_key in entry and not isinstance(entry[guidance_key], str):
                     self._add_error(f"{context} '{guidance_key}' must be a string")
 
-    def _get_publish_source_map(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+    def _get_publish_source_map(
+        self,
+        step: Dict[str, Any],
+        artifacts_registry: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
         """Index publish sources by name for cross-reference checks."""
         out: Dict[str, Dict[str, Any]] = {}
         expected_outputs = step.get('expected_outputs', [])
@@ -1177,6 +1267,23 @@ class WorkflowLoader:
                         "type": spec.get('type'),
                         "path": None,
                     }
+
+        registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
+        for field_name in ('set_scalar', 'increment_scalar'):
+            node = step.get(field_name)
+            if not isinstance(node, dict):
+                continue
+            artifact_name = node.get('artifact')
+            if not isinstance(artifact_name, str):
+                continue
+            artifact_spec = registry.get(artifact_name)
+            if not isinstance(artifact_spec, dict):
+                continue
+            out[artifact_name] = {
+                "source": field_name,
+                "type": artifact_spec.get('type'),
+                "path": None,
+            }
         return out
 
     def _validate_dataflow_cross_references(self, steps: List[Dict[str, Any]], artifacts_registry: Optional[Any]):
@@ -1194,7 +1301,7 @@ class WorkflowLoader:
 
             published_artifacts: Set[str] = set()
 
-            publish_sources_by_name = self._get_publish_source_map(step)
+            publish_sources_by_name = self._get_publish_source_map(step, registry)
             publishes = step.get('publishes', [])
             if isinstance(publishes, list):
                 for entry in publishes:
@@ -1214,7 +1321,7 @@ class WorkflowLoader:
                     source_spec = publish_sources_by_name.get(from_name)
                     if source_spec is None:
                         self._add_error(
-                            f"Step '{step_name}': publishes.from '{from_name}' not found in expected_outputs or output_bundle.fields"
+                            f"Step '{step_name}': publishes.from '{from_name}' not found in expected_outputs, output_bundle.fields, or scalar bookkeeping output"
                         )
                         continue
 

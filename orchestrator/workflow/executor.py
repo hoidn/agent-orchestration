@@ -279,6 +279,18 @@ class WorkflowExecutor:
                     elif 'assert' in step:
                         result = self._execute_assert(step, state)
                         self._persist_step_result(state, step_name, step, result)
+                    elif 'set_scalar' in step:
+                        result = self._execute_set_scalar(step)
+                        publish_error = self._record_published_artifacts(step, step_name, result, state)
+                        if publish_error is not None:
+                            result = publish_error
+                        self._persist_step_result(state, step_name, step, result)
+                    elif 'increment_scalar' in step:
+                        result = self._execute_increment_scalar(step, state)
+                        publish_error = self._record_published_artifacts(step, step_name, result, state)
+                        if publish_error is not None:
+                            result = publish_error
+                        self._persist_step_result(state, step_name, step, result)
                     elif 'provider' in step:
                         result = self._execute_provider(step, state)
                         publish_error = self._record_published_artifacts(step, step_name, result, state)
@@ -332,6 +344,10 @@ class WorkflowExecutor:
             return 'wait_for'
         if 'assert' in step:
             return 'assert'
+        if 'set_scalar' in step:
+            return 'set_scalar'
+        if 'increment_scalar' in step:
+            return 'increment_scalar'
         if 'for_each' in step:
             return 'for_each'
         return 'unknown'
@@ -2026,6 +2042,153 @@ class WorkflowExecutor:
                 'context': {'assert': step.get('assert')},
             },
         }
+
+    def _execute_set_scalar(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        return self._execute_scalar_step(
+            step=step,
+            artifact_name=step['set_scalar'].get('artifact'),
+            candidate_value=step['set_scalar'].get('value'),
+        )
+
+    def _execute_increment_scalar(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+        node = step['increment_scalar']
+        artifact_name = node.get('artifact')
+        current_value, error = self._latest_published_scalar_value(artifact_name, state)
+        if error is not None:
+            return error
+
+        registry = self.workflow.get('artifacts', {})
+        artifact_spec = registry.get(artifact_name, {}) if isinstance(registry, dict) else {}
+        artifact_type = artifact_spec.get('type')
+        increment_by = node.get('by')
+        if artifact_type == 'float':
+            next_value = float(current_value) + float(increment_by)
+        else:
+            next_value = current_value + increment_by
+
+        return self._execute_scalar_step(
+            step=step,
+            artifact_name=artifact_name,
+            candidate_value=next_value,
+        )
+
+    def _execute_scalar_step(
+        self,
+        step: Dict[str, Any],
+        artifact_name: Any,
+        candidate_value: Any,
+    ) -> Dict[str, Any]:
+        registry = self.workflow.get('artifacts', {})
+        artifact_spec = registry.get(artifact_name, {}) if isinstance(registry, dict) else {}
+        validated_value = self._validate_scalar_value(artifact_name, artifact_spec, candidate_value)
+        if isinstance(validated_value, dict) and validated_value.get('status') == 'failed':
+            return validated_value
+
+        return {
+            'status': 'completed',
+            'exit_code': 0,
+            'duration_ms': 0,
+            'artifacts': {
+                artifact_name: validated_value,
+            },
+        }
+
+    def _latest_published_scalar_value(
+        self,
+        artifact_name: Any,
+        state: Dict[str, Any],
+    ) -> tuple[Any, Optional[Dict[str, Any]]]:
+        if not isinstance(artifact_name, str) or not artifact_name:
+            return None, self._contract_violation_result(
+                "Scalar bookkeeping failed",
+                {"reason": "missing_artifact_name"},
+            )
+
+        artifact_versions = state.get('artifact_versions', {})
+        candidates = artifact_versions.get(artifact_name, []) if isinstance(artifact_versions, dict) else []
+        latest_entry: Optional[Dict[str, Any]] = None
+        latest_version = -1
+
+        if isinstance(candidates, list):
+            for entry in candidates:
+                if not isinstance(entry, dict):
+                    continue
+                version = entry.get('version')
+                if isinstance(version, int) and version > latest_version:
+                    latest_entry = entry
+                    latest_version = version
+
+        if latest_entry is None:
+            return None, self._contract_violation_result(
+                "Scalar bookkeeping failed",
+                {
+                    "artifact": artifact_name,
+                    "reason": "no_published_versions",
+                },
+            )
+
+        return latest_entry.get('value'), None
+
+    def _validate_scalar_value(
+        self,
+        artifact_name: Any,
+        artifact_spec: Any,
+        candidate_value: Any,
+    ) -> Any:
+        if not isinstance(artifact_name, str) or not artifact_name:
+            return self._contract_violation_result(
+                "Scalar bookkeeping failed",
+                {"reason": "missing_artifact_name"},
+            )
+        if not isinstance(artifact_spec, dict) or artifact_spec.get('kind') != 'scalar':
+            return self._contract_violation_result(
+                "Scalar bookkeeping failed",
+                {
+                    "artifact": artifact_name,
+                    "reason": "invalid_scalar_artifact",
+                },
+            )
+
+        artifact_type = artifact_spec.get('type')
+        if artifact_type == 'integer':
+            if type(candidate_value) is not int:
+                return self._invalid_scalar_value_result(artifact_name, artifact_type, candidate_value)
+            return candidate_value
+        if artifact_type == 'float':
+            if type(candidate_value) not in {int, float}:
+                return self._invalid_scalar_value_result(artifact_name, artifact_type, candidate_value)
+            return float(candidate_value)
+        if artifact_type == 'bool':
+            if not isinstance(candidate_value, bool):
+                return self._invalid_scalar_value_result(artifact_name, artifact_type, candidate_value)
+            return candidate_value
+        if artifact_type == 'enum':
+            allowed = artifact_spec.get('allowed')
+            if (
+                not isinstance(candidate_value, str)
+                or not isinstance(allowed, list)
+                or candidate_value not in allowed
+            ):
+                return self._invalid_scalar_value_result(artifact_name, artifact_type, candidate_value)
+            return candidate_value
+
+        return self._invalid_scalar_value_result(artifact_name, str(artifact_type), candidate_value)
+
+    def _invalid_scalar_value_result(
+        self,
+        artifact_name: str,
+        artifact_type: str,
+        candidate_value: Any,
+    ) -> Dict[str, Any]:
+        return self._contract_violation_result(
+            "Scalar bookkeeping failed",
+            {
+                "artifact": artifact_name,
+                "reason": "invalid_scalar_value",
+                "expected_type": artifact_type,
+                "value": candidate_value,
+            },
+        )
 
     def _persist_step_result(
         self,

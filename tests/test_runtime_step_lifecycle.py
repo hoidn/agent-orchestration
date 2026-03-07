@@ -112,3 +112,38 @@ def test_assert_gate_persists_failed_outcome(tmp_path: Path):
         "class": "assert_failed",
         "retryable": False,
     }
+
+
+def test_set_scalar_persists_local_artifacts_in_step_state(tmp_path: Path):
+    workflow = {
+        "version": "1.7",
+        "name": "set-scalar-lifecycle",
+        "artifacts": {
+            "failed_count": {
+                "kind": "scalar",
+                "type": "integer",
+            }
+        },
+        "steps": [
+            {
+                "name": "InitializeCount",
+                "set_scalar": {
+                    "artifact": "failed_count",
+                    "value": 1,
+                },
+            }
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="set-scalar-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    assert state["steps"]["InitializeCount"]["status"] == "completed"
+    assert state["steps"]["InitializeCount"]["artifacts"] == {"failed_count": 1}

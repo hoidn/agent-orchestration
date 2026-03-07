@@ -30,6 +30,7 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
 - Status/report surfaces
   - Step snapshots may include normalized `output.outcome` fields when present in `state.json`.
   - The normalized outcome surface is intended for human-readable reports and typed routing; it does not replace the underlying `status`, `exit_code`, or `error` fields.
+  - v1.7 scalar bookkeeping steps report distinct kinds (`set_scalar`, `increment_scalar`) and expose their local produced values through the normal `output.artifacts` surface.
 
 ## Error Context (shape)
 

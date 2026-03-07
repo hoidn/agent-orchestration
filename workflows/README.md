@@ -41,6 +41,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/prompt_audit_demo.yaml` | `1.1.1` | _(unnamed)_ | Demonstrates prompt audit files emitted by `--debug` for argv and stdin providers. |
 | `workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml` | `1.2` | `backlog-plan-impl-review-loop-v2` | Downstream reference workflow for a non-trivial backlog/implementation/review loop. |
 | `workflows/examples/retry_demo.yaml` | `1.1` | `Retry Demo Workflow` | Demonstrates retry defaults, explicit retry policy, and timeout handling. |
+| `workflows/examples/scalar_bookkeeping_demo.yaml` | `1.7` | `scalar-bookkeeping-demo` | Demonstrates `set_scalar`/`increment_scalar` producing local step artifacts and publishing scalar lineage without shell glue. |
 | `workflows/examples/test_fix_loop_v0.yaml` | `1.1.1` | `test-fix-loop-v0` | Minimal test/fix loop with a shell gate and bounded retry count. |
 | `workflows/examples/test_validation.yml` | `1.1` | `validation test` | Loader-validation fixture showing valid and intentionally commented invalid forms. |
 | `workflows/examples/typed_predicate_routing.yaml` | `1.6` | `typed-predicate-routing` | Demonstrates structured `ref:` predicates against step artifacts and normalized recovered-failure outcomes. |

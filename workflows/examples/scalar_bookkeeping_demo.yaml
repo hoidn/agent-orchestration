@@ -1,0 +1,32 @@
+version: "1.7"
+name: scalar-bookkeeping-demo
+
+artifacts:
+  failed_count:
+    kind: scalar
+    type: integer
+
+steps:
+  - name: InitializeCount
+    set_scalar:
+      artifact: failed_count
+      value: 0
+    publishes:
+      - artifact: failed_count
+        from: failed_count
+
+  - name: IncrementCount
+    increment_scalar:
+      artifact: failed_count
+      by: 2
+    publishes:
+      - artifact: failed_count
+        from: failed_count
+
+  - name: GateFinalCount
+    assert:
+      compare:
+        left:
+          ref: root.steps.IncrementCount.artifacts.failed_count
+        op: eq
+        right: 2

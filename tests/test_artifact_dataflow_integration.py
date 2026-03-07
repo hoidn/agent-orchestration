@@ -117,6 +117,53 @@ def test_publish_records_artifact_version_on_success(tmp_path: Path):
     assert versions[0]["value"] == "artifacts/work/latest-execution-log.md"
 
 
+def test_scalar_bookkeeping_publish_advances_lineage_via_publishes_from(tmp_path: Path):
+    """Scalar bookkeeping steps publish through the normal lineage ledger only."""
+    workflow = {
+        "version": "1.7",
+        "name": "scalar-lineage",
+        "artifacts": _scalar_artifact_registry(),
+        "steps": [
+            {
+                "name": "InitializeCount",
+                "set_scalar": {
+                    "artifact": "failed_count",
+                    "value": 0,
+                },
+                "publishes": [{"artifact": "failed_count", "from": "failed_count"}],
+            },
+            {
+                "name": "IncrementCount",
+                "increment_scalar": {
+                    "artifact": "failed_count",
+                    "by": 2,
+                },
+                "publishes": [{"artifact": "failed_count", "from": "failed_count"}],
+            },
+            {
+                "name": "ReadCount",
+                "consumes": [
+                    {
+                        "artifact": "failed_count",
+                        "producers": ["InitializeCount", "IncrementCount"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "consume_bundle": {"path": "state/failed_count_bundle.json"},
+                "command": ["bash", "-lc", "cat state/failed_count_bundle.json"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow)
+
+    assert json.loads(state["steps"]["ReadCount"]["output"]) == {"failed_count": 2}
+    versions = persisted.get("artifact_versions", {}).get("failed_count", [])
+    assert [entry["producer"] for entry in versions] == ["InitializeCount", "IncrementCount"]
+    assert [entry["value"] for entry in versions] == [0, 2]
+
+
 def test_consume_latest_successful_prefers_fixissues_over_executeplan(tmp_path: Path):
     """Consumer selects latest published version even if pointer file was clobbered."""
     workflow = {

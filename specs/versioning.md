@@ -62,10 +62,17 @@
   - Step results gain normalized `outcome.{status,phase,class,retryable}` fields for observable results.
   - This tranche remains on state schema `1.1.1`; the added `outcome` object is an additive field under existing step results.
 
+- v1.7 additions (scalar bookkeeping runtime primitive)
+  - Step-level `set_scalar` emits one declared scalar artifact as a local step result without shelling out.
+  - Step-level `increment_scalar` reads the latest published version of the same declared scalar artifact, adds a numeric literal, and emits the updated local step artifact.
+  - Both forms are exclusive with `provider|command|wait_for|assert|for_each`.
+  - Publication still happens only through `publishes.from`; scalar bookkeeping does not mutate the top-level artifact ledger directly.
+  - This tranche remains on state schema `1.1.1`; local scalar artifacts reuse the existing `steps.<Step>.artifacts` and `artifact_versions` surfaces.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
-  - `v1.7` (planned): D2a scalar bookkeeping
+  - `v1.7`: D2a scalar bookkeeping
   - `v1.8` (planned): D3 cycle guards
   - `v2.0` (planned schema boundary): D4-D5 scoped refs + stable internal IDs
   - `v2.1` (planned): D6 workflow signatures
@@ -191,5 +198,6 @@ Planned acceptance:
 | 1.4 | Read-only relpath consume semantics (no consume-time pointer mutation) | Preserves v1.2/v1.3 behavior by version; command steps should prefer `consume_bundle` for deterministic consumed values. |
 | 1.5 | `assert` gate steps with dedicated `assert_failed` failure channel | First-class control-flow gates without shell glue; still uses legacy condition forms. |
 | 1.6 | Typed predicates, structured `ref:`, normalized `outcome.*` fields | Opt-in typed gate surface; no reinterpretation of legacy `${steps.*}` semantics. |
+| 1.7 | `set_scalar`, `increment_scalar` | Narrow runtime primitive for local scalar artifact production plus normal `publishes.from` lineage. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

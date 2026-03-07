@@ -177,6 +177,59 @@ class TestLoaderValidation:
         assert any("assert cannot be combined" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_scalar_bookkeeping_requires_version_1_7(self):
+        """Scalar bookkeeping steps are gated to v1.7+."""
+        workflow = {
+            "version": "1.6",
+            "name": "scalar-bookkeeping-gated",
+            "artifacts": {
+                "failed_count": {
+                    "kind": "scalar",
+                    "type": "integer",
+                }
+            },
+            "steps": [{
+                "name": "Initialize",
+                "set_scalar": {
+                    "artifact": "failed_count",
+                    "value": 0,
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("set_scalar requires version '1.7'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_set_scalar_requires_declared_scalar_artifact(self):
+        """Scalar bookkeeping must target a declared top-level scalar artifact."""
+        workflow = {
+            "version": "1.7",
+            "name": "missing-scalar-artifact",
+            "artifacts": {},
+            "steps": [{
+                "name": "Initialize",
+                "set_scalar": {
+                    "artifact": "failed_count",
+                    "value": 0,
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("declared scalar artifact" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_at38_absolute_path_rejected(self):
         """AT-38: Absolute paths rejected at validation."""
         workflow = {

@@ -123,11 +123,16 @@
 113. v1.6 single-visit boundary: loader rejects structured refs that target provably multi-visit step identities
 114. v1.6 normalized outcomes: observable step results expose `outcome.{status,phase,class,retryable}` for reports and typed routing
 115. v1.6 runtime predicate failure shape: dynamically unavailable structured refs fail with `exit_code:2` and `error.type:"predicate_evaluation_failed"`
+116. v1.7 loader gating: `set_scalar` and `increment_scalar` are rejected below `version: "1.7"`
+117. v1.7 scalar bookkeeping validation: loader rejects bookkeeping steps that do not target a declared top-level scalar artifact
+118. v1.7 local scalar result surface: successful bookkeeping steps persist their produced value under `steps.<Step>.artifacts`
+119. v1.7 scalar lineage composition: `publishes.from` can publish bookkeeping outputs and advance `artifact_versions` without any direct registry mutation path
 
 ## DSL Evolution Rollout Crosswalk
 
 - Task 2 executable proof: `tests/test_loader_validation.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/assert_gate_demo.yaml`
 - Task 3 executable proof: `tests/test_typed_predicates.py`, `tests/test_conditional_execution.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/typed_predicate_routing.yaml`
+- Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/scalar_bookkeeping_demo.yaml`
 - Later-task roadmap proof ownership remains as written in `docs/plans/2026-03-06-dsl-evolution-execution-plan.md`; those tranches are not accepted until their named test/smoke blocks land with the corresponding implementation.
 
 ## Future Acceptance (v1.2)

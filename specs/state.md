@@ -26,6 +26,7 @@
     - `class`: normalized failure/success classification (for example `completed`, `assert_failed`, `command_failed`, `provider_failed`, `timeout`, `contract_violation`, `pre_execution_failed`)
     - `retryable`: boolean
   - `artifacts` is a map of typed values parsed from `expected_outputs` and is available at `steps.<Step>.artifacts` when `persist_artifacts_in_state` is not set to `false`.
+  - v1.7 `set_scalar` / `increment_scalar` reuse that same `steps.<Step>.artifacts` surface for local produced scalar values; successful publication still advances `artifact_versions` only through `publishes.from`.
   - Tasks 1-5 of the DSL evolution roadmap remain additive under schema `1.1.1`; the first explicit state-schema migration boundary is reserved for the later scoped-ref / stable-ID tranche.
 
 - Output contract failure shape
