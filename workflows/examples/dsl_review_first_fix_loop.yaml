@@ -2,7 +2,7 @@ version: "1.4"
 name: "dsl-review-first-fix-loop"
 context:
   max_iterations: "10"
-  workflow_model: "gpt-5.4-codex"
+  workflow_model: "gpt-5.4"
   workflow_effort: "high"
 
 providers:

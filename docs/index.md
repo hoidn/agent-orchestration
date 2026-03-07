@@ -158,6 +158,11 @@ These are the highest-impact terminology and contract confusions.
 
 ## Workflow Runbooks and Examples
 
+### [Workflow Index](../workflows/README.md)
+**Description:** Catalog of workflows under `workflows/`, with short purpose summaries and quick pointers for choosing an example.
+**Keywords:** workflows, catalog, index, examples, runbooks
+**Use this when:** You need to find the right workflow file before reading or running it.
+
 ### [v0 Artifact-Contract Prototype Runbook](../workflows/examples/README_v0_artifact_contract.md)
 **Description:** Runbook for deterministic file-based handoff prototypes, including verification commands and known limits.  
 **Keywords:** runbook, artifact-contracts, deterministic-handoff, prototype  
@@ -209,7 +214,7 @@ These are the highest-impact terminology and contract confusions.
 - **Validate conformance:** [Acceptance Index](../specs/acceptance/index.md) + [tests/README](../tests/README.md)
 
 ### By Audience
-- **Workflow authors:** [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [examples](../workflows/examples/)
+- **Workflow authors:** [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Workflow Index](../workflows/README.md), [examples](../workflows/examples/)
 - **Runtime operators:** [CLI](../specs/cli.md), [Runtime Lifecycle](runtime_execution_lifecycle.md), [Observability](../specs/observability.md)
 - **Spec/contract reviewers:** [Master Spec](../specs/index.md), [Acceptance](../specs/acceptance/index.md), [Versioning](../specs/versioning.md)
 
