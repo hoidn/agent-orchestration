@@ -331,6 +331,8 @@ Risk focus: counter semantics must stay stable under retry, skip, and resume or 
 - Modify: `docs/runtime_execution_lifecycle.md`
 - Modify: `docs/workflow_drafting_guide.md`
 - Modify: `tests/test_artifact_dataflow_integration.py`
+- Modify: `tests/test_for_each_execution.py`
+- Modify: `tests/test_at65_loop_scoping.py`
 - Modify: `tests/test_cli_safety.py`
 - Modify: `tests/test_loader_validation.py`
 - Modify: `tests/test_control_flow_foundations.py`
@@ -378,9 +380,10 @@ If checksum-changing edits still invalidate resume, preserve that rule and docum
 Run:
 ```bash
 pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_cli_safety.py tests/test_resume_command.py -k "step_id or scoped_ref or inputs or outputs or bound_inputs" -v
-pytest tests/test_artifact_dataflow_integration.py -k "qualified or lineage or freshness" -v
+pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k "qualified or lineage or freshness or for_each or loop_scoping" -v
 pytest tests/test_workflow_output_contract_integration.py -k "workflow output or signature" -v
-pytest tests/test_workflow_examples_v0.py -k workflow_signature -v
+pytest tests/test_workflow_examples_v0.py -k "workflow_signature or for_each_demo" -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --state-dir /tmp/dsl-evolution-workflow-signature-demo
 ```
@@ -402,6 +405,8 @@ Risk focus: this is the foundation for every later structured feature; do not sh
 - Modify: `specs/versioning.md`
 - Modify: `specs/acceptance/index.md`
 - Create: `tests/test_structured_control_flow.py`
+- Modify: `tests/test_state_manager.py`
+- Modify: `tests/test_resume_command.py`
 - Create: `workflows/examples/structured_if_else_demo.yaml`
 - Modify: `workflows/README.md`
 - Modify: `tests/test_workflow_examples_v0.py`
@@ -413,6 +418,8 @@ Cover:
 - block outputs
 - explicit recording of non-taken branches
 - conservative rejection of `goto` / `_end` escaping structured boundaries
+- interrupted execution resuming at the correct lowered node without replaying completed branch work
+- durable lowered-node identity/state shape staying stable across resume reload
 
 **Step 2: Lower structured statements to executable nodes with stable IDs**
 
@@ -422,17 +429,23 @@ Keep lowering explicit instead of pretending the new syntax is state-transparent
 
 Do not couple `if/else` rollout to finalization state. The first structured-control tranche should ship only branch semantics, block outputs, and lowering/debug identity rules so failures can be isolated to the statement layer without mixing in teardown behavior.
 
+**Step 4: Make resume evidence explicit for lowered structured execution**
+
+Add targeted state-manager and resume-command coverage that interrupts a real run after entry into a lowered branch, verifies the persisted lowered identities/state shape, and resumes from the first unfinished lowered node instead of replaying completed branch work.
+
 **Verification:**
 
 Run:
 ```bash
 pytest --collect-only tests/test_structured_control_flow.py -q
-pytest tests/test_structured_control_flow.py -k if_else -v
+pytest tests/test_structured_control_flow.py tests/test_state_manager.py -k "if_else or lowered" -v
+pytest tests/test_resume_command.py -k "if_else and resume" -v
 pytest tests/test_workflow_examples_v0.py -k structured_if_else -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/structured_if_else_demo.yaml --dry-run
+pytest tests/test_resume_command.py -k structured_if_else_smoke -v
 ```
 
-Risk focus: structured lowering must not create ambiguous state entries or hidden control transfers.
+Risk focus: structured lowering must not create ambiguous state entries, hidden control transfers, or resume-time replay of completed lowered nodes.
 
 ### Task 8: Add structured finalization (`finally`) as a separate tranche
 
@@ -544,7 +557,11 @@ Risk focus: do not hide operational-risk boundaries inside implementation detail
 - Modify: `docs/workflow_drafting_guide.md`
 - Create: `tests/test_subworkflow_calls.py`
 - Modify: `tests/test_artifact_dataflow_integration.py`
+- Modify: `tests/test_dependency_resolution.py`
+- Modify: `tests/test_dependency_injection.py`
 - Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_resume_command.py`
+- Modify: `tests/test_secrets.py`
 - Modify: `tests/test_state_manager.py`
 - Create: `workflows/library/review_fix_loop.yaml`
 - Create: `workflows/examples/call_subworkflow_demo.yaml`
@@ -565,6 +582,8 @@ Cover:
 - private provider/artifact namespaces inside the call frame
 - callee outputs materializing only after callee finalization completes successfully, and staying absent if callee finalization fails
 - explicit source-relative asset resolution via a dedicated asset surface distinct from workspace-relative runtime paths
+- preservation of workspace-relative semantics for legacy runtime path fields under `call`
+- rejection of asset-path traversal outside the imported workflow source tree
 
 **Step 2: Define the import-path taxonomy and concrete source-relative asset API**
 
@@ -574,7 +593,11 @@ Implement the source-relative asset fields and version/boundary rules documented
 
 Keep `call` inline within the same run, but record call-frame-local identities in state and logs. Route workflow-source-relative asset loads through the new asset resolver, update provider prompt loading plus dependency resolution/content reads so they use the correct source/workspace base for the new fields, and keep only declared callee outputs crossing the boundary into the caller. Export those outputs only after the callee body and any callee finalization succeed, surface the outer call step as the external producer for caller-visible artifacts, and preserve call-scoped internal provenance plus freshness bookkeeping under qualified identities.
 
-**Step 4: Make the operational-risk boundary explicit**
+**Step 4: Make resume/export evidence explicit for nested call frames**
+
+Add targeted state-manager and resume-command coverage that interrupts a real run inside a call frame, verifies persisted call-frame identities plus deferred export state, and resumes without replaying completed callee work or leaking caller-visible outputs before callee finalization completes.
+
+**Step 5: Make the operational-risk boundary explicit**
 
 Do not promise loader-enforced proof of child-process filesystem effects. Enforce the managed-write-root contract the runtime can actually check: reusable workflows must expose DSL-managed write roots as typed `relpath` inputs, and call sites must bind non-colliding values for those inputs when multiple invocations could share a workspace. Document the remaining risk in the spec and authoring guide.
 
@@ -583,13 +606,15 @@ Do not promise loader-enforced proof of child-process filesystem effects. Enforc
 Run:
 ```bash
 pytest --collect-only tests/test_subworkflow_calls.py -q
-pytest tests/test_subworkflow_calls.py tests/test_loader_validation.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_prompt_contract_injection.py tests/test_provider_integration.py -v
+pytest tests/test_subworkflow_calls.py tests/test_loader_validation.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_resume_command.py -k "call or call_frame or resume" -v
+pytest tests/test_dependency_resolution.py tests/test_dependency_injection.py tests/test_prompt_contract_injection.py tests/test_provider_integration.py tests/test_secrets.py -k "asset or import or call or path" -v
 pytest tests/test_workflow_examples_v0.py -k call_subworkflow -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --state-dir /tmp/dsl-evolution-call-subworkflow-demo
+pytest tests/test_resume_command.py -k call_subworkflow_smoke -v
 ```
 
-Risk focus: keep caller-visible artifact/state names simple while retaining qualified internal provenance underneath, and do not leave any path-reading module on implicit workspace-relative behavior once source-relative assets are introduced.
+Risk focus: keep caller-visible artifact/state names simple while retaining qualified internal provenance underneath, preserve the source-relative/workspace-relative path boundary exactly, and do not let resume replay or prematurely export nested call outputs.
 
 ### Task 11: Add `match` as a separate structured-control tranche
 
