@@ -41,6 +41,14 @@ class TestRetryPolicy:
         # Should not retry after max attempts
         assert policy.should_retry(1, 3) is False
 
+    def test_provider_retry_policy_tolerates_none_defaults(self):
+        """Provider retry policy should fail safe if None slips through."""
+        policy = RetryPolicy.for_provider(max_retries=None, delay_ms=None)
+
+        assert policy.max_retries == 0
+        assert policy.delay_ms == 0
+        assert policy.should_retry(1, 0) is False
+
     def test_command_no_retry_by_default(self):
         """AT-21: Raw commands are not retried unless retries field is set."""
         policy = RetryPolicy.for_command(None)

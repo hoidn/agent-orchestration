@@ -413,6 +413,63 @@ steps:
     assert result == 0
 
 
+def test_resume_defaults_retry_settings_for_provider_steps(temp_workspace):
+    """Resume normalizes retry defaults before constructing the executor."""
+    workflow_path = temp_workspace / "provider_resume.yaml"
+    workflow_content = """
+version: "1.1"
+name: Provider Resume Workflow
+providers:
+  test_provider:
+    command: ["echo", "${PROMPT}"]
+steps:
+  - name: ProviderStep
+    provider: test_provider
+"""
+    workflow_path.write_text(workflow_content)
+    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
+
+    run_id = "provider-resume-run"
+    state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.json").write_text(json.dumps({
+        "schema_version": "1.1.1",
+        "run_id": run_id,
+        "workflow_file": str(workflow_path),
+        "workflow_checksum": checksum,
+        "started_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:01:00Z",
+        "status": "failed",
+        "context": {},
+        "steps": {
+            "ProviderStep": {"status": "failed", "exit_code": 1},
+        },
+    }, indent=2))
+
+    with patch('orchestrator.cli.commands.resume.WorkflowExecutor') as MockExecutor:
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = {
+            'status': 'completed',
+            'steps': {
+                'ProviderStep': {'status': 'completed', 'exit_code': 0},
+            },
+        }
+        MockExecutor.return_value = mock_executor
+
+        with patch('os.getcwd', return_value=str(temp_workspace)):
+            result = resume_workflow(run_id=run_id)
+
+        constructor_kwargs = MockExecutor.call_args.kwargs
+        assert constructor_kwargs['max_retries'] == 0
+        assert constructor_kwargs['retry_delay_ms'] == 1000
+
+        execute_kwargs = mock_executor.execute.call_args.kwargs
+        assert execute_kwargs['max_retries'] == 0
+        assert execute_kwargs['retry_delay_ms'] == 1000
+
+    assert result == 0
+
+
 def test_at4_resume_displays_progress_information(temp_workspace, partial_run_state, capsys):
     """Test that resume command displays progress information."""
     run_id, state_dir = partial_run_state

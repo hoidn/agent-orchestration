@@ -34,8 +34,8 @@ class RetryPolicy:
         Per AT-21: Provider steps retry on exit codes 1 and 124 by default.
         """
         return cls(
-            max_retries=max_retries,
-            delay_ms=delay_ms,
+            max_retries=0 if max_retries is None else max_retries,
+            delay_ms=0 if delay_ms is None else delay_ms,
             retryable_codes={1, 124}
         )
 
