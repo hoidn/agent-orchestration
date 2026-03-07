@@ -35,6 +35,17 @@ def create_parser() -> argparse.ArgumentParser:
         help='Path to JSON file containing context variables'
     )
     run_parser.add_argument(
+        '--input',
+        action='append',
+        metavar='NAME=VALUE',
+        help='Workflow signature inputs (can be specified multiple times)'
+    )
+    run_parser.add_argument(
+        '--input-file',
+        type=str,
+        help='Path to JSON file containing workflow signature inputs'
+    )
+    run_parser.add_argument(
         '--clean-processed',
         action='store_true',
         help='Empty processed directory before run'

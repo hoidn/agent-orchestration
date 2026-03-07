@@ -32,6 +32,7 @@ from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
 from .identity import iteration_step_id, runtime_step_id
+from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 
 logger = logging.getLogger(__name__)
 
@@ -188,7 +189,22 @@ class WorkflowExecutor:
     def _uses_qualified_identities(self) -> bool:
         """Return True when this workflow uses the post-Task-6 state model."""
         version = self.workflow.get("version")
-        return isinstance(version, str) and version == "2.0"
+        return isinstance(version, str) and version in {"2.0", "2.1"}
+
+    def _persist_workflow_boundary_state(self, state: Dict[str, Any]) -> None:
+        """Persist workflow-boundary inputs/outputs and run-level error metadata."""
+        bound_inputs = state.get('bound_inputs', {})
+        if not isinstance(bound_inputs, dict):
+            bound_inputs = {}
+            state['bound_inputs'] = bound_inputs
+
+        workflow_outputs = state.get('workflow_outputs', {})
+        if not isinstance(workflow_outputs, dict):
+            workflow_outputs = {}
+            state['workflow_outputs'] = workflow_outputs
+
+        self.state_manager.update_workflow_outputs(workflow_outputs)
+        self.state_manager.update_run_error(state.get('error') if isinstance(state.get('error'), dict) else None)
 
     def execute(self, run_id: Optional[str] = None, on_error: str = 'stop',
                 max_retries: Optional[int] = None, retry_delay_ms: Optional[int] = None,
@@ -223,6 +239,9 @@ class WorkflowExecutor:
         state.setdefault('artifact_consumes', {})
         state.setdefault('transition_count', 0)
         state.setdefault('step_visits', {})
+        state.setdefault('bound_inputs', {})
+        state.setdefault('workflow_outputs', {})
+        state.pop('error', None)
         state['_resolved_consumes'] = {}
         if state.get('status') != 'running':
             self.state_manager.update_status('running')
@@ -484,9 +503,25 @@ class WorkflowExecutor:
                     step_index += 1
         except Exception:
             terminal_status = 'failed'
-            raise
-        finally:
             self.state_manager.update_status(terminal_status)
+            raise
+
+        if terminal_status == 'completed':
+            try:
+                workflow_outputs = resolve_workflow_outputs(
+                    self.workflow.get('outputs'),
+                    state,
+                    workspace=self.workspace,
+                )
+            except WorkflowSignatureError as exc:
+                terminal_status = 'failed'
+                state['error'] = exc.error
+            else:
+                state['workflow_outputs'] = workflow_outputs
+                state.pop('error', None)
+
+        self._persist_workflow_boundary_state(state)
+        self.state_manager.update_status(terminal_status)
 
         # Preserve historical behavior for stop-on-error returns, which include
         # in-memory step payloads that may not have been mirrored to state.json.
@@ -2489,6 +2524,7 @@ class WorkflowExecutor:
                 'root': run_state.run_root or ''  # Use run_root from state
             },
             'context': context.get('context', self.variables),
+            'inputs': run_state.bound_inputs,
             'steps': steps_namespace,
         }
 
@@ -2522,6 +2558,16 @@ class WorkflowExecutor:
         if 'context' in context:
             for key, value in context['context'].items():
                 variables[f'context.{key}'] = str(value)
+
+        # Add workflow inputs namespace
+        if 'inputs' in context:
+            for key, value in context['inputs'].items():
+                variables[f'inputs.{key}'] = str(value)
+        else:
+            bound_inputs = state.get('bound_inputs', {})
+            if isinstance(bound_inputs, dict):
+                for key, value in bound_inputs.items():
+                    variables[f'inputs.{key}'] = str(value)
 
         # Add loop namespace if present
         if 'loop' in context:

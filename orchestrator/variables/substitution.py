@@ -1,6 +1,6 @@
 """
 Variable substitution implementation.
-Handles ${var} resolution with namespaces: run, loop, steps, context.
+Handles ${var} resolution with namespaces: run, loop, steps, context, inputs.
 Per specs/variables.md.
 """
 
@@ -17,6 +17,7 @@ class VariableSubstitutor:
     - loop: ${item}, ${loop.index}, ${loop.total}
     - steps: ${steps.<name>.exit_code}, ${steps.<name>.output|lines|json}
     - context: ${context.<key>}
+    - inputs: ${inputs.<name>}
     """
 
     # Pattern to match ${...} variables, handling escaped $$
@@ -138,6 +139,8 @@ class VariableSubstitutor:
             return self._resolve_path(variables.get('loop', {}), parts[1:])
         elif namespace == 'context':
             return self._resolve_path(variables.get('context', {}), parts[1:])
+        elif namespace == 'inputs':
+            return self._resolve_path(variables.get('inputs', {}), parts[1:])
         elif namespace == 'steps':
             return self._resolve_steps_variable(variables.get('steps', {}), parts[1:])
         elif namespace == 'item':
@@ -226,6 +229,10 @@ class VariableSubstitutor:
 
             # Add steps results
             variables['steps'] = run_state.get('steps', {})
+
+            bound_inputs = run_state.get('bound_inputs', {})
+            if isinstance(bound_inputs, dict):
+                variables['inputs'] = bound_inputs
 
         # Add context
         if context:

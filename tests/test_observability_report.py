@@ -129,6 +129,49 @@ def test_snapshot_surfaces_normalized_outcome_fields(tmp_path: Path):
     }
 
 
+def test_snapshot_marks_completed_for_each_summary_as_completed(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-loop"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow = {
+        "version": "1.3",
+        "name": "obs-loop",
+        "steps": [
+            {
+                "name": "Loop",
+                "for_each": {
+                    "items": ["one", "two"],
+                    "steps": [
+                        {
+                            "name": "Inner",
+                            "command": ["bash", "-lc", "echo inner"],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+    state = {
+        "run_id": "run-loop",
+        "status": "completed",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": "2026-02-27T00:00:05+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "steps": {
+            "Loop": [
+                {"Inner": {"status": "completed", "exit_code": 0}},
+                {"Inner": {"status": "completed", "exit_code": 0}},
+            ]
+        },
+    }
+
+    snapshot = build_status_snapshot(workflow, state, run_root)
+
+    assert snapshot["steps"][0]["status"] == "completed"
+    assert snapshot["progress"]["running"] == 0
+    assert snapshot["progress"]["completed"] == 1
+
+
 def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run3"
     logs = run_root / "logs"

@@ -1,7 +1,7 @@
 # CLI Contract (Normative)
 
 - Commands
-  - `orchestrate run <workflow.yaml> [--context k=v ...] [--context-file path] [--clean-processed] [--archive-processed <dst>]`
+  - `orchestrate run <workflow.yaml> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
   - `orchestrate resume <run_id>`
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
   - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <file>`, `orchestrate watch <workflow.yaml>`
@@ -30,6 +30,8 @@
 orchestrate run workflows/demo.yaml \
   --context key=value \
   --context-file context.json \
+  --input max_cycles=3 \
+  --input-file inputs.json \
   --clean-processed \           # Empty processed/ before run
   --archive-processed output.zip # Archive processed/ on success
 
@@ -66,6 +68,10 @@ orchestrate watch workflows/demo.yaml
 --repair                # Attempt state recovery
 --backup-state          # Backup state before each step
 --state-dir <path>      # Override default .orchestrate/runs
+
+# Workflow signatures (v2.1+)
+--input name=value      # Bind one workflow input
+--input-file <path>     # Bind workflow inputs from one JSON object file
 
 # Error handling
 --on-error stop|continue|interactive

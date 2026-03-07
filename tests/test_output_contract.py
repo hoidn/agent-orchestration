@@ -3,6 +3,7 @@
 from pathlib import Path
 
 import pytest
+import orchestrator.contracts.output_contract as output_contract_module
 
 from orchestrator.contracts.output_contract import (
     OutputContractError,
@@ -45,6 +46,32 @@ def test_validate_expected_outputs_parses_supported_types(tmp_path: Path):
         "approved_flag": True,
         "plan_path": "docs/plans/plan-a.md",
     }
+
+
+def test_validate_contract_value_accepts_native_json_scalars_and_relpaths(tmp_path: Path):
+    """Workflow-boundary contracts should validate both scalar JSON values and direct relpaths."""
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "task-a.md").write_text("# task\n")
+
+    assert output_contract_module.validate_contract_value(
+        7,
+        {"type": "integer"},
+        workspace=tmp_path,
+    ) == 7
+    assert output_contract_module.validate_contract_value(
+        True,
+        {"type": "bool"},
+        workspace=tmp_path,
+    ) is True
+    assert output_contract_module.validate_contract_value(
+        "docs/tasks/task-a.md",
+        {
+            "type": "relpath",
+            "under": "docs/tasks",
+            "must_exist_target": True,
+        },
+        workspace=tmp_path,
+    ) == "docs/tasks/task-a.md"
 
 
 def test_validate_expected_outputs_ignores_guidance_fields(tmp_path: Path):

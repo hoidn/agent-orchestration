@@ -14,6 +14,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.signatures import bind_workflow_inputs
 
 
 logger = logging.getLogger(__name__)
@@ -92,6 +93,36 @@ def parse_context(args: Namespace, workflow_context: Dict[str, Any] | None = Non
                 context[str(key)] = str(value)
 
     return context
+
+
+def parse_inputs(args: Namespace) -> Dict[str, Any]:
+    """Parse workflow-boundary inputs from CLI flags."""
+    inputs: Dict[str, Any] = {}
+
+    input_file = getattr(args, 'input_file', None)
+    if isinstance(input_file, str) and input_file:
+        input_file_path = Path(input_file)
+        if not input_file_path.exists():
+            raise FileNotFoundError(f"Input file not found: {input_file_path}")
+
+        with open(input_file_path, 'r') as f:
+            file_inputs = json.load(f)
+            if not isinstance(file_inputs, dict):
+                raise ValueError(
+                    f"Input file must contain a JSON object, got {type(file_inputs).__name__}"
+                )
+            for key, value in file_inputs.items():
+                inputs[str(key)] = value
+
+    raw_inputs = getattr(args, 'input', None)
+    if isinstance(raw_inputs, list):
+        for item in raw_inputs:
+            if '=' not in item:
+                raise ValueError(f"Invalid input format: {item}. Expected NAME=VALUE")
+            key, value = item.split('=', 1)
+            inputs[key] = value
+
+    return inputs
 
 
 def validate_clean_processed(workflow_path: Path, processed_dir: Path) -> None:
@@ -270,6 +301,13 @@ def run_workflow(args: Namespace) -> int:
                 logger.info(f"[DRY RUN] Would archive processed directory to: {archive_dest}")
 
         # Dry run mode - just validate
+        raw_inputs = parse_inputs(args)
+        bound_inputs = bind_workflow_inputs(
+            workflow.get('inputs'),
+            raw_inputs,
+            workspace=workspace,
+        )
+
         if args.dry_run:
             logger.info("[DRY RUN] Workflow validation successful")
             return 0
@@ -291,6 +329,7 @@ def run_workflow(args: Namespace) -> int:
         run_state = state_manager.initialize(
             str(workflow_path.relative_to(workspace)),
             context,
+            bound_inputs=bound_inputs,
             observability=observability,
         )
         logger.info(f"Created new run: {run_state.run_id}")

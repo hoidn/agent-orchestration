@@ -38,6 +38,7 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - `current_visit_count`: visit ordinal of the in-flight `current_step` when that step name is currently running
     - `last_result_visit_count`: visit ordinal recorded on the latest persisted result at `steps.<StepName>`
   - v2.0 status/report snapshots may expose `step_id` alongside display `name`; display names remain the human-facing label, while `step_id` is the durable lineage/resume identity.
+  - v2.1 status/report snapshots may expose `bound_inputs`, `workflow_outputs`, and any run-level workflow-boundary `error` object.
 
 ## Error Context (shape)
 

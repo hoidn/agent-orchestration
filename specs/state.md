@@ -10,6 +10,9 @@
   - Timestamps: `started_at`, `updated_at`
   - `status`: `running | completed | failed`
   - `context`: key/value map
+  - `bound_inputs`: v2.1+ typed workflow inputs bound before execution starts
+  - `workflow_outputs`: v2.1+ typed workflow outputs exported after successful workflow completion
+  - `error`: optional run-level error object for workflow-boundary failures such as output export contract violations
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
   - v1.2+ runtime dataflow fields:
@@ -41,6 +44,7 @@
   - v1.8 cycle-guard failures use `error.type: "cycle_guard_exceeded"` with `outcome.phase: "pre_execution"` and `outcome.class: "pre_execution_failed"`.
   - Tasks 1-5 of the DSL evolution roadmap were additive under schema `1.1.1`; v2.0 is the explicit stable-ID migration boundary.
   - Resume from pre-v2.0 state is rejected unless a dedicated upgrader is introduced in a later tranche.
+  - v2.1 workflow signatures reuse the v2.0 state schema and append `bound_inputs` / `workflow_outputs` as additive fields under the same `schema_version: "2.0"` boundary.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:
@@ -78,6 +82,10 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
   "updated_at": "2025-01-15T14:35:47Z",
   "status": "running",
   "context": { "key": "value" },
+  "bound_inputs": {
+    "max_cycles": 4
+  },
+  "workflow_outputs": {},
   "artifact_versions": {
     "execution_log": [
       {

@@ -84,18 +84,15 @@ def _coerce_step_status(step_result: Any) -> Optional[str]:
             return "completed"
         if isinstance(exit_code, int):
             return "failed"
+        child_statuses = [_coerce_step_status(value) for value in step_result.values()]
+        if child_statuses and all(status in {"completed", "failed", "skipped"} for status in child_statuses):
+            return "completed"
     elif isinstance(step_result, list):
         # for_each summary arrays are considered complete if all iterations settled.
-        complete = True
-        for item in step_result:
-            if not isinstance(item, dict):
-                complete = False
-                break
-            status = item.get("status")
-            if status not in {"completed", "skipped"}:
-                complete = False
-                break
-        return "completed" if complete else "running"
+        child_statuses = [_coerce_step_status(item) for item in step_result]
+        if child_statuses and all(status in {"completed", "failed", "skipped"} for status in child_statuses):
+            return "completed"
+        return "running"
     return None
 
 
@@ -240,6 +237,12 @@ def build_status_snapshot(
     }
     if status_reason:
         run_payload["status_reason"] = status_reason
+    if isinstance(state.get("bound_inputs"), dict):
+        run_payload["bound_inputs"] = state.get("bound_inputs", {})
+    if isinstance(state.get("workflow_outputs"), dict):
+        run_payload["workflow_outputs"] = state.get("workflow_outputs", {})
+    if isinstance(state.get("error"), dict):
+        run_payload["error"] = state.get("error")
 
     return {
         "run": {
@@ -272,6 +275,25 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
             ]
         ),
         "",
+    ]
+
+    bound_inputs = run.get("bound_inputs")
+    if isinstance(bound_inputs, dict) and bound_inputs:
+        lines.extend([
+            "## Inputs",
+            _render_kv_lines(sorted(bound_inputs.items())),
+            "",
+        ])
+
+    workflow_outputs = run.get("workflow_outputs")
+    if isinstance(workflow_outputs, dict) and workflow_outputs:
+        lines.extend([
+            "## Outputs",
+            _render_kv_lines(sorted(workflow_outputs.items())),
+            "",
+        ])
+
+    lines.extend([
         "## Progress",
         _render_kv_lines(
             [
@@ -285,7 +307,7 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
         ),
         "",
         "## Steps",
-    ]
+    ])
 
     for step in snapshot.get("steps", []):
         lines.append(f"### {step.get('name')} ({step.get('status')})")

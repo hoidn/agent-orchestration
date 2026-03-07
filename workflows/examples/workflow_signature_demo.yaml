@@ -1,0 +1,54 @@
+version: "2.1"
+name: workflow-signature-demo
+inputs:
+  task_path:
+    kind: relpath
+    type: relpath
+    under: workflows/examples/inputs
+    must_exist_target: true
+    description: Example task artifact copied into the generated report.
+  max_cycles:
+    kind: scalar
+    type: integer
+    default: 2
+    description: Maximum review cycles budget for this run.
+outputs:
+  report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/reports
+    must_exist_target: true
+    from:
+      ref: root.steps.GenerateReport.artifacts.report_path
+  cycles_used:
+    kind: scalar
+    type: integer
+    from:
+      ref: root.steps.GenerateReport.artifacts.cycles_used
+steps:
+  - name: GateCycleBudget
+    assert:
+      compare:
+        left:
+          ref: inputs.max_cycles
+        op: gte
+        right: 1
+
+  - name: GenerateReport
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p state artifacts/reports
+        cp "${inputs.task_path}" artifacts/reports/demo-task-report.md
+        printf 'artifacts/reports/demo-task-report.md\n' > state/report_path.txt
+        printf '%s\n' "${inputs.max_cycles}" > state/cycles_used.txt
+    expected_outputs:
+      - name: report_path
+        path: state/report_path.txt
+        type: relpath
+        under: artifacts/reports
+        must_exist_target: true
+      - name: cycles_used
+        path: state/cycles_used.txt
+        type: integer

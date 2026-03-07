@@ -115,6 +115,18 @@ class ReferenceResolver:
     ) -> ResolvedReference:
         scope_map = scope if isinstance(scope, dict) else None
 
+        if ref.startswith("inputs."):
+            input_name = ref[len("inputs."):]
+            if not input_name:
+                raise ReferenceResolutionError(f"Invalid structured ref '{ref}'")
+            if scope_map is not None and "inputs" in scope_map:
+                bound_inputs = scope_map.get("inputs")
+            else:
+                bound_inputs = state.get("bound_inputs", {})
+            if not isinstance(bound_inputs, dict) or input_name not in bound_inputs:
+                raise ReferenceResolutionError(f"Structured ref '{ref}' is unavailable")
+            return ResolvedReference(bound_inputs[input_name])
+
         if ref.startswith("root.steps."):
             if scope_map is not None and "root_steps" in scope_map:
                 step_results = scope_map.get("root_steps")

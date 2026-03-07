@@ -100,6 +100,18 @@ steps:
         assert loaded_state.transition_count == 4
         assert loaded_state.step_visits == {"LoopStart": 2, "GuardLoop": 2}
 
+    def test_bound_inputs_and_workflow_outputs_persist_across_reload(self, temp_workspace, workflow_file):
+        """Workflow-boundary inputs and outputs survive state reloads."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file, bound_inputs={"max_cycles": 3})
+        manager.update_workflow_outputs({"report_ready": True})
+
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded_state = manager2.load()
+
+        assert loaded_state.bound_inputs == {"max_cycles": 3}
+        assert loaded_state.workflow_outputs == {"report_ready": True}
+
     def test_at4_step_result_recording(self, temp_workspace, workflow_file):
         """AT-4: Record step results in state."""
         manager = StateManager(temp_workspace)

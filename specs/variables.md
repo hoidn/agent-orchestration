@@ -6,6 +6,7 @@
   - Step results: `${steps.<name>.exit_code}`, `${steps.<name>.output|lines|json}`, `${steps.<name>.duration_ms}`
   - Contract artifacts: `${steps.<name>.artifacts.<artifact_name>}` (available only when the source step keeps artifact persistence enabled)
   - Context: `${context.<key>}`
+  - Workflow inputs (v2.1+): `${inputs.<name>}`
 
 - Where variables are substituted
   - Provider templates and `provider_params` values
@@ -13,6 +14,7 @@
   - File paths (e.g., `input_file`, `output_file`)
   - Conditions (`when.equals.left/right`)
   - Dependency globs in `depends_on` and `wait_for.glob`
+  - Workflow-signature consumers: command arrays, provider params, deterministic file paths, and first-class `assert`/typed predicates may all read `${inputs.*}` or `ref: inputs.*`
 
 - Where variables are not substituted
   - File contents: files referenced by `input_file`, `output_file`, or other file parameters are passed literally.

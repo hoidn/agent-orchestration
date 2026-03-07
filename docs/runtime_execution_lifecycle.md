@@ -9,7 +9,7 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 
 ```text
 1) Load + validate workflow YAML (version-gated strict schema)
-2) Initialize run root and state.json
+2) Bind workflow `inputs` (v2.1+, if declared), then initialize run root and state.json
 3) Iterate steps in graph order (or goto targets)
 4) For each step:
    a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
@@ -22,7 +22,7 @@ Normative behavior is defined by `specs/`. This file is explanatory.
    g) compute next step (`on.success`, `on.failure`, `on.always`, fallback flow)
    h) increment `transition_count` if control transfers into another top-level step
 5) Terminate at `_end`, terminal step, or failure policy
-6) Persist final run status and report artifacts
+6) Export workflow `outputs` (v2.1+, if declared and no `finally` is involved), then persist final run status and report artifacts
 ```
 
 Identity note:

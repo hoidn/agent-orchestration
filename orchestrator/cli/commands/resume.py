@@ -213,7 +213,9 @@ def resume_workflow(
         )
         state_manager.initialize(
             workflow_file=str(workflow_path),
-            context=workflow.get('context', {})
+            context=workflow.get('context', {}),
+            bound_inputs=getattr(state, 'bound_inputs', {}),
+            observability=observability,
         )
     else:
         # Find the next step to execute

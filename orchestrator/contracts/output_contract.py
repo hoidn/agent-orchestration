@@ -33,6 +33,32 @@ class OutputContractError(Exception):
         super().__init__("; ".join(messages))
 
 
+def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Path) -> Any:
+    """Validate one in-memory typed value against an output-style contract."""
+    resolved_workspace = workspace.resolve()
+    value_type = spec.get("type")
+
+    if isinstance(raw_value, str):
+        parsed_value, violation = _parse_output_value(
+            raw_value=raw_value.strip(),
+            value_type=value_type,
+            spec=spec,
+            workspace=resolved_workspace,
+        )
+    else:
+        parsed_value, violation = _parse_output_bundle_value(
+            raw_value=raw_value,
+            value_type=value_type,
+            spec=spec,
+            workspace=resolved_workspace,
+        )
+
+    if violation is not None:
+        raise OutputContractError([violation])
+
+    return parsed_value
+
+
 def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace: Path) -> Dict[str, Any]:
     """Validate expected output artifacts and return typed artifact values."""
     resolved_workspace = workspace.resolve()

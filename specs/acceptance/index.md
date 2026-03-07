@@ -138,6 +138,11 @@
 128. v2.0 stable identity: authored ids preserve `step_id` values across sibling insertion; compiler-generated ids are not promised stable across checksum-changing edits
 129. v2.0 qualified lineage: `for_each` producer/consumer lineage uses qualified internal identities rather than bare display names
 130. v2.0 schema boundary: resume rejects pre-v2.0 state unless an explicit upgrader exists
+131. v2.1 loader gating: top-level `inputs` and `outputs` are rejected below `version: "2.1"`
+132. v2.1 input binding: `run --input/--input-file` binds typed workflow inputs before execution and persists them under `bound_inputs`
+133. v2.1 input read surfaces: workflow steps may read bound inputs through `${inputs.<name>}` and typed `ref: inputs.<name>`
+134. v2.1 output export contracts: loader rejects missing `outputs.<name>.from`, and successful runs export validated `workflow_outputs`
+135. v2.1 workflow-output failure shape: unresolved export refs or invalid exported values fail the run with a run-level `contract_violation` error scoped to `workflow_outputs`
 
 ## DSL Evolution Rollout Crosswalk
 
@@ -146,6 +151,7 @@
 - Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/scalar_bookkeeping_demo.yaml`
 - Task 5 executable proof: `tests/test_control_flow_foundations.py`, `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_retry_behavior.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/cycle_guard_demo.yaml`
 - Task 6 executable proof: `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_at65_loop_scoping.py`, and `workflows/examples/for_each_demo.yaml` dry-run verification
+- Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, `tests/test_workflow_output_contract_integration.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/workflow_signature_demo.yaml`
 - Later-task roadmap proof ownership remains as written in `docs/plans/2026-03-06-dsl-evolution-execution-plan.md`; those tranches are not accepted until their named test/smoke blocks land with the corresponding implementation.
 
 ## Future Acceptance (v1.2)

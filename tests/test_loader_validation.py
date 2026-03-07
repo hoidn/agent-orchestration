@@ -202,6 +202,76 @@ class TestLoaderValidation:
         assert any("${env.*} namespace not allowed" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_typed_assert_rejects_multiple_operator_keys(self):
+        """Typed predicate nodes must declare exactly one operator."""
+        workflow = {
+            "version": "1.6",
+            "name": "typed-predicate-multi-key",
+            "steps": [
+                {
+                    "name": "WriteReady",
+                    "command": ["echo", "ok"],
+                    "expected_outputs": [{
+                        "name": "ready",
+                        "path": "state/ready.txt",
+                        "type": "bool",
+                    }],
+                },
+                {
+                    "name": "GateReady",
+                    "assert": {
+                        "artifact_bool": {"ref": "root.steps.WriteReady.artifacts.ready"},
+                        "compare": {"left": 1, "op": "eq", "right": 1},
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("exactly one typed predicate operator" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_nested_typed_predicates_reject_multiple_operator_keys(self):
+        """Nested typed predicates under all_of/any_of/not keep the same exclusivity rule."""
+        workflow = {
+            "version": "1.6",
+            "name": "typed-predicate-nested-multi-key",
+            "steps": [
+                {
+                    "name": "WriteReady",
+                    "command": ["echo", "ok"],
+                    "expected_outputs": [{
+                        "name": "ready",
+                        "path": "state/ready.txt",
+                        "type": "bool",
+                    }],
+                },
+                {
+                    "name": "GateReady",
+                    "assert": {
+                        "all_of": [
+                            {
+                                "artifact_bool": {"ref": "root.steps.WriteReady.artifacts.ready"},
+                                "compare": {"left": 1, "op": "eq", "right": 2},
+                            }
+                        ]
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("exactly one typed predicate operator" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_scalar_bookkeeping_requires_version_1_7(self):
         """Scalar bookkeeping steps are gated to v1.7+."""
         workflow = {
@@ -295,6 +365,57 @@ class TestLoaderValidation:
 
         assert exc_info.value.exit_code == 2
         assert any("id requires version '2.0'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_workflow_inputs_require_version_2_1(self):
+        """Workflow signatures are gated after the v2.0 stable-id tranche."""
+        workflow = {
+            "version": "2.0",
+            "name": "signature-gated",
+            "inputs": {
+                "max_cycles": {
+                    "kind": "scalar",
+                    "type": "integer",
+                }
+            },
+            "steps": [{
+                "name": "RunCheck",
+                "id": "run_check",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("inputs requires version '2.1'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_workflow_outputs_require_from_binding(self):
+        """Workflow outputs must declare an explicit export source."""
+        workflow = {
+            "version": "2.1",
+            "name": "missing-output-source",
+            "outputs": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "steps": [{
+                "name": "RunCheck",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("outputs.review_decision missing required 'from'" in str(err.message)
                   for err in exc_info.value.errors)
 
     def test_v2_scoped_refs_allow_self_and_parent_in_nested_steps(self):

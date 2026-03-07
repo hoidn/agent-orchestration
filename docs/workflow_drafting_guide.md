@@ -76,6 +76,7 @@ Two practical upgrades now exist:
 - v1.6: use typed predicates plus structured `ref:` for booleans, numeric thresholds, and recovered-failure routing instead of stringly `when.equals` hacks.
 - v1.8: use `max_visits` and `max_transitions` instead of shell counters or ad hoc file-backed loop budgets when the goal is simply to cap a raw `goto` loop.
 - v2.0: when authoring new typed predicates in nested scopes, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
+- v2.1: prefer typed workflow `inputs`/`outputs` over ad hoc `context` conventions when the value is part of the workflow boundary and should survive validation, resume, and later `call` reuse.
 
 ## 5) Prompt Authoring Guidance
 

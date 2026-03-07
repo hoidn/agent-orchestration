@@ -5,11 +5,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..variables.substitution import VariableSubstitutor
-from .predicates import TypedPredicateEvaluator
+from .predicates import TYPED_PREDICATE_OPERATOR_KEYS, TypedPredicateEvaluator
 
 
 LEGACY_CONDITION_TYPES = ['equals', 'exists', 'not_exists']
-TYPED_PREDICATE_TYPES = ['artifact_bool', 'compare', 'all_of', 'any_of', 'not']
+TYPED_PREDICATE_TYPES = list(TYPED_PREDICATE_OPERATOR_KEYS)
 
 
 class ConditionEvaluator:

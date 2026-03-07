@@ -10,6 +10,7 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.predicates import PredicateEvaluationError, TypedPredicateEvaluator
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -25,6 +26,36 @@ def _load_executor(workspace: Path, workflow: dict, run_id: str = "typed-predica
     state_manager = StateManager(workspace=workspace, run_id=run_id)
     state_manager.initialize("workflow.yaml")
     return WorkflowExecutor(loaded, workspace, state_manager)
+
+
+def test_typed_predicate_evaluator_rejects_multi_operator_nodes():
+    evaluator = TypedPredicateEvaluator()
+    state = {
+        "steps": {
+            "WriteReady": {
+                "artifacts": {"ready": True},
+            }
+        }
+    }
+
+    predicates = [
+        {
+            "artifact_bool": {"ref": "root.steps.WriteReady.artifacts.ready"},
+            "compare": {"left": 1, "op": "eq", "right": 1},
+        },
+        {
+            "all_of": [
+                {
+                    "artifact_bool": {"ref": "root.steps.WriteReady.artifacts.ready"},
+                    "compare": {"left": 1, "op": "eq", "right": 2},
+                }
+            ]
+        },
+    ]
+
+    for predicate in predicates:
+        with pytest.raises(PredicateEvaluationError):
+            evaluator.evaluate(predicate, state)
 
 
 def test_typed_assert_false_exits_with_assert_failed_and_failure_goto(tmp_path: Path):

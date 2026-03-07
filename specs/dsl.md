@@ -1,12 +1,27 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", or "2.0"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", or "2.1"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
   - Queue defaults: `inbox_dir`, `processed_dir`, `failed_dir`, `task_extension` (see `queue.md`).
   - `context`: key/value map available via `${context.*}` (see `variables.md`).
+  - `inputs`: workflow-boundary input contracts (v2.1+).
+    - Separate contract family from the v1.2+ artifact registry; no pointer semantics.
+    - Keys are input names; values reuse typed contract fields:
+      - `kind: relpath|scalar` (optional; default `relpath`)
+      - `type: enum|integer|float|bool|relpath` (required)
+      - `allowed: string[]` (enum only)
+      - `under`, `must_exist_target` (relpath only)
+      - `required: boolean` (optional; default true)
+      - `default` (optional)
+      - `description: string` (optional)
+    - Successful binding is exposed inside the workflow through `${inputs.<name>}` and typed `ref: inputs.<name>`.
+  - `outputs`: workflow-boundary output contracts (v2.1+).
+    - Keys are output names; values reuse the same typed contract fields as `inputs` plus required `from`.
+    - `from` must be exactly `{ ref: "root.steps.<Step>.artifacts.<name>|exit_code|outcome.<field>" }`.
+    - Export validation runs after the workflow body completes successfully.
   - `artifacts`: map of named artifact contracts (v1.2+).
     - `kind: relpath|scalar` (optional; default `relpath`)
     - `type: enum|integer|float|bool|relpath` (required)
@@ -145,6 +160,8 @@
         - `self.steps.<Step>...` addresses the current lexical scope
         - `parent.steps.<Step>...` addresses the immediately enclosing lexical scope
         - bare `steps.<Name>...` remains invalid in the structured `ref:` model
+      - v2.1 workflow signatures:
+        - `inputs.<name>` addresses one bound workflow input
     - `assert`: gate object; any of
       - v1.5: legacy `equals|exists|not_exists`
       - v1.6+: legacy conditions or typed predicates
@@ -177,6 +194,7 @@
     - `set_scalar` and `increment_scalar` require `version: "1.7"` or higher.
     - `max_transitions` and `max_visits` require `version: "1.8"` or higher.
     - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
+    - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.
@@ -204,6 +222,8 @@ name: string                    # Human-friendly name
 strict_flow: boolean            # Default: true; non-zero exit halts unless on.failure.goto present
 context: { [key: string]: any } # Optional key/value map available via ${context.*}
 max_transitions: integer        # v1.8+ optional workflow-level cycle budget (> 0)
+inputs: { [name: string]: WorkflowInput }   # v2.1+ workflow-boundary typed inputs
+outputs: { [name: string]: WorkflowOutput } # v2.1+ workflow-boundary typed outputs
 
 # v1.2+: canonical artifact contracts for publish/consume dataflow
 artifacts:                      # Optional

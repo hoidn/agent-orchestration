@@ -5,9 +5,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 import yaml
 
+from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
+from orchestrator.workflow.predicates import typed_predicate_operator_keys
 from orchestrator.workflow.references import ReferenceResolutionError, parse_structured_ref
+from orchestrator.workflow.signatures import WORKFLOW_SIGNATURE_VERSION
 
 
 class PreservingLoader(yaml.SafeLoader):
@@ -34,18 +37,21 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
-    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0"]
+    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1"]
 
     def __init__(self, workspace: Path):
         """Initialize loader with workspace root."""
         self.workspace = workspace.resolve()
         self.errors: List[ValidationError] = []
+        self._workflow_input_specs: Dict[str, Dict[str, Any]] = {}
 
     def load(self, workflow_path: Path) -> Dict[str, Any]:
         """Load and validate workflow YAML."""
+        self.errors = []
+        self._workflow_input_specs = {}
         try:
             with open(workflow_path, 'r') as f:
                 workflow = yaml.load(f, Loader=PreservingLoader)
@@ -77,13 +83,18 @@ class WorkflowLoader:
 
         # Validate steps
         steps = workflow.get('steps', [])
+        root_catalog: Dict[str, Any] = {}
         if not steps:
             self._add_error("'steps' field is required and must not be empty")
         else:
-            self._validate_steps(steps, version, workflow.get('artifacts'))
+            root_catalog = self._build_root_ref_catalog(steps, workflow.get('artifacts'))
+            self._validate_steps(steps, version, workflow.get('artifacts'), root_catalog=root_catalog)
             if version == "1.2":
                 all_steps = self._collect_all_steps(steps)
                 self._validate_dataflow_cross_references(all_steps, workflow.get('artifacts'))
+
+        if 'outputs' in workflow:
+            self._validate_workflow_outputs(workflow['outputs'], version, root_catalog)
 
         # Validate goto targets
         self._validate_goto_targets(workflow)
@@ -100,7 +111,7 @@ class WorkflowLoader:
         known_fields = {
             'version', 'name', 'strict_flow', 'context', 'providers', 'secrets',
             'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps',
-            'artifacts', 'max_transitions'
+            'artifacts', 'max_transitions', 'inputs', 'outputs'
         }
 
         # Strict unknown field rejection (skip if version is invalid/empty)
@@ -137,6 +148,175 @@ class WorkflowLoader:
                     "max_transitions",
                     allow_zero=False,
                 )
+
+        if 'inputs' in workflow:
+            if not self._version_at_least(version, WORKFLOW_SIGNATURE_VERSION):
+                self._add_error(f"inputs requires version '{WORKFLOW_SIGNATURE_VERSION}'")
+            else:
+                self._validate_workflow_inputs(workflow['inputs'])
+
+        if 'outputs' in workflow and not self._version_at_least(version, WORKFLOW_SIGNATURE_VERSION):
+            self._add_error(f"outputs requires version '{WORKFLOW_SIGNATURE_VERSION}'")
+
+    def _validate_workflow_inputs(self, inputs: Any) -> None:
+        """Validate top-level workflow input contracts."""
+        if not isinstance(inputs, dict):
+            self._add_error("'inputs' must be a dictionary")
+            return
+
+        self._workflow_input_specs = {}
+        for input_name, spec in inputs.items():
+            context = f"inputs.{input_name}"
+            if not isinstance(input_name, str) or not input_name.strip():
+                self._add_error(f"{context}: input name must be a non-empty string")
+                continue
+
+            self._validate_workflow_signature_contract(spec, context, allow_from=False)
+            if isinstance(spec, dict):
+                self._workflow_input_specs[input_name] = spec
+
+    def _validate_workflow_outputs(
+        self,
+        outputs: Any,
+        version: str,
+        root_catalog: Dict[str, Any],
+    ) -> None:
+        """Validate top-level workflow output contracts and export refs."""
+        if not isinstance(outputs, dict):
+            self._add_error("'outputs' must be a dictionary")
+            return
+
+        scope_artifacts = root_catalog.get('artifacts', {})
+        scope_multi_visit = root_catalog.get('multi_visit', set())
+        scope_non_step_results = root_catalog.get('non_step_results', set())
+
+        for output_name, spec in outputs.items():
+            context = f"outputs.{output_name}"
+            if not isinstance(output_name, str) or not output_name.strip():
+                self._add_error(f"{context}: output name must be a non-empty string")
+                continue
+
+            self._validate_workflow_signature_contract(spec, context, allow_from=True)
+            if not isinstance(spec, dict):
+                continue
+
+            binding = spec.get('from')
+            ref = binding.get('ref') if isinstance(binding, dict) else None
+            if not isinstance(ref, str) or not ref:
+                continue
+            if not ref.startswith('root.steps.'):
+                self._add_error(f"{context}.from must reference root.steps.*")
+                continue
+
+            ref_type = self._validate_structured_ref(
+                ref,
+                f"workflow output '{output_name}'",
+                version,
+                root_catalog,
+                scope_artifacts,
+                scope_multi_visit,
+                None,
+                None,
+                scope_non_step_results,
+                None,
+            )
+            declared_type = spec.get('type')
+            if ref_type == 'unknown' or not isinstance(declared_type, str):
+                continue
+            if declared_type == ref_type:
+                continue
+            if declared_type == 'float' and ref_type == 'integer':
+                continue
+            self._add_error(
+                f"{context}.from resolves to '{ref_type}' but output declares '{declared_type}'"
+            )
+
+    def _validate_workflow_signature_contract(
+        self,
+        spec: Any,
+        context: str,
+        *,
+        allow_from: bool,
+    ) -> None:
+        """Validate one workflow-boundary input/output contract."""
+        if not isinstance(spec, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        allowed_fields = {'kind', 'type', 'allowed', 'under', 'must_exist_target', 'description'}
+        if allow_from:
+            allowed_fields.add('from')
+        else:
+            allowed_fields.update({'required', 'default'})
+
+        for field_name in spec.keys():
+            if field_name not in allowed_fields:
+                self._add_error(f"{context}: unknown field '{field_name}'")
+
+        kind = spec.get('kind', 'relpath')
+        if not isinstance(kind, str):
+            self._add_error(f"{context}.kind must be a string")
+            kind = 'relpath'
+        elif kind not in {'relpath', 'scalar'}:
+            self._add_error(f"{context}.kind invalid kind '{kind}'")
+
+        output_type = spec.get('type')
+        if output_type is None:
+            self._add_error(f"{context} missing required 'type'")
+        elif not isinstance(output_type, str):
+            self._add_error(f"{context}.type must be a string")
+        elif output_type not in self.SUPPORTED_OUTPUT_TYPES:
+            self._add_error(f"{context}.type invalid type '{output_type}'")
+
+        if 'description' in spec and not isinstance(spec['description'], str):
+            self._add_error(f"{context}.description must be a string")
+
+        if not allow_from and 'required' in spec and not isinstance(spec['required'], bool):
+            self._add_error(f"{context}.required must be a boolean")
+
+        if kind == 'relpath':
+            if output_type is not None and output_type != 'relpath':
+                self._add_error(f"{context}: kind 'relpath' requires type 'relpath'")
+            if 'under' in spec:
+                if not isinstance(spec['under'], str):
+                    self._add_error(f"{context}.under must be a string")
+                else:
+                    self._validate_path_safety(spec['under'], f"{context}.under")
+            if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
+                self._add_error(f"{context}.must_exist_target must be a boolean")
+        elif kind == 'scalar':
+            if output_type not in {'enum', 'integer', 'float', 'bool'}:
+                self._add_error(
+                    f"{context}: kind 'scalar' requires type one of enum|integer|float|bool"
+                )
+            if 'under' in spec:
+                self._add_error(f"{context}: kind 'scalar' forbids 'under'")
+            if 'must_exist_target' in spec:
+                self._add_error(f"{context}: kind 'scalar' forbids 'must_exist_target'")
+
+        if output_type == 'enum' and 'allowed' not in spec:
+            self._add_error(f"{context} enum type requires 'allowed'")
+        if 'allowed' in spec and not isinstance(spec['allowed'], list):
+            self._add_error(f"{context}.allowed must be a list")
+
+        if not allow_from and 'default' in spec:
+            try:
+                validate_contract_value(spec['default'], spec, workspace=self.workspace)
+            except OutputContractError as exc:
+                self._add_error(
+                    f"{context}.default is invalid: {exc}"
+                )
+
+        if allow_from:
+            binding = spec.get('from')
+            if binding is None:
+                self._add_error(f"{context} missing required 'from'")
+            elif not isinstance(binding, dict):
+                self._add_error(f"{context}.from must be a dictionary")
+            elif set(binding.keys()) != {'ref'}:
+                self._add_error(f"{context}.from must be exactly {{ref: ...}}")
+            elif not isinstance(binding.get('ref'), str) or not binding.get('ref'):
+                self._add_error(f"{context}.from.ref must be a non-empty string")
 
     def _validate_secrets(self, secrets: Any):
         """Validate secrets configuration."""
@@ -1092,6 +1272,13 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': typed predicate must be a dictionary")
             return
 
+        present_keys = typed_predicate_operator_keys(predicate)
+        if len(present_keys) != 1:
+            self._add_error(
+                f"Step '{step_name}': typed predicate nodes must declare exactly one typed predicate operator"
+            )
+            return
+
         if 'artifact_bool' in predicate:
             node = predicate['artifact_bool']
             if not isinstance(node, dict):
@@ -1269,6 +1456,23 @@ class WorkflowLoader:
         if not isinstance(ref, str) or not ref:
             self._add_error(f"Step '{step_name}': structured refs must be non-empty strings")
             return 'unknown'
+        if ref.startswith('inputs.'):
+            if not self._version_at_least(version, WORKFLOW_SIGNATURE_VERSION):
+                self._add_error(
+                    f"Step '{step_name}': inputs refs are not available before workflow signatures land"
+                )
+                return 'unknown'
+            input_name = ref[len('inputs.'):]
+            if not input_name:
+                self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
+                return 'unknown'
+            spec = self._workflow_input_specs.get(input_name)
+            if not isinstance(spec, dict):
+                self._add_error(
+                    f"Step '{step_name}': structured ref '{ref}' targets unknown input '{input_name}'"
+                )
+                return 'unknown'
+            return spec.get('type', 'unknown')
         if ref.startswith('steps.'):
             self._add_error(
                 f"Step '{step_name}': bare 'steps.' refs are invalid in structured predicates"

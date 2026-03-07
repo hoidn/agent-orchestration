@@ -22,6 +22,7 @@ EXAMPLE_FILES = [
     "test_fix_loop_v0.yaml",
     "typed_predicate_routing.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
+    "workflow_signature_demo.yaml",
 ]
 
 
@@ -289,6 +290,32 @@ def test_typed_predicate_routing_runtime(tmp_path: Path):
     assert state["steps"]["RunCheck"]["outcome"]["class"] == "command_failed"
     assert state["steps"]["GateRecoveredFailure"]["status"] == "completed"
     assert state["steps"]["RunHighScorePath"]["status"] == "completed"
+
+
+def test_workflow_signature_demo_runtime(tmp_path: Path):
+    """Workflow-signature demo binds typed inputs and exports typed workflow outputs."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "workflow_signature_demo.yaml")
+    _copy_repo_file_to_workspace(workspace, "workflows/examples/inputs/demo-task.md")
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_relpath,
+        bound_inputs={
+            "task_path": "workflows/examples/inputs/demo-task.md",
+            "max_cycles": 3,
+        },
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "report_path": "artifacts/reports/demo-task-report.md",
+        "cycles_used": 3,
+    }
 
 
 def test_scalar_bookkeeping_demo_runtime(tmp_path: Path):

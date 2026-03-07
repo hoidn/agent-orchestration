@@ -79,6 +79,9 @@ class RunState:
     status: StateStatus
     run_root: Optional[str] = None  # Path to .orchestrate/runs/<run_id>
     context: Dict[str, Any] = field(default_factory=dict)
+    bound_inputs: Dict[str, Any] = field(default_factory=dict)
+    workflow_outputs: Dict[str, Any] = field(default_factory=dict)
+    error: Optional[Dict[str, Any]] = None
     observability: Optional[Dict[str, Any]] = None
     current_step: Optional[Dict[str, Any]] = None
     steps: Dict[str, Any] = field(default_factory=dict)
@@ -99,6 +102,8 @@ class RunState:
             "updated_at": self.updated_at,
             "status": self.status,
             "context": self.context,
+            "bound_inputs": self.bound_inputs,
+            "workflow_outputs": self.workflow_outputs,
             "steps": {},
             "for_each": {},
             "artifact_versions": self.artifact_versions,
@@ -112,6 +117,8 @@ class RunState:
             result["run_root"] = self.run_root
         if self.observability is not None:
             result["observability"] = self.observability
+        if self.error is not None:
+            result["error"] = self.error
         if self.current_step is not None:
             result["current_step"] = self.current_step
 
@@ -152,6 +159,9 @@ class RunState:
             status=data["status"],
             run_root=data.get("run_root"),  # Optional, may not be present in older states
             context=data.get("context", {}),
+            bound_inputs=data.get("bound_inputs", {}),
+            workflow_outputs=data.get("workflow_outputs", {}),
+            error=data.get("error"),
             observability=data.get("observability"),
             current_step=data.get("current_step"),
             steps=data.get("steps", {}),
@@ -219,6 +229,7 @@ class StateManager:
         self,
         workflow_file: str,
         context: Optional[Dict[str, Any]] = None,
+        bound_inputs: Optional[Dict[str, Any]] = None,
         observability: Optional[Dict[str, Any]] = None,
     ) -> RunState:
         """Initialize a new run state.
@@ -254,6 +265,7 @@ class StateManager:
                 status="running",
                 run_root=str(self.run_root),  # Store run_root path
                 context=context or {},
+                bound_inputs=bound_inputs or {},
                 observability=observability,
             )
 
@@ -409,6 +421,24 @@ class StateManager:
 
             self.state.artifact_versions = artifact_versions
             self.state.artifact_consumes = artifact_consumes
+            self._write_state()
+
+    def update_workflow_outputs(self, workflow_outputs: Dict[str, Any]):
+        """Persist workflow-boundary exported outputs."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            self.state.workflow_outputs = workflow_outputs
+            self._write_state()
+
+    def update_run_error(self, error: Optional[Dict[str, Any]]):
+        """Persist or clear run-level error metadata."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            self.state.error = error
             self._write_state()
 
     def update_control_flow_counters(

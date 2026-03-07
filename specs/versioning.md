@@ -85,13 +85,20 @@
   - Artifact lineage/freshness bookkeeping moves to qualified internal identities, including per-iteration `for_each` producer/consumer keys.
   - Resume from pre-v2.0 state is rejected unless a future tranche ships an explicit upgrader.
 
+- v2.1 additions (workflow signatures)
+  - Top-level `inputs` and `outputs` declare typed workflow-boundary contracts without pointer-file semantics.
+  - CLI `run` supports `--input name=value` and `--input-file <json>` binding for top-level workflow inputs.
+  - Successful binding is exposed inside the workflow through `${inputs.<name>}` and typed `ref: inputs.<name>`.
+  - Successful workflow completion may export `workflow_outputs` by validating each declared `outputs.<name>.from` binding against the same typed contract family.
+  - This tranche remains on state schema `2.0`; `bound_inputs` and `workflow_outputs` are additive top-level state fields.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
   - `v1.7`: D2a scalar bookkeeping
   - `v1.8`: D3 cycle guards
   - `v2.0`: D4-D5 scoped refs + stable internal IDs
-  - `v2.1` (planned): D6 workflow signatures
+  - `v2.1`: D6 workflow signatures
   - `v2.2` (planned): D7 structured `if/else`
   - `v2.3` (planned): D8 `finally`
   - `v2.4` (planned docs/contract boundary): D9 reusable-call contract
@@ -216,5 +223,6 @@ Planned acceptance:
 | 1.6 | Typed predicates, structured `ref:`, normalized `outcome.*` fields | Opt-in typed gate surface; no reinterpretation of legacy `${steps.*}` semantics. |
 | 1.7 | `set_scalar`, `increment_scalar` | Narrow runtime primitive for local scalar artifact production plus normal `publishes.from` lineage. |
 | 1.8 | `max_transitions`, `max_visits` | Resume-safe cycle guards for top-level raw-graph workflows with persisted transition/visit counters. |
+| 2.1 | Top-level `inputs`/`outputs`, `${inputs.*}`, `ref: inputs.*`, and CLI input binding | Typed workflow-boundary signatures layered on top of the v2.0 identity/state model. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

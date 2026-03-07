@@ -49,6 +49,141 @@ def test_command_step_fails_when_expected_output_missing(tmp_path: Path):
     assert result["error"]["type"] == "contract_violation"
 
 
+def test_workflow_signature_binds_inputs_and_exports_outputs(tmp_path: Path):
+    """v2.1 workflows should expose bound inputs and export validated workflow outputs."""
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "task-a.md").write_text("# task\n")
+
+    workflow = {
+        "version": "2.1",
+        "name": "workflow-signature-success",
+        "inputs": {
+            "task_path": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "docs/tasks",
+                "must_exist_target": True,
+            },
+            "max_cycles": {
+                "kind": "scalar",
+                "type": "integer",
+            },
+        },
+        "outputs": {
+            "report_path": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "artifacts/reports",
+                "must_exist_target": True,
+                "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
+            },
+            "cycles_used": {
+                "kind": "scalar",
+                "type": "integer",
+                "from": {"ref": "root.steps.GenerateReport.artifacts.cycles_used"},
+            },
+        },
+        "steps": [{
+            "name": "GenerateReport",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p state artifacts/reports && "
+                "cp \"${inputs.task_path}\" artifacts/reports/report.md && "
+                "printf 'artifacts/reports/report.md\\n' > state/report_path.txt && "
+                "printf '%s\\n' \"${inputs.max_cycles}\" > state/cycles_used.txt",
+            ],
+            "expected_outputs": [
+                {
+                    "name": "report_path",
+                    "path": "state/report_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/reports",
+                    "must_exist_target": True,
+                },
+                {
+                    "name": "cycles_used",
+                    "path": "state/cycles_used.txt",
+                    "type": "integer",
+                },
+            ],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={
+            "task_path": "docs/tasks/task-a.md",
+            "max_cycles": 4,
+        },
+    )
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["bound_inputs"] == {
+        "task_path": "docs/tasks/task-a.md",
+        "max_cycles": 4,
+    }
+    assert state["workflow_outputs"] == {
+        "report_path": "artifacts/reports/report.md",
+        "cycles_used": 4,
+    }
+
+
+def test_workflow_output_export_fails_when_export_contract_is_invalid(tmp_path: Path):
+    """Workflow output export should fail the run when the exported value violates its contract."""
+    workflow = {
+        "version": "2.1",
+        "name": "workflow-signature-invalid-export",
+        "outputs": {
+            "report_path": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "artifacts/reports",
+                "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
+            },
+        },
+        "steps": [{
+            "name": "GenerateReport",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p state docs/export && "
+                "printf '# report\\n' > docs/export/outside.md && "
+                "printf 'docs/export/outside.md\\n' > state/report_path.txt",
+            ],
+            "expected_outputs": [
+                {
+                    "name": "report_path",
+                    "path": "state/report_path.txt",
+                    "type": "relpath",
+                }
+            ],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    assert state["status"] == "failed"
+    assert state["error"]["type"] == "contract_violation"
+    assert state["error"]["context"]["scope"] == "workflow_outputs"
+
+
 def test_command_step_persists_artifacts_when_contract_is_valid(tmp_path: Path):
     """Validated artifacts are persisted under steps.<name>.artifacts."""
     workflow = {

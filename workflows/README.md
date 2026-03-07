@@ -47,6 +47,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/test_validation.yml` | `1.1` | `validation test` | Loader-validation fixture showing valid and intentionally commented invalid forms. |
 | `workflows/examples/typed_predicate_routing.yaml` | `1.6` | `typed-predicate-routing` | Demonstrates structured `ref:` predicates against step artifacts and normalized recovered-failure outcomes. |
 | `workflows/examples/unit_of_work_plus_test_fix_v0.yaml` | `1.1.1` | `unit-of-work-plus-test-fix-v0` | Unit-of-work execution followed by a bounded post-work test/fix loop. |
+| `workflows/examples/workflow_signature_demo.yaml` | `2.1` | `workflow-signature-demo` | Demonstrates typed workflow `inputs`/`outputs`, `${inputs.*}` substitution, `ref: inputs.*` gating, and validated workflow output export. |
 | `workflows/examples/wait_for_example.yaml` | `1.1` | `wait-for-example` | Minimal `wait_for` example for task-file arrival polling. |
 
 ## Related Docs

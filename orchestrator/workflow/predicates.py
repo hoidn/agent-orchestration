@@ -6,9 +6,16 @@ from typing import Any, Dict, Optional
 
 from .references import ReferenceResolutionError, ReferenceResolver
 
+TYPED_PREDICATE_OPERATOR_KEYS = ("artifact_bool", "compare", "all_of", "any_of", "not")
+
 
 class PredicateEvaluationError(ValueError):
     """Raised when a typed predicate cannot be evaluated."""
+
+
+def typed_predicate_operator_keys(predicate: Dict[str, Any]) -> list[str]:
+    """Return the typed predicate operators present on one predicate node."""
+    return [key for key in TYPED_PREDICATE_OPERATOR_KEYS if key in predicate]
 
 
 class TypedPredicateEvaluator:
@@ -25,6 +32,10 @@ class TypedPredicateEvaluator:
     ) -> bool:
         if not isinstance(predicate, dict):
             raise PredicateEvaluationError("Typed predicate must be a dictionary")
+
+        present_keys = typed_predicate_operator_keys(predicate)
+        if len(present_keys) != 1:
+            raise PredicateEvaluationError("Typed predicate nodes must declare exactly one operator")
 
         if "artifact_bool" in predicate:
             node = predicate["artifact_bool"]

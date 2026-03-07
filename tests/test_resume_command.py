@@ -221,6 +221,53 @@ def test_resume_rejects_pre_task6_schema_state(temp_workspace, sample_workflow, 
     assert "1.1.1" in captured.err
 
 
+@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
+@patch('orchestrator.cli.commands.resume.WorkflowLoader')
+def test_resume_preserves_bound_inputs_in_loaded_state(mock_loader, mock_executor, temp_workspace, sample_workflow):
+    """Persisted workflow-signature inputs should remain available after resume reload."""
+    workflow_path, checksum = sample_workflow
+    run_id = "bound-inputs-run"
+    state_dir = temp_workspace / '.orchestrate' / 'runs' / run_id
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.json").write_text(json.dumps({
+        "schema_version": StateManager.SCHEMA_VERSION,
+        "run_id": run_id,
+        "workflow_file": str(workflow_path),
+        "workflow_checksum": checksum,
+        "started_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:01:00Z",
+        "status": "failed",
+        "context": {},
+        "bound_inputs": {"max_cycles": 5},
+        "steps": {},
+    }, indent=2))
+
+    mock_loader.return_value.load.return_value = {
+        "version": "2.1",
+        "name": "resume-signature",
+        "inputs": {
+            "max_cycles": {
+                "kind": "scalar",
+                "type": "integer",
+            }
+        },
+        "steps": [],
+    }
+    mock_executor.return_value.execute.return_value = {"status": "completed"}
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    state_manager = mock_executor.call_args.kwargs["state_manager"]
+    assert state_manager.state is not None
+    assert state_manager.state.bound_inputs == {"max_cycles": 5}
+
+
 def test_at4_resume_completed_run(temp_workspace, sample_workflow):
     """Test resuming a run that has already completed."""
     workflow_path, checksum = sample_workflow

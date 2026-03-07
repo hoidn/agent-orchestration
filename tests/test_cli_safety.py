@@ -303,6 +303,62 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
+    def test_run_workflow_passes_bound_inputs_to_state(self, mock_loader, mock_state, mock_executor):
+        """Workflow-signature runs should bind typed CLI inputs before state initialization."""
+        mock_loader.return_value.load.return_value = {
+            'version': '2.1',
+            'name': 'signature-test',
+            'inputs': {
+                'max_cycles': {
+                    'kind': 'scalar',
+                    'type': 'integer',
+                }
+            },
+            'steps': [],
+        }
+
+        mock_state_inst = MagicMock()
+        mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
+        mock_state.return_value = mock_state_inst
+
+        mock_executor_inst = MagicMock()
+        mock_executor_inst.execute.return_value = True
+        mock_executor.return_value = mock_executor_inst
+
+        args = MagicMock()
+        args.workflow = str(self.workflow_file)
+        args.input = ['max_cycles=5']
+        args.input_file = None
+        args.context = None
+        args.context_file = None
+        args.clean_processed = False
+        args.archive_processed = None
+        args.dry_run = False
+        args.debug = False
+        args.quiet = False
+        args.verbose = False
+        args.log_level = 'info'
+        args.backup_state = False
+        args.state_dir = None
+        args.on_error = 'stop'
+        args.max_retries = 0
+        args.retry_delay = 1000
+        args.stream_output = False
+        args.step_summaries = False
+        args.summary_mode = None
+        args.summary_provider = 'claude_sonnet_summary'
+        args.summary_timeout_sec = 120
+        args.summary_max_input_chars = 12000
+
+        result = run_workflow(args)
+
+        self.assertEqual(result, 0)
+        init_kwargs = mock_state_inst.initialize.call_args.kwargs
+        self.assertEqual(init_kwargs['bound_inputs'], {'max_cycles': 5})
+
+    @patch('orchestrator.cli.commands.run.WorkflowExecutor')
+    @patch('orchestrator.cli.commands.run.StateManager')
+    @patch('orchestrator.cli.commands.run.WorkflowLoader')
     def test_run_workflow_passes_stream_output_to_executor(self, mock_loader, mock_state, mock_executor):
         """run_workflow should pass a dedicated stream-output flag into the executor."""
         mock_loader.return_value.load.return_value = {
