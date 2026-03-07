@@ -14,6 +14,7 @@ EXAMPLE_FILES = [
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
     "dsl_follow_on_plan_impl_review_loop.yaml",
+    "dsl_tracked_plan_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
     "test_fix_loop_v0.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
@@ -485,3 +486,146 @@ def test_dsl_follow_on_plan_impl_review_loop_runtime(tmp_path: Path):
         "implementation_review_report": 1,
         "plan": 2,
     }
+
+
+def test_dsl_tracked_plan_review_loop_runtime(tmp_path: Path):
+    """Tracked plan review loop carries forward only unresolved findings and exits when highs reach zero."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "dsl_tracked_plan_review_loop.yaml"
+    )
+    for prompt_file in [
+        "prompts/workflows/dsl_tracked_plan_review_loop/draft_plan.md",
+        "prompts/workflows/dsl_tracked_plan_review_loop/review_plan.md",
+        "prompts/workflows/dsl_tracked_plan_review_loop/revise_plan.md",
+    ]:
+        _copy_repo_file_to_workspace(workspace, prompt_file)
+    _copy_repo_file_to_workspace(workspace, "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md")
+
+    review_calls = {"count": 0}
+
+    def _write_plan(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/plan_path.txt",
+                "docs/plans/2026-03-06-dsl-evolution-execution-plan.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_review(ws: Path) -> None:
+        import json
+
+        review_calls["count"] += 1
+        report_relpath = (ws / "state" / "plan_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if review_calls["count"] == 1:
+            payload = {
+                "decision": "REVISE",
+                "summary": "One blocking finding remains.",
+                "unresolved_high_count": 1,
+                "unresolved_medium_count": 0,
+                "findings": [
+                    {
+                        "id": "PLAN-H1",
+                        "status": "STILL_OPEN",
+                        "severity": "high",
+                        "title": "Missing typed assert coverage",
+                    },
+                    {
+                        "id": "PLAN-M1",
+                        "status": "RESOLVED",
+                        "severity": "medium",
+                        "title": "Legacy loop coverage added",
+                    },
+                ],
+            }
+        else:
+            payload = {
+                "decision": "APPROVE",
+                "summary": "No unresolved high findings remain.",
+                "unresolved_high_count": 0,
+                "unresolved_medium_count": 1,
+                "findings": [
+                    {
+                        "id": "PLAN-H1",
+                        "status": "RESOLVED",
+                        "severity": "high",
+                        "title": "Missing typed assert coverage",
+                    },
+                    {
+                        "id": "PLAN-M2",
+                        "status": "NEW",
+                        "severity": "medium",
+                        "title": "Final sweep should retain one more smoke check",
+                    },
+                ],
+            }
+        report_path.write_text(json.dumps(payload, indent=2) + "\n")
+        (ws / "state" / "plan_review_decision.txt").write_text(f"{payload['decision']}\n")
+        (ws / "state" / "unresolved_high_count.txt").write_text(f"{payload['unresolved_high_count']}\n")
+        (ws / "state" / "unresolved_medium_count.txt").write_text(f"{payload['unresolved_medium_count']}\n")
+
+    def _write_resolution(ws: Path) -> None:
+        import json
+
+        resolution_relpath = (ws / "state" / "plan_resolution_report_path.txt").read_text().strip()
+        resolution_path = ws / resolution_relpath
+        resolution_path.parent.mkdir(parents=True, exist_ok=True)
+        resolution_path.write_text(
+            json.dumps(
+                {
+                    "addressed": [
+                        {
+                            "id": "PLAN-H1",
+                            "change_summary": "Task 3 now broadens assert to typed predicates.",
+                        }
+                    ],
+                    "not_addressed": [],
+                },
+                indent=2,
+            )
+            + "\n"
+        )
+        _write_plan("# Revised tracked plan\n")(ws)
+
+    state = _run_with_mocked_providers(
+        workspace=workspace,
+        workflow_path=workflow_path,
+        workflow_relpath=workflow_relpath,
+        provider_sequence=["DraftPlan", "ReviewPlanTracked", "RevisePlanTracked", "ReviewPlanTracked"],
+        provider_writers={
+            "DraftPlan": _write_plan("# Draft tracked plan\n"),
+            "ReviewPlanTracked": _write_review,
+            "RevisePlanTracked": _write_resolution,
+        },
+    )
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 4
+    assert state["steps"]["IncrementPlanCycle"]["artifacts"]["plan_cycle"] == 1
+
+    review_versions = state.get("artifact_versions", {}).get("plan_review_report", [])
+    assert [entry["value"] for entry in review_versions] == [
+        "artifacts/review/plan-review-cycle-0.json",
+        "artifacts/review/plan-review-cycle-1.json",
+    ]
+
+    open_findings_versions = state.get("artifact_versions", {}).get("open_findings", [])
+    assert [entry["value"] for entry in open_findings_versions] == [
+        "artifacts/review/open-findings-seed.json",
+        "artifacts/review/open-findings-cycle-1.json",
+    ]
+
+    carried_findings = (workspace / "artifacts" / "review" / "open-findings-cycle-1.json").read_text()
+    assert '"id": "PLAN-H1"' in carried_findings
+    assert '"status": "STILL_OPEN"' in carried_findings
+    assert "PLAN-M1" not in carried_findings
+
+    review_consumes = state.get("artifact_consumes", {}).get("ReviewPlanTracked", {})
+    assert review_consumes == {"design": 1, "open_findings": 2, "plan": 2}
+
+    revise_consumes = state.get("artifact_consumes", {}).get("RevisePlanTracked", {})
+    assert revise_consumes == {"design": 1, "plan": 1, "plan_review_report": 1}
