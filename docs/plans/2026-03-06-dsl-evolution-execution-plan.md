@@ -69,13 +69,18 @@ Document which tranches require `schema_version` updates, new persisted counters
 Add acceptance cases for:
 - `assert_failed` vs contract/preflight failures
 - statically invalid `ref:` targets
+- load-time rejection of `ref:` operands that target provably multi-visit steps in the first D2 tranche
+- statically provable predicate type errors, including `artifact_bool` against non-`bool` artifacts and ordered comparisons against non-numeric / `relpath` / `enum` operands
 - runtime-only predicate failures
 - scalar local-value typing and `publishes.from` composition
 - `max_visits` / `max_transitions` resume behavior
 - top-level workflow input binding / output export
+- workflow-output export contract failures for missing `from`, unresolved sources, and type-invalid or invalid-`relpath` exports
 - top-level output export withholding until finalization completes, plus suppression on finalization failure
 - branch/block output visibility
 - `call` export boundaries and relative-path taxonomy
+- reusable-workflow rejection when DSL-managed write roots stay hard-coded instead of being surfaced as typed `relpath` inputs
+- call-site rejection for missing required write-root bindings or aliased per-invocation write roots where concurrent/repeated calls would collide
 - caller-visible `call` producer identity plus preserved callee-internal provenance
 - call-scoped `artifact_versions`, `artifact_consumes`, and `since_last_consume` freshness across call frames
 - callee output export withholding until callee finalization completes, plus suppression on callee finalization failure
@@ -169,6 +174,8 @@ Cover:
 - `compare` with `eq|ne|lt|lte|gt|gte`
 - `all_of|any_of|not`
 - root-scoped `ref: root.steps.<Step>...`
+- load-time rejection of `ref:` operands that point at provably multi-visit or otherwise ambiguous step identities
+- static type rejection for `artifact_bool` on non-`bool` artifacts and ordered comparisons on non-numeric / `relpath` / `enum` operands
 - statically invalid refs rejected at load time
 - runtime-only missing values producing structured predicate failures
 
@@ -182,9 +189,9 @@ Project step results into:
 
 Keep this projection available only for observable step results and document the normalization matrix in the spec.
 
-**Step 3: Preserve legacy loop scoping**
+**Step 3: Enforce the first-tranche safety boundary in the loader**
 
-Typed predicates must resolve structured refs directly and must not reuse `${...}` string substitution. In the first tranche, allow only root-scoped single-visit step refs plus literals.
+Typed predicates must resolve structured refs directly and must not reuse `${...}` string substitution. In the first tranche, allow only root-scoped single-visit step refs plus literals, reject provably multi-visit targets at load time, and fail statically provable predicate type mismatches during workflow validation instead of deferring them to runtime.
 
 **Step 4: Surface the new fields in reports and examples**
 
@@ -328,6 +335,7 @@ Risk focus: counter semantics must stay stable under retry, skip, and resume or 
 - Modify: `tests/test_loader_validation.py`
 - Modify: `tests/test_control_flow_foundations.py`
 - Modify: `tests/test_resume_command.py`
+- Modify: `tests/test_workflow_output_contract_integration.py`
 - Create: `workflows/examples/workflow_signature_demo.yaml`
 - Create: `workflows/examples/inputs/workflow_signature_demo.json`
 - Modify: `workflows/README.md`
@@ -359,7 +367,7 @@ Define the first concrete top-level input binding path in CLI/runtime terms. Ext
 
 **Step 5: Add direct end-to-end signature verification before `call` depends on it**
 
-Create one example workflow that consumes a bound input and exports a typed output, then cover the same path in targeted tests so the verification evidence proves input binding, output export timing, and persisted bound inputs across resume.
+Create one example workflow that consumes a bound input and exports a typed output, then cover the same path in targeted tests so the verification evidence proves input binding, output export timing, persisted bound inputs across resume, and contract-style failures for missing `outputs[*].from`, unresolved export sources, and invalid typed or `relpath` output exports.
 
 **Step 6: Keep resume behavior explicit**
 
@@ -371,6 +379,7 @@ Run:
 ```bash
 pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_cli_safety.py tests/test_resume_command.py -k "step_id or scoped_ref or inputs or outputs or bound_inputs" -v
 pytest tests/test_artifact_dataflow_integration.py -k "qualified or lineage or freshness" -v
+pytest tests/test_workflow_output_contract_integration.py -k "workflow output or signature" -v
 pytest tests/test_workflow_examples_v0.py -k workflow_signature -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --state-dir /tmp/dsl-evolution-workflow-signature-demo
@@ -495,11 +504,11 @@ Document the dedicated source-relative asset surface for reusable workflows, and
 
 **Step 2: Specify the accepted operational-risk boundary**
 
-Document the first `call` tranche as inline and non-isolating, require write-root parameterization for reusable workflows, and state that undeclared child-process filesystem effects remain an accepted risk rather than a loader-proved invariant. If the existing registry/pointer state cannot represent call-scoped internal producer/consumer identities cleanly, schedule the explicit versioned artifact-state change here instead of deferring it into Task 10 implementation.
+Document the first `call` tranche as inline and non-isolating, require every DSL-managed reusable-workflow write root to be surfaced as a typed `relpath` input, require call sites to bind distinct per-invocation write roots where repeated/concurrent calls could alias the same managed paths, and state that undeclared child-process filesystem effects remain an accepted risk rather than a loader-proved invariant. If the existing registry/pointer state cannot represent call-scoped internal producer/consumer identities cleanly, schedule the explicit versioned artifact-state change here instead of deferring it into Task 10 implementation.
 
 **Step 3: Add acceptance coverage for the contract boundary**
 
-Add normative acceptance entries covering caller/callee version compatibility, typed `with:` binding against callee inputs, declared-output export boundaries, caller-visible external producer identity for exported call outputs, preserved callee-internal provenance metadata, call-scoped `artifact_versions` / `artifact_consumes` / `since_last_consume` freshness bookkeeping, callee output export timing after callee finalization, and the diagnostic/reporting surfaces expected for call frames.
+Add normative acceptance entries covering caller/callee version compatibility, typed `with:` binding against callee inputs, declared-output export boundaries, reusable-workflow rejection when managed write roots are hard-coded instead of parameterized typed `relpath` inputs, call-site rejection for missing or colliding required write-root bindings, caller-visible external producer identity for exported call outputs, preserved callee-internal provenance metadata, call-scoped `artifact_versions` / `artifact_consumes` / `since_last_consume` freshness bookkeeping, callee output export timing after callee finalization, and the diagnostic/reporting surfaces expected for call frames.
 
 **Verification:**
 
@@ -548,6 +557,8 @@ Cover:
 - imported workflows validating independently
 - caller/callee same-version requirement in the first tranche
 - typed `with:` binding against callee inputs
+- reusable-workflow rejection when DSL-managed write roots remain fixed instead of parameterized typed `relpath` inputs
+- call-site rejection when required write-root inputs are missing or when repeated/concurrent calls bind colliding managed paths
 - caller-visible outputs surfacing as `steps.<CallStep>.artifacts.<name>`
 - exported call outputs entering caller-visible lineage with the outer call step as the external producer
 - preserved callee-internal provenance and qualified `artifact_versions` / `artifact_consumes` / `since_last_consume` bookkeeping inside the call frame
@@ -565,7 +576,7 @@ Keep `call` inline within the same run, but record call-frame-local identities i
 
 **Step 4: Make the operational-risk boundary explicit**
 
-Do not promise loader-enforced proof of child-process filesystem effects. Require parameterized write roots for reusable workflows and document the remaining risk in the spec and authoring guide.
+Do not promise loader-enforced proof of child-process filesystem effects. Enforce the managed-write-root contract the runtime can actually check: reusable workflows must expose DSL-managed write roots as typed `relpath` inputs, and call sites must bind non-colliding values for those inputs when multiple invocations could share a workspace. Document the remaining risk in the spec and authoring guide.
 
 **Verification:**
 
@@ -746,6 +757,8 @@ pytest tests/test_loader_validation.py \
        tests/test_state_manager.py \
        tests/test_resume_command.py \
        tests/test_artifact_dataflow_integration.py \
+       tests/test_prompt_contract_injection.py \
+       tests/test_provider_integration.py \
        tests/test_structured_control_flow.py \
        tests/test_subworkflow_calls.py \
        tests/test_observability_report.py \
