@@ -1199,3 +1199,93 @@ def test_provider_prompt_injection_renders_scalar_consumed_value(tmp_path: Path)
     state = executor.execute()
     assert state["steps"]["ReviewPlan"]["exit_code"] == 0
     assert "- failed_count: 3" in captured["prompt"]
+
+
+def test_v2_nested_provider_prompt_consumes_uses_iteration_scoped_consume_identity(tmp_path: Path):
+    """Looped provider steps inject prompt_consumes from their iteration-qualified consume state."""
+    (tmp_path / "prompts").mkdir()
+    original_prompt = "Review check outcomes.\n"
+    (tmp_path / "prompts" / "review.md").write_text(original_prompt)
+
+    workflow = {
+        "version": "2.0",
+        "name": "nested-provider-prompt-consumes",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "artifacts": {
+            "failed_count": {
+                "kind": "scalar",
+                "type": "integer",
+            }
+        },
+        "steps": [
+            {
+                "name": "SeedCount",
+                "id": "seed_count",
+                "set_scalar": {
+                    "artifact": "failed_count",
+                    "value": 3,
+                },
+                "publishes": [{
+                    "artifact": "failed_count",
+                    "from": "failed_count",
+                }],
+            },
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "for_each": {
+                    "items": ["one"],
+                    "steps": [
+                        {
+                            "name": "ReviewPlan",
+                            "id": "review_plan",
+                            "provider": "mock_provider",
+                            "input_file": "prompts/review.md",
+                            "consumes": [{
+                                "artifact": "failed_count",
+                                "producers": ["SeedCount"],
+                                "policy": "latest_successful",
+                                "freshness": "any",
+                            }],
+                            "prompt_consumes": ["failed_count"],
+                        }
+                    ],
+                },
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["ReviewLoop[0].ReviewPlan"]["exit_code"] == 0
+    assert "- failed_count: 3" in captured["prompt"]

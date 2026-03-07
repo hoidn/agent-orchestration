@@ -505,6 +505,33 @@ class TestLoaderValidation:
         assert any("max_visits is only supported on top-level steps" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_max_visits_does_not_bypass_execution_field_exclusivity(self):
+        """max_visits must not suppress command/provider exclusivity validation."""
+        workflow = {
+            "version": "1.8",
+            "name": "invalid-max-visits-step",
+            "providers": {
+                "mock_provider": {
+                    "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                    "input_mode": "stdin",
+                }
+            },
+            "steps": [{
+                "name": "BadStep",
+                "max_visits": 1,
+                "provider": "mock_provider",
+                "command": ["bash", "-lc", "echo invalid"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("mutually exclusive" in str(err.message) for err in exc_info.value.errors)
+
     def test_at38_absolute_path_rejected(self):
         """AT-38: Absolute paths rejected at validation."""
         workflow = {

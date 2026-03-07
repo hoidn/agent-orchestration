@@ -260,6 +260,57 @@ steps:
         assert 'context.undefined' in error['context']['undefined_vars']
 
 
+def test_at63_undefined_variables_normalize_to_pre_execution_for_typed_routing():
+    """Undefined substitution failures remain observable as pre-execution typed outcomes."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        workspace = Path(tmpdir) / "workspace"
+        workspace.mkdir()
+
+        workflow_path = workspace / "workflow.yaml"
+        workflow_content = """
+version: "1.6"
+steps:
+  - name: BadCommand
+    command: echo "Value is ${context.undefined_key}"
+    on:
+      failure:
+        goto: CheckFailure
+  - name: CheckFailure
+    assert:
+      compare:
+        left:
+          ref: root.steps.BadCommand.outcome.phase
+        op: eq
+        right: pre_execution
+"""
+        workflow_path.write_text(workflow_content)
+
+        loader = WorkflowLoader(workspace)
+        workflow = loader.load(workflow_path)
+
+        state_dir = workspace / ".orchestrate/runs/test"
+        state_dir.mkdir(parents=True)
+        state_manager = StateManager(state_dir)
+        state_manager.initialize(
+            str(workflow_path),
+            context={"defined_key": "value1"},
+        )
+
+        executor = WorkflowExecutor(workflow, workspace, state_manager)
+        executor.execute(on_error="continue")
+
+        state = state_manager.load()
+        bad_command = state.steps["BadCommand"]
+        assert bad_command["error"]["type"] == "undefined_variables"
+        assert bad_command["outcome"] == {
+            "status": "failed",
+            "phase": "pre_execution",
+            "class": "pre_execution_failed",
+            "retryable": False,
+        }
+        assert state.steps["CheckFailure"]["status"] == "completed"
+
+
 if __name__ == "__main__":
     # Run the tests
     test_at63_undefined_variable_in_command()

@@ -200,10 +200,10 @@ def test_loader_rejects_refs_to_multi_visit_steps(tmp_path: Path):
     assert any("multi-visit" in str(err.message) for err in exc_info.value.errors)
 
 
-def test_runtime_predicate_missing_value_fails_with_structured_error(tmp_path: Path):
+def test_loader_rejects_missing_root_step_exit_code_refs(tmp_path: Path):
     workflow = {
         "version": "1.6",
-        "name": "predicate-missing-value",
+        "name": "predicate-missing-step",
         "steps": [{
             "name": "Gate",
             "assert": {
@@ -216,10 +216,90 @@ def test_runtime_predicate_missing_value_fails_with_structured_error(tmp_path: P
         }],
     }
 
-    executor = _load_executor(tmp_path, workflow, run_id="predicate-missing")
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        loader.load(workflow_file)
+
+    assert any("targets unknown step" in str(err.message) for err in exc_info.value.errors)
+
+
+def test_loader_rejects_unknown_outcome_members(tmp_path: Path):
+    workflow = {
+        "version": "1.6",
+        "name": "predicate-invalid-outcome-field",
+        "steps": [
+            {
+                "name": "First",
+                "command": ["bash", "-lc", "exit 0"],
+            },
+            {
+                "name": "Gate",
+                "assert": {
+                    "compare": {
+                        "left": {"ref": "root.steps.First.outcome.not_a_field"},
+                        "op": "eq",
+                        "right": "execution",
+                    }
+                },
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        loader.load(workflow_file)
+
+    assert any("invalid outcome field" in str(err.message) for err in exc_info.value.errors)
+
+
+def test_runtime_predicate_missing_self_scope_value_fails_with_structured_error(tmp_path: Path):
+    workflow = {
+        "version": "2.0",
+        "name": "predicate-missing-self-value",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+        },
+        "steps": [{
+            "name": "Loop",
+            "id": "loop",
+            "for_each": {
+                "items": ["one"],
+                "steps": [
+                    {
+                        "name": "Gate",
+                        "id": "gate",
+                        "assert": {
+                            "compare": {
+                                "left": {"ref": "self.steps.Future.exit_code"},
+                                "op": "eq",
+                                "right": 0,
+                            }
+                        },
+                    },
+                    {
+                        "name": "Future",
+                        "id": "future",
+                        "set_scalar": {
+                            "artifact": "ready",
+                            "value": True,
+                        },
+                    },
+                ],
+            },
+        }],
+    }
+
+    executor = _load_executor(tmp_path, workflow, run_id="predicate-missing-self")
     state = executor.execute(on_error="continue")
 
-    gate = state["steps"]["Gate"]
+    gate = state["steps"]["Loop[0].Gate"]
     assert gate["status"] == "failed"
     assert gate["exit_code"] == 2
     assert gate["error"]["type"] == "predicate_evaluation_failed"

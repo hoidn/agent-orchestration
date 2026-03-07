@@ -268,7 +268,7 @@ class WorkflowLoader:
                         f"Step '{name}': max_visits",
                         allow_zero=False,
                     )
-            elif exec_count > 1:
+            if exec_count > 1:
                 # AT-10: Mutual exclusivity
                 present = [f for f in execution_fields if f in step]
                 if 'assert' in present:
@@ -1257,15 +1257,28 @@ class WorkflowLoader:
                 return 'unknown'
             tail = parts[3:]
 
+        if target_step not in artifacts_catalog:
+            self._add_error(
+                f"Step '{step_name}': structured ref '{ref}' targets unknown step '{target_step}'"
+            )
+            return 'unknown'
+
         if tail == ['exit_code']:
             return 'integer'
         if len(tail) == 2 and tail[0] == 'outcome':
-            return {
+            outcome_types = {
                 'status': 'string',
                 'phase': 'string',
                 'class': 'string',
                 'retryable': 'bool',
-            }.get(tail[1], 'unknown')
+            }
+            outcome_type = outcome_types.get(tail[1])
+            if outcome_type is None:
+                self._add_error(
+                    f"Step '{step_name}': structured ref '{ref}' targets invalid outcome field '{tail[1]}'"
+                )
+                return 'unknown'
+            return outcome_type
         if len(tail) == 2 and tail[0] == 'artifacts':
             artifact_name = tail[1]
             artifacts = artifacts_catalog.get(target_step, {})

@@ -1494,6 +1494,7 @@ class WorkflowExecutor:
                         nested_context,
                         state,
                         iteration_state,
+                        runtime_step_id=nested_runtime_step_id,
                     )
                     publish_error = self._record_published_artifacts(
                         nested_step,
@@ -1557,6 +1558,7 @@ class WorkflowExecutor:
         context: Dict[str, Any],
         state: Dict[str, Any],
         iteration_state: Dict[str, Any],
+        runtime_step_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         scope = {
             'self_steps': iteration_state,
@@ -1566,7 +1568,12 @@ class WorkflowExecutor:
         if 'command' in step:
             return self._execute_command_with_context(step, context, state)
         if 'provider' in step:
-            return self._execute_provider_with_context(step, context, state)
+            return self._execute_provider_with_context(
+                step,
+                context,
+                state,
+                runtime_step_id=runtime_step_id,
+            )
         if 'assert' in step:
             return self._execute_assert(step, state, context=context, scope=scope)
         if 'set_scalar' in step:
@@ -1727,7 +1734,8 @@ class WorkflowExecutor:
         self,
         step: Dict[str, Any],
         context: Dict[str, Any],
-        state: Dict[str, Any]
+        state: Dict[str, Any],
+        runtime_step_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute a provider step with variable substitution context.
@@ -1866,6 +1874,7 @@ class WorkflowExecutor:
             step.get('name', f'step_{self.current_step}'),
             prompt,
             state,
+            runtime_step_id=runtime_step_id,
         )
 
         # Deterministic output contract prompt suffix (provider steps only).
@@ -2090,6 +2099,7 @@ class WorkflowExecutor:
         step_name: str,
         prompt: str,
         state: Dict[str, Any],
+        runtime_step_id: Optional[str] = None,
     ) -> str:
         """Inject resolved consume values into provider prompts (v1.2)."""
         if step.get('inject_consumes', True) is False:
@@ -2108,7 +2118,8 @@ class WorkflowExecutor:
             self._uses_qualified_identities()
             and (not isinstance(step_consumed_values, dict) or not step_consumed_values)
         ):
-            step_consumed_values = resolved_consumes.get(self._step_id(step), {})
+            consume_identity = runtime_step_id or self._step_id(step)
+            step_consumed_values = resolved_consumes.get(consume_identity, {})
         if not isinstance(step_consumed_values, dict) or not step_consumed_values:
             return prompt
 
@@ -2594,6 +2605,8 @@ class WorkflowExecutor:
         if normalized_class is None:
             if error_type == 'assert_failed':
                 normalized_class = 'assert_failed'
+            elif error_type == 'undefined_variables':
+                normalized_class = 'pre_execution_failed'
             elif error_type == 'contract_violation':
                 normalized_class = 'contract_violation'
             elif error_type == 'timeout' or finalized.get('timed_out') or finalized.get('exit_code') == 124:

@@ -1,10 +1,12 @@
-Updated Task 6 after implementation review. Fixed three confirmed gaps: `for_each` loop bodies now execute nested `assert`, `set_scalar`, `increment_scalar`, and `wait_for` steps through a real dispatcher with scoped typed-ref evaluation; compiler-generated internal `step_id` tokens are deduplicated within each lexical sibling scope; and the loader now rejects `parent.steps.*` structured refs that target provably multi-visit parent/root steps. Added regression coverage for the compiler-token collision case, the ambiguous `parent.steps.*` cycle case, and runtime execution of nested v2.0 loop steps that combine scalar bookkeeping, `wait_for`, and scoped `assert`.
+Addressed the implementation-review follow-up for the DSL evolution work. Fixed five confirmed gaps: the loader now rejects structured refs that target unknown steps or invalid `outcome.*` fields before runtime; `self.steps.*` resolution no longer falls back to root state when a local scope is present but empty; undefined-variable command failures now normalize to `outcome = {class: pre_execution_failed, phase: pre_execution}` so typed routing can observe them correctly; nested v2.0 provider steps now look up `prompt_consumes` using their iteration-qualified consumer identity; and `max_visits` no longer suppresses execution-field exclusivity validation.
 
-Remaining risk: nested execution is still limited to the current `for_each` model; compiler-generated ids are now unique but only authored `id` values provide source-stable identities across broader structural edits; there is still no upgrader for pre-v2.0 state; and later tranches (`inputs`/`outputs`, structured control flow, `call`) still need to build on this foundation.
+Added regression coverage for each reviewed bug: missing root-step refs, invalid normalized-outcome field refs, preserved runtime missing-value failures inside scoped refs, undefined-variable typed routing, self-scope isolation within `for_each`, nested provider consume injection, and `max_visits` plus command/provider exclusivity.
 
 Verification run:
-- `pytest --collect-only tests/test_loader_validation.py tests/test_at65_loop_scoping.py -q` (`79 tests collected`)
-- `pytest tests/test_loader_validation.py -k "compiler_generated_step_ids_disambiguate_colliding_names or v2_parent_refs_reject_multi_visit_targets" -v` (`2 passed`)
-- `pytest tests/test_at65_loop_scoping.py -k "v2_nested_steps_execute_with_scoped_refs_inside_for_each" -v` (`1 passed`)
-- `pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_state_manager.py tests/test_resume_command.py -k 'step_id or scoped_ref or schema' -v` (`8 passed, 90 deselected`)
-- `pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k 'legacy or qualified or lineage or freshness or for_each or loop_scoping or nested_steps_execute' -v` (`24 passed, 11 deselected`)
+- `pytest --collect-only tests/test_typed_predicates.py tests/test_loader_validation.py tests/test_at63_undefined_variables.py tests/test_at65_loop_scoping.py tests/test_prompt_contract_injection.py -q` (`110 tests collected`)
+- `pytest tests/test_typed_predicates.py -k "missing_root_step_exit_code_refs or unknown_outcome_members or missing_self_scope_value" -v` (`3 passed`)
+- `pytest tests/test_loader_validation.py -k max_visits_does_not_bypass_execution_field_exclusivity -v` (`1 passed`)
+- `pytest tests/test_at63_undefined_variables.py -k normalize_to_pre_execution -v` (`1 passed`)
+- `pytest tests/test_at65_loop_scoping.py -k self_refs_do_not_fall_back_to_root_scope -v` (`1 passed`)
+- `pytest tests/test_prompt_contract_injection.py -k iteration_scoped_consume_identity -v` (`1 passed`)
+- `pytest tests/test_typed_predicates.py tests/test_loader_validation.py tests/test_at63_undefined_variables.py tests/test_at65_loop_scoping.py tests/test_prompt_contract_injection.py -v` (`110 passed`)

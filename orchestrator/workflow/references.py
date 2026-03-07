@@ -28,18 +28,25 @@ class ReferenceResolver:
     ) -> ResolvedReference:
         if not isinstance(ref, str) or not ref:
             raise ReferenceResolutionError("Structured ref must be a non-empty string")
-        if scope is None:
-            scope = {}
+        scope_map = scope if isinstance(scope, dict) else None
 
         if ref.startswith("root.steps."):
             parts = ref.split(".")
-            step_results = scope.get("root_steps") or state.get("steps", {})
+            if scope_map is not None and "root_steps" in scope_map:
+                step_results = scope_map.get("root_steps")
+            else:
+                step_results = state.get("steps", {})
         elif ref.startswith("self.steps."):
             parts = ref.split(".")
-            step_results = scope.get("self_steps") or state.get("steps", {})
+            if scope_map is None:
+                step_results = state.get("steps", {})
+            elif "self_steps" in scope_map:
+                step_results = scope_map.get("self_steps")
+            else:
+                raise ReferenceResolutionError(f"Structured ref target scope is unavailable for '{ref}'")
         elif ref.startswith("parent.steps."):
             parts = ref.split(".")
-            step_results = scope.get("parent_steps")
+            step_results = scope_map.get("parent_steps") if scope_map is not None else None
             if not isinstance(step_results, dict):
                 raise ReferenceResolutionError(f"Structured ref target scope is unavailable for '{ref}'")
         else:

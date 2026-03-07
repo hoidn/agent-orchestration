@@ -439,6 +439,75 @@ def test_v2_nested_steps_execute_with_scoped_refs_inside_for_each(tmp_path):
     assert final_state["steps"]["Loop[0].AssertScopes"]["status"] == "completed"
     assert final_state["steps"]["Loop[0].AssertScopes"]["exit_code"] == 0
 
+
+def test_v2_self_refs_do_not_fall_back_to_root_scope(tmp_path):
+    """self.steps refs must not silently read root results when the local step is unavailable."""
+    workflow = {
+        "version": "2.0",
+        "name": "self-scope-does-not-fall-back",
+        "artifacts": {
+            "approved": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+        },
+        "steps": [
+            {
+                "name": "OuterCheck",
+                "id": "outer_check_root",
+                "set_scalar": {
+                    "artifact": "approved",
+                    "value": True,
+                },
+            },
+            {
+                "name": "Loop",
+                "id": "loop",
+                "for_each": {
+                    "items": ["one"],
+                    "steps": [
+                        {
+                            "name": "Gate",
+                            "id": "gate",
+                            "assert": {
+                                "artifact_bool": {
+                                    "ref": "self.steps.OuterCheck.artifacts.approved",
+                                }
+                            },
+                        },
+                        {
+                            "name": "OuterCheck",
+                            "id": "outer_check_local",
+                            "set_scalar": {
+                                "artifact": "approved",
+                                "value": False,
+                            },
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    workflow_path = tmp_path / "workflow.yaml"
+    with open(workflow_path, "w") as f:
+        yaml.dump(workflow, f)
+
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_path)
+
+    state_manager = StateManager(tmp_path / ".orchestrate")
+    state_manager.initialize(str(workflow_path))
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    final_state = executor.execute(on_error="continue")
+
+    gate = final_state["steps"]["Loop[0].Gate"]
+    assert gate["status"] == "failed"
+    assert gate["exit_code"] == 2
+    assert gate["error"]["type"] == "predicate_evaluation_failed"
+    assert final_state["steps"]["Loop[0].OuterCheck"]["status"] == "completed"
+
 def test_at65_nested_step_references_within_iteration(tmp_path):
     """
     Test that steps within the same iteration can reference each other.
