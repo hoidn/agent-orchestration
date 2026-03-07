@@ -115,6 +115,75 @@ def test_assert_gate_persists_failed_outcome(tmp_path: Path):
     }
 
 
+def test_provider_pre_execution_failures_normalize_before_typed_routing(tmp_path: Path):
+    workflow = {
+        "version": "1.6",
+        "name": "provider-pre-execution-lifecycle",
+        "providers": {
+            "write_file": {
+                "command": [
+                    "bash",
+                    "-lc",
+                    "printf '%s' \"${value}\" > state/provider-ran.txt",
+                ]
+            }
+        },
+        "steps": [
+            {
+                "name": "UseProvider",
+                "provider": "write_file",
+                "provider_params": {
+                    "value": "${context.missing_value}",
+                },
+                "on": {"failure": {"goto": "CheckFailure"}},
+            },
+            {
+                "name": "CheckFailure",
+                "assert": {
+                    "all_of": [
+                        {
+                            "compare": {
+                                "left": {"ref": "root.steps.UseProvider.outcome.phase"},
+                                "op": "eq",
+                                "right": "pre_execution",
+                            }
+                        },
+                        {
+                            "compare": {
+                                "left": {"ref": "root.steps.UseProvider.outcome.class"},
+                                "op": "eq",
+                                "right": "pre_execution_failed",
+                            }
+                        },
+                    ]
+                },
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="provider-pre-execution-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute(on_error="continue")
+
+    provider_step = state["steps"]["UseProvider"]
+    assert provider_step["status"] == "failed"
+    assert provider_step["error"]["type"] == "substitution_error"
+    assert provider_step["outcome"] == {
+        "status": "failed",
+        "phase": "pre_execution",
+        "class": "pre_execution_failed",
+        "retryable": False,
+    }
+    assert not (tmp_path / "state" / "provider-ran.txt").exists()
+    assert state["steps"]["CheckFailure"]["status"] == "completed"
+
+
 def test_set_scalar_persists_local_artifacts_in_step_state(tmp_path: Path):
     workflow = {
         "version": "1.7",
