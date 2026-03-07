@@ -142,14 +142,18 @@ def build_status_snapshot(
     steps = list(workflow.get("steps", []))
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
+    current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
 
     step_entries = []
     for idx, step in enumerate(steps):
         name = _step_name(step, idx)
         result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
         prompt_text = _read_prompt_audit(run_root, name)
+        is_current_step = isinstance(current_step, dict) and current_step.get("name") == name
 
         status = _coerce_step_status(result) or "pending"
+        if is_current_step:
+            status = "running"
         if status == "pending" and prompt_text:
             status = "running"
 
@@ -161,6 +165,8 @@ def build_status_snapshot(
             "consumes": step.get("consumes", []),
             "expected_outputs": step.get("expected_outputs", []),
             "visit_count": step_visits.get(name),
+            "current_visit_count": current_step.get("visit_count") if is_current_step else None,
+            "last_result_visit_count": result.get("visit_count") if isinstance(result, dict) else None,
             "max_visits": step.get("max_visits"),
             "input": {},
             "output": {},

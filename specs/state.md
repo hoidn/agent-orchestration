@@ -22,12 +22,14 @@
     - `steps.<PresentationKey>.step_id`: durable internal identity for the recorded step result
     - `steps.<PresentationKey>.name`: human-facing display name retained for reports and compatibility views
     - `current_step.step_id`: durable identity for the currently running top-level step
+    - `current_step.visit_count`: visit ordinal for the in-flight top-level step visit, when the runtime has already incremented `step_visits`
 
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
   - `when` false → `skipped` with `exit_code: 0` and no process execution.
   - Step results may include `output`, `lines`, `json`, `text`, `error`, `debug`, and `artifacts`.
   - Step results may include `name` and `step_id`; the presentation key in `steps` remains compatibility-oriented, while `step_id` is the durable lineage/resume identity.
+  - Step results for top-level steps may include `visit_count`, meaning the visit ordinal of the recorded completed/skipped/failed result stored at that presentation key.
   - Resume uses persisted state only to choose the initial top-level restart point. After the executor reaches that point, repeated visits to the same top-level step name follow normal control flow and are not auto-skipped solely because an earlier visit completed.
   - v1.6 step results may also include normalized `outcome`:
     - `status`: `completed|failed|skipped`
