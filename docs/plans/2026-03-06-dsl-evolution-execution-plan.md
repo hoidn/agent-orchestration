@@ -15,7 +15,8 @@
 - Preserve `version: "1.4"` behavior exactly unless a workflow opts into the new versioned features.
 - Do not reinterpret legacy `${steps.<Name>.*}` semantics inside `for_each`; typed predicates must use structured `ref:` operands.
 - Keep lightweight scalar bookkeeping as its own tranche before cycle guards, structured control flow, and `call`.
-- Ship state-schema changes, resume behavior, and observability updates together; do not land partial runtime identity changes.
+- Ship state-schema changes, resume behavior, and observability updates together; do not silently reinterpret persisted keys.
+- Treat Task 6 as the explicit durable-identity migration boundary: Tasks 2-5 may extend only the current top-level name-keyed state shape, and the move to qualified internal identities must happen via an explicit schema bump plus documented resume invalidation for pre-Task-6 state unless a tested upgrader lands in the same tranche.
 - Any tranche that changes report, status, or diagnostic surfaces must update `specs/observability.md` alongside runtime/report code.
 - Do not land `call` execution before the accepted-risk reusable-call contract, typed workflow signatures, and source-relative asset taxonomy are specified.
 - Keep `call` path handling split between workflow-source-relative assets and workspace-relative runtime writes exactly as described in the ADR.
@@ -26,6 +27,7 @@
 - Typed failure routing is only valid for observable failures; the implementation must not imply failed steps can be inspected after terminal stop behavior.
 - Scalar bookkeeping adds a new local-produced-value execution path; it must not bypass declared artifact typing or `publishes.from` lineage rules.
 - Resume compatibility becomes fragile as soon as state starts storing counters, frame identities, or lowered helper nodes; every such change needs explicit checksum/resume tests.
+- Pre-Task-6 state is intentionally limited to top-level name-keyed semantics; if any earlier tranche starts depending on lowered or nested durable identities, the rollout order is wrong and the task must stop until the Task 6 migration moves earlier.
 - Workflow signatures are the boundary contract for top-level inputs now and subworkflow `call` later; they need dedicated end-to-end smoke coverage before `call` depends on them.
 - `call` has a dual-identity artifact boundary: exported callee outputs must appear externally as produced by the outer call step while internal provenance, `artifact_versions`, `artifact_consumes`, and `since_last_consume` freshness stay keyed by call-scoped producer/consumer identities.
 - Imported workflows can improve reuse before they improve isolation; the first `call` tranche must document that undeclared child-process writes remain an accepted operational risk.
@@ -64,6 +66,10 @@ Keep the new `ref:` model opt-in and explicitly separate from legacy `${...}` in
 
 Document which tranches require `schema_version` updates, new persisted counters, qualified step identities, local produced values, finalization progress, workflow/call output-export progress, call-frame metadata, bound workflow inputs, and versioned artifact-state changes for call-scoped producer/consumer identities. State exactly which fields are presentation-only versus durable lineage/resume keys, including the split between caller-visible call outputs, external producer identity, preserved internal provenance, and qualified freshness bookkeeping.
 
+Lock the migration policy here instead of leaving it implicit:
+- Tasks 2-5 may append fields under the existing top-level name-keyed schema only for features that remain top-level and pre-lowering.
+- Task 6 is the first tranche allowed to change durable producer/consumer/resume keys, and it must do so behind an explicit schema bump that does not promise in-place upgrade or resume continuity from pre-Task-6 state unless a tested upgrader ships in the same tranche.
+
 **Step 3: Add acceptance coverage entries for every new invariant and map them to later executable proof**
 
 Add acceptance cases for:
@@ -74,6 +80,7 @@ Add acceptance cases for:
 - runtime-only predicate failures
 - scalar local-value typing and `publishes.from` composition
 - `max_visits` / `max_transitions` resume behavior
+- explicit schema-boundary behavior between pre-Task-6 name-keyed state and post-Task-6 qualified-identity state, including documented resume rejection unless a tested upgrader exists
 - top-level workflow input binding / output export
 - workflow-output export contract failures for missing `from`, unresolved sources, and type-invalid or invalid-`relpath` exports
 - top-level output export withholding until finalization completes, plus suppression on finalization failure
@@ -82,6 +89,7 @@ Add acceptance cases for:
 - reusable-workflow rejection when DSL-managed write roots stay hard-coded instead of being surfaced as typed `relpath` inputs
 - call-site rejection for missing required write-root bindings or aliased per-invocation write roots where concurrent/repeated calls would collide
 - caller-visible `call` producer identity plus preserved callee-internal provenance
+- callee-private `context` defaults staying isolated from caller state unless explicitly bound or exported
 - call-scoped `artifact_versions`, `artifact_consumes`, and `since_last_consume` freshness across call frames
 - callee output export withholding until callee finalization completes, plus suppression on callee finalization failure
 
@@ -298,7 +306,7 @@ Cover:
 
 **Step 2: Extend state and executor together**
 
-Persist workflow-level transition counts and per-step visit counts in `state.json`, update them at the exact control-transfer points defined in the ADR, and make resume reload them instead of recomputing them from prior results.
+Persist workflow-level transition counts and per-step visit counts in `state.json`, update them at the exact control-transfer points defined in the ADR, and make resume reload them instead of recomputing them from prior results. Keep these counters inside the pre-Task-6 top-level name-keyed schema only; do not introduce partial qualified lineage keys or imply those counters auto-upgrade across the Task 6 identity migration.
 
 **Step 3: Keep the first tranche top-level only**
 
@@ -345,7 +353,9 @@ Risk focus: counter semantics must stay stable under retry, skip, and resume or 
 - Modify: `tests/test_cli_safety.py`
 - Modify: `tests/test_loader_validation.py`
 - Modify: `tests/test_control_flow_foundations.py`
+- Modify: `tests/test_state_manager.py`
 - Modify: `tests/test_resume_command.py`
+- Modify: `tests/test_output_contract.py`
 - Modify: `tests/test_workflow_output_contract_integration.py`
 - Create: `workflows/examples/workflow_signature_demo.yaml`
 - Create: `workflows/examples/inputs/workflow_signature_demo.json`
@@ -361,6 +371,7 @@ Cover:
 - stable `step_id` persistence across sibling insertion when authored IDs are preserved
 - compiler-generated IDs being checksum-stable only until the workflow file changes
 - qualified lineage keys for `for_each` iterations
+- explicit resume rejection at the schema boundary when post-Task-6 code loads pre-Task-6 name-keyed state, unless the same tranche adds a tested upgrader
 - legacy `version: "1.4"` `${steps.<Name>.*}` loop-local substitution remaining unchanged in existing `for_each` workflows after scoped refs and typed `inputs` land
 - typed `inputs` visibility through both `${inputs.<name>}` and structured `ref:`
 - persisted bound inputs being available after resume reload
@@ -368,6 +379,8 @@ Cover:
 **Step 2: Introduce a stable internal identity model**
 
 Add the optional authored stable `id` surface in the loader/spec, validate its shape and uniqueness independently from display `name`, assign internal `step_id` values during validation/lowering, and derive those internal identities from authored IDs where present. Keep display `name` for UX, document the checksum-only stability boundary for compiler-generated IDs, and move lineage/freshness bookkeeping to qualified internal identities instead of bare display names.
+
+This tranche is also the explicit schema boundary for durable identity migration: bump the persisted state schema, reject resume from pre-Task-6 name-keyed state rather than silently remapping old lineage/freshness keys, and only add an upgrader if it is fully specified and covered by targeted state-manager/resume tests in this same task.
 
 **Step 3: Add typed workflow `inputs` / `outputs` plus the normative read surfaces**
 
@@ -389,9 +402,9 @@ If checksum-changing edits still invalidate resume, preserve that rule and docum
 
 Run:
 ```bash
-pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_cli_safety.py tests/test_resume_command.py -k "step_id or scoped_ref or inputs or outputs or bound_inputs" -v
+pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_state_manager.py tests/test_cli_safety.py tests/test_resume_command.py -k "step_id or scoped_ref or inputs or outputs or bound_inputs or schema" -v
 pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k "legacy or qualified or lineage or freshness or for_each or loop_scoping" -v
-pytest tests/test_workflow_output_contract_integration.py -k "workflow output or signature" -v
+pytest tests/test_output_contract.py tests/test_workflow_output_contract_integration.py -v
 pytest tests/test_workflow_examples_v0.py -k "workflow_signature or for_each_demo" -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --dry-run
@@ -451,7 +464,9 @@ pytest --collect-only tests/test_structured_control_flow.py -q
 pytest tests/test_structured_control_flow.py tests/test_state_manager.py -k "if_else or lowered" -v
 pytest tests/test_resume_command.py -k "if_else and resume" -v
 pytest tests/test_workflow_examples_v0.py -k structured_if_else -v
+pytest tests/test_workflow_examples_v0.py -k for_each_demo -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/structured_if_else_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
 pytest tests/test_resume_command.py -k structured_if_else_smoke -v
 ```
 
@@ -501,7 +516,9 @@ Run:
 ```bash
 pytest tests/test_structured_control_flow.py tests/test_resume_command.py -k finally -v
 pytest tests/test_workflow_examples_v0.py -k finally -v
+pytest tests/test_workflow_examples_v0.py -k for_each_demo -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --state-dir /tmp/dsl-evolution-finally-demo
 ```
 
@@ -531,7 +548,7 @@ Document the first `call` tranche as inline and non-isolating, require every DSL
 
 **Step 3: Add acceptance coverage for the contract boundary**
 
-Add normative acceptance entries covering caller/callee version compatibility, typed `with:` binding against callee inputs, declared-output export boundaries, reusable-workflow rejection when managed write roots are hard-coded instead of parameterized typed `relpath` inputs, call-site rejection for missing or colliding required write-root bindings, caller-visible external producer identity for exported call outputs, preserved callee-internal provenance metadata, call-scoped `artifact_versions` / `artifact_consumes` / `since_last_consume` freshness bookkeeping, callee output export timing after callee finalization, and the diagnostic/reporting surfaces expected for call frames.
+Add normative acceptance entries covering caller/callee version compatibility, typed `with:` binding against callee inputs, declared-output export boundaries, reusable-workflow rejection when managed write roots are hard-coded instead of parameterized typed `relpath` inputs, call-site rejection for missing or colliding required write-root bindings, caller-visible external producer identity for exported call outputs, preserved callee-internal provenance metadata, private callee `providers`, `artifacts`, and `context` defaults unless explicitly bound or exported, call-scoped `artifact_versions` / `artifact_consumes` / `since_last_consume` freshness bookkeeping, callee output export timing after callee finalization, and the diagnostic/reporting surfaces expected for call frames.
 
 **Verification:**
 
@@ -570,6 +587,7 @@ Risk focus: do not hide operational-risk boundaries inside implementation detail
 - Modify: `tests/test_dependency_resolution.py`
 - Modify: `tests/test_dependency_injection.py`
 - Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_provider_execution.py`
 - Modify: `tests/test_resume_command.py`
 - Modify: `tests/test_secrets.py`
 - Modify: `tests/test_state_manager.py`
@@ -589,7 +607,7 @@ Cover:
 - caller-visible outputs surfacing as `steps.<CallStep>.artifacts.<name>`
 - exported call outputs entering caller-visible lineage with the outer call step as the external producer
 - preserved callee-internal provenance and qualified `artifact_versions` / `artifact_consumes` / `since_last_consume` bookkeeping inside the call frame
-- private provider/artifact namespaces inside the call frame
+- private provider/artifact/context namespaces and callee-default isolation inside the call frame
 - callee outputs materializing only after callee finalization completes successfully, and staying absent if callee finalization fails
 - explicit source-relative asset resolution via a dedicated asset surface distinct from workspace-relative runtime paths
 - preservation of workspace-relative semantics for legacy runtime path fields under `call`
@@ -601,7 +619,7 @@ Implement the source-relative asset fields and version/boundary rules documented
 
 **Step 3: Implement import loading, asset resolution, and call-frame execution**
 
-Keep `call` inline within the same run, but record call-frame-local identities in state and logs. Route workflow-source-relative asset loads through the new asset resolver, update provider prompt loading plus dependency resolution/content reads so they use the correct source/workspace base for the new fields, and keep only declared callee outputs crossing the boundary into the caller. Export those outputs only after the callee body and any callee finalization succeed, surface the outer call step as the external producer for caller-visible artifacts, and preserve call-scoped internal provenance plus freshness bookkeeping under qualified identities.
+Keep `call` inline within the same run, but record call-frame-local identities in state and logs. Route workflow-source-relative asset loads through the new asset resolver, update provider prompt loading plus dependency resolution/content reads so they use the correct source/workspace base for the new fields, preserve private callee `context` defaults unless the call contract explicitly binds or exports them, and keep only declared callee outputs crossing the boundary into the caller. Export those outputs only after the callee body and any callee finalization succeed, surface the outer call step as the external producer for caller-visible artifacts, and preserve call-scoped internal provenance plus freshness bookkeeping under qualified identities.
 
 **Step 4: Make resume/export evidence explicit for nested call frames**
 
@@ -617,7 +635,7 @@ Run:
 ```bash
 pytest --collect-only tests/test_subworkflow_calls.py -q
 pytest tests/test_subworkflow_calls.py tests/test_loader_validation.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_resume_command.py -k "call or call_frame or resume" -v
-pytest tests/test_dependency_resolution.py tests/test_dependency_injection.py tests/test_prompt_contract_injection.py tests/test_provider_integration.py tests/test_secrets.py -k "asset or import or call or path" -v
+pytest tests/test_dependency_resolution.py tests/test_dependency_injection.py tests/test_prompt_contract_injection.py tests/test_provider_execution.py tests/test_provider_integration.py tests/test_secrets.py -k "asset or import or call or path or context" -v
 pytest tests/test_workflow_examples_v0.py -k call_subworkflow -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --state-dir /tmp/dsl-evolution-call-subworkflow-demo
@@ -795,10 +813,12 @@ pytest tests/test_loader_validation.py \
        tests/test_artifact_dataflow_integration.py \
        tests/test_for_each_execution.py \
        tests/test_at65_loop_scoping.py \
+       tests/test_output_contract.py \
        tests/test_workflow_output_contract_integration.py \
        tests/test_dependency_resolution.py \
        tests/test_dependency_injection.py \
        tests/test_prompt_contract_injection.py \
+       tests/test_provider_execution.py \
        tests/test_provider_integration.py \
        tests/test_secrets.py \
        tests/test_structured_control_flow.py \
@@ -829,4 +849,5 @@ Run the dry-run commands from Tasks 2, 3, 4, 7, 11, and 14, and run the isolated
 - Normalized outcome routing and legacy `${steps.<Name>.*}` loop-local substitution are both revalidated in the final sweep.
 - Each new tranche has spec coverage, implementation coverage, and at least one example workflow smoke check; stateful tranches also have at least one isolated real orchestrator run.
 - State-schema changes are paired with resume tests and explicit documentation updates.
+- Shared primitives touched by foundational or `call` tranches (`output_contract`, provider execution) are revalidated in the final sweep.
 - No feature depends on ambiguous multi-visit refs or bare step-name lineage keys.
