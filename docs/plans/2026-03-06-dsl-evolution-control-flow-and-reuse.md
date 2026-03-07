@@ -20,6 +20,7 @@ The current DSL is correct enough to run real workflows, but it has three author
    - there is no `import`, `call`, or subworkflow mechanism.
    - authors duplicate large review/fix or plan/review/revise blocks across workflows.
    - this makes maintenance and migration harder than it should be.
+   - near-term reusable `call` may need to target a narrower, mechanically enforceable subset first; provider/command-heavy reusable workflows likely require a stronger execution boundary than the current runtime provides.
 
 The result is a DSL that is operationally capable but author-hostile. The next improvements should optimize for correctness and maintainability first, not just syntax convenience.
 
@@ -149,6 +150,8 @@ when:
     right: contract_violation
 ```
 
+This example only applies once the workflow has routed `RunChecks` failure into an observable recovery path, for example via `on.failure.goto`. It is not a claim that later predicate steps can observe failures that still terminate the workflow immediately.
+
 Supported boolean composition should stay intentionally small:
 - `all_of`
 - `any_of`
@@ -175,6 +178,7 @@ Predicate operand and failure rules should be explicit:
 - D2 should not expose raw `error.type` or `error.context` in predicates. If typed failure routing is part of D2, it should land with a small closed outcome surface such as `completed|skipped|assert_failed|command_failed|timeout|contract_violation`.
 - D2 must ship with a normative normalization matrix from current step execution tuples (`status`, `exit_code`, `error.type`) into `outcome.kind`.
 - Pre-execution validation failures are workflow/run load failures, not step outcomes. They therefore have no `steps.<Step>.outcome.kind` value.
+- under the current control-flow model, typed failure routing is only observable after an explicit recovery edge such as `on.failure.goto`; a later predicate step cannot observe a failed step that already terminated the workflow
 - in the first D2 tranche, `root.steps.<Step>...` refs should only be legal for steps that can execute at most once in the current scope
 - if later DSL versions need refs to multi-visit steps, they should add explicit visit/frame-qualified syntax rather than making unqualified refs depend on execution history
 - statically undefined `ref:` targets (unknown steps, unknown artifacts, invalid fields) should be workflow-load validation errors, not runtime failures.
@@ -194,6 +198,7 @@ Scope note:
 - D2 does **not** by itself make typed routing generally usable inside today's multi-visit `goto` loops
 - those workflows still need either explicit visit-qualified refs or later structured/block identity features before typed predicates can replace most stringly loop-local gates
 - migration examples and rollout should present D2 as a strong improvement for single-visit gates first, not as a complete replacement for current loop-heavy control flow
+- migration examples should also be explicit that typed failure routing under D2 only applies to recovered/observable failed outcomes, not to steps that still terminate the workflow immediately on failure
 
 ### D3. Add low-level cycle guards for raw graph workflows
 
@@ -371,6 +376,8 @@ Why this is sixth:
 
 Introduce author-facing structured branching once typed predicates, scoped references, stable step IDs, and typed workflow signatures exist.
 
+Structured blocks should be modeled as introducing a **statement layer** above the current flat `Step[]` schema. They are not just a prettier spelling of existing step records. That means the loader/lowering pass must define a separate block/statement IR with its own validation rules and then lower that IR into executable steps with stable identities.
+
 Structured blocks need an explicit scope/output join model:
 - branch-local steps are visible only inside the branch/block that defines them
 - downstream steps must not reference branch-local step names directly from outside the block
@@ -436,6 +443,10 @@ Recommended first-tranche direction:
 - have the loader reject imported workflows that fall outside this statically checkable subset
 
 This is intentionally weaker than full sandboxing and narrower than generic workflow reuse, but it is implementable only if the first tranche is explicit about excluding unconstrained child-process execution. D9 should depend on this restricted-subset model, or on a future stronger sandbox/capability mechanism, not on an unenforceable promise about arbitrary child-process writes.
+
+Principle:
+- the first shippable `call` tranche should target controlled, DSL-managed reusable helpers
+- it should **not** claim to cover today's provider/command-heavy review-fix or plan-review-revise workflows until a stronger execution boundary exists
 
 ### D9. Add reusable subworkflow imports and calls
 
@@ -537,6 +548,7 @@ Example:
 ```
 
 This should follow `if/else`, not precede it, because it depends on the same scope and identity foundation.
+Like `if/else`, `match` should operate over the new structured statement layer rather than pretending raw `goto` statements are already valid members of today's `Step[]` grammar.
 
 ### D1a. Add lightweight scalar assignment/update steps as a dedicated runtime primitive
 
@@ -581,8 +593,6 @@ Why this should ship after D1/D2:
 - improves readability without drifting into a general scripting DSL
 - but it is more invasive than `assert`, because it adds a new step execution/output mechanism rather than only a new typed gate surface
 
-This should ship in the same early tranche as D1 `assert`. It is a low-risk shell-glue reduction, not a late foundational feature.
-
 ### D11. Add loops such as `repeat_until` later
 
 Loops are valuable, but they are not the next correctness improvement. They depend on:
@@ -618,6 +628,8 @@ Example target style:
             REVISE:
               - call: FixIssues
 ```
+
+As with `if/else` and `match`, the body of `repeat_until` should be defined in the structured statement layer, not as today's raw `Step[]` schema. Unnamed `call` / `goto` forms in examples are statements in that new IR and must be lowered to executable steps with stable identities.
 
 ### D13. Add score-aware gates and decisions
 
@@ -688,35 +700,36 @@ Reason:
    - Foundational for both success-path and failure-path routing.
    - Lowest implementation risk after `assert`.
 
-3. **Low-level cycle guards**
+3. **Lightweight scalar assignment/update**
+   - Removes incidental shell without becoming a general programming language.
+   - Still needs explicit runtime semantics, so it is not bundled into D1 itself.
+
+4. **Low-level cycle guards**
    - Protects today's raw-graph workflows immediately.
    - Prevents accidental infinite `goto` loops before structured loops exist.
 
-4. **Scoped reference resolution**
+5. **Scoped reference resolution**
    - More fundamental than imports.
    - Necessary before nested blocks or calls become pleasant to use.
 
-5. **Stable internal step IDs + typed workflow signatures**
+6. **Stable internal step IDs + typed workflow signatures**
    - Infrastructure, but required for lowering, resume, debug clarity, and reusable typed calls.
 
 ### Tier 2: Strong next steps
 
-6. **Structured `if/else`**
+7. **Structured `if/else`**
    - Best readability improvement after the identity model exists.
 
-7. **Structured finalization (`finally` / `defer`)**
+8. **Structured finalization (`finally` / `defer`)**
    - Real operational improvement over `on.always.goto`.
 
-8. **Imports + callable subworkflows**
+9. **Imports + callable subworkflows**
    - Best reuse and maintenance improvement.
    - Depends on scoped references, stable IDs, and typed workflow signatures.
 
-9. **Enum `match`**
+10. **Enum `match`**
    - Especially useful for review and evaluation workflows.
    - Often a better fit than nested `if/else` for decision artifacts.
-
-10. **Lightweight scalar assignment/update**
-   - Removes incidental shell without becoming a general programming language.
 
 ### Tier 3: Later syntax / tooling
 
