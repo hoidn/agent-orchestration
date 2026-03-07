@@ -1,0 +1,775 @@
+# DSL Evolution Execution Plan
+
+> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+
+**Goal:** Land the DSL evolution ADR as a staged, opt-in extension of the orchestrator without regressing existing `version: "1.4"` workflows.
+
+**Architecture:** Implement the roadmap in dependency order. Start with low-risk gates and typed predicates, then add the runtime/state foundations they depend on, then layer structured statements and reusable subworkflows on top of stable internal identities. Keep legacy `${...}` substitution semantics and current flat-step execution unchanged for existing workflows; new behavior only activates behind new DSL version gates and the new structured `ref:` model.
+
+**Tech Stack:** Python orchestrator runtime, YAML DSL loader/validator, `state.json` persistence, pytest unit/integration coverage, example workflow smoke checks, normative specs under `specs/`, and authoring guidance under `docs/`.
+
+---
+
+## Scope Guardrails
+
+- Preserve `version: "1.4"` behavior exactly unless a workflow opts into the new versioned features.
+- Do not reinterpret legacy `${steps.<Name>.*}` semantics inside `for_each`; typed predicates must use structured `ref:` operands.
+- Keep lightweight scalar bookkeeping as its own tranche before cycle guards, structured control flow, and `call`.
+- Ship state-schema changes, resume behavior, and observability updates together; do not land partial runtime identity changes.
+- Any tranche that changes report, status, or diagnostic surfaces must update `specs/observability.md` alongside runtime/report code.
+- Do not land `call` execution before the accepted-risk reusable-call contract, typed workflow signatures, and source-relative asset taxonomy are specified.
+- Keep `call` path handling split between workflow-source-relative assets and workspace-relative runtime writes exactly as described in the ADR.
+
+## Cross-Cutting Risks
+
+- The current executor keys most runtime state by display `name`; stable internal IDs and qualified lineage must land before structured blocks or `call`.
+- Typed failure routing is only valid for observable failures; the implementation must not imply failed steps can be inspected after terminal stop behavior.
+- Scalar bookkeeping adds a new local-produced-value execution path; it must not bypass declared artifact typing or `publishes.from` lineage rules.
+- Resume compatibility becomes fragile as soon as state starts storing counters, frame identities, or lowered helper nodes; every such change needs explicit checksum/resume tests.
+- Workflow signatures are the boundary contract for top-level inputs now and subworkflow `call` later; they need dedicated end-to-end smoke coverage before `call` depends on them.
+- `call` has a dual-identity artifact boundary: exported callee outputs must appear externally as produced by the outer call step while internal provenance, `artifact_versions`, `artifact_consumes`, and `since_last_consume` freshness stay keyed by call-scoped producer/consumer identities.
+- Imported workflows can improve reuse before they improve isolation; the first `call` tranche must document that undeclared child-process writes remain an accepted operational risk.
+
+### Task 1: Lock the normative rollout and version/state boundaries
+
+**Files:**
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `docs/runtime_execution_lifecycle.md`
+- Modify: `docs/workflow_drafting_guide.md`
+
+**Step 1: Translate the ADR into concrete feature tranches**
+
+Define the release order and version gates for:
+- D1 `assert`
+- D2 typed predicates + `ref:` + normalized outcomes
+- D2a scalar bookkeeping
+- D3 cycle guards
+- D4-D6 scoped refs, stable IDs, workflow signatures
+- D7 structured `if/else`
+- D8 structured `finally`
+- D9 accepted-risk reusable-call contract
+- D10 imports + `call`
+- D11 `match`
+- D12 `repeat_until`
+- D13 linting / normalization
+- D14 score-aware gates
+
+Keep the new `ref:` model opt-in and explicitly separate from legacy `${...}` interpolation.
+
+**Step 2: Define the state schema changes before touching runtime code**
+
+Document which tranches require `schema_version` updates, new persisted counters, qualified step identities, local produced values, finalization progress, workflow/call output-export progress, call-frame metadata, bound workflow inputs, and versioned artifact-state changes for call-scoped producer/consumer identities. State exactly which fields are presentation-only versus durable lineage/resume keys, including the split between caller-visible call outputs, external producer identity, preserved internal provenance, and qualified freshness bookkeeping.
+
+**Step 3: Add acceptance coverage entries for every new invariant**
+
+Add acceptance cases for:
+- `assert_failed` vs contract/preflight failures
+- statically invalid `ref:` targets
+- runtime-only predicate failures
+- scalar local-value typing and `publishes.from` composition
+- `max_visits` / `max_transitions` resume behavior
+- top-level workflow input binding / output export
+- top-level output export withholding until finalization completes, plus suppression on finalization failure
+- branch/block output visibility
+- `call` export boundaries and relative-path taxonomy
+- caller-visible `call` producer identity plus preserved callee-internal provenance
+- call-scoped `artifact_versions`, `artifact_consumes`, and `since_last_consume` freshness across call frames
+- callee output export withholding until callee finalization completes, plus suppression on callee finalization failure
+
+**Verification:**
+
+Run:
+```bash
+pytest tests/test_loader_validation.py -k "version or unknown" -v
+```
+
+Risk focus: avoid documenting semantics the current runtime cannot actually enforce.
+
+### Task 2: Land D1 with first-class `assert` / gate steps
+
+**Files:**
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/workflow/conditions.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `orchestrator/state.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_runtime_step_lifecycle.py`
+- Modify: `tests/test_conditional_execution.py`
+- Modify: `tests/test_observability_report.py`
+- Create: `workflows/examples/assert_gate_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing loader and runtime tests**
+
+Cover:
+- `assert` schema exclusivity against `provider` / `command` / `wait_for` / `for_each`
+- reuse of the current `equals|exists|not_exists` condition surface
+- false assertions failing with `exit_code: 3` and `error.type: "assert_failed"`
+- `on.failure.goto` recovery from assertion failure
+
+**Step 2: Implement loader validation and executor support**
+
+Add an `assert` step kind that evaluates a condition without shelling out. Record the result as a normal step result and keep contract/preflight failures on exit code `2`.
+
+**Step 3: Keep observability and state output explicit**
+
+Persist enough structured error context for reports and status output to distinguish assertion failures from validation or command failures, and document that diagnostic surface in `specs/observability.md`. Do not add synthetic artifact publishing in this tranche.
+
+**Step 4: Add one example workflow and smoke coverage**
+
+Use a minimal example that demonstrates approval/revise gating without shell glue and add it to the example-workflow test module.
+
+**Verification:**
+
+Run:
+```bash
+pytest tests/test_loader_validation.py tests/test_conditional_execution.py tests/test_runtime_step_lifecycle.py tests/test_observability_report.py -k "assert or gate" -v
+pytest tests/test_workflow_examples_v0.py -k assert_gate -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/assert_gate_demo.yaml --dry-run
+```
+
+Risk focus: do not let `assert` silently drift into a general expression language.
+
+### Task 3: Land D2 typed predicates, structured `ref:` operands, and normalized outcomes
+
+**Files:**
+- Create: `orchestrator/workflow/references.py`
+- Create: `orchestrator/workflow/predicates.py`
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/workflow/conditions.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Create: `tests/test_typed_predicates.py`
+- Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_conditional_execution.py`
+- Modify: `tests/test_observability_report.py`
+- Create: `workflows/examples/typed_predicate_routing.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing tests for the new predicate surface**
+
+Cover:
+- `artifact_bool`
+- `compare` with `eq|ne|lt|lte|gt|gte`
+- `all_of|any_of|not`
+- root-scoped `ref: root.steps.<Step>...`
+- statically invalid refs rejected at load time
+- runtime-only missing values producing structured predicate failures
+
+**Step 2: Add normalized outcome projection**
+
+Project step results into:
+- `outcome.status`
+- `outcome.phase`
+- `outcome.class`
+- `outcome.retryable`
+
+Keep this projection available only for observable step results and document the normalization matrix in the spec.
+
+**Step 3: Preserve legacy loop scoping**
+
+Typed predicates must resolve structured refs directly and must not reuse `${...}` string substitution. In the first tranche, allow only root-scoped single-visit step refs plus literals.
+
+**Step 4: Surface the new fields in reports and examples**
+
+Update status rendering so tests can assert on normalized outcomes and add an example workflow that routes on a typed artifact or recovered failure outcome.
+
+**Verification:**
+
+Run:
+```bash
+pytest --collect-only tests/test_typed_predicates.py -q
+pytest tests/test_typed_predicates.py tests/test_loader_validation.py tests/test_conditional_execution.py tests/test_observability_report.py -v
+pytest tests/test_workflow_examples_v0.py -k typed_predicate -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/typed_predicate_routing.yaml --dry-run
+```
+
+Risk focus: keep the first `ref:` rollout narrow enough that multi-visit ambiguity cannot leak into runtime behavior.
+
+### Task 4: Land D2a lightweight scalar bookkeeping as a dedicated runtime primitive
+
+**Files:**
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Create: `tests/test_scalar_bookkeeping.py`
+- Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_artifact_dataflow_integration.py`
+- Modify: `tests/test_runtime_step_lifecycle.py`
+- Create: `workflows/examples/scalar_bookkeeping_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing tests for scalar-local value production**
+
+Cover:
+- `set_scalar`
+- `increment_scalar`
+- one scalar-emission path for producing a local typed artifact without shelling out
+- undeclared-artifact rejection and runtime type mismatch failures
+- `publishes.from` advancing top-level lineage while direct registry mutation stays impossible
+
+**Step 2: Implement the new execution and state semantics**
+
+Add a narrow runtime primitive for scalar bookkeeping, persist local produced values in the same durable/result surfaces as other step outputs, and document the resulting debug/reporting shape in `specs/observability.md`.
+
+**Step 3: Add an example that proves bookkeeping composes with publication**
+
+Use a minimal loop-free example that initializes, increments, and publishes a scalar artifact so the smoke test covers both local value production and `publishes.from`.
+
+**Verification:**
+
+Run:
+```bash
+pytest --collect-only tests/test_scalar_bookkeeping.py -q
+pytest tests/test_scalar_bookkeeping.py tests/test_loader_validation.py tests/test_artifact_dataflow_integration.py tests/test_runtime_step_lifecycle.py -v
+pytest tests/test_workflow_examples_v0.py -k scalar_bookkeeping -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/scalar_bookkeeping_demo.yaml --dry-run
+```
+
+Risk focus: keep this as a typed, declared-artifact primitive, not a second general-purpose mutation channel.
+
+### Task 5: Land D3 cycle guards with resume-safe persisted counters
+
+**Files:**
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Create: `tests/test_control_flow_foundations.py`
+- Modify: `tests/test_state_manager.py`
+- Modify: `tests/test_resume_command.py`
+- Modify: `tests/test_retry_behavior.py`
+- Create: `workflows/examples/cycle_guard_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing tests for `max_transitions` and `max_visits`**
+
+Cover:
+- skips not consuming visit budget
+- retries not consuming additional visit budget
+- back-edge loops consuming transition budget
+- counter persistence across resume
+- deterministic failure shape when a guard trips
+
+**Step 2: Extend state and executor together**
+
+Persist workflow-level transition counts and per-step visit counts in `state.json`, update them at the exact control-transfer points defined in the ADR, and make resume reload them instead of recomputing them from prior results.
+
+**Step 3: Keep the first tranche top-level only**
+
+Reject or defer nested/lowered guard usage until stable internal IDs exist. The initial implementation should work only for the pre-lowering top-level step graph.
+
+**Verification:**
+
+Run:
+```bash
+pytest --collect-only tests/test_control_flow_foundations.py -q
+pytest tests/test_control_flow_foundations.py tests/test_state_manager.py tests/test_resume_command.py tests/test_retry_behavior.py -k "max_visits or max_transitions" -v
+pytest tests/test_workflow_examples_v0.py -k cycle_guard -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/cycle_guard_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/cycle_guard_demo.yaml --state-dir /tmp/dsl-evolution-cycle-guard-demo
+```
+
+Risk focus: counter semantics must stay stable under retry, skip, and resume or the feature will be unusable in real loops.
+
+### Task 6: Build the D4-D6 foundations: scoped refs, stable internal step IDs, and typed workflow signatures
+
+**Files:**
+- Create: `orchestrator/workflow/identity.py`
+- Create: `orchestrator/workflow/signatures.py`
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/cli/commands/run.py`
+- Modify: `orchestrator/variables/substitution.py`
+- Modify: `orchestrator/workflow/references.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `orchestrator/contracts/output_contract.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/variables.md`
+- Modify: `specs/cli.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `docs/runtime_execution_lifecycle.md`
+- Modify: `docs/workflow_drafting_guide.md`
+- Modify: `tests/test_artifact_dataflow_integration.py`
+- Modify: `tests/test_cli_safety.py`
+- Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_control_flow_foundations.py`
+- Modify: `tests/test_resume_command.py`
+- Create: `workflows/examples/workflow_signature_demo.yaml`
+- Create: `workflows/examples/inputs/workflow_signature_demo.json`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing tests for identity and scope rules**
+
+Cover:
+- `root` / `self` / `parent` ref requirements
+- bare `steps.<Name>` being invalid in the new `ref:` model
+- authored `id` shape and uniqueness validation, plus version-gated migration rules for introducing it
+- stable `step_id` persistence across sibling insertion when authored IDs are preserved
+- compiler-generated IDs being checksum-stable only until the workflow file changes
+- qualified lineage keys for `for_each` iterations
+- typed `inputs` visibility through both `${inputs.<name>}` and structured `ref:`
+- persisted bound inputs being available after resume reload
+
+**Step 2: Introduce a stable internal identity model**
+
+Add the optional authored stable `id` surface in the loader/spec, validate its shape and uniqueness independently from display `name`, assign internal `step_id` values during validation/lowering, and derive those internal identities from authored IDs where present. Keep display `name` for UX, document the checksum-only stability boundary for compiler-generated IDs, and move lineage/freshness bookkeeping to qualified internal identities instead of bare display names.
+
+**Step 3: Add typed workflow `inputs` / `outputs` plus the normative read surfaces**
+
+Reuse the existing artifact-contract validators where possible, but keep workflow signatures as a separate boundary contract family. Make `inputs.<name>` readable through both `${inputs.<name>}` and typed `ref:` resolution, update substitution to recognize the new namespace, and document the variables-spec boundary instead of leaving `inputs` implicit in the DSL spec alone.
+
+**Step 4: Bind and validate top-level workflow inputs before execution starts**
+
+Define the first concrete top-level input binding path in CLI/runtime terms. Extend the run path so top-level runs can bind typed workflow `inputs` from explicit CLI data and/or a file-backed input source, validate those values before execution starts, persist the bound inputs in run state for observability/resume, and keep legacy `context` semantics unchanged for backward compatibility.
+
+**Step 5: Add direct end-to-end signature verification before `call` depends on it**
+
+Create one example workflow that consumes a bound input and exports a typed output, then cover the same path in targeted tests so the verification evidence proves input binding, output export timing, and persisted bound inputs across resume.
+
+**Step 6: Keep resume behavior explicit**
+
+If checksum-changing edits still invalidate resume, preserve that rule and document it. Do not imply cross-checksum resume compatibility just because internal IDs exist.
+
+**Verification:**
+
+Run:
+```bash
+pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_cli_safety.py tests/test_resume_command.py -k "step_id or scoped_ref or inputs or outputs or bound_inputs" -v
+pytest tests/test_artifact_dataflow_integration.py -k "qualified or lineage or freshness" -v
+pytest tests/test_workflow_examples_v0.py -k workflow_signature -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --state-dir /tmp/dsl-evolution-workflow-signature-demo
+```
+
+Risk focus: this is the foundation for every later structured feature; do not ship `call` or structured blocks before these invariants hold.
+
+### Task 7: Add a structured statement layer with `if/else`
+
+**Files:**
+- Create: `orchestrator/workflow/statements.py`
+- Create: `orchestrator/workflow/lowering.py`
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Create: `tests/test_structured_control_flow.py`
+- Create: `workflows/examples/structured_if_else_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing tests for block semantics**
+
+Cover:
+- branch-local visibility rules
+- block outputs
+- explicit recording of non-taken branches
+- conservative rejection of `goto` / `_end` escaping structured boundaries
+
+**Step 2: Lower structured statements to executable nodes with stable IDs**
+
+Keep lowering explicit instead of pretending the new syntax is state-transparent. The lowered nodes should carry stable identities into logs, status output, and resume state.
+
+**Step 3: Keep the rollback boundary narrow**
+
+Do not couple `if/else` rollout to finalization state. The first structured-control tranche should ship only branch semantics, block outputs, and lowering/debug identity rules so failures can be isolated to the statement layer without mixing in teardown behavior.
+
+**Verification:**
+
+Run:
+```bash
+pytest --collect-only tests/test_structured_control_flow.py -q
+pytest tests/test_structured_control_flow.py -k if_else -v
+pytest tests/test_workflow_examples_v0.py -k structured_if_else -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/structured_if_else_demo.yaml --dry-run
+```
+
+Risk focus: structured lowering must not create ambiguous state entries or hidden control transfers.
+
+### Task 8: Add structured finalization (`finally`) as a separate tranche
+
+**Files:**
+- Modify: `orchestrator/workflow/statements.py`
+- Modify: `orchestrator/workflow/lowering.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `docs/runtime_execution_lifecycle.md`
+- Modify: `tests/test_structured_control_flow.py`
+- Modify: `tests/test_resume_command.py`
+- Create: `workflows/examples/finally_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing tests for finalization-only invariants**
+
+Cover:
+- `finally` running once after both success and failure of the guarded region
+- resuming from the first unfinished finalization step instead of replaying completed cleanup
+- primary guarded failure remaining primary when `finally` also fails
+- dedicated failure classification when the guarded region succeeds and `finally` fails
+- top-level workflow outputs staying unmaterialized until finalization completes successfully
+- top-level workflow outputs being suppressed when finalization fails
+
+**Step 2: Extend lowering and state with explicit finalization progress**
+
+Record finalization progress and workflow-output export progress in durable state, surface the structured diagnostics in reports, and keep finalization identities distinct from the main body so resume/debug output is not ambiguous. Wire top-level workflow output materialization to occur only after successful finalization and suppress exports on finalization failure.
+
+**Step 3: Keep rollback and verification independent from `if/else`**
+
+Treat `finally` as a separate release boundary with its own example and regression checks. If finalization semantics slip, the `if/else` tranche remains independently shippable.
+
+**Verification:**
+
+Run:
+```bash
+pytest tests/test_structured_control_flow.py tests/test_resume_command.py -k finally -v
+pytest tests/test_workflow_examples_v0.py -k finally -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --state-dir /tmp/dsl-evolution-finally-demo
+```
+
+Risk focus: finalization must be resume-idempotent and must not silently replace the guarded region's primary result.
+
+### Task 9: Lock the accepted-risk reusable-call contract before execution work
+
+**Files:**
+- Modify: `specs/dsl.md`
+- Modify: `specs/dependencies.md`
+- Modify: `specs/providers.md`
+- Modify: `specs/io.md`
+- Modify: `specs/security.md`
+- Modify: `specs/state.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `docs/workflow_drafting_guide.md`
+
+**Step 1: Specify the source-relative versus workspace-relative path taxonomy**
+
+Document the dedicated source-relative asset surface for reusable workflows, and explicitly keep runtime write paths and existing workspace-relative authored paths separate from imported-library assets.
+
+**Step 2: Specify the accepted operational-risk boundary**
+
+Document the first `call` tranche as inline and non-isolating, require write-root parameterization for reusable workflows, and state that undeclared child-process filesystem effects remain an accepted risk rather than a loader-proved invariant. If the existing registry/pointer state cannot represent call-scoped internal producer/consumer identities cleanly, schedule the explicit versioned artifact-state change here instead of deferring it into Task 10 implementation.
+
+**Step 3: Add acceptance coverage for the contract boundary**
+
+Add normative acceptance entries covering caller/callee version compatibility, typed `with:` binding against callee inputs, declared-output export boundaries, caller-visible external producer identity for exported call outputs, preserved callee-internal provenance metadata, call-scoped `artifact_versions` / `artifact_consumes` / `since_last_consume` freshness bookkeeping, callee output export timing after callee finalization, and the diagnostic/reporting surfaces expected for call frames.
+
+**Verification:**
+
+Run:
+```bash
+pytest tests/test_loader_validation.py -k "call or import or version" -v
+```
+
+Risk focus: do not hide operational-risk boundaries inside implementation details; make them explicit before runtime work starts.
+
+### Task 10: Land imports and `call` on top of typed boundaries and qualified identities
+
+**Files:**
+- Modify: `orchestrator/loader.py`
+- Create: `orchestrator/workflow/assets.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/workflow/signatures.py`
+- Modify: `orchestrator/workflow/identity.py`
+- Modify: `orchestrator/deps/resolver.py`
+- Modify: `orchestrator/deps/injector.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `orchestrator/security/secrets.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/dependencies.md`
+- Modify: `specs/providers.md`
+- Modify: `specs/io.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/security.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `docs/workflow_drafting_guide.md`
+- Create: `tests/test_subworkflow_calls.py`
+- Modify: `tests/test_artifact_dataflow_integration.py`
+- Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_state_manager.py`
+- Create: `workflows/library/review_fix_loop.yaml`
+- Create: `workflows/examples/call_subworkflow_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing tests for import and call boundaries**
+
+Cover:
+- imported workflows validating independently
+- caller/callee same-version requirement in the first tranche
+- typed `with:` binding against callee inputs
+- caller-visible outputs surfacing as `steps.<CallStep>.artifacts.<name>`
+- exported call outputs entering caller-visible lineage with the outer call step as the external producer
+- preserved callee-internal provenance and qualified `artifact_versions` / `artifact_consumes` / `since_last_consume` bookkeeping inside the call frame
+- private provider/artifact namespaces inside the call frame
+- callee outputs materializing only after callee finalization completes successfully, and staying absent if callee finalization fails
+- explicit source-relative asset resolution via a dedicated asset surface distinct from workspace-relative runtime paths
+
+**Step 2: Define the import-path taxonomy and concrete source-relative asset API**
+
+Implement the source-relative asset fields and version/boundary rules documented in Task 9. Keep authored workspace-relative runtime paths (`input_file`, `depends_on`, `output_file`, deterministic relpath outputs, bundle paths) distinct from workflow-source-relative library assets. Do not overload `input_file` or plain `depends_on` with import-local semantics.
+
+**Step 3: Implement import loading, asset resolution, and call-frame execution**
+
+Keep `call` inline within the same run, but record call-frame-local identities in state and logs. Route workflow-source-relative asset loads through the new asset resolver, update provider prompt loading plus dependency resolution/content reads so they use the correct source/workspace base for the new fields, and keep only declared callee outputs crossing the boundary into the caller. Export those outputs only after the callee body and any callee finalization succeed, surface the outer call step as the external producer for caller-visible artifacts, and preserve call-scoped internal provenance plus freshness bookkeeping under qualified identities.
+
+**Step 4: Make the operational-risk boundary explicit**
+
+Do not promise loader-enforced proof of child-process filesystem effects. Require parameterized write roots for reusable workflows and document the remaining risk in the spec and authoring guide.
+
+**Verification:**
+
+Run:
+```bash
+pytest --collect-only tests/test_subworkflow_calls.py -q
+pytest tests/test_subworkflow_calls.py tests/test_loader_validation.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_prompt_contract_injection.py tests/test_provider_integration.py -v
+pytest tests/test_workflow_examples_v0.py -k call_subworkflow -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --state-dir /tmp/dsl-evolution-call-subworkflow-demo
+```
+
+Risk focus: keep caller-visible artifact/state names simple while retaining qualified internal provenance underneath, and do not leave any path-reading module on implicit workspace-relative behavior once source-relative assets are introduced.
+
+### Task 11: Add `match` as a separate structured-control tranche
+
+**Files:**
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/workflow/predicates.py`
+- Modify: `orchestrator/workflow/statements.py`
+- Modify: `orchestrator/workflow/lowering.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `tests/test_structured_control_flow.py`
+- Modify: `tests/test_loader_validation.py`
+- Create: `workflows/examples/match_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Add `match` over typed refs**
+
+Write tests and implementation for enum branching over typed refs, reusing the same block/output and stable-ID rules as `if/else`.
+
+**Step 2: Keep example and verification distinct from loops**
+
+Add a dedicated `match` example and keep its smoke check separate so regressions in enum branching are not hidden inside later loop work.
+
+**Verification:**
+
+Run:
+```bash
+pytest tests/test_loader_validation.py tests/test_structured_control_flow.py -k match -v
+pytest tests/test_workflow_examples_v0.py -k match_demo -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/match_demo.yaml --dry-run
+```
+
+Risk focus: `match` should remain a structured enum branch primitive, not a generic pattern-matching language.
+
+### Task 12: Add post-test `repeat_until` as its own loop tranche
+
+**Files:**
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/workflow/statements.py`
+- Modify: `orchestrator/workflow/lowering.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `tests/test_structured_control_flow.py`
+- Modify: `tests/test_resume_command.py`
+- Modify: `tests/test_loader_validation.py`
+- Create: `workflows/examples/repeat_until_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Add post-test `repeat_until`**
+
+Keep iteration outputs explicit on the loop frame, require post-test semantics, and store enough iteration/condition-evaluation state for resume to continue safely.
+
+**Step 2: Verify loop resume and diagnostics directly**
+
+Cover iteration index persistence, condition-evaluation replay safety, and loop-frame reporting so this tranche has its own state and observability evidence.
+
+**Verification:**
+
+Run:
+```bash
+pytest tests/test_loader_validation.py tests/test_structured_control_flow.py tests/test_resume_command.py -k repeat_until -v
+pytest tests/test_workflow_examples_v0.py -k repeat_until -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/repeat_until_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/repeat_until_demo.yaml --state-dir /tmp/dsl-evolution-repeat-until-demo
+```
+
+Risk focus: keep loop refs constrained to declared loop-frame outputs so multi-visit inner-step ambiguity does not leak back in.
+
+### Task 13: Add authoring-time linting and normalization after the new syntax exists
+
+**Files:**
+- Create: `orchestrator/workflow/linting.py`
+- Modify: `orchestrator/cli/commands/run.py`
+- Modify: `orchestrator/cli/commands/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/cli.md`
+- Modify: `specs/versioning.md`
+- Modify: `docs/workflow_drafting_guide.md`
+- Create: `tests/test_dsl_linting.py`
+- Modify: `tests/test_cli_report_command.py`
+
+**Step 1: Add authoring-time lint rules**
+
+Start with warnings for:
+- shell gates that should become `assert`
+- stringly `when.equals` that should become typed predicates
+- raw `goto` diamonds that should become `if` / `match`
+- import/output collisions
+
+**Step 2: Keep linting advisory in the first pass**
+
+Expose lint results in report or dry-run output without turning them into hard validation failures until the rule set is proven stable.
+
+**Verification:**
+
+Run:
+```bash
+pytest --collect-only tests/test_dsl_linting.py -q
+pytest tests/test_dsl_linting.py tests/test_cli_report_command.py -v
+```
+
+Risk focus: linting should accelerate migration without blocking valid legacy workflows.
+
+### Task 14: Add score-aware gates on top of the stable predicate system
+
+**Files:**
+- Modify: `orchestrator/workflow/predicates.py`
+- Modify: `orchestrator/loader.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/versioning.md`
+- Modify: `docs/workflow_drafting_guide.md`
+- Create: `tests/test_score_gates.py`
+- Modify: `tests/test_structured_control_flow.py`
+- Create: `workflows/examples/score_gate_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Add score-threshold helpers without creating a parallel routing model**
+
+Standardize numeric-threshold gates and optional score-band decisions on top of the existing typed predicate system rather than inventing a separate control-flow surface.
+
+**Step 2: Add one focused example and test surface**
+
+Use a dedicated score-gate example so benchmark-oriented authoring guidance stays separate from general `match` and loop behavior.
+
+**Verification:**
+
+Run:
+```bash
+pytest --collect-only tests/test_score_gates.py -q
+pytest tests/test_score_gates.py tests/test_structured_control_flow.py -v
+pytest tests/test_workflow_examples_v0.py -k score_gate -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/score_gate_demo.yaml --dry-run
+```
+
+Risk focus: keep score helpers as thin predicate sugar over typed numeric artifacts.
+
+### Task 15: Run the final compatibility and smoke sweep before merge
+
+**Files:**
+- No file changes
+
+**Step 1: Re-run the targeted unit and integration suites**
+
+Run:
+```bash
+pytest tests/test_loader_validation.py \
+       tests/test_conditional_execution.py \
+       tests/test_runtime_step_lifecycle.py \
+       tests/test_typed_predicates.py \
+       tests/test_state_manager.py \
+       tests/test_resume_command.py \
+       tests/test_artifact_dataflow_integration.py \
+       tests/test_structured_control_flow.py \
+       tests/test_subworkflow_calls.py \
+       tests/test_observability_report.py \
+       tests/test_dsl_linting.py \
+       tests/test_scalar_bookkeeping.py \
+       tests/test_score_gates.py \
+       tests/test_cli_safety.py \
+       tests/test_workflow_examples_v0.py -v
+```
+
+**Step 2: Re-run an existing orchestrator smoke check to prove legacy compatibility**
+
+Run:
+```bash
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
+```
+
+**Step 3: Re-run one new-DSL smoke example from each major tranche**
+
+Run the dry-run commands from Tasks 2, 3, 4, 7, 11, and 14, and run the isolated real orchestrator commands from Tasks 5, 6, 8, 10, and 12. The evidence set must therefore include real execution output for cycle guards, workflow signatures, finalization, subworkflow calls, and loops alongside validation-only smoke checks for the syntax-heavy tranches and the legacy compatibility smoke check.
+
+**Completion criteria:**
+
+- Legacy `1.4` examples still validate and targeted tests pass.
+- Each new tranche has spec coverage, implementation coverage, and at least one example workflow smoke check; stateful tranches also have at least one isolated real orchestrator run.
+- State-schema changes are paired with resume tests and explicit documentation updates.
+- No feature depends on ambiguous multi-visit refs or bare step-name lineage keys.
