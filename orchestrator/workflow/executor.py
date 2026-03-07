@@ -107,6 +107,32 @@ class WorkflowExecutor:
         """Return the durable identity for a top-level step."""
         return runtime_step_id(step, self.current_step if fallback_index is None else fallback_index)
 
+    def _determine_resume_restart_index(self, state: Dict[str, Any]) -> Optional[int]:
+        """Determine the top-level step index where resumed execution should restart."""
+        current_step = state.get("current_step")
+        if isinstance(current_step, dict):
+            current_index = current_step.get("index")
+            current_status = current_step.get("status")
+            if isinstance(current_index, int) and current_status == "running":
+                if 0 <= current_index < len(self.steps):
+                    return current_index
+
+        steps_state = state.get("steps", {})
+        if not isinstance(steps_state, dict):
+            return None
+
+        for step_index, step in enumerate(self.steps):
+            step_name = step.get("name", f"step_{step_index}")
+            step_result = steps_state.get(step_name)
+            if isinstance(step_result, list):
+                return step_index
+            if not isinstance(step_result, dict):
+                return step_index
+            if step_result.get("status") not in ["completed", "skipped"]:
+                return step_index
+
+        return None
+
     def _uses_qualified_identities(self) -> bool:
         """Return True when this workflow uses the post-Task-6 state model."""
         version = self.workflow.get("version")
@@ -150,6 +176,7 @@ class WorkflowExecutor:
 
         try:
             # Execute steps with control flow support
+            resume_restart_index = self._determine_resume_restart_index(state) if resume else None
             step_index = 0
             while step_index < len(self.steps):
                 step = self.steps[step_index]
@@ -158,33 +185,15 @@ class WorkflowExecutor:
                 # Check if step should be executed
                 step_name = step.get('name', f'step_{step_index}')
                 step_id = self._step_id(step, step_index)
-
-                # Check if step is already completed (for resume)
-                if resume and 'steps' in state and step_name in state['steps']:
-                    step_result = state['steps'][step_name]
-                    # For for-each loops, check if it's an array of results
-                    if isinstance(step_result, list):
-                        # Check if all iterations are complete
-                        all_complete = all(
-                            isinstance(iteration, dict) and
-                            iteration.get('status') in ['completed', 'skipped']
-                            for iteration in step_result
-                            if isinstance(iteration, dict)
-                        )
-                        if all_complete:
-                            logger.info(f"Skipping already completed for-each step: {step_name}")
-                            step_index += 1
-                            continue
-                        # Partially complete for-each will be handled by _execute_for_each
-                    elif isinstance(step_result, dict):
-                        status = step_result.get('status')
-                        if status in ['completed', 'skipped']:
-                            logger.info(f"Skipping already {status} step: {step_name}")
-                            step_index += 1
-                            continue
-                        elif status == 'failed' and on_error == 'stop':
-                            logger.info(f"Step {step_name} previously failed, retrying")
-                            # Continue to retry the failed step
+                resume_current_step = False
+                if resume_restart_index is not None:
+                    if step_index < resume_restart_index:
+                        logger.info(f"Skipping step before resume restart point: {step_name}")
+                        step_index += 1
+                        continue
+                    if step_index == resume_restart_index:
+                        resume_current_step = True
+                        resume_restart_index = None
 
                 transition_guard = self._check_transition_guard(state, step_name)
                 if transition_guard is not None:
@@ -354,7 +363,7 @@ class WorkflowExecutor:
                 # Execute based on step type
                 with self._step_heartbeat(step_name):
                     if 'for_each' in step:
-                        state = self._execute_for_each(step, state, resume=resume)
+                        state = self._execute_for_each(step, state, resume=resume_current_step)
                         # Persist the for_each summary array to state manager
                         # The for_each method already updates individual iteration results,
                         # but we also need to persist the summary array result
