@@ -92,6 +92,43 @@ def test_snapshot_contains_command_input_and_output_summary(tmp_path: Path):
     assert len(prep["output"]["output_preview"]) < 250
 
 
+def test_snapshot_surfaces_normalized_outcome_fields(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-outcome"
+    (run_root / "logs").mkdir(parents=True)
+
+    state = {
+        "run_id": "run-outcome",
+        "status": "failed",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": "2026-02-27T00:00:05+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "steps": {
+            "Prep": {
+                "status": "failed",
+                "exit_code": 3,
+                "duration_ms": 0,
+                "error": {"type": "assert_failed", "message": "Assertion failed"},
+                "outcome": {
+                    "status": "failed",
+                    "phase": "execution",
+                    "class": "assert_failed",
+                    "retryable": False,
+                },
+            }
+        },
+    }
+
+    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+    prep = snapshot["steps"][0]
+
+    assert prep["output"]["outcome"] == {
+        "status": "failed",
+        "phase": "execution",
+        "class": "assert_failed",
+        "retryable": False,
+    }
+
+
 def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run3"
     logs = run_root / "logs"

@@ -71,6 +71,10 @@ Example closure checks: a required command was executed (with machine-checkable 
 
 Do not rely on review prose as the only enforcement mechanism. Route control flow using strict, published artifacts.
 
+Two practical upgrades now exist:
+- v1.5: use first-class `assert` instead of shelling out to `test`, `jq`, or tiny one-line Python gates.
+- v1.6: use typed predicates plus structured `ref:` for booleans, numeric thresholds, and recovered-failure routing instead of stringly `when.equals` hacks.
+
 ## 5) Prompt Authoring Guidance
 
 Keep prompts focused on decision-quality instructions, not DSL plumbing.

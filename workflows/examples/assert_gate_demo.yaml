@@ -1,0 +1,19 @@
+version: "1.5"
+name: assert-gate-demo
+context:
+  review_decision: "REVISE"
+steps:
+  - name: GateApproval
+    assert:
+      equals:
+        left: "${context.review_decision}"
+        right: "APPROVE"
+    on:
+      failure:
+        goto: WriteRevision
+
+  - name: WriteApproval
+    command: ["bash", "-lc", "printf 'approved' > approval.txt"]
+
+  - name: WriteRevision
+    command: ["bash", "-lc", "printf 'revise' > revision.txt"]

@@ -10,6 +10,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 
 
 EXAMPLE_FILES = [
+    "assert_gate_demo.yaml",
     "backlog_plan_execute_v0.yaml",
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
@@ -17,6 +18,7 @@ EXAMPLE_FILES = [
     "dsl_tracked_plan_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
     "test_fix_loop_v0.yaml",
+    "typed_predicate_routing.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
 ]
 
@@ -142,6 +144,24 @@ def test_backlog_plan_execute_v0_runtime(tmp_path: Path):
     assert state["steps"]["ExecutePlan"]["artifacts"]["execution_log_path"] == "artifacts/execution/run.log"
 
 
+def test_assert_gate_demo_runtime(tmp_path: Path):
+    """Assert gate demo routes through failure recovery with exit code 3."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "assert_gate_demo.yaml")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["GateApproval"]["exit_code"] == 3
+    assert state["steps"]["GateApproval"]["error"]["type"] == "assert_failed"
+    assert state["steps"]["WriteRevision"]["status"] == "completed"
+    assert not (workspace / "approval.txt").exists()
+
+
 def test_test_fix_loop_v0_runtime(tmp_path: Path):
     """Test/fix loop iterates once, writes fix artifact, then exits when failures drop to zero."""
     workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "test_fix_loop_v0.yaml")
@@ -250,6 +270,23 @@ def test_backlog_plan_execute_v1_2_dataflow_runtime(tmp_path: Path):
     assert "- execution_log: artifacts/work/fix.log" in review_prompts[1]
     assert "- failed_count:" not in review_prompts[0]
     assert "- failed_count:" not in review_prompts[1]
+
+
+def test_typed_predicate_routing_runtime(tmp_path: Path):
+    """Typed predicate demo gates on normalized failure outcome and artifact refs."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "typed_predicate_routing.yaml")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunCheck"]["outcome"]["class"] == "command_failed"
+    assert state["steps"]["GateRecoveredFailure"]["status"] == "completed"
+    assert state["steps"]["RunHighScorePath"]["status"] == "completed"
 
 
 def test_backlog_plan_execute_v1_3_json_bundles_runtime(tmp_path: Path):

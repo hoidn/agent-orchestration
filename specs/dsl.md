@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", or "1.4"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", or "1.6"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -27,6 +27,7 @@
   - Execution (mutually exclusive in a single step):
     - `provider: string` (+ optional `provider_params`) OR
     - `command: string[]` OR
+    - `assert: Condition|TypedPredicate` (v1.5+; exclusive with provider/command/wait_for/for_each) OR
     - `wait_for: { ... }` (exclusive with provider/command/for_each)
   - IO:
     - `input_file: string`
@@ -119,6 +120,18 @@
       - `equals: { left: string, right: string }` (string comparison)
       - `exists: string` (POSIX glob; true if ≥1 match within WORKSPACE)
       - `not_exists: string` (POSIX glob; true if 0 matches within WORKSPACE)
+      - v1.6 typed predicates:
+        - `artifact_bool: { ref: "root.steps.<Step>.artifacts.<name>" }`
+        - `compare: { left: Literal|{ref}, op: eq|ne|lt|lte|gt|gte, right: Literal|{ref} }`
+        - `all_of: TypedPredicate[]`
+        - `any_of: TypedPredicate[]`
+        - `not: TypedPredicate`
+      - Initial structured refs are limited to `root.steps.<Step>.artifacts.<name>`, `root.steps.<Step>.exit_code`, and `root.steps.<Step>.outcome.{status|phase|class|retryable}`.
+      - Bare `steps.<Name>`, `self.*`, `parent.*`, and untyped `context.*` are invalid in structured predicates for v1.6.
+    - `assert`: gate object; any of
+      - v1.5: legacy `equals|exists|not_exists`
+      - v1.6+: legacy conditions or typed predicates
+      - False assertions fail the step with `exit_code: 3` and `error.type: "assert_failed"`.
     - `on`: branching with goto
       - `success?: { goto: string }`
       - `failure?: { goto: string }`
@@ -131,14 +144,17 @@
     - v1.2 planned: `on_item_complete` (see `versioning.md`)
 
 - Mutual exclusivity and validation
-  - A step may specify exactly one of `provider`, `command`, or `wait_for`.
-  - `for_each` is a block form and cannot be combined with `provider`/`command`/`wait_for` on the same step.
+  - A step may specify exactly one of `provider`, `command`, `assert`, or `wait_for`.
+  - `assert` is a first-class execution form and cannot be combined with `provider`/`command`/`wait_for`/`for_each` on the same step.
+  - `for_each` is a block form and cannot be combined with `provider`/`command`/`wait_for`/`assert` on the same step.
   - `goto` targets must reference an existing step name or `_end`. Unknown targets are a validation error (exit code 2) reported at workflow load time.
   - Deprecated `command_override` is not supported and must be rejected by the loader/validator.
   - Version gating:
     - `depends_on.inject` requires `version: "1.1.1"` or higher.
     - `artifacts`, `publishes`, `consumes`, `inject_consumes`, `consumes_injection_position`, and `prompt_consumes` require `version: "1.2"` or higher.
     - `output_bundle` and `consume_bundle` require `version: "1.3"` or higher.
+    - `assert` requires `version: "1.5"` or higher.
+    - Typed predicates and structured `ref:` require `version: "1.6"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.

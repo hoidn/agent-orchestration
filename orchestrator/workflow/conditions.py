@@ -1,13 +1,15 @@
-"""
-Condition evaluation for workflow steps.
-Implements AT-37, AT-46, AT-47: Conditional execution with when.equals/exists/not_exists.
-"""
+"""Condition evaluation for workflow steps."""
 
 import glob
 from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..variables.substitution import VariableSubstitutor
+from .predicates import TypedPredicateEvaluator
+
+
+LEGACY_CONDITION_TYPES = ['equals', 'exists', 'not_exists']
+TYPED_PREDICATE_TYPES = ['artifact_bool', 'compare', 'all_of', 'any_of', 'not']
 
 
 class ConditionEvaluator:
@@ -29,11 +31,13 @@ class ConditionEvaluator:
         """
         self.workspace = Path(workspace).resolve()
         self.substitutor = VariableSubstitutor()
+        self.typed_evaluator = TypedPredicateEvaluator()
 
     def evaluate(
         self,
         condition: Optional[Dict[str, Any]],
-        variables: Dict[str, Any]
+        variables: Dict[str, Any],
+        state: Optional[Dict[str, Any]] = None,
     ) -> bool:
         """
         Evaluate a step condition.
@@ -57,7 +61,7 @@ class ConditionEvaluator:
             raise ValueError(f"Invalid condition format: expected dict, got {type(condition)}")
 
         # Check for exactly one condition type
-        condition_types = ['equals', 'exists', 'not_exists']
+        condition_types = LEGACY_CONDITION_TYPES + TYPED_PREDICATE_TYPES
         present_types = [k for k in condition_types if k in condition]
 
         if len(present_types) == 0:
@@ -74,6 +78,8 @@ class ConditionEvaluator:
             return self._evaluate_exists(condition['exists'], variables)
         elif 'not_exists' in condition:
             return self._evaluate_not_exists(condition['not_exists'], variables)
+        elif state is not None:
+            return self.typed_evaluator.evaluate(condition, state)
 
         return True
 
