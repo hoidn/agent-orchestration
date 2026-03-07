@@ -44,6 +44,7 @@ class StepResult:
     poll_count: Optional[int] = None
     timed_out: Optional[bool] = None
     outcome: Optional[Dict[str, Any]] = None
+    visit_count: Optional[int] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict, omitting None values."""
@@ -437,7 +438,14 @@ class StateManager:
             self.state.status = status
             self._write_state()
 
-    def start_step(self, step_name: str, step_index: int, step_type: str, step_id: Optional[str] = None):
+    def start_step(
+        self,
+        step_name: str,
+        step_index: int,
+        step_type: str,
+        step_id: Optional[str] = None,
+        visit_count: Optional[int] = None,
+    ):
         """Persist currently running step metadata."""
         with self._lock:
             if not self.state:
@@ -454,6 +462,8 @@ class StateManager:
             }
             if step_id:
                 self.state.current_step["step_id"] = step_id
+            if visit_count is not None:
+                self.state.current_step["visit_count"] = visit_count
             self._write_state()
 
     def heartbeat_step(self, step_name: Optional[str] = None):

@@ -186,6 +186,9 @@ class WorkflowExecutor:
         state.setdefault('transition_count', 0)
         state.setdefault('step_visits', {})
         state['_resolved_consumes'] = {}
+        if state.get('status') != 'running':
+            self.state_manager.update_status('running')
+            state['status'] = 'running'
         terminal_status = 'completed'
 
         try:
@@ -372,6 +375,7 @@ class WorkflowExecutor:
                     step_index,
                     self._resolve_step_type(step),
                     step_id=step_id,
+                    visit_count=visit_count,
                 )
 
                 # Execute based on step type
@@ -2733,6 +2737,10 @@ class WorkflowExecutor:
         finalized = self._attach_outcome(step, result, phase_hint, class_hint, retryable_hint)
         finalized.setdefault('name', step_name)
         finalized.setdefault('step_id', self._step_id(step))
+        step_visits = state.get('step_visits', {})
+        visit_count = step_visits.get(step_name) if isinstance(step_visits, dict) else None
+        if isinstance(visit_count, int):
+            finalized.setdefault('visit_count', visit_count)
         state['steps'][step_name] = finalized
 
         from ..state import StepResult
@@ -2756,6 +2764,7 @@ class WorkflowExecutor:
             poll_count=finalized.get('poll_count'),
             timed_out=finalized.get('timed_out'),
             outcome=finalized.get('outcome'),
+            visit_count=finalized.get('visit_count'),
         )
         self.state_manager.update_step(step_name, step_result)
         self._emit_step_summary(step_name, step, finalized)

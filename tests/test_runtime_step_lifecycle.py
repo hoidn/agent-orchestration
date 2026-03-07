@@ -282,11 +282,18 @@ def test_resume_skips_only_until_restart_point_not_after_loop_back(tmp_path: Pat
     state_manager.state.status = "failed"
     state_manager.state.workflow_checksum = f"sha256:{hashlib.sha256(workflow_file.read_bytes()).hexdigest()}"
     state_manager.state.steps = {
-        "ReviewImplementation": {"status": "completed", "exit_code": 0},
-        "ImplementationReviewGate": {"status": "failed", "exit_code": 1},
-        "ImplementationCycleGate": {"status": "completed", "exit_code": 0},
-        "FixImplementation": {"status": "completed", "exit_code": 0},
-        "IncrementImplementationCycle": {"status": "completed", "exit_code": 0},
+        "ReviewImplementation": {"status": "completed", "exit_code": 0, "visit_count": 1},
+        "ImplementationReviewGate": {"status": "failed", "exit_code": 1, "visit_count": 1},
+        "ImplementationCycleGate": {"status": "completed", "exit_code": 0, "visit_count": 1},
+        "FixImplementation": {"status": "completed", "exit_code": 0, "visit_count": 1},
+        "IncrementImplementationCycle": {"status": "completed", "exit_code": 0, "visit_count": 1},
+    }
+    state_manager.state.step_visits = {
+        "ReviewImplementation": 1,
+        "ImplementationReviewGate": 1,
+        "ImplementationCycleGate": 1,
+        "FixImplementation": 1,
+        "IncrementImplementationCycle": 1,
     }
     state_manager._write_state()
     state_manager.load()
@@ -427,11 +434,18 @@ def test_looped_resume_exposes_active_visit_count(tmp_path: Path):
     state_manager.state.status = "failed"
     state_manager.state.workflow_checksum = f"sha256:{hashlib.sha256(workflow_file.read_bytes()).hexdigest()}"
     state_manager.state.steps = {
-        "ReviewImplementation": {"status": "completed", "exit_code": 0},
-        "ImplementationReviewGate": {"status": "failed", "exit_code": 1},
-        "ImplementationCycleGate": {"status": "completed", "exit_code": 0},
-        "FixImplementation": {"status": "completed", "exit_code": 0},
-        "IncrementImplementationCycle": {"status": "completed", "exit_code": 0},
+        "ReviewImplementation": {"status": "completed", "exit_code": 0, "visit_count": 1},
+        "ImplementationReviewGate": {"status": "failed", "exit_code": 1, "visit_count": 1},
+        "ImplementationCycleGate": {"status": "completed", "exit_code": 0, "visit_count": 1},
+        "FixImplementation": {"status": "completed", "exit_code": 0, "visit_count": 1},
+        "IncrementImplementationCycle": {"status": "completed", "exit_code": 0, "visit_count": 1},
+    }
+    state_manager.state.step_visits = {
+        "ReviewImplementation": 1,
+        "ImplementationReviewGate": 1,
+        "ImplementationCycleGate": 1,
+        "FixImplementation": 1,
+        "IncrementImplementationCycle": 1,
     }
     state_manager._write_state()
 
