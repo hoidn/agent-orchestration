@@ -89,6 +89,40 @@ Keep prompts focused on decision-quality instructions, not DSL plumbing.
 
 Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders.
 
+### Keep Workflow Mechanics Out Of Prompts
+
+Prompts should describe the task, scope, and required outputs from the agent's point of view. They should not teach the agent how the orchestrator works internally.
+
+If correctness depends on runtime mechanics such as run-root ownership, pointer-file semantics, consume preflight, artifact publication, or protected state paths, prefer to encode that in workflow contracts or runtime behavior instead of prose.
+
+Good prompt constraints are operational from the agent's point of view:
+- what checkout to work in
+- whether `git worktree` is allowed
+- which files are in scope or out of scope
+- which exact output path to write
+
+Avoid prompt constraints that leak workflow/runtime implementation details:
+- references to `.orchestrate/` internals unless the step is explicitly about debugging them
+- explanations of pointer ownership or output validation internals
+- instructions framed in terms of "run workspace root" or similar runtime jargon when "current checkout" is enough
+
+Bad:
+
+```md
+The authoritative workspace for this step is the workflow run workspace root.
+Do not delete workflow-owned runtime files under `.orchestrate/` or `state/`.
+Any output-contract files must be written in the run workspace paths that already exist for this run.
+```
+
+Better:
+
+```md
+Use the current checkout.
+Do not use `git worktree` or another checkout.
+Leave unrelated files alone.
+Write the report to the exact path named by `state/execution_report_path.txt`.
+```
+
 For `expected_outputs`, prefer concise guidance annotations directly on each artifact:
 
 ```yaml
