@@ -10,7 +10,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..state import StateManager
+from ..state import ForEachState, StateManager, StepResult
 from ..exec.step_executor import StepExecutor
 from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
@@ -723,6 +723,140 @@ class WorkflowExecutor:
             return implicit_index
         return None
 
+    def _collect_persisted_iteration_state(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        index: int,
+    ) -> Dict[str, Any]:
+        """Rebuild one loop iteration from persisted presentation keys."""
+        steps_state = state.get('steps', {})
+        if not isinstance(steps_state, dict):
+            return {}
+
+        iteration_state: Dict[str, Any] = {}
+        loop_results = steps_state.get(loop_name)
+        if (
+            isinstance(loop_results, list)
+            and 0 <= index < len(loop_results)
+            and isinstance(loop_results[index], dict)
+        ):
+            iteration_state.update(loop_results[index])
+
+        prefix = f"{loop_name}[{index}]."
+        for persisted_key, persisted_value in steps_state.items():
+            if not isinstance(persisted_key, str) or not persisted_key.startswith(prefix):
+                continue
+            nested_name = persisted_key[len(prefix):]
+            if nested_name:
+                iteration_state[nested_name] = persisted_value
+
+        return iteration_state
+
+    def _store_loop_iteration_result(
+        self,
+        loop_results: List[Dict[str, Any]],
+        index: int,
+        iteration_state: Dict[str, Any],
+    ) -> None:
+        """Store an iteration result at its stable list position."""
+        while len(loop_results) <= index:
+            loop_results.append({})
+        loop_results[index] = iteration_state
+
+    def _persist_for_each_progress(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        items: List[Any],
+        completed_indices: List[int],
+        current_index: Optional[int],
+        loop_results: List[Dict[str, Any]],
+    ) -> None:
+        """Persist loop summary and bookkeeping for durable resume."""
+        state.setdefault('steps', {})
+        state.setdefault('for_each', {})
+
+        progress = {
+            'items': list(items),
+            'completed_indices': sorted(set(completed_indices)),
+            'current_index': current_index,
+        }
+        state['steps'][loop_name] = loop_results
+        state['for_each'][loop_name] = progress
+
+        self.state_manager.update_loop_results(loop_name, loop_results)
+        self.state_manager.update_for_each(
+            loop_name,
+            ForEachState(
+                items=list(items),
+                completed_indices=progress['completed_indices'],
+                current_index=current_index,
+            ),
+        )
+
+    def _resume_for_each_state(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        loop_steps: List[Dict[str, Any]],
+        items: List[Any],
+    ) -> tuple[List[Dict[str, Any]], List[int], int]:
+        """Load persisted loop progress and determine the restart index."""
+        steps_state = state.get('steps', {})
+        if not isinstance(steps_state, dict):
+            steps_state = {}
+
+        loop_results: List[Dict[str, Any]] = []
+        existing_results = steps_state.get(loop_name)
+        if isinstance(existing_results, list):
+            loop_results = list(existing_results)
+
+        progress = state.get('for_each', {}).get(loop_name)
+        completed_indices: List[int] = []
+        current_index: Optional[int] = None
+        if isinstance(progress, dict):
+            completed_indices = [
+                index
+                for index in progress.get('completed_indices', [])
+                if isinstance(index, int) and 0 <= index < len(items)
+            ]
+            candidate_index = progress.get('current_index')
+            if isinstance(candidate_index, int) and 0 <= candidate_index < len(items):
+                current_index = candidate_index
+
+        if not completed_indices and isinstance(existing_results, list):
+            for i, iteration_result in enumerate(existing_results):
+                if not isinstance(iteration_result, dict):
+                    break
+                all_steps_complete = True
+                for nested_step in loop_steps:
+                    nested_name = nested_step.get('name', f'step_{i}')
+                    iteration_key = f"{loop_name}[{i}].{nested_name}"
+                    nested_result = steps_state.get(iteration_key)
+                    if not isinstance(nested_result, dict):
+                        all_steps_complete = False
+                        break
+                    if nested_result.get('status') not in ['completed', 'failed', 'skipped']:
+                        all_steps_complete = False
+                        break
+                if not all_steps_complete:
+                    current_index = i
+                    break
+                completed_indices.append(i)
+
+        for index in completed_indices:
+            persisted_iteration = self._collect_persisted_iteration_state(state, loop_name, index)
+            if persisted_iteration:
+                self._store_loop_iteration_result(loop_results, index, persisted_iteration)
+
+        start_index = current_index if current_index is not None else 0
+        while start_index in completed_indices:
+            logger.info(f"Skipping completed iteration {start_index} of {loop_name}")
+            start_index += 1
+
+        return loop_results, sorted(set(completed_indices)), start_index
+
     def _record_published_artifacts(
         self,
         step: Dict[str, Any],
@@ -1322,9 +1456,16 @@ class WorkflowExecutor:
         """
         step_name = step.get('name', f'step_{self.current_step}')
         for_each = step['for_each']
+        persisted_progress = state.get('for_each', {}).get(step_name) if isinstance(state.get('for_each'), dict) else None
 
         # Resolve items to iterate over
-        if 'items_from' in for_each:
+        if (
+            resume
+            and isinstance(persisted_progress, dict)
+            and isinstance(persisted_progress.get('items'), list)
+        ):
+            items = list(persisted_progress.get('items', []))
+        elif 'items_from' in for_each:
             # AT-3: Dynamic items from pointer
             pointer_resolver = PointerResolver(state)
             try:
@@ -1360,7 +1501,7 @@ class WorkflowExecutor:
                 return state
         else:
             # Static items list
-            items = for_each.get('items', [])
+            items = list(for_each.get('items', []))
 
         # Get loop configuration
         item_var = for_each.get('as', 'item')
@@ -1369,46 +1510,45 @@ class WorkflowExecutor:
         # Initialize loop state
         if 'steps' not in state:
             state['steps'] = {}
+        state.setdefault('for_each', {})
 
         # Prepare loop state storage (indexed by iteration)
         # Format: steps.<LoopName>[i].<StepName>
-        loop_results = []
+        loop_results: List[Dict[str, Any]] = []
+        completed_indices: List[int] = []
 
         # Check for existing partial results (for resume)
         start_index = 0
-        if resume and step_name in state['steps']:
-            existing_results = state['steps'][step_name]
-            if isinstance(existing_results, list):
-                # Count completed iterations
-                for i, iteration_result in enumerate(existing_results):
-                    if isinstance(iteration_result, dict):
-                        # Check if this iteration has all steps complete
-                        all_steps_complete = True
-                        for nested_step in loop_steps:
-                            nested_name = nested_step.get('name', f'step_{i}')
-                            iteration_key = f"{step_name}[{i}].{nested_name}"
-                            if iteration_key in state['steps']:
-                                nested_status = state['steps'][iteration_key].get('status')
-                                if nested_status not in ['completed', 'skipped']:
-                                    all_steps_complete = False
-                                    break
-                            else:
-                                all_steps_complete = False
-                                break
+        if resume:
+            loop_results, completed_indices, start_index = self._resume_for_each_state(
+                state,
+                step_name,
+                loop_steps,
+                items,
+            )
 
-                        if all_steps_complete:
-                            loop_results.append(iteration_result)
-                            start_index = i + 1
-                            logger.info(f"Skipping completed iteration {i} of {step_name}")
-                        else:
-                            # Start from this incomplete iteration
-                            start_index = i
-                            break
+        self._persist_for_each_progress(
+            state,
+            step_name,
+            items,
+            completed_indices,
+            start_index if start_index < len(items) else None,
+            loop_results,
+        )
 
         # Execute loop iterations (starting from start_index for resume)
         loop_step_id = self._step_id(step)
         for index in range(start_index, len(items)):
             item = items[index]
+            self._persist_for_each_progress(
+                state,
+                step_name,
+                items,
+                completed_indices,
+                index,
+                loop_results,
+            )
+
             # Setup loop scope variables
             loop_context = {
                 'item': item,  # Current item
@@ -1420,7 +1560,7 @@ class WorkflowExecutor:
             }
 
             # Execute nested steps for this iteration
-            iteration_state = {}
+            iteration_state: Dict[str, Any] = {}
             for nested_index, nested_step in enumerate(loop_steps):
                 nested_name = nested_step.get('name', f'nested_{index}')
                 nested_runtime_step_id = iteration_step_id(loop_step_id, index, nested_step, nested_index)
@@ -1458,7 +1598,27 @@ class WorkflowExecutor:
                                 'context': {'condition': nested_step['when']}
                             }
                         }
+                        result.setdefault('name', nested_name)
+                        result.setdefault('step_id', nested_runtime_step_id)
+                        result = self._attach_outcome(nested_step, result)
                         iteration_state[nested_name] = result
+                        self.state_manager.update_loop_step(
+                            step_name,
+                            index,
+                            nested_name,
+                            StepResult(
+                                status=result.get('status', 'failed'),
+                                name=result.get('name', nested_name),
+                                step_id=result.get('step_id'),
+                                exit_code=result.get('exit_code', 2),
+                                duration_ms=result.get('duration_ms', 0),
+                                error=result.get('error'),
+                                truncated=result.get('truncated', False),
+                                artifacts=result.get('artifacts'),
+                                skipped=result.get('skipped', False),
+                                outcome=result.get('outcome'),
+                            ),
+                        )
                         continue
 
                     if not should_execute:
@@ -1468,7 +1628,26 @@ class WorkflowExecutor:
                             'exit_code': 0,
                             'skipped': True
                         }
+                        result.setdefault('name', nested_name)
+                        result.setdefault('step_id', nested_runtime_step_id)
+                        result = self._attach_outcome(nested_step, result)
                         iteration_state[nested_name] = result
+                        self.state_manager.update_loop_step(
+                            step_name,
+                            index,
+                            nested_name,
+                            StepResult(
+                                status=result.get('status', 'skipped'),
+                                name=result.get('name', nested_name),
+                                step_id=result.get('step_id'),
+                                exit_code=result.get('exit_code', 0),
+                                duration_ms=result.get('duration_ms', 0),
+                                truncated=result.get('truncated', False),
+                                artifacts=result.get('artifacts'),
+                                skipped=result.get('skipped', True),
+                                outcome=result.get('outcome'),
+                            ),
+                        )
                         continue
 
                 # Create a modified context with loop variables
@@ -1512,8 +1691,43 @@ class WorkflowExecutor:
                 result = self._attach_outcome(nested_step, result)
                 iteration_state[nested_name] = result
 
+                self.state_manager.update_loop_step(
+                    step_name,
+                    index,
+                    nested_name,
+                    StepResult(
+                        status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
+                        name=result.get('name', nested_name),
+                        step_id=result.get('step_id'),
+                        exit_code=result.get('exit_code', 0),
+                        duration_ms=result.get('duration_ms', 0),
+                        output=result.get('output'),
+                        lines=result.get('lines'),
+                        json=result.get('json'),
+                        error=result.get('error'),
+                        truncated=result.get('truncated', False),
+                        artifacts=result.get('artifacts'),
+                        skipped=result.get('skipped', False),
+                        files=result.get('files'),
+                        wait_duration_ms=result.get('wait_duration_ms'),
+                        poll_count=result.get('poll_count'),
+                        timed_out=result.get('timed_out'),
+                        outcome=result.get('outcome'),
+                    ),
+                )
+
             # Store iteration results in indexed format
-            loop_results.append(iteration_state)
+            self._store_loop_iteration_result(loop_results, index, iteration_state)
+            completed_indices.append(index)
+            next_index = index + 1 if index + 1 < len(items) else None
+            self._persist_for_each_progress(
+                state,
+                step_name,
+                items,
+                completed_indices,
+                next_index,
+                loop_results,
+            )
 
         # Update state with loop results
         # Store as steps.<LoopName> = [{iteration_0}, {iteration_1}, ...]
@@ -1526,29 +1740,14 @@ class WorkflowExecutor:
                 indexed_key = f"{step_name}[{i}].{nested_name}"
                 state['steps'][indexed_key] = result
 
-                # Update state manager with each loop step result (AT-43)
-                from ..state import StepResult
-                exit_code = result.get('exit_code', 0)
-                step_result = StepResult(
-                    status=result.get('status', 'completed' if exit_code == 0 else 'failed'),
-                    name=result.get('name', nested_name),
-                    step_id=result.get('step_id'),
-                    exit_code=exit_code,
-                    duration_ms=result.get('duration_ms', 0),
-                    output=result.get('output'),
-                    lines=result.get('lines'),
-                    json=result.get('json'),
-                    error=result.get('error'),
-                    truncated=result.get('truncated', False),
-                    artifacts=result.get('artifacts'),
-                    skipped=result.get('skipped', False),
-                    files=result.get('files'),
-                    wait_duration_ms=result.get('wait_duration_ms'),
-                    poll_count=result.get('poll_count'),
-                    timed_out=result.get('timed_out'),
-                    outcome=result.get('outcome'),
-                )
-                self.state_manager.update_loop_step(step_name, i, nested_name, step_result)
+        self._persist_for_each_progress(
+            state,
+            step_name,
+            items,
+            completed_indices,
+            None,
+            loop_results,
+        )
 
         return state
 

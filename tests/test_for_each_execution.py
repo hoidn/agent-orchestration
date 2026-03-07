@@ -545,3 +545,70 @@ steps:
         assert 'Item 0 of 3: alpha' in executed_commands[0]
         assert 'Item 1 of 3: beta' in executed_commands[1]
         assert 'Item 2 of 3: gamma' in executed_commands[2]
+
+    def test_for_each_persists_loop_bookkeeping_state(self):
+        """Completed loops must persist durable for_each bookkeeping for resume."""
+        workflow_yaml = """
+version: "1.1"
+steps:
+  - name: ProcessItems
+    for_each:
+      items: ["alpha", "beta", "gamma"]
+      as: value
+      steps:
+        - name: ProcessItem
+          command: ["echo", "Processing ${value}"]
+          output_capture: text
+"""
+        workflow_file = self.workspace / 'workflow.yaml'
+        workflow_file.write_text(workflow_yaml)
+
+        loader = WorkflowLoader(self.workspace)
+        workflow = loader.load(str(workflow_file))
+
+        state_manager = StateManager(
+            workspace=self.workspace,
+            run_id='test_run',
+            backup_enabled=False
+        )
+        state_manager.initialize(str(workflow_file))
+
+        executor = WorkflowExecutor(
+            workflow=workflow,
+            workspace=self.workspace,
+            state_manager=state_manager
+        )
+
+        executed_commands = []
+
+        def mock_execute_command(self, **kwargs):
+            command = kwargs['command']
+            command_text = ' '.join(command) if isinstance(command, list) else command
+            executed_commands.append(command_text)
+
+            from orchestrator.exec.output_capture import CaptureResult, CaptureMode
+            result = CaptureResult(
+                mode=CaptureMode.TEXT,
+                output=command_text,
+                truncated=False
+            )
+            from orchestrator.exec.step_executor import ExecutionResult
+            return ExecutionResult(
+                step_name=kwargs['step_name'],
+                exit_code=0,
+                capture_result=result,
+                duration_ms=5
+            )
+
+        import types
+        executor.step_executor.execute_command = types.MethodType(mock_execute_command, executor.step_executor)
+
+        state = executor.execute()
+        persisted = state_manager.load()
+
+        assert len(executed_commands) == 3
+        assert state['steps']['ProcessItems'][2]['ProcessItem']['status'] == 'completed'
+        assert 'ProcessItems' in persisted.for_each
+        assert persisted.for_each['ProcessItems'].items == ['alpha', 'beta', 'gamma']
+        assert persisted.for_each['ProcessItems'].completed_indices == [0, 1, 2]
+        assert persisted.for_each['ProcessItems'].current_index is None

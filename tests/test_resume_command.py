@@ -449,6 +449,97 @@ steps:
     assert result == 0
 
 
+def test_resume_partial_for_each_loop_skips_completed_iterations_using_bookkeeping(temp_workspace):
+    """Resume should continue from the first incomplete loop iteration without replaying completed work."""
+    workflow = {
+        "version": "1.1",
+        "name": "Loop Resume Workflow",
+        "steps": [
+            {
+                "name": "GenerateList",
+                "command": ["bash", "-lc", "printf 'item1\\nitem2\\nitem3\\n'"],
+                "output_capture": "lines",
+            },
+            {
+                "name": "ProcessItems",
+                "for_each": {
+                    "items_from": "steps.GenerateList.lines",
+                    "steps": [
+                        {
+                            "name": "ProcessItem",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf '%s\\n' \"${item}\" >> state/processed.log",
+                            ],
+                        }
+                    ],
+                },
+            },
+        ],
+    }
+
+    workflow_path = temp_workspace / "loop_resume_workflow.yaml"
+    workflow_text = yaml.safe_dump(workflow, sort_keys=False)
+    workflow_path.write_text(workflow_text)
+    checksum = f"sha256:{hashlib.sha256(workflow_text.encode()).hexdigest()}"
+
+    state_dir = temp_workspace / "state"
+    state_dir.mkdir()
+    (state_dir / "processed.log").write_text("item1\n")
+
+    run_id = "loop-resume-real"
+    run_root = temp_workspace / ".orchestrate" / "runs" / run_id
+    run_root.mkdir(parents=True)
+    state = {
+        "schema_version": StateManager.SCHEMA_VERSION,
+        "run_id": run_id,
+        "workflow_file": "loop_resume_workflow.yaml",
+        "workflow_checksum": checksum,
+        "started_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:01:00Z",
+        "status": "failed",
+        "context": {},
+        "steps": {
+            "GenerateList": {
+                "status": "completed",
+                "exit_code": 0,
+                "lines": ["item1", "item2", "item3"],
+            },
+            "ProcessItems[0].ProcessItem": {
+                "status": "completed",
+                "exit_code": 0,
+                "output": "item1",
+            },
+        },
+        "for_each": {
+            "ProcessItems": {
+                "items": ["item1", "item2", "item3"],
+                "completed_indices": [0],
+                "current_index": 1,
+            }
+        },
+    }
+    (run_root / "state.json").write_text(json.dumps(state, indent=2))
+
+    with patch("os.getcwd", return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert (state_dir / "processed.log").read_text().splitlines() == ["item1", "item2", "item3"]
+
+    resumed = json.loads((run_root / "state.json").read_text())
+    assert resumed["for_each"]["ProcessItems"]["completed_indices"] == [0, 1, 2]
+    assert resumed["for_each"]["ProcessItems"]["current_index"] is None
+    assert len(resumed["steps"]["ProcessItems"]) == 3
+    assert resumed["steps"]["ProcessItems[1].ProcessItem"]["status"] == "completed"
+    assert resumed["steps"]["ProcessItems[2].ProcessItem"]["status"] == "completed"
+
+
 def test_resume_revisits_top_level_review_step_after_fix_loop(temp_workspace):
     """Resume should only skip to the restart point, not skip revisited loop steps forever."""
     run_id = "resume-loop-run"

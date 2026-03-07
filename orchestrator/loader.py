@@ -7,6 +7,7 @@ import yaml
 
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
+from orchestrator.workflow.references import ReferenceResolutionError, parse_structured_ref
 
 
 class PreservingLoader(yaml.SafeLoader):
@@ -1192,47 +1193,26 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': structured refs cannot read untyped context values")
             return 'unknown'
 
-        parts = ref.split('.')
-        if len(parts) < 4:
-            self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
-            return 'unknown'
-
-        scope_name = parts[0]
+        scope_name = ref.split('.', 1)[0]
         if self._version_at_least(version, "2.0"):
             if scope_name == 'root':
-                if len(parts) < 4 or parts[1] != 'steps':
+                if not ref.startswith('root.steps.'):
                     self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
                     return 'unknown'
-                target_step = parts[2]
                 artifacts_catalog = root_catalog.get('artifacts', {})
-                if target_step in root_catalog.get('multi_visit', set()):
-                    self._add_error(
-                        f"Step '{step_name}': structured ref '{ref}' targets multi-visit step '{target_step}'"
-                    )
-                    return 'unknown'
-                tail = parts[3:]
             elif scope_name == 'self':
-                if len(parts) < 4 or parts[1] != 'steps':
+                if not ref.startswith('self.steps.'):
                     self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
                     return 'unknown'
-                target_step = parts[2]
                 artifacts_catalog = scope_artifacts
-                tail = parts[3:]
             elif scope_name == 'parent':
-                if len(parts) < 4 or parts[1] != 'steps':
+                if not ref.startswith('parent.steps.'):
                     self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
                     return 'unknown'
                 if parent_artifacts is None:
                     self._add_error(f"Step '{step_name}': parent refs are unavailable in the root scope")
                     return 'unknown'
-                target_step = parts[2]
                 artifacts_catalog = parent_artifacts
-                if target_step in (parent_multi_visit or set()):
-                    self._add_error(
-                        f"Step '{step_name}': structured ref '{ref}' targets multi-visit step '{target_step}'"
-                    )
-                    return 'unknown'
-                tail = parts[3:]
             else:
                 self._add_error(
                     f"Step '{step_name}': structured refs must start with root.steps., self.steps., or parent.steps."
@@ -1248,14 +1228,27 @@ class WorkflowLoader:
             if not ref.startswith('root.steps.'):
                 self._add_error(f"Step '{step_name}': structured refs must start with 'root.steps.'")
                 return 'unknown'
-            target_step = parts[2]
             artifacts_catalog = root_catalog.get('artifacts', {})
-            if target_step in root_catalog.get('multi_visit', set()):
-                self._add_error(
-                    f"Step '{step_name}': structured ref '{ref}' targets multi-visit step '{target_step}'"
-                )
-                return 'unknown'
-            tail = parts[3:]
+
+        try:
+            parsed_ref = parse_structured_ref(ref, artifacts_catalog.keys())
+        except ReferenceResolutionError:
+            self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
+            return 'unknown'
+
+        target_step = parsed_ref.step_name
+        if scope_name == 'root':
+            multi_visit = root_catalog.get('multi_visit', set())
+        elif scope_name == 'parent':
+            multi_visit = parent_multi_visit or set()
+        else:
+            multi_visit = set()
+
+        if target_step in multi_visit:
+            self._add_error(
+                f"Step '{step_name}': structured ref '{ref}' targets multi-visit step '{target_step}'"
+            )
+            return 'unknown'
 
         if target_step not in artifacts_catalog:
             self._add_error(
@@ -1263,24 +1256,24 @@ class WorkflowLoader:
             )
             return 'unknown'
 
-        if tail == ['exit_code']:
+        if parsed_ref.field == 'exit_code':
             return 'integer'
-        if len(tail) == 2 and tail[0] == 'outcome':
+        if parsed_ref.field == 'outcome':
             outcome_types = {
                 'status': 'string',
                 'phase': 'string',
                 'class': 'string',
                 'retryable': 'bool',
             }
-            outcome_type = outcome_types.get(tail[1])
+            outcome_type = outcome_types.get(parsed_ref.member)
             if outcome_type is None:
                 self._add_error(
-                    f"Step '{step_name}': structured ref '{ref}' targets invalid outcome field '{tail[1]}'"
+                    f"Step '{step_name}': structured ref '{ref}' targets invalid outcome field '{parsed_ref.member}'"
                 )
                 return 'unknown'
             return outcome_type
-        if len(tail) == 2 and tail[0] == 'artifacts':
-            artifact_name = tail[1]
+        if parsed_ref.field == 'artifacts':
+            artifact_name = parsed_ref.member
             artifacts = artifacts_catalog.get(target_step, {})
             artifact_spec = artifacts.get(artifact_name)
             if artifact_spec is None:

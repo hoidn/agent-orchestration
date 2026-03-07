@@ -1,12 +1,20 @@
-Addressed the implementation-review follow-up for the DSL evolution work. Fixed five confirmed gaps: the loader now rejects structured refs that target unknown steps or invalid `outcome.*` fields before runtime; `self.steps.*` resolution no longer falls back to root state when a local scope is present but empty; undefined-variable command failures now normalize to `outcome = {class: pre_execution_failed, phase: pre_execution}` so typed routing can observe them correctly; nested v2.0 provider steps now look up `prompt_consumes` using their iteration-qualified consumer identity; and `max_visits` no longer suppresses execution-field exclusivity validation.
+Addressed the remaining implementation-review findings for the DSL evolution work.
 
-Added regression coverage for each reviewed bug: missing root-step refs, invalid normalized-outcome field refs, preserved runtime missing-value failures inside scoped refs, undefined-variable typed routing, self-scope isolation within `for_each`, nested provider consume injection, and `max_visits` plus command/provider exclusivity.
+Closed two confirmed gaps:
+- `for_each` now persists durable loop bookkeeping in `state["for_each"]` and incrementally writes the loop summary array during execution, so resume restarts from the first incomplete iteration instead of replaying completed work.
+- Structured ref parsing now matches the full step selector against the available scope instead of assuming the selector is the third dot-separated token, so v2.0 typed refs can target valid step names such as `Build.v1` while still rejecting unknown steps and invalid `outcome.*` members at load time.
+
+Added regression coverage for:
+- persisted `for_each` bookkeeping after a normal loop completes
+- real `resume_workflow()` recovery of a partially completed loop using persisted bookkeeping
+- typed predicate refs against dotted step names
 
 Verification run:
-- `pytest --collect-only tests/test_typed_predicates.py tests/test_loader_validation.py tests/test_at63_undefined_variables.py tests/test_at65_loop_scoping.py tests/test_prompt_contract_injection.py -q` (`110 tests collected`)
-- `pytest tests/test_typed_predicates.py -k "missing_root_step_exit_code_refs or unknown_outcome_members or missing_self_scope_value" -v` (`3 passed`)
-- `pytest tests/test_loader_validation.py -k max_visits_does_not_bypass_execution_field_exclusivity -v` (`1 passed`)
-- `pytest tests/test_at63_undefined_variables.py -k normalize_to_pre_execution -v` (`1 passed`)
-- `pytest tests/test_at65_loop_scoping.py -k self_refs_do_not_fall_back_to_root_scope -v` (`1 passed`)
-- `pytest tests/test_prompt_contract_injection.py -k iteration_scoped_consume_identity -v` (`1 passed`)
-- `pytest tests/test_typed_predicates.py tests/test_loader_validation.py tests/test_at63_undefined_variables.py tests/test_at65_loop_scoping.py tests/test_prompt_contract_injection.py -v` (`110 passed`)
+- `pytest --collect-only tests/test_for_each_execution.py tests/test_resume_command.py tests/test_typed_predicates.py -q` (`37 tests collected`)
+- `pytest tests/test_for_each_execution.py -k persists_loop_bookkeeping_state -v` (`1 passed`)
+- `pytest tests/test_resume_command.py -k skips_completed_iterations_using_bookkeeping -v` (`1 passed`)
+- `pytest tests/test_typed_predicates.py -k target_step_names_containing_dots -v` (`1 passed`)
+- `pytest tests/test_typed_predicates.py tests/test_for_each_execution.py tests/test_resume_command.py -v` (`37 passed`)
+- `pytest tests/test_loader_validation.py -k "step_id or scoped_ref or max_visits_does_not_bypass_execution_field_exclusivity" -v` (`5 passed`)
+- `pytest tests/test_artifact_dataflow_integration.py tests/test_at65_loop_scoping.py tests/test_prompt_contract_injection.py -k "qualified or lineage or loop_scoping or iteration_scoped_consume_identity" -v` (`11 passed`)
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run` (`[DRY RUN] Workflow validation successful`)

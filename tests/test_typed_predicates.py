@@ -309,3 +309,39 @@ def test_runtime_predicate_missing_self_scope_value_fails_with_structured_error(
         "class": "pre_execution_failed",
         "retryable": False,
     }
+
+
+def test_v2_structured_refs_can_target_step_names_containing_dots(tmp_path: Path):
+    workflow = {
+        "version": "2.0",
+        "name": "dotted-step-name-ref",
+        "steps": [
+            {
+                "name": "Build.v1",
+                "id": "build_v1",
+                "command": ["bash", "-lc", "mkdir -p state && printf 'true' > state/ready.txt"],
+                "expected_outputs": [
+                    {
+                        "name": "ready",
+                        "path": "state/ready.txt",
+                        "type": "bool",
+                    }
+                ],
+            },
+            {
+                "name": "Gate",
+                "id": "gate",
+                "assert": {
+                    "artifact_bool": {
+                        "ref": "root.steps.Build.v1.artifacts.ready",
+                    }
+                },
+            },
+        ],
+    }
+
+    executor = _load_executor(tmp_path, workflow, run_id="dotted-step-name-ref")
+    state = executor.execute()
+
+    assert state["steps"]["Build.v1"]["status"] == "completed"
+    assert state["steps"]["Gate"]["status"] == "completed"
