@@ -74,6 +74,7 @@ Lock the migration policy here instead of leaving it implicit:
 
 Add acceptance cases for:
 - `assert_failed` vs contract/preflight failures
+- typed predicate grammar being legal under both `when` and `assert` once D2 lands, including `assert.compare` with structured `ref:` operands and `assert_failed` normalized-outcome coverage
 - statically invalid `ref:` targets
 - load-time rejection of `ref:` operands that target provably multi-visit steps in the first D2 tranche
 - statically provable predicate type errors, including `artifact_bool` against non-`bool` artifacts and ordered comparisons against non-numeric / `relpath` / `enum` operands
@@ -185,6 +186,7 @@ Risk focus: do not let `assert` silently drift into a general expression languag
 **Step 1: Write failing tests for the new predicate surface**
 
 Cover:
+- the typed predicate grammar being accepted under both `when` and `assert`
 - `artifact_bool`
 - `compare` with `eq|ne|lt|lte|gt|gte`
 - `all_of|any_of|not`
@@ -194,6 +196,7 @@ Cover:
 - statically invalid refs rejected at load time
 - runtime-only missing values producing structured predicate failures
 - the normalized outcome matrix for command failure, provider failure, timeout, contract/preflight failure, and undefined-substitution-at-step-execution
+- `assert.compare` and `assert.artifact_bool` false paths producing `exit_code: 3`, `error.type: "assert_failed"`, and the normalized `outcome.class` / `outcome.phase` values documented for typed gate failures
 - legacy `version: "1.4"` `for_each` workflows keeping `${steps.<Name>.*}` loop-local substitution unchanged while typed `ref:` remains opt-in and version-gated
 
 **Step 2: Add normalized outcome projection and make the matrix executable**
@@ -206,13 +209,17 @@ Project step results into:
 
 Keep this projection available only for observable step results, document the normalization matrix in the spec, and add direct test coverage that each documented tuple maps to the expected normalized outcome fields.
 
-**Step 3: Enforce the first-tranche safety boundary in the loader**
+**Step 3: Broaden `assert` to the typed predicate surface**
+
+Extend the `assert` step grammar so that, for the new version-gated predicate model, it accepts the same typed predicate nodes as `when` while preserving Task 2's legacy `equals|exists|not_exists` support for its initial tranche. Reuse the shared typed-predicate evaluator rather than forking assertion-only semantics, and keep false typed assertions on the existing `assert_failed` channel instead of inventing a second typed-gate failure mode.
+
+**Step 4: Enforce the first-tranche safety boundary in the loader**
 
 Typed predicates must resolve structured refs directly and must not reuse `${...}` string substitution. In the first tranche, allow only root-scoped single-visit step refs plus literals, reject provably multi-visit targets at load time, and fail statically provable predicate type mismatches during workflow validation instead of deferring them to runtime.
 
-**Step 4: Surface the new fields in reports and examples**
+**Step 5: Surface the new fields in reports and examples**
 
-Update status rendering so tests can assert on normalized outcomes and add an example workflow that routes on a typed artifact or recovered failure outcome.
+Update status rendering so tests can assert on normalized outcomes and add an example workflow that exercises either typed `when` routing or typed `assert` gating on a structured `ref:` operand, plus a recovered failure outcome where relevant.
 
 **Verification:**
 
@@ -303,6 +310,7 @@ Cover:
 - back-edge loops consuming transition budget
 - counter persistence across resume
 - deterministic failure shape when a guard trips
+- at least one guarded loop using the ADR-style typed `assert.compare` gate shape so D3 proves the Task 3 `assert` expansion is sufficient for cycle-control authoring
 
 **Step 2: Extend state and executor together**
 
