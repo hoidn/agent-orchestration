@@ -237,6 +237,8 @@ Required state/runtime work for D3:
 - persist workflow-level transition counters and step-level visit counters in `state.json`
 - make those counters resume-safe across revisits and mid-loop resumes
 - define acceptance coverage for revisit, retry, resume, and reporting semantics
+- `max_visits` should increment when the executor begins a real execution attempt of that step after `when` evaluation; skipped steps should not count, and retries should count as additional visits
+- `max_transitions` should increment whenever control transfers from one completed/skipped/failed step into the next executable step after `on.*` routing is resolved; terminal workflow completion should not count as another transition
 - treat D3 as a versioned state-model change, not as a syntax-only addition
 - the first D3 tranche should be limited to top-level pre-lowering step identities; extending cycle guards cleanly to lowered/nested execution should either wait for D5 or be treated as a second migration
 
@@ -388,6 +390,11 @@ Structured blocks need an explicit scope/output join model:
 - if a block needs to expose values downstream, it should do so through declared block outputs, analogous to workflow/call outputs
 - block outputs should be materialized onto the block node itself so downstream refs target the block, not the internals of one branch
 - lowered state/debug output should record which branch executed and mark non-taken branches explicitly as non-executed rather than leaving their state ambiguous
+- lowering must also preserve a defined control-effect model:
+  - non-local transfers such as `goto` / `_end` must unwind enclosing structured frames in lexical order
+  - any enclosing `finally` / `defer` that guards an exited frame must run before the transfer commits
+  - partially traversed blocks must be recorded as exited-via-transfer rather than ambiguously "not run"
+  - the lowering contract must define which transfers may escape which structured scopes instead of treating nested `goto` as an unscoped jump
 
 Example target style:
 
@@ -440,7 +447,7 @@ The current runtime cannot soundly prove or constrain arbitrary child-process wr
 Recommended first-tranche direction:
 - define a **restricted reusable subset** for imported workflows rather than pretending arbitrary workflows can be proven safe
 - limit that subset to execution forms whose file effects are mechanically declared and runtime-mediated, or introduce a stronger sandbox/capability boundary first
-- do not treat arbitrary `command` / `provider` child processes as safely reusable under `call` unless a later execution model can actually constrain their filesystem effects
+- exclude `command` / `provider` child-process execution entirely from the first shippable reusable subset unless a later execution model can actually constrain their filesystem effects
 - require imported workflows in that subset to write only through declared DSL-managed paths and runtime-mediated outputs
 - require every authored DSL-managed write root used by a reusable workflow to be exposed as a typed `relpath` input
 - require call sites to bind unique per-invocation write roots for those inputs whenever multiple calls could otherwise alias the same managed paths
@@ -518,16 +525,16 @@ Import boundary must also be explicit:
   - authored `state/*` and `artifacts/*` paths
 - generic workflows may also rely on other relative file paths used by commands/providers during execution, but those remain outside the first shippable reusable subset unless a future capability/sandbox model can constrain them
 - source-path resolution and runtime-write resolution are separate concerns and should be specified as a complete taxonomy, not by ad hoc examples
-- reusable provider workflows that depend on bundled prompt/template/schema assets therefore need an explicit workflow-source-relative field as part of D9's required surface area, not as a vague later improvement
+- a later provider-capable `call` tranche will need an explicit workflow-source-relative field for bundled prompt/template/schema assets; that is not part of the first shippable reusable subset
 - proposed first-class syntax should be explicit, for example:
   - `asset_file: prompts/fix.md`
   - `asset_depends_on: [rubrics/review.md, schemas/review.json]`
   - resolved relative to the imported workflow file
   - validated to stay within the imported workflow's source tree
   - distinct from `input_file`, which remains workspace-relative
-- first-tranche reusable provider workflows must express bundled source-relative dependencies only through that explicit source-relative asset surface; plain `depends_on` remains workspace-relative and is not a substitute
+- once provider-capable `call` exists, reusable provider workflows should express bundled source-relative dependencies only through that explicit source-relative asset surface; plain `depends_on` remains workspace-relative and is not a substitute
 - `input_file` should remain workspace-relative; do not overload it with import-local asset semantics
-- first-tranche imported workflows must not depend on undeclared provider/command relative file effects beyond the declared DSL-managed write roots and explicit source-relative assets above
+- first-tranche imported workflows must not depend on provider/command execution at all, and therefore must not depend on undeclared provider/command relative file effects
 - imported workflows bring their own private `providers`, `artifacts`, and `context` defaults unless explicitly bound/exported
 - imported workflows must declare their own DSL version and be validated independently
 - for the first implementation tranche, caller and callee should require the same DSL version to avoid mixed-version lowering semantics
@@ -948,10 +955,14 @@ steps:
 ```yaml
 - name: ReviewFixLoop
   repeat_until:
+    outputs:
+      review_decision:
+        from:
+          ref: self.steps.ReviewImplementation.artifacts.review_decision
     condition:
       compare:
         left:
-          ref: self.steps.Review.artifacts.review_decision
+          ref: self.outputs.review_decision
         op: eq
         right: APPROVE
     max_iterations: 6
@@ -960,7 +971,7 @@ steps:
       - call: RunChecks
       - call: ReviewImplementation
       - match:
-          ref: self.steps.ReviewImplementation.artifacts.review_decision
+          ref: self.outputs.review_decision
           cases:
             REVISE:
               - call: FixIssues
