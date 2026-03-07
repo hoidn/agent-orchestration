@@ -45,6 +45,24 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** normative, contract, spec, versioning, conformance  
 **Use this when:** You need authoritative behavior definitions.
 
+## Workflow Author Fast Path
+
+If your immediate goal is to write or revise a workflow, use this read order:
+
+1. [Workflow Drafting Guide](workflow_drafting_guide.md)
+   Why: start with authoring conventions, handoff patterns, and the prompt/runtime/flow contract split so you do not write syntactically valid but operationally weak workflows.
+
+2. [Workflow DSL and Control Flow](../specs/dsl.md)
+   Why: this is the authoritative schema and control-flow contract for top-level keys, step fields, version gates, `for_each`, `consumes`, `publishes`, and routing.
+
+3. [Variable Model and Substitution](../specs/variables.md), [Dependencies and Injection](../specs/dependencies.md), and [Providers and Prompt Delivery](../specs/providers.md)
+   Why: these three specs cover the authoring details that most often cause broken workflows: substitution rules, dependency injection behavior, and what providers actually receive.
+
+4. [Workflow Index](../workflows/README.md) plus one or two runnable examples under [workflows/examples/](../workflows/examples/)
+   Why: use examples to copy the current house style for loops, gates, artifact contracts, and prompt layout instead of inventing patterns from scratch.
+
+Minimum rule of thumb: if you have only read `docs/index.md`, you can find the docs; if you have read the four items above, you can usually write an effective workflow without extra repo archaeology.
+
 ## Informative Guides (`docs/`)
 
 ### [Orchestration Start Here](orchestration_start_here.md)
@@ -207,14 +225,14 @@ These are the highest-impact terminology and contract confusions.
 ### By Task
 - **Understand terminology and boundaries:** [Orchestration Start Here](orchestration_start_here.md)
 - **Understand runtime state transitions:** [Runtime Execution Lifecycle](runtime_execution_lifecycle.md)
-- **Author or refactor workflows:** [Workflow Drafting Guide](workflow_drafting_guide.md) + [DSL Spec](../specs/dsl.md)
+- **Author or refactor workflows:** [Workflow Author Fast Path](#workflow-author-fast-path)
 - **Clarify `depends_on` vs `consumes`:** [Dependencies](../specs/dependencies.md) + [DSL](../specs/dsl.md) + [Versioning](../specs/versioning.md)
 - **Check queue ownership and wait behavior:** [Queue Spec](../specs/queue.md)
 - **Debug a failed run:** [Observability](../specs/observability.md) + [State](../specs/state.md) + [Debugging Example](../specs/examples/debugging.md)
 - **Validate conformance:** [Acceptance Index](../specs/acceptance/index.md) + [tests/README](../tests/README.md)
 
 ### By Audience
-- **Workflow authors:** [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Workflow Index](../workflows/README.md), [examples](../workflows/examples/)
+- **Workflow authors:** [Workflow Author Fast Path](#workflow-author-fast-path)
 - **Runtime operators:** [CLI](../specs/cli.md), [Runtime Lifecycle](runtime_execution_lifecycle.md), [Observability](../specs/observability.md)
 - **Spec/contract reviewers:** [Master Spec](../specs/index.md), [Acceptance](../specs/acceptance/index.md), [Versioning](../specs/versioning.md)
 
