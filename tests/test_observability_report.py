@@ -179,3 +179,40 @@ def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: P
 
     assert snapshot["run"]["status"] == "failed"
     assert snapshot["run"]["status_reason"] == "stale_running_without_current_step"
+
+
+def test_snapshot_exposes_looped_resume_current_and_last_completed_visit_counts(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "looped-resume"
+    (run_root / "logs").mkdir(parents=True)
+
+    state = {
+        "run_id": "looped-resume",
+        "status": "running",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "workflow_file": "workflows/test.yaml",
+        "step_visits": {"Prep": 2},
+        "current_step": {
+            "name": "Prep",
+            "status": "running",
+            "visit_count": 2,
+            "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        },
+        "steps": {
+            "Prep": {
+                "status": "completed",
+                "visit_count": 1,
+                "exit_code": 0,
+                "duration_ms": 31,
+                "output": "prep done",
+            }
+        },
+    }
+
+    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+    prep = snapshot["steps"][0]
+
+    assert snapshot["run"]["status"] == "running"
+    assert prep["visit_count"] == 2
+    assert prep["current_visit_count"] == 2
+    assert prep["last_result_visit_count"] == 1

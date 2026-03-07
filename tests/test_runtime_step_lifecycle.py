@@ -76,6 +76,61 @@ def test_long_running_step_updates_current_step_heartbeat(tmp_path: Path):
     assert final_snapshot["steps"]["LongCommand"]["status"] == "completed"
 
 
+def test_resumed_long_running_step_marks_run_running(tmp_path: Path):
+    workflow = {
+        "version": "1.1.1",
+        "name": "resume-running-status",
+        "steps": [
+            {
+                "name": "LongCommand",
+                "command": ["bash", "-lc", "python -c 'import time; time.sleep(0.6)'"],
+            }
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="resume-running-status")
+    state_manager.initialize("workflow.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.workflow_checksum = f"sha256:{hashlib.sha256(workflow_file.read_bytes()).hexdigest()}"
+    state_manager.state.steps = {
+        "LongCommand": {"status": "failed", "exit_code": 1},
+    }
+    state_manager._write_state()
+
+    executor = WorkflowExecutor(
+        loaded,
+        tmp_path,
+        state_manager,
+        step_heartbeat_interval_sec=0.1,
+    )
+
+    worker = threading.Thread(target=lambda: executor.execute(resume=True))
+    worker.start()
+
+    state_file = tmp_path / ".orchestrate" / "runs" / "resume-running-status" / "state.json"
+    deadline = time.time() + 5
+    running_snapshot = None
+    while time.time() < deadline:
+        if state_file.exists():
+            snapshot = json.loads(state_file.read_text(encoding="utf-8"))
+            current = snapshot.get("current_step")
+            if isinstance(current, dict) and current.get("name") == "LongCommand":
+                running_snapshot = snapshot
+                break
+        time.sleep(0.02)
+
+    assert running_snapshot is not None
+    assert running_snapshot["status"] == "running"
+
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+
+
 def test_assert_gate_persists_failed_outcome(tmp_path: Path):
     workflow = {
         "version": "1.5",
@@ -292,3 +347,121 @@ def test_resume_restart_index_skips_completed_top_level_for_each(tmp_path: Path)
     restart_index = executor._determine_resume_restart_index(state_manager.load().to_dict())
 
     assert restart_index == 2
+
+
+def test_looped_resume_exposes_active_visit_count(tmp_path: Path):
+    workflow = {
+        "version": "1.1",
+        "name": "resume-visit-observability",
+        "steps": [
+            {
+                "name": "ReviewImplementation",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "count=$(cat state/review_count.txt 2>/dev/null || printf '0')",
+                            "count=$((count + 1))",
+                            "printf '%s\\n' \"$count\" > state/review_count.txt",
+                            "if [ \"$count\" -ge 2 ]; then",
+                            "  printf 'APPROVE\\n' > state/decision.txt",
+                            "else",
+                            "  printf 'REVISE\\n' > state/decision.txt",
+                            "fi",
+                            "python -c 'import time; time.sleep(0.6)'",
+                            "printf 'review-%s\\n' \"$count\" >> state/history.log",
+                        ]
+                    ),
+                ],
+            },
+            {
+                "name": "ImplementationReviewGate",
+                "command": ["bash", "-lc", "test \"$(cat state/decision.txt)\" = APPROVE"],
+                "on": {"success": {"goto": "_end"}, "failure": {"goto": "ImplementationCycleGate"}},
+            },
+            {
+                "name": "ImplementationCycleGate",
+                "command": ["bash", "-lc", "test \"$(cat state/cycle.txt)\" -lt 20"],
+                "on": {"success": {"goto": "FixImplementation"}, "failure": {"goto": "MaxImplementationCyclesExceeded"}},
+            },
+            {
+                "name": "FixImplementation",
+                "command": ["bash", "-lc", "printf 'fix\\n' >> state/history.log"],
+                "on": {"success": {"goto": "IncrementImplementationCycle"}},
+            },
+            {
+                "name": "IncrementImplementationCycle",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "count=$(cat state/cycle.txt 2>/dev/null || printf '0')",
+                            "count=$((count + 1))",
+                            "printf '%s\\n' \"$count\" > state/cycle.txt",
+                            "printf 'increment-%s\\n' \"$count\" >> state/history.log",
+                        ]
+                    ),
+                ],
+                "on": {"success": {"goto": "ReviewImplementation"}},
+            },
+            {
+                "name": "MaxImplementationCyclesExceeded",
+                "command": ["bash", "-lc", "printf 'maxed\\n' >> state/history.log && exit 1"],
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    state_dir = tmp_path / "state"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "review_count.txt").write_text("1\n")
+    (state_dir / "cycle.txt").write_text("1\n")
+    (state_dir / "decision.txt").write_text("REVISE\n")
+    (state_dir / "history.log").write_text("review-1\nfix\nincrement-1\n")
+
+    state_manager = StateManager(workspace=tmp_path, run_id="resume-visit-observability")
+    state_manager.initialize("workflow.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.workflow_checksum = f"sha256:{hashlib.sha256(workflow_file.read_bytes()).hexdigest()}"
+    state_manager.state.steps = {
+        "ReviewImplementation": {"status": "completed", "exit_code": 0},
+        "ImplementationReviewGate": {"status": "failed", "exit_code": 1},
+        "ImplementationCycleGate": {"status": "completed", "exit_code": 0},
+        "FixImplementation": {"status": "completed", "exit_code": 0},
+        "IncrementImplementationCycle": {"status": "completed", "exit_code": 0},
+    }
+    state_manager._write_state()
+
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+    executor = WorkflowExecutor(
+        loaded,
+        tmp_path,
+        state_manager,
+        step_heartbeat_interval_sec=0.1,
+    )
+
+    worker = threading.Thread(target=lambda: executor.execute(resume=True))
+    worker.start()
+
+    state_file = tmp_path / ".orchestrate" / "runs" / "resume-visit-observability" / "state.json"
+    deadline = time.time() + 5
+    running_snapshot = None
+    while time.time() < deadline:
+        if state_file.exists():
+            snapshot = json.loads(state_file.read_text(encoding="utf-8"))
+            current = snapshot.get("current_step")
+            if isinstance(current, dict) and current.get("name") == "ReviewImplementation":
+                running_snapshot = snapshot
+                break
+        time.sleep(0.02)
+
+    assert running_snapshot is not None
+    assert running_snapshot["current_step"]["visit_count"] == 2
+    assert running_snapshot["steps"]["ReviewImplementation"]["visit_count"] == 1
+
+    worker.join(timeout=5)
+    assert not worker.is_alive()
