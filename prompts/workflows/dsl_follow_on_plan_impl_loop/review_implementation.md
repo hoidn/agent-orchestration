@@ -6,14 +6,17 @@ Read the consumed `design`, `plan`, and `execution_report` artifacts before acti
 Review the implementation against the design and the full approved plan.
 
 Your job is not only to find correctness bugs in the implemented tranche, but also to determine whether required approved plan tasks remain unimplemented.
+Prioritize completion of unfinished required plan work over cleanup of issues in already-implemented portions, unless those issues block or materially distort subsequent required implementation or its verification.
 
 When reviewing:
-- identify concrete implementation bugs, regressions, contract mismatches, and weak verification
 - identify required plan tasks that are still not implemented
+- identify concrete implementation bugs, regressions, contract mismatches, and weak verification
 - distinguish:
-  - defects in already-implemented work
   - remaining required plan work
+  - defects in already-implemented work that block subsequent required plan work
+  - non-blocking defects in already-implemented work
   - optional later work or deliberate deferrals
+If required plan tasks remain unfinished, do not let non-blocking defects in already-implemented portions dominate the review.
 
 Write the review as markdown to the workspace-relative path stored in `state/implementation_review_report_path.txt`.
 Write `APPROVE` or `REVISE` to `state/implementation_review_decision.txt`.
