@@ -13,6 +13,7 @@ EXAMPLE_FILES = [
     "backlog_plan_execute_v0.yaml",
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
+    "dsl_follow_on_plan_impl_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
     "test_fix_loop_v0.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
@@ -362,3 +363,136 @@ def test_dsl_review_first_fix_loop_runtime(tmp_path: Path):
     assert len(fix_prompts) == 1
     assert "use receiving-code-review  to address the feedback" in fix_prompts[0]
     assert "- review: artifacts/review/review-cycle-0.md" in fix_prompts[0]
+
+
+def test_dsl_follow_on_plan_impl_review_loop_runtime(tmp_path: Path):
+    """Follow-on workflow waits for upstream completion, then runs plan and implementation review/fix loops."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "dsl_follow_on_plan_impl_review_loop.yaml"
+    )
+    for prompt_file in [
+        "prompts/workflows/dsl_follow_on_plan_impl_loop/draft_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop/review_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop/revise_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop/implement_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop/review_implementation.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop/fix_implementation.md",
+    ]:
+        _copy_repo_file_to_workspace(workspace, prompt_file)
+    _copy_repo_file_to_workspace(workspace, "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md")
+
+    upstream_state = workspace / ".orchestrate" / "runs" / "20260307T073452Z-f1wx0q" / "state.json"
+    upstream_state.parent.mkdir(parents=True, exist_ok=True)
+    upstream_state.write_text('{"status":"completed"}\n')
+
+    plan_review_calls = {"count": 0}
+    implementation_review_calls = {"count": 0}
+    captured_prompts: list[dict[str, str]] = []
+
+    def _write_plan(review_content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/plan_path.txt",
+                "docs/plans/2026-03-06-dsl-evolution-execution-plan.md",
+                review_content,
+            )
+
+        return _writer
+
+    def _write_plan_review(ws: Path) -> None:
+        plan_review_calls["count"] += 1
+        report_relpath = (ws / "state" / "plan_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if plan_review_calls["count"] == 1:
+            report_path.write_text("## High\n- The implementation sequence is underspecified.\n")
+            decision = "REVISE"
+        else:
+            report_path.write_text("## Medium\n- Residual edits are non-blocking.\n")
+            decision = "APPROVE"
+        (ws / "state" / "plan_review_decision.txt").write_text(f"{decision}\n")
+
+    def _write_execution_report(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/execution_report_path.txt",
+                "artifacts/work/dsl-evolution-implementation-report.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_implementation_review(ws: Path) -> None:
+        implementation_review_calls["count"] += 1
+        report_relpath = (ws / "state" / "implementation_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if implementation_review_calls["count"] == 1:
+            report_path.write_text("## High\n- The implementation missed a blocking edge case.\n")
+            decision = "REVISE"
+        else:
+            report_path.write_text("## Medium\n- Remaining follow-ups are polish.\n")
+            decision = "APPROVE"
+        (ws / "state" / "implementation_review_decision.txt").write_text(f"{decision}\n")
+
+    state = _run_with_mocked_providers(
+        workspace=workspace,
+        workflow_path=workflow_path,
+        workflow_relpath=workflow_relpath,
+        provider_sequence=[
+            "DraftPlan",
+            "ReviewPlan",
+            "RevisePlan",
+            "ReviewPlan",
+            "ExecuteImplementation",
+            "ReviewImplementation",
+            "FixImplementation",
+            "ReviewImplementation",
+        ],
+        provider_writers={
+            "DraftPlan": _write_plan("# Draft plan\n"),
+            "ReviewPlan": _write_plan_review,
+            "RevisePlan": _write_plan("# Revised plan\n"),
+            "ExecuteImplementation": _write_execution_report("Initial implementation report\n"),
+            "ReviewImplementation": _write_implementation_review,
+            "FixImplementation": _write_execution_report("Updated implementation report after fixes\n"),
+        },
+        captured_prompts=captured_prompts,
+    )
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 8
+    assert state["steps"]["IncrementPlanCycle"]["artifacts"]["plan_cycle"] == 1
+    assert state["steps"]["IncrementImplementationCycle"]["artifacts"]["implementation_cycle"] == 1
+
+    plan_versions = state.get("artifact_versions", {}).get("plan", [])
+    assert [entry["producer"] for entry in plan_versions] == ["DraftPlan", "RevisePlan"]
+
+    execution_versions = state.get("artifact_versions", {}).get("execution_report", [])
+    assert [entry["producer"] for entry in execution_versions] == ["ExecuteImplementation", "FixImplementation"]
+
+    revise_consumes = state.get("artifact_consumes", {}).get("RevisePlan", {})
+    assert revise_consumes.get("plan_review_report") == 1
+
+    fix_consumes = state.get("artifact_consumes", {}).get("FixImplementation", {})
+    assert fix_consumes.get("implementation_review_report") == 1
+
+    plan_review_prompts = [entry["prompt"] for entry in captured_prompts if entry["step"] == "ReviewPlan"]
+    assert len(plan_review_prompts) == 2
+    assert "principal engineer, expert in PLs, compilers, and agentic engineering" in plan_review_prompts[0]
+    assert "- design: docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md" in plan_review_prompts[0]
+    assert "- plan: docs/plans/2026-03-06-dsl-evolution-execution-plan.md" in plan_review_prompts[0]
+
+    implementation_review_prompts = [
+        entry["prompt"] for entry in captured_prompts if entry["step"] == "ReviewImplementation"
+    ]
+    assert len(implementation_review_prompts) == 2
+    assert "principal engineer, expert in PLs, compilers, and agentic engineering" in implementation_review_prompts[0]
+    assert "- execution_report: artifacts/work/dsl-evolution-implementation-report.md" in implementation_review_prompts[0]
+
+    fix_prompts = [entry["prompt"] for entry in captured_prompts if entry["step"] == "FixImplementation"]
+    assert len(fix_prompts) == 1
+    assert "use receiving-code-review to address the feedback" in fix_prompts[0]
+    assert "- implementation_review_report: artifacts/review/dsl-evolution-implementation-review.md" in fix_prompts[0]

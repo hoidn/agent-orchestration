@@ -1,0 +1,425 @@
+version: "1.4"
+name: "dsl-follow-on-plan-impl-review-loop"
+context:
+  max_plan_iterations: "10"
+  max_impl_iterations: "10"
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+providers:
+  codex:
+    command: ["codex", "exec", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+
+steps:
+  - name: WaitForUpstreamStateFile
+    wait_for:
+      glob: ".orchestrate/runs/20260307T073452Z-f1wx0q/state.json"
+      timeout_sec: 86400
+      poll_ms: 1000
+      min_count: 1
+
+  - name: WaitForUpstreamCompletion
+    command:
+      - bash
+      - -lc
+      - |
+        python - <<'PY'
+        import json
+        import pathlib
+        import sys
+        import time
+
+        state_path = pathlib.Path(".orchestrate/runs/20260307T073452Z-f1wx0q/state.json")
+        if not state_path.exists():
+            print(f"Missing upstream state file: {state_path}", file=sys.stderr)
+            raise SystemExit(1)
+
+        while True:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            status = payload.get("status")
+            if status != "running":
+                break
+            time.sleep(5)
+
+        pathlib.Path("state").mkdir(parents=True, exist_ok=True)
+        pathlib.Path("state/upstream_run_status.txt").write_text(f"{status}\n", encoding="utf-8")
+
+        if status != "completed":
+            print(
+                "Upstream run 20260307T073452Z-f1wx0q "
+                f"finished with status {status!r}; expected 'completed'.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        PY
+    timeout_sec: 86400
+    expected_outputs:
+      - name: upstream_run_status
+        path: state/upstream_run_status.txt
+        type: enum
+        allowed: ["completed"]
+
+  - name: InitializeWorkflowState
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p \
+          state \
+          docs/plans \
+          artifacts/review \
+          artifacts/work
+
+        printf '%s\n' 'docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md' > state/design_path.txt
+        printf '%s\n' 'docs/plans/2026-03-06-dsl-evolution-execution-plan.md' > state/plan_path.txt
+        printf '%s\n' 'artifacts/review/dsl-evolution-plan-review.md' > state/plan_review_report_path.txt
+        printf '%s\n' 'artifacts/work/dsl-evolution-implementation-report.md' > state/execution_report_path.txt
+        printf '%s\n' 'artifacts/review/dsl-evolution-implementation-review.md' > state/implementation_review_report_path.txt
+        printf '0\n' > state/plan_cycle.txt
+        printf '0\n' > state/implementation_cycle.txt
+    expected_outputs:
+      - name: design_path
+        path: state/design_path.txt
+        type: relpath
+        under: docs/plans
+      - name: plan_path
+        path: state/plan_path.txt
+        type: relpath
+        under: docs/plans
+      - name: plan_review_report_path
+        path: state/plan_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+      - name: execution_report_path
+        path: state/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+      - name: implementation_review_report_path
+        path: state/implementation_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+      - name: plan_cycle
+        path: state/plan_cycle.txt
+        type: integer
+      - name: implementation_cycle
+        path: state/implementation_cycle.txt
+        type: integer
+
+  - name: PublishDesign
+    command:
+      - bash
+      - -lc
+      - |
+        design="$(cat state/design_path.txt)"
+        if [ ! -f "$design" ]; then
+          echo "Missing design file: $design" >&2
+          exit 1
+        fi
+    expected_outputs:
+      - name: design_path
+        path: state/design_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+    publishes:
+      - artifact: design
+        from: design_path
+
+  - name: DraftPlan
+    provider: codex
+    input_file: prompts/workflows/dsl_follow_on_plan_impl_loop/draft_plan.md
+    timeout_sec: 3600
+    consumes:
+      - artifact: design
+        producers: ["PublishDesign"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["design"]
+    expected_outputs:
+      - name: plan_path
+        path: state/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+    publishes:
+      - artifact: plan
+        from: plan_path
+
+  - name: ReviewPlan
+    provider: codex
+    input_file: prompts/workflows/dsl_follow_on_plan_impl_loop/review_plan.md
+    timeout_sec: 1800
+    consumes:
+      - artifact: design
+        producers: ["PublishDesign"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["design", "plan"]
+    expected_outputs:
+      - name: plan_review_report_path
+        path: state/plan_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: plan_review_decision
+        path: state/plan_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]
+    publishes:
+      - artifact: plan_review_report
+        from: plan_review_report_path
+      - artifact: plan_review_decision
+        from: plan_review_decision
+
+  - name: PlanReviewGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/plan_review_decision.txt)" = "APPROVE"'
+    on:
+      success:
+        goto: ExecuteImplementation
+      failure:
+        goto: PlanCycleGate
+
+  - name: PlanCycleGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/plan_cycle.txt)" -lt "${context.max_plan_iterations}"'
+    on:
+      success:
+        goto: RevisePlan
+      failure:
+        goto: MaxPlanCyclesExceeded
+
+  - name: RevisePlan
+    provider: codex
+    input_file: prompts/workflows/dsl_follow_on_plan_impl_loop/revise_plan.md
+    timeout_sec: 3600
+    consumes:
+      - artifact: design
+        producers: ["PublishDesign"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan_review_report
+        producers: ["ReviewPlan"]
+        policy: latest_successful
+        freshness: since_last_consume
+    prompt_consumes: ["design", "plan", "plan_review_report"]
+    expected_outputs:
+      - name: plan_path
+        path: state/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+    publishes:
+      - artifact: plan
+        from: plan_path
+    on:
+      success:
+        goto: IncrementPlanCycle
+
+  - name: IncrementPlanCycle
+    command:
+      - bash
+      - -lc
+      - 'c=$(cat state/plan_cycle.txt); printf "%s\n" "$((c+1))" > state/plan_cycle.txt'
+    expected_outputs:
+      - name: plan_cycle
+        path: state/plan_cycle.txt
+        type: integer
+    on:
+      success:
+        goto: ReviewPlan
+
+  - name: MaxPlanCyclesExceeded
+    command:
+      - bash
+      - -lc
+      - |
+        echo "Exceeded ${context.max_plan_iterations} plan review/fix iterations without approval." >&2
+        exit 1
+
+  - name: ExecuteImplementation
+    provider: codex
+    input_file: prompts/workflows/dsl_follow_on_plan_impl_loop/implement_plan.md
+    timeout_sec: 43200
+    consumes:
+      - artifact: design
+        producers: ["PublishDesign"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["design", "plan"]
+    expected_outputs:
+      - name: execution_report_path
+        path: state/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_report
+        from: execution_report_path
+
+  - name: ReviewImplementation
+    provider: codex
+    input_file: prompts/workflows/dsl_follow_on_plan_impl_loop/review_implementation.md
+    timeout_sec: 1800
+    consumes:
+      - artifact: design
+        producers: ["PublishDesign"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: execution_report
+        producers: ["ExecuteImplementation", "FixImplementation"]
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["design", "plan", "execution_report"]
+    expected_outputs:
+      - name: implementation_review_report_path
+        path: state/implementation_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: implementation_review_decision
+        path: state/implementation_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]
+    publishes:
+      - artifact: implementation_review_report
+        from: implementation_review_report_path
+      - artifact: implementation_review_decision
+        from: implementation_review_decision
+
+  - name: ImplementationReviewGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/implementation_review_decision.txt)" = "APPROVE"'
+    on:
+      success:
+        goto: _end
+      failure:
+        goto: ImplementationCycleGate
+
+  - name: ImplementationCycleGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/implementation_cycle.txt)" -lt "${context.max_impl_iterations}"'
+    on:
+      success:
+        goto: FixImplementation
+      failure:
+        goto: MaxImplementationCyclesExceeded
+
+  - name: FixImplementation
+    provider: codex
+    input_file: prompts/workflows/dsl_follow_on_plan_impl_loop/fix_implementation.md
+    timeout_sec: 43200
+    consumes:
+      - artifact: design
+        producers: ["PublishDesign"]
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        producers: ["DraftPlan", "RevisePlan"]
+        policy: latest_successful
+        freshness: any
+      - artifact: execution_report
+        producers: ["ExecuteImplementation", "FixImplementation"]
+        policy: latest_successful
+        freshness: any
+      - artifact: implementation_review_report
+        producers: ["ReviewImplementation"]
+        policy: latest_successful
+        freshness: since_last_consume
+    prompt_consumes: ["design", "plan", "execution_report", "implementation_review_report"]
+    expected_outputs:
+      - name: execution_report_path
+        path: state/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_report
+        from: execution_report_path
+    on:
+      success:
+        goto: IncrementImplementationCycle
+
+  - name: IncrementImplementationCycle
+    command:
+      - bash
+      - -lc
+      - 'c=$(cat state/implementation_cycle.txt); printf "%s\n" "$((c+1))" > state/implementation_cycle.txt'
+    expected_outputs:
+      - name: implementation_cycle
+        path: state/implementation_cycle.txt
+        type: integer
+    on:
+      success:
+        goto: ReviewImplementation
+
+  - name: MaxImplementationCyclesExceeded
+    command:
+      - bash
+      - -lc
+      - |
+        echo "Exceeded ${context.max_impl_iterations} implementation review/fix iterations without approval." >&2
+        exit 1
+
+artifacts:
+  design:
+    pointer: state/design_path.txt
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  plan:
+    pointer: state/plan_path.txt
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  plan_review_report:
+    pointer: state/plan_review_report_path.txt
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+  execution_report:
+    pointer: state/execution_report_path.txt
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+  implementation_review_report:
+    pointer: state/implementation_review_report_path.txt
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]

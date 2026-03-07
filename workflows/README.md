@@ -28,6 +28,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/claude_with_model.yaml` | `1.1` | `claude_model_example` | Claude provider example with default model selection and per-step override. |
 | `workflows/examples/cli_test.yaml` | `1.1` | `cli_test` | Minimal CLI-oriented workflow that creates a file and captures directory listing output. |
 | `workflows/examples/conditional_demo.yaml` | `1.1` | `Conditional Execution Demo` | Demonstrates `when.equals`, `when.exists`, and `when.not_exists`. |
+| `workflows/examples/dsl_follow_on_plan_impl_review_loop.yaml` | `1.4` | `dsl-follow-on-plan-impl-review-loop` | Waits for the active DSL ADR review loop to finish, drafts an implementation plan from the ADR, then runs bounded plan and implementation review/fix loops. |
 | `workflows/examples/dsl_review_first_fix_loop.yaml` | `1.4` | `dsl-review-first-fix-loop` | Review-first Codex loop: review the DSL ADR, fix against consumed review feedback, repeat until no `## High` section remains. |
 | `workflows/examples/env_literal.yaml` | `1.1` | _(unnamed)_ | Demonstrates literal `env` semantics, including loop variables that are not substituted inside `env`. |
 | `workflows/examples/for_each_demo.yaml` | `1.1` | _(unnamed)_ | Demonstrates `for_each` with `items_from`, aliases, and JSON dot-path array selection. |
