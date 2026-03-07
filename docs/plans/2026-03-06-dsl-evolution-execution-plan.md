@@ -63,6 +63,7 @@ Define the release order and version gates for:
 - D14 linting / normalization
 
 Keep the new `ref:` model opt-in and explicitly separate from legacy `${...}` interpolation.
+Record why this plan intentionally ships D2a before D3 even though the ADR presents both orders in different sections: D2a only depends on the D1/D2 gate/predicate surface and the existing top-level name-keyed state shape, while D3 adds persisted counters and resume-sensitive loop protection. Making that rationale explicit here turns the execution plan's ordering into an authoritative rollout choice instead of leaving readers to infer whether the discrepancy is accidental.
 
 **Step 2: Define the state schema changes before touching runtime code**
 
@@ -88,6 +89,7 @@ Add acceptance cases for:
 - workflow-output export contract failures for missing `from`, unresolved sources, and type-invalid or invalid-`relpath` exports
 - top-level output export withholding until finalization completes, plus suppression on finalization failure
 - branch/block output visibility
+- `repeat_until.condition` rejection when the condition bypasses declared loop-frame outputs and directly dereferences multi-visit inner-step names such as `self.steps.<Inner>...`
 - `call` export boundaries and relative-path taxonomy
 - reusable-workflow rejection when DSL-managed write roots stay hard-coded instead of being surfaced as typed `relpath` inputs
 - call-site rejection for missing required write-root bindings or aliased per-invocation write roots where concurrent/repeated calls would collide
@@ -286,9 +288,10 @@ pytest --collect-only tests/test_scalar_bookkeeping.py -q
 pytest tests/test_scalar_bookkeeping.py tests/test_loader_validation.py tests/test_artifact_dataflow_integration.py tests/test_runtime_step_lifecycle.py -v
 pytest tests/test_workflow_examples_v0.py -k scalar_bookkeeping -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/scalar_bookkeeping_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/scalar_bookkeeping_demo.yaml --state-dir /tmp/dsl-evolution-scalar-bookkeeping-demo
 ```
 
-Risk focus: keep this as a typed, declared-artifact primitive, not a second general-purpose mutation channel.
+Risk focus: keep this as a typed, declared-artifact primitive, not a second general-purpose mutation channel, and require at least one real execution so local produced values, lineage updates, and `publishes.from` composition are proven instead of assumed from dry-run validation.
 
 ### Task 5: Land D3 cycle guards with resume-safe persisted counters
 
@@ -783,11 +786,11 @@ Risk focus: `match` should remain a structured enum branch primitive, not a gene
 
 **Step 1: Add post-test `repeat_until`**
 
-Keep iteration outputs explicit on the loop frame, require post-test semantics, add authored `id` validation for the loop frame/body, and store enough iteration/condition-evaluation state for resume to continue safely while loop-frame identities remain stable across sibling insertion and body reshaping.
+Keep iteration outputs explicit on the loop frame, require post-test semantics, add authored `id` validation for the loop frame/body, reject `repeat_until.condition` refs that bypass those declared loop-frame outputs and directly target multi-visit inner-step names, and store enough iteration/condition-evaluation state for resume to continue safely while loop-frame identities remain stable across sibling insertion and body reshaping.
 
 **Step 2: Verify loop resume and diagnostics directly**
 
-Cover iteration index persistence, condition-evaluation replay safety, and loop-frame reporting so this tranche has its own state and observability evidence.
+Cover iteration index persistence, condition-evaluation replay safety, loop-frame reporting, and negative loader validation for forbidden direct `self.steps.<Inner>...` reads so this tranche locks the ADR's anti-ambiguity rule as an executable invariant instead of a drafting guideline.
 
 **Verification:**
 
@@ -883,6 +886,7 @@ pytest tests/test_loader_validation.py \
        tests/test_conditional_execution.py \
        tests/test_runtime_step_lifecycle.py \
        tests/test_typed_predicates.py \
+       tests/test_control_flow_foundations.py \
        tests/test_retry_behavior.py \
        tests/test_state_manager.py \
        tests/test_resume_command.py \
@@ -917,7 +921,7 @@ PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run 
 
 **Step 3: Re-run one new-DSL smoke example from each major tranche**
 
-Run the dry-run commands from Tasks 2, 3, 4, 8, 12, and 14, and run the isolated real orchestrator commands from Tasks 5, 7, 9, 11, and 13. The evidence set must therefore include real execution output for cycle guards, workflow signatures, finalization, subworkflow calls, and loops alongside validation-only smoke checks for the syntax-heavy tranches and the legacy compatibility smoke check.
+Run the dry-run commands from Tasks 2, 3, 8, 12, and 14, and run the isolated real orchestrator commands from Tasks 4, 5, 7, 9, 11, and 13. The evidence set must therefore include real execution output for scalar bookkeeping, cycle guards, workflow signatures, finalization, subworkflow calls, and loops alongside validation-only smoke checks for the syntax-heavy tranches and the legacy compatibility smoke check.
 
 **Completion criteria:**
 
