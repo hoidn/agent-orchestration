@@ -51,6 +51,11 @@ def create_parser() -> argparse.ArgumentParser:
         help='Enable debug logging'
     )
     run_parser.add_argument(
+        '--stream-output',
+        action='store_true',
+        help='Stream provider stdout/stderr live without enabling full debug mode'
+    )
+    run_parser.add_argument(
         '--dry-run',
         action='store_true',
         help='Validate without execution'
@@ -149,6 +154,11 @@ def create_parser() -> argparse.ArgumentParser:
         '--debug',
         action='store_true',
         help='Enable debug logging and state backups'
+    )
+    resume_parser.add_argument(
+        '--stream-output',
+        action='store_true',
+        help='Stream provider stdout/stderr live without enabling full debug mode'
     )
     resume_parser.add_argument(
         '--backup-state',

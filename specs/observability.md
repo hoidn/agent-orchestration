@@ -3,6 +3,7 @@
 - Debug mode
   - `--debug` enables verbose logging: substitution traces, dependency resolution details, command construction, environment snapshot (masked), and file ops.
   - Prompt audit: with `--debug`, composed prompt text is written to `logs/<Step>.prompt.txt` with known secret values masked.
+  - `--stream-output` live-streams provider stdout/stderr to the parent console without enabling prompt audit, verbose debug logging, or state backups.
 
 - Execution logs
   - Under `RUN_ROOT/logs/`: `orchestrator.log`, `StepName.stdout` (>8 KiB or JSON parse error), `StepName.stderr` (when non-empty), `StepName.debug` (when enabled).

@@ -302,6 +302,7 @@ def run_workflow(args: Namespace) -> int:
             state_manager=state_manager,
             logs_dir=state_manager.logs_dir,
             debug=args.debug if hasattr(args, 'debug') else False,
+            stream_output=args.stream_output if hasattr(args, 'stream_output') else False,
             max_retries=args.max_retries,
             retry_delay_ms=args.retry_delay,
             observability=observability,

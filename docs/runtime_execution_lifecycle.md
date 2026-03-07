@@ -32,6 +32,10 @@ Core files/directories:
 - `logs/`: stdout/stderr spill files, prompt audits (debug mode), orchestrator logs
 - `summaries/`: optional advisory step summaries when enabled by CLI flags
 
+Console visibility:
+- `--stream-output` live-streams provider stdout/stderr to the terminal during execution.
+- `--debug` also streams provider output, but additionally enables prompt-audit and debug-mode artifacts.
+
 ## Step State Machine
 
 ```text

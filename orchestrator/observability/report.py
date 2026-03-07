@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
 
 _PREVIEW_LIMIT = 200
+_STALE_RUNNING_TIMEOUT_SEC = 300
 
 
 def _step_name(step: Dict[str, Any], index: int) -> str:
@@ -51,6 +53,19 @@ def _read_prompt_audit(run_root: Path, step_name: str) -> Optional[str]:
         return None
 
 
+def _parse_iso_datetime(value: Any) -> Optional[datetime]:
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        normalized = value.replace("Z", "+00:00")
+        dt = datetime.fromisoformat(normalized)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc)
+
+
 def _coerce_step_status(step_result: Any) -> Optional[str]:
     if isinstance(step_result, dict):
         status = step_result.get("status")
@@ -76,6 +91,39 @@ def _coerce_step_status(step_result: Any) -> Optional[str]:
                 break
         return "completed" if complete else "running"
     return None
+
+
+def _derive_run_status(state: Dict[str, Any], step_entries: list[Dict[str, Any]]) -> tuple[str, Optional[str]]:
+    status = state.get("status")
+    if status != "running":
+        return str(status), None
+
+    now = datetime.now(timezone.utc)
+    current_step = state.get("current_step")
+
+    if isinstance(current_step, dict):
+        heartbeat = _parse_iso_datetime(
+            current_step.get("last_heartbeat_at") or current_step.get("started_at")
+        )
+        if heartbeat is None:
+            return "running", None
+        if (now - heartbeat).total_seconds() > _STALE_RUNNING_TIMEOUT_SEC:
+            return "failed", "stale_running_step_heartbeat_timeout"
+        return "running", None
+
+    updated_at = _parse_iso_datetime(state.get("updated_at"))
+    if updated_at is None:
+        return "running", None
+
+    if (now - updated_at).total_seconds() <= _STALE_RUNNING_TIMEOUT_SEC:
+        return "running", None
+
+    step_statuses = {entry.get("status") for entry in step_entries}
+    if "pending" in step_statuses or "running" in step_statuses:
+        return "failed", "stale_running_without_current_step"
+    if "failed" in step_statuses:
+        return "failed", "stale_running_terminal_not_finalized"
+    return "completed", "stale_running_terminal_not_finalized"
 
 
 def build_status_snapshot(
@@ -152,15 +200,31 @@ def build_status_snapshot(
         - progress["skipped"]
     )
 
+    run_status, status_reason = _derive_run_status(state, step_entries)
+    if run_status != "running":
+        if run_status == "completed":
+            progress["running"] = 0
+            progress["failed"] = 0
+            progress["pending"] = 0
+            progress["completed"] = progress["total"] - progress["skipped"]
+        elif run_status == "failed":
+            progress["running"] = 0
+
+    run_payload = {
+        "run_id": state.get("run_id"),
+        "status": run_status,
+        "workflow_file": state.get("workflow_file"),
+        "started_at": state.get("started_at"),
+        "updated_at": state.get("updated_at"),
+        "run_root": str(run_root),
+        "run_log_path": str(run_log_path) if run_log_path else None,
+    }
+    if status_reason:
+        run_payload["status_reason"] = status_reason
+
     return {
         "run": {
-            "run_id": state.get("run_id"),
-            "status": state.get("status"),
-            "workflow_file": state.get("workflow_file"),
-            "started_at": state.get("started_at"),
-            "updated_at": state.get("updated_at"),
-            "run_root": str(run_root),
-            "run_log_path": str(run_log_path) if run_log_path else None,
+            **run_payload,
         },
         "progress": progress,
         "steps": step_entries,

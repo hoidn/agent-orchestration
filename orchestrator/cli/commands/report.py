@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -69,6 +70,26 @@ def report_workflow(
         return 1
 
     snapshot = build_status_snapshot(workflow, state, run_dir)
+    run_snapshot = snapshot.get("run", {})
+    original_status = state.get("status")
+    derived_status = run_snapshot.get("status")
+    status_reason = run_snapshot.get("status_reason")
+
+    # Self-heal stale "running" runs once a deterministic terminal status is inferred.
+    if (
+        original_status == "running"
+        and derived_status in {"completed", "failed"}
+        and derived_status != original_status
+    ):
+        state["status"] = derived_status
+        state["updated_at"] = datetime.now(timezone.utc).isoformat()
+        if not isinstance(state.get("context"), dict):
+            state["context"] = {}
+        if status_reason:
+            state["context"]["status_reconciled_reason"] = status_reason
+            state["context"]["status_reconciled_at"] = state["updated_at"]
+        state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        run_snapshot["updated_at"] = state["updated_at"]
 
     if format == "json":
         rendered = json.dumps(snapshot, indent=2) + "\n"

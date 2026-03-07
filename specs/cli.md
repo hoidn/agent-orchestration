@@ -7,7 +7,7 @@
   - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <file>`, `orchestrate watch <workflow.yaml>`
 
 - Debugging and recovery flags
-  - `--debug`, `--progress` (post-MVP), `--trace` (post-MVP), `--dry-run`
+  - `--debug`, `--stream-output`, `--progress` (post-MVP), `--trace` (post-MVP), `--dry-run`
   - Runtime observability: `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`
   - `--force-restart`, `--repair`, `--backup-state`, `--state-dir <path>`
   - Error handling: `--on-error stop|continue|interactive` (interactive optional/post-MVP)
@@ -51,6 +51,7 @@ orchestrate watch workflows/demo.yaml
 ```bash
 # Debug and observability
 --debug                 # Enable debug logging
+--stream-output         # Stream provider stdout/stderr live without full debug side effects
 --progress              # Show real-time progress (post-MVP)
 --trace                 # Include trace IDs in logs (post-MVP)
 --dry-run               # Validate without execution

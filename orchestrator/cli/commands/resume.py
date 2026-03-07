@@ -62,6 +62,7 @@ def resume_workflow(
     retry_delay_ms: Optional[int] = None,
     backup_state: bool = False,
     debug: bool = False,
+    stream_output: bool = False,
     summary_mode: Optional[str] = None,
     summary_provider: Optional[str] = None,
     summary_timeout_sec: Optional[int] = None,
@@ -79,6 +80,7 @@ def resume_workflow(
         retry_delay_ms: Delay between retries in milliseconds
         backup_state: Enable state backups
         debug: Enable debug logging
+        stream_output: Stream provider stdout/stderr live without enabling debug side effects
         summary_mode: Optional summary mode override
         summary_provider: Optional summary provider override
         summary_timeout_sec: Optional summary timeout override
@@ -237,6 +239,7 @@ def resume_workflow(
         max_retries=max_retries,
         retry_delay_ms=retry_delay_ms,
         debug=debug,
+        stream_output=stream_output,
         observability=observability,
     )
 

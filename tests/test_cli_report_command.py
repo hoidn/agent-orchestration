@@ -1,6 +1,7 @@
 """Tests for report CLI command."""
 
 import json
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from orchestrator.cli.commands.report import report_workflow
@@ -117,3 +118,63 @@ def test_report_writes_output_file(tmp_path, monkeypatch):
     assert result == 0
     assert output_path.exists()
     assert "# Workflow Status" in output_path.read_text()
+
+
+def test_report_reconciles_stale_running_state_on_disk(tmp_path, monkeypatch, capsys):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000005Z-eeeeee"
+    run_dir = runs_root / run_id
+    logs_dir = run_dir / "logs"
+    logs_dir.mkdir(parents=True)
+
+    workflow = tmp_path / "workflow.yaml"
+    workflow.write_text(
+        """
+version: "1.3"
+name: report-test
+steps:
+  - name: StepA
+    command: ["echo", "a"]
+  - name: StepB
+    command: ["echo", "b"]
+""".strip()
+        + "\n"
+    )
+
+    stale_updated_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    state = {
+        "schema_version": "1.1.1",
+        "run_id": run_id,
+        "workflow_file": str(workflow),
+        "workflow_checksum": "sha256:dummy",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": stale_updated_at,
+        "status": "running",
+        "context": {},
+        "steps": {
+            "StepA": {
+                "status": "completed",
+                "exit_code": 0,
+                "duration_ms": 7,
+                "output": "ok",
+            }
+        },
+    }
+    state_file = run_dir / "state.json"
+    state_file.write_text(json.dumps(state, indent=2))
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="json",
+    )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["run"]["status"] == "failed"
+    assert payload["run"]["status_reason"] == "stale_running_without_current_step"
+
+    persisted = json.loads(state_file.read_text())
+    assert persisted["status"] == "failed"
+    assert persisted["context"]["status_reconciled_reason"] == "stale_running_without_current_step"

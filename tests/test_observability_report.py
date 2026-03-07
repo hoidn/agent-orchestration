@@ -1,5 +1,6 @@
 """Tests for deterministic workflow status reporting."""
 
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from orchestrator.observability.report import build_status_snapshot, render_status_markdown
@@ -36,7 +37,7 @@ def test_snapshot_counts_and_infers_running_from_prompt_audit(tmp_path: Path):
         "run_id": "run1",
         "status": "running",
         "started_at": "2026-02-27T00:00:00+00:00",
-        "updated_at": "2026-02-27T00:00:03+00:00",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
         "workflow_file": "workflows/test.yaml",
         "steps": {
             "Prep": {
@@ -114,3 +115,30 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
     assert "DraftPlan" in md
     assert "Prompt body" in md
     assert "Progress" in md
+
+
+def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "stale-run"
+    (run_root / "logs").mkdir(parents=True)
+
+    stale_updated_at = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+    state = {
+        "run_id": "stale-run",
+        "status": "running",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": stale_updated_at,
+        "workflow_file": "workflows/test.yaml",
+        "steps": {
+            "Prep": {
+                "status": "completed",
+                "exit_code": 0,
+                "duration_ms": 31,
+                "output": "prep done",
+            }
+        },
+    }
+
+    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+
+    assert snapshot["run"]["status"] == "failed"
+    assert snapshot["run"]["status_reason"] == "stale_running_without_current_step"

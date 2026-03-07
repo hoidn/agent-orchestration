@@ -48,6 +48,7 @@ class WorkflowExecutor:
         state_manager: StateManager,
         logs_dir: Optional[Path] = None,
         debug: bool = False,
+        stream_output: bool = False,
         max_retries: int = 0,
         retry_delay_ms: int = 1000,
         observability: Optional[Dict[str, Any]] = None,
@@ -62,11 +63,13 @@ class WorkflowExecutor:
             state_manager: State persistence manager
             logs_dir: Directory for logs
             debug: Enable debug mode
+            stream_output: Stream provider stdout/stderr live without enabling debug mode
         """
         self.workflow = workflow
         self.workspace = workspace
         self.state_manager = state_manager
         self.debug = debug
+        self.stream_output = stream_output
         self.observability = observability or {}
 
         # Initialize secrets manager
@@ -1757,7 +1760,7 @@ class WorkflowExecutor:
         """Execute provider invocation with backward-compatible call shape."""
         execute_fn = self.provider_executor.execute
         try:
-            return execute_fn(invocation, stream_output=self.debug)
+            return execute_fn(invocation, stream_output=(self.debug or self.stream_output))
         except TypeError as exc:
             if "unexpected keyword argument 'stream_output'" not in str(exc):
                 raise
