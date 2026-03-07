@@ -1,8 +1,8 @@
 version: "1.4"
 name: "dsl-follow-on-plan-impl-review-loop"
 context:
-  max_plan_iterations: "10"
-  max_impl_iterations: "10"
+  max_plan_iterations: "20"
+  max_impl_iterations: "20"
   workflow_model: "gpt-5.4"
   workflow_effort: "high"
 
@@ -17,7 +17,7 @@ providers:
 steps:
   - name: WaitForUpstreamStateFile
     wait_for:
-      glob: ".orchestrate/runs/20260307T073452Z-f1wx0q/state.json"
+      glob: ".orchestrate/runs/20260307T083549Z-9hctad/state.json"
       timeout_sec: 86400
       poll_ms: 1000
       min_count: 1
@@ -33,7 +33,7 @@ steps:
         import sys
         import time
 
-        state_path = pathlib.Path(".orchestrate/runs/20260307T073452Z-f1wx0q/state.json")
+        state_path = pathlib.Path(".orchestrate/runs/20260307T083549Z-9hctad/state.json")
         if not state_path.exists():
             print(f"Missing upstream state file: {state_path}", file=sys.stderr)
             raise SystemExit(1)
@@ -50,7 +50,7 @@ steps:
 
         if status != "completed":
             print(
-                "Upstream run 20260307T073452Z-f1wx0q "
+                "Upstream run 20260307T083549Z-9hctad "
                 f"finished with status {status!r}; expected 'completed'.",
                 file=sys.stderr,
             )
