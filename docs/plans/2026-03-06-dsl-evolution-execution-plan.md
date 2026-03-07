@@ -17,6 +17,7 @@
 - Keep lightweight scalar bookkeeping as its own tranche before cycle guards, structured control flow, and `call`.
 - Ship state-schema changes, resume behavior, and observability updates together; do not silently reinterpret persisted keys.
 - Treat Task 6 as the explicit durable-identity migration boundary: Tasks 2-5 may extend only the current top-level name-keyed state shape, and the move to qualified internal identities must happen via an explicit schema bump plus documented resume invalidation for pre-Task-6 state unless a tested upgrader lands in the same tranche.
+- For every post-Task-6 structured or reusable-execution surface that creates durable runtime nodes (`if/else`, `finally`, `call`, `match`, `repeat_until`), add authored stable `id` coverage in the same tranche and derive lowered/runtime identities from that authored ancestry rather than falling back silently to import aliases or sibling-order-sensitive compiler IDs.
 - Any tranche that changes report, status, or diagnostic surfaces must update `specs/observability.md` alongside runtime/report code.
 - Do not land `call` execution before the accepted-risk reusable-call contract, typed workflow signatures, and source-relative asset taxonomy are specified.
 - Keep `call` path handling split between workflow-source-relative assets and workspace-relative runtime writes exactly as described in the ADR.
@@ -102,7 +103,8 @@ For each acceptance addition, point to the later task and verification block tha
 Run:
 ```bash
 pytest tests/test_loader_validation.py -k "version or unknown or for_each" -v
-pytest tests/test_workflow_examples_v0.py -k for_each_demo -v
+pytest tests/test_for_each_execution.py -k for_each -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 ```
 
 Before moving to Task 2, cross-check that every new acceptance item added here is referenced by a later task's test or smoke coverage block.
@@ -192,11 +194,15 @@ Cover:
 - `compare` with `eq|ne|lt|lte|gt|gte`
 - `all_of|any_of|not`
 - root-scoped `ref: root.steps.<Step>...`
+- loader rejection for `self.*` and `parent.*` operands before scoped refs land
+- loader rejection for bare `steps.<Name>` operands in structured `ref:`
+- loader rejection for untyped `context.*` reads through `ref:`
+- loader rejection for non-persisted consumed-value targets through `ref:`
 - load-time rejection of `ref:` operands that point at provably multi-visit or otherwise ambiguous step identities
 - static type rejection for `artifact_bool` on non-`bool` artifacts and ordered comparisons on non-numeric / `relpath` / `enum` operands
 - statically invalid refs rejected at load time
 - runtime-only missing values producing structured predicate failures
-- the normalized outcome matrix for command failure, provider failure, timeout, contract/preflight failure, and undefined-substitution-at-step-execution
+- the normalized outcome matrix for command failure, provider failure, command/provider timeout, `wait_for` timeout, `wait_for` path-safety rejection, contract/preflight failure, and undefined-substitution-at-step-execution
 - `assert.compare` and `assert.artifact_bool` false paths producing `exit_code: 3`, `error.type: "assert_failed"`, and the normalized `outcome.class` / `outcome.phase` values documented for typed gate failures
 - legacy `version: "1.4"` `for_each` workflows keeping `${steps.<Name>.*}` loop-local substitution unchanged while typed `ref:` remains opt-in and version-gated
 
@@ -208,7 +214,7 @@ Project step results into:
 - `outcome.class`
 - `outcome.retryable`
 
-Keep this projection available only for observable step results, document the normalization matrix in the spec, and add direct test coverage that each documented tuple maps to the expected normalized outcome fields.
+Keep this projection available only for observable step results, document the normalization matrix in the spec, and add direct test coverage that each documented tuple maps to the expected normalized outcome fields, including explicit `wait_for` timeout and `wait_for` path-safety mappings.
 
 **Step 3: Broaden `assert` to the typed predicate surface**
 
@@ -228,8 +234,9 @@ Run:
 ```bash
 pytest --collect-only tests/test_typed_predicates.py -q
 pytest tests/test_typed_predicates.py tests/test_loader_validation.py tests/test_conditional_execution.py tests/test_runtime_step_lifecycle.py tests/test_for_each_execution.py tests/test_observability_report.py -v
-pytest tests/test_workflow_examples_v0.py -k "typed_predicate or for_each_demo" -v
+pytest tests/test_workflow_examples_v0.py -k typed_predicate -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/typed_predicate_routing.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 ```
 
 Risk focus: keep the first `ref:` rollout narrow enough that multi-visit ambiguity cannot leak into runtime behavior.
@@ -392,7 +399,6 @@ Run:
 ```bash
 pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_state_manager.py tests/test_resume_command.py -k "step_id or scoped_ref or schema" -v
 pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k "legacy or qualified or lineage or freshness or for_each or loop_scoping" -v
-pytest tests/test_workflow_examples_v0.py -k for_each_demo -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 ```
 
@@ -466,9 +472,10 @@ Run:
 ```bash
 pytest tests/test_loader_validation.py tests/test_cli_safety.py tests/test_state_manager.py tests/test_resume_command.py -k "inputs or outputs or bound_inputs or schema" -v
 pytest tests/test_output_contract.py tests/test_workflow_output_contract_integration.py -k "workflow_output or signature or export" -v
-pytest tests/test_workflow_examples_v0.py -k "workflow_signature or for_each_demo" -v
+pytest tests/test_workflow_examples_v0.py -k workflow_signature -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --state-dir /tmp/dsl-evolution-workflow-signature-demo
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 ```
 
 Risk focus: keep signature binding and export-source validation separate from finalization timing so regressions can be attributed cleanly.
@@ -501,12 +508,13 @@ Cover:
 - block outputs
 - explicit recording of non-taken branches
 - conservative rejection of `goto` / `_end` escaping structured boundaries
+- authored `id` validation for `if/else` statements and branch blocks, with lowered identities staying stable when sibling steps are inserted around the statement
 - interrupted execution resuming at the correct lowered node without replaying completed branch work
 - durable lowered-node identity/state shape staying stable across resume reload
 
 **Step 2: Lower structured statements to executable nodes with stable IDs**
 
-Keep lowering explicit instead of pretending the new syntax is state-transparent. The lowered nodes should carry stable identities into logs, status output, and resume state.
+Keep lowering explicit instead of pretending the new syntax is state-transparent. Add the authored stable `id` surface for `if/else` statements and derive lowered branch/body identities from that authored ancestry so the lowered nodes carry stable identities into logs, status output, and resume state even when sibling ordering changes.
 
 **Step 3: Keep the rollback boundary narrow**
 
@@ -524,8 +532,8 @@ pytest --collect-only tests/test_structured_control_flow.py -q
 pytest tests/test_structured_control_flow.py tests/test_state_manager.py -k "if_else or lowered" -v
 pytest tests/test_resume_command.py -k "if_else and resume" -v
 pytest tests/test_workflow_examples_v0.py -k structured_if_else -v
-pytest tests/test_workflow_examples_v0.py -k for_each_demo -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/structured_if_else_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
 pytest tests/test_resume_command.py -k structured_if_else_smoke -v
 ```
@@ -559,12 +567,13 @@ Cover:
 - resuming from the first unfinished finalization step instead of replaying completed cleanup
 - primary guarded failure remaining primary when `finally` also fails
 - dedicated failure classification when the guarded region succeeds and `finally` fails
+- authored `id` validation for `finally` blocks, with finalization-node identities remaining stable when surrounding statements are reshaped
 - top-level workflow outputs staying unmaterialized until finalization completes successfully
 - top-level workflow outputs being suppressed when finalization fails
 
 **Step 2: Extend lowering and state with explicit finalization progress**
 
-Record finalization progress and workflow-output export progress in durable state, surface the structured diagnostics in reports, and keep finalization identities distinct from the main body so resume/debug output is not ambiguous. Wire top-level workflow output materialization to occur only after successful finalization and suppress exports on finalization failure.
+Record finalization progress and workflow-output export progress in durable state, surface the structured diagnostics in reports, and keep finalization identities distinct from the main body. Extend the authored stable `id` surface to `finally` blocks and derive finalization-node identities from that ancestry so resume/debug output is not ambiguous across sibling insertion or guarded-body reshaping. Wire top-level workflow output materialization to occur only after successful finalization and suppress exports on finalization failure.
 
 **Step 3: Keep rollback and verification independent from `if/else`**
 
@@ -576,8 +585,8 @@ Run:
 ```bash
 pytest tests/test_structured_control_flow.py tests/test_resume_command.py -k finally -v
 pytest tests/test_workflow_examples_v0.py -k finally -v
-pytest tests/test_workflow_examples_v0.py -k for_each_demo -v
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --dry-run
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --state-dir /tmp/dsl-evolution-finally-demo
 ```
@@ -667,6 +676,7 @@ Risk focus: do not hide operational-risk boundaries inside implementation detail
 Cover:
 - imported workflows validating independently
 - caller/callee same-version requirement in the first tranche
+- authored `id` validation for call sites, with call-frame identities remaining stable when import aliases or sibling ordering change while the authored call ID stays fixed
 - typed `with:` binding against callee inputs
 - reusable-workflow rejection when DSL-managed write roots remain fixed instead of parameterized typed `relpath` inputs
 - call-site rejection when required write-root inputs are missing or when repeated/concurrent calls bind colliding managed paths
@@ -685,7 +695,7 @@ Implement the source-relative asset fields and version/boundary rules documented
 
 **Step 3: Implement import loading, asset resolution, and call-frame execution**
 
-Keep `call` inline within the same run, but record call-frame-local identities in state and logs. Route workflow-source-relative asset loads through the new asset resolver, update provider prompt loading plus dependency resolution/content reads so they use the correct source/workspace base for the new fields, preserve private callee `context` defaults unless the call contract explicitly binds or exports them, and keep only declared callee outputs crossing the boundary into the caller. Export those outputs only after the callee body and any callee finalization succeed, surface the outer call step as the external producer for caller-visible artifacts, and preserve call-scoped internal provenance plus freshness bookkeeping under qualified identities.
+Keep `call` inline within the same run, but require an authored stable `id` on call sites and record call-frame-local identities in state and logs from that authored ancestry plus callee-local authored IDs rather than import aliases. Route workflow-source-relative asset loads through the new asset resolver, update provider prompt loading plus dependency resolution/content reads so they use the correct source/workspace base for the new fields, preserve private callee `context` defaults unless the call contract explicitly binds or exports them, and keep only declared callee outputs crossing the boundary into the caller. Export those outputs only after the callee body and any callee finalization succeed, surface the outer call step as the external producer for caller-visible artifacts, and preserve call-scoped internal provenance plus freshness bookkeeping under qualified identities.
 
 **Step 4: Make resume/export evidence explicit for nested call frames**
 
@@ -733,7 +743,7 @@ Risk focus: keep caller-visible artifact/state names simple while retaining qual
 
 **Step 1: Add `match` over typed refs**
 
-Write tests and implementation for enum branching over typed refs, reusing the same block/output and stable-ID rules as `if/else`.
+Write tests and implementation for enum branching over typed refs, reusing the same block/output and stable-ID rules as `if/else`, including authored `id` validation for the `match` statement and case blocks so lowered case identities stay stable across sibling insertion and case-body refactors.
 
 **Step 2: Keep example and verification distinct from loops**
 
@@ -773,7 +783,7 @@ Risk focus: `match` should remain a structured enum branch primitive, not a gene
 
 **Step 1: Add post-test `repeat_until`**
 
-Keep iteration outputs explicit on the loop frame, require post-test semantics, and store enough iteration/condition-evaluation state for resume to continue safely.
+Keep iteration outputs explicit on the loop frame, require post-test semantics, add authored `id` validation for the loop frame/body, and store enough iteration/condition-evaluation state for resume to continue safely while loop-frame identities remain stable across sibling insertion and body reshaping.
 
 **Step 2: Verify loop resume and diagnostics directly**
 
