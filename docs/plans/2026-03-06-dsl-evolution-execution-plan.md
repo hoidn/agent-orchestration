@@ -50,15 +50,16 @@ Define the release order and version gates for:
 - D2 typed predicates + `ref:` + normalized outcomes
 - D2a scalar bookkeeping
 - D3 cycle guards
-- D4-D6 scoped refs, stable IDs, workflow signatures
+- D4-D5 scoped refs + stable IDs
+- D6 typed workflow signatures / input-output binding
 - D7 structured `if/else`
 - D8 structured `finally`
 - D9 accepted-risk reusable-call contract
 - D10 imports + `call`
 - D11 `match`
 - D12 `repeat_until`
-- D13 linting / normalization
-- D14 score-aware gates
+- D13 score-aware gates
+- D14 linting / normalization
 
 Keep the new `ref:` model opt-in and explicitly separate from legacy `${...}` interpolation.
 
@@ -333,10 +334,73 @@ PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run 
 
 Risk focus: counter semantics must stay stable under retry, skip, and resume or the feature will be unusable in real loops.
 
-### Task 6: Build the D4-D6 foundations: scoped refs, stable internal step IDs, and typed workflow signatures
+### Task 6: Build the D4-D5 foundations: scoped refs and stable internal step IDs
 
 **Files:**
 - Create: `orchestrator/workflow/identity.py`
+- Modify: `orchestrator/loader.py`
+- Modify: `orchestrator/workflow/references.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/state.py`
+- Modify: `orchestrator/observability/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/observability.md`
+- Modify: `specs/state.md`
+- Modify: `specs/versioning.md`
+- Modify: `specs/acceptance/index.md`
+- Modify: `docs/runtime_execution_lifecycle.md`
+- Modify: `docs/workflow_drafting_guide.md`
+- Modify: `tests/test_artifact_dataflow_integration.py`
+- Modify: `tests/test_for_each_execution.py`
+- Modify: `tests/test_at65_loop_scoping.py`
+- Modify: `tests/test_loader_validation.py`
+- Modify: `tests/test_control_flow_foundations.py`
+- Modify: `tests/test_state_manager.py`
+- Modify: `tests/test_resume_command.py`
+- Modify: `workflows/README.md`
+- Modify: `tests/test_workflow_examples_v0.py`
+
+**Step 1: Write failing tests for identity and scope rules**
+
+Cover:
+- `root` / `self` / `parent` ref requirements
+- bare `steps.<Name>` being invalid in the new `ref:` model
+- authored `id` shape and uniqueness validation, plus version-gated migration rules for introducing it
+- stable `step_id` persistence across sibling insertion when authored IDs are preserved
+- compiler-generated IDs being checksum-stable only until the workflow file changes
+- qualified lineage keys for `for_each` iterations
+- explicit resume rejection at the schema boundary when post-Task-6 code loads pre-Task-6 name-keyed state, unless the same tranche adds a tested upgrader
+- legacy `version: "1.4"` `${steps.<Name>.*}` loop-local substitution remaining unchanged in existing `for_each` workflows after scoped refs land
+
+**Step 2: Introduce a stable internal identity model**
+
+Add the optional authored stable `id` surface in the loader/spec, validate its shape and uniqueness independently from display `name`, assign internal `step_id` values during validation/lowering, and derive those internal identities from authored IDs where present. Keep display `name` for UX, document the checksum-only stability boundary for compiler-generated IDs, and move lineage/freshness bookkeeping to qualified internal identities instead of bare display names.
+
+This tranche is also the explicit schema boundary for durable identity migration: bump the persisted state schema, reject resume from pre-Task-6 name-keyed state rather than silently remapping old lineage/freshness keys, and only add an upgrader if it is fully specified and covered by targeted state-manager/resume tests in this same task.
+
+**Step 3: Keep workflow-boundary signatures out of the identity migration**
+
+Do not combine the schema/identity cutover with top-level workflow `inputs` / `outputs`, CLI binding, or workflow-output export timing. This task ends once scoped refs, qualified lineage/freshness keys, and the durable `step_id` migration are validated so later failures can be attributed to either identity remapping or boundary-signature behavior, not both.
+
+**Step 4: Keep resume behavior explicit**
+
+If checksum-changing edits still invalidate resume, preserve that rule and document it. Do not imply cross-checksum resume compatibility just because internal IDs exist.
+
+**Verification:**
+
+Run:
+```bash
+pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_state_manager.py tests/test_resume_command.py -k "step_id or scoped_ref or schema" -v
+pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k "legacy or qualified or lineage or freshness or for_each or loop_scoping" -v
+pytest tests/test_workflow_examples_v0.py -k for_each_demo -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
+```
+
+Risk focus: this is the foundation for every later structured feature; do not ship workflow signatures, `call`, or structured blocks before these invariants hold.
+
+### Task 7: Land D6 typed workflow signatures and top-level input/output binding
+
+**Files:**
 - Create: `orchestrator/workflow/signatures.py`
 - Modify: `orchestrator/loader.py`
 - Modify: `orchestrator/cli/commands/run.py`
@@ -355,12 +419,8 @@ Risk focus: counter semantics must stay stable under retry, skip, and resume or 
 - Modify: `specs/acceptance/index.md`
 - Modify: `docs/runtime_execution_lifecycle.md`
 - Modify: `docs/workflow_drafting_guide.md`
-- Modify: `tests/test_artifact_dataflow_integration.py`
-- Modify: `tests/test_for_each_execution.py`
-- Modify: `tests/test_at65_loop_scoping.py`
 - Modify: `tests/test_cli_safety.py`
 - Modify: `tests/test_loader_validation.py`
-- Modify: `tests/test_control_flow_foundations.py`
 - Modify: `tests/test_state_manager.py`
 - Modify: `tests/test_resume_command.py`
 - Modify: `tests/test_output_contract.py`
@@ -370,58 +430,50 @@ Risk focus: counter semantics must stay stable under retry, skip, and resume or 
 - Modify: `workflows/README.md`
 - Modify: `tests/test_workflow_examples_v0.py`
 
-**Step 1: Write failing tests for identity and scope rules**
+**Step 1: Write failing tests for typed workflow-boundary contracts**
 
 Cover:
-- `root` / `self` / `parent` ref requirements
-- bare `steps.<Name>` being invalid in the new `ref:` model
-- authored `id` shape and uniqueness validation, plus version-gated migration rules for introducing it
-- stable `step_id` persistence across sibling insertion when authored IDs are preserved
-- compiler-generated IDs being checksum-stable only until the workflow file changes
-- qualified lineage keys for `for_each` iterations
-- explicit resume rejection at the schema boundary when post-Task-6 code loads pre-Task-6 name-keyed state, unless the same tranche adds a tested upgrader
-- legacy `version: "1.4"` `${steps.<Name>.*}` loop-local substitution remaining unchanged in existing `for_each` workflows after scoped refs and typed `inputs` land
 - typed `inputs` visibility through both `${inputs.<name>}` and structured `ref:`
 - persisted bound inputs being available after resume reload
+- top-level input binding from explicit CLI data and file-backed sources
+- workflow-signature schema validation and version gating
+- contract-style failures for missing `outputs[*].from`, unresolved export sources, and invalid typed or `relpath` output exports
+- one end-to-end workflow-signature example with no `finally` block so this tranche proves signature shape, binding, and export-source resolution without baking in pre-finalization export timing
 
-**Step 2: Introduce a stable internal identity model**
-
-Add the optional authored stable `id` surface in the loader/spec, validate its shape and uniqueness independently from display `name`, assign internal `step_id` values during validation/lowering, and derive those internal identities from authored IDs where present. Keep display `name` for UX, document the checksum-only stability boundary for compiler-generated IDs, and move lineage/freshness bookkeeping to qualified internal identities instead of bare display names.
-
-This tranche is also the explicit schema boundary for durable identity migration: bump the persisted state schema, reject resume from pre-Task-6 name-keyed state rather than silently remapping old lineage/freshness keys, and only add an upgrader if it is fully specified and covered by targeted state-manager/resume tests in this same task.
-
-**Step 3: Add typed workflow `inputs` / `outputs` plus the normative read surfaces**
+**Step 2: Add typed workflow `inputs` / `outputs` plus the normative read surfaces**
 
 Reuse the existing artifact-contract validators where possible, but keep workflow signatures as a separate boundary contract family. Make `inputs.<name>` readable through both `${inputs.<name>}` and typed `ref:` resolution, update substitution to recognize the new namespace, and document the variables-spec boundary instead of leaving `inputs` implicit in the DSL spec alone.
 
-**Step 4: Bind and validate top-level workflow inputs before execution starts**
+**Step 3: Bind and validate top-level workflow inputs before execution starts**
 
 Define the first concrete top-level input binding path in CLI/runtime terms. Extend the run path so top-level runs can bind typed workflow `inputs` from explicit CLI data and/or a file-backed input source, validate those values before execution starts, persist the bound inputs in run state for observability/resume, and keep legacy `context` semantics unchanged for backward compatibility.
 
+**Step 4: Keep workflow-output timing aligned with the ADR**
+
+For workflows without `finally`, exported outputs may appear at normal workflow completion once their `from` bindings validate. Do not lock the stronger timing rule for finalization-aware workflows here; defer the "withhold until finalization completes successfully, suppress on finalization failure" invariants to Task 9, where finalization state and export progress become executable.
+
 **Step 5: Add direct end-to-end signature verification before `call` depends on it**
 
-Create one example workflow that consumes a bound input and exports a typed output, then cover the same path in targeted tests so the verification evidence proves input binding, output export timing, persisted bound inputs across resume, and contract-style failures for missing `outputs[*].from`, unresolved export sources, and invalid typed or `relpath` output exports.
+Create one example workflow that consumes a bound input and exports a typed output, then cover the same path in targeted tests so the verification evidence proves input binding, persisted bound inputs across resume, successful export on a workflow with no `finally`, and export-source contract failures without overclaiming finalization timing.
 
 **Step 6: Keep resume behavior explicit**
 
-If checksum-changing edits still invalidate resume, preserve that rule and document it. Do not imply cross-checksum resume compatibility just because internal IDs exist.
+If checksum-changing edits still invalidate resume, preserve that rule and document it. Do not imply cross-checksum resume compatibility just because workflow-boundary signatures now exist on top of stable internal IDs.
 
 **Verification:**
 
 Run:
 ```bash
-pytest tests/test_loader_validation.py tests/test_control_flow_foundations.py tests/test_state_manager.py tests/test_cli_safety.py tests/test_resume_command.py -k "step_id or scoped_ref or inputs or outputs or bound_inputs or schema" -v
-pytest tests/test_artifact_dataflow_integration.py tests/test_for_each_execution.py tests/test_at65_loop_scoping.py -k "legacy or qualified or lineage or freshness or for_each or loop_scoping" -v
-pytest tests/test_output_contract.py tests/test_workflow_output_contract_integration.py -v
+pytest tests/test_loader_validation.py tests/test_cli_safety.py tests/test_state_manager.py tests/test_resume_command.py -k "inputs or outputs or bound_inputs or schema" -v
+pytest tests/test_output_contract.py tests/test_workflow_output_contract_integration.py -k "workflow_output or signature or export" -v
 pytest tests/test_workflow_examples_v0.py -k "workflow_signature or for_each_demo" -v
-PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --dry-run
 PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/workflow_signature_demo.yaml --input-file workflows/examples/inputs/workflow_signature_demo.json --state-dir /tmp/dsl-evolution-workflow-signature-demo
 ```
 
-Risk focus: this is the foundation for every later structured feature; do not ship `call` or structured blocks before these invariants hold.
+Risk focus: keep signature binding and export-source validation separate from finalization timing so regressions can be attributed cleanly.
 
-### Task 7: Add a structured statement layer with `if/else`
+### Task 8: Add a structured statement layer with `if/else`
 
 **Files:**
 - Create: `orchestrator/workflow/statements.py`
@@ -480,7 +532,7 @@ pytest tests/test_resume_command.py -k structured_if_else_smoke -v
 
 Risk focus: structured lowering must not create ambiguous state entries, hidden control transfers, or resume-time replay of completed lowered nodes.
 
-### Task 8: Add structured finalization (`finally`) as a separate tranche
+### Task 9: Add structured finalization (`finally`) as a separate tranche
 
 **Files:**
 - Modify: `orchestrator/workflow/statements.py`
@@ -532,7 +584,7 @@ PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run 
 
 Risk focus: finalization must be resume-idempotent and must not silently replace the guarded region's primary result.
 
-### Task 9: Lock the accepted-risk reusable-call contract before execution work
+### Task 10: Lock the accepted-risk reusable-call contract before execution work
 
 **Files:**
 - Modify: `specs/dsl.md`
@@ -552,11 +604,15 @@ Document the dedicated source-relative asset surface for reusable workflows, and
 
 **Step 2: Specify the accepted operational-risk boundary**
 
-Document the first `call` tranche as inline and non-isolating, require every DSL-managed reusable-workflow write root to be surfaced as a typed `relpath` input, require call sites to bind distinct per-invocation write roots where repeated/concurrent calls could alias the same managed paths, and state that undeclared child-process filesystem effects remain an accepted risk rather than a loader-proved invariant. If the existing registry/pointer state cannot represent call-scoped internal producer/consumer identities cleanly, schedule the explicit versioned artifact-state change here instead of deferring it into Task 10 implementation.
+Document the first `call` tranche as inline and non-isolating, require every DSL-managed reusable-workflow write root to be surfaced as a typed `relpath` input, require call sites to bind distinct per-invocation write roots where repeated/concurrent calls could alias the same managed paths, and state that undeclared child-process filesystem effects remain an accepted risk rather than a loader-proved invariant. If the existing registry/pointer state cannot represent call-scoped internal producer/consumer identities cleanly, schedule the explicit versioned artifact-state change here instead of deferring it into Task 11 implementation.
 
 **Step 3: Add acceptance coverage for the contract boundary**
 
 Add normative acceptance entries covering caller/callee version compatibility, typed `with:` binding against callee inputs, declared-output export boundaries, reusable-workflow rejection when managed write roots are hard-coded instead of parameterized typed `relpath` inputs, call-site rejection for missing or colliding required write-root bindings, caller-visible external producer identity for exported call outputs, preserved callee-internal provenance metadata, private callee `providers`, `artifacts`, and `context` defaults unless explicitly bound or exported, call-scoped `artifact_versions` / `artifact_consumes` / `since_last_consume` freshness bookkeeping, callee output export timing after callee finalization, and the diagnostic/reporting surfaces expected for call frames.
+
+**Step 4: Add an explicit Task 10 to Task 11 proof crosswalk**
+
+For each acceptance item added here, name the Task 11 test module, coverage bullet, or verification command that will make it executable. Do not call this contract tranche complete until every accepted invariant is mapped forward to concrete Task 11 evidence, including path taxonomy, write-root validation, call-scoped lineage/freshness bookkeeping, caller-visible producer identity, callee-private state isolation, and callee-finalization-aware export timing.
 
 **Verification:**
 
@@ -565,9 +621,11 @@ Run:
 pytest tests/test_loader_validation.py -k "call or import or version" -v
 ```
 
+Before moving to Task 11, cross-check that every Task 10 acceptance item is referenced by a Task 11 coverage bullet or verification command.
+
 Risk focus: do not hide operational-risk boundaries inside implementation details; make them explicit before runtime work starts.
 
-### Task 10: Land imports and `call` on top of typed boundaries and qualified identities
+### Task 11: Land imports and `call` on top of typed boundaries and qualified identities
 
 **Files:**
 - Modify: `orchestrator/loader.py`
@@ -623,7 +681,7 @@ Cover:
 
 **Step 2: Define the import-path taxonomy and concrete source-relative asset API**
 
-Implement the source-relative asset fields and version/boundary rules documented in Task 9. Keep authored workspace-relative runtime paths (`input_file`, `depends_on`, `output_file`, deterministic relpath outputs, bundle paths) distinct from workflow-source-relative library assets. Do not overload `input_file` or plain `depends_on` with import-local semantics.
+Implement the source-relative asset fields and version/boundary rules documented in Task 10. Keep authored workspace-relative runtime paths (`input_file`, `depends_on`, `output_file`, deterministic relpath outputs, bundle paths) distinct from workflow-source-relative library assets. Do not overload `input_file` or plain `depends_on` with import-local semantics.
 
 **Step 3: Implement import loading, asset resolution, and call-frame execution**
 
@@ -652,7 +710,7 @@ pytest tests/test_resume_command.py -k call_subworkflow_smoke -v
 
 Risk focus: keep caller-visible artifact/state names simple while retaining qualified internal provenance underneath, preserve the source-relative/workspace-relative path boundary exactly, and do not let resume replay or prematurely export nested call outputs.
 
-### Task 11: Add `match` as a separate structured-control tranche
+### Task 12: Add `match` as a separate structured-control tranche
 
 **Files:**
 - Modify: `orchestrator/loader.py`
@@ -692,7 +750,7 @@ PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run 
 
 Risk focus: `match` should remain a structured enum branch primitive, not a generic pattern-matching language.
 
-### Task 12: Add post-test `repeat_until` as its own loop tranche
+### Task 13: Add post-test `repeat_until` as its own loop tranche
 
 **Files:**
 - Modify: `orchestrator/loader.py`
@@ -733,41 +791,6 @@ PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run 
 
 Risk focus: keep loop refs constrained to declared loop-frame outputs so multi-visit inner-step ambiguity does not leak back in.
 
-### Task 13: Add authoring-time linting and normalization after the new syntax exists
-
-**Files:**
-- Create: `orchestrator/workflow/linting.py`
-- Modify: `orchestrator/cli/commands/run.py`
-- Modify: `orchestrator/cli/commands/report.py`
-- Modify: `specs/dsl.md`
-- Modify: `specs/cli.md`
-- Modify: `specs/versioning.md`
-- Modify: `docs/workflow_drafting_guide.md`
-- Create: `tests/test_dsl_linting.py`
-- Modify: `tests/test_cli_report_command.py`
-
-**Step 1: Add authoring-time lint rules**
-
-Start with warnings for:
-- shell gates that should become `assert`
-- stringly `when.equals` that should become typed predicates
-- raw `goto` diamonds that should become `if` / `match`
-- import/output collisions
-
-**Step 2: Keep linting advisory in the first pass**
-
-Expose lint results in report or dry-run output without turning them into hard validation failures until the rule set is proven stable.
-
-**Verification:**
-
-Run:
-```bash
-pytest --collect-only tests/test_dsl_linting.py -q
-pytest tests/test_dsl_linting.py tests/test_cli_report_command.py -v
-```
-
-Risk focus: linting should accelerate migration without blocking valid legacy workflows.
-
 ### Task 14: Add score-aware gates on top of the stable predicate system
 
 **Files:**
@@ -802,7 +825,42 @@ PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run 
 
 Risk focus: keep score helpers as thin predicate sugar over typed numeric artifacts.
 
-### Task 15: Run the final compatibility and smoke sweep before merge
+### Task 15: Add authoring-time linting and normalization after the new syntax exists
+
+**Files:**
+- Create: `orchestrator/workflow/linting.py`
+- Modify: `orchestrator/cli/commands/run.py`
+- Modify: `orchestrator/cli/commands/report.py`
+- Modify: `specs/dsl.md`
+- Modify: `specs/cli.md`
+- Modify: `specs/versioning.md`
+- Modify: `docs/workflow_drafting_guide.md`
+- Create: `tests/test_dsl_linting.py`
+- Modify: `tests/test_cli_report_command.py`
+
+**Step 1: Add authoring-time lint rules**
+
+Start with warnings for:
+- shell gates that should become `assert`
+- stringly `when.equals` that should become typed predicates
+- raw `goto` diamonds that should become `if` / `match`
+- import/output collisions
+
+**Step 2: Keep linting advisory in the first pass**
+
+Expose lint results in report or dry-run output without turning them into hard validation failures until the rule set is proven stable.
+
+**Verification:**
+
+Run:
+```bash
+pytest --collect-only tests/test_dsl_linting.py -q
+pytest tests/test_dsl_linting.py tests/test_cli_report_command.py -v
+```
+
+Risk focus: linting should accelerate migration without blocking valid legacy workflows.
+
+### Task 16: Run the final compatibility and smoke sweep before merge
 
 **Files:**
 - No file changes
@@ -849,7 +907,7 @@ PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run 
 
 **Step 3: Re-run one new-DSL smoke example from each major tranche**
 
-Run the dry-run commands from Tasks 2, 3, 4, 7, 11, and 14, and run the isolated real orchestrator commands from Tasks 5, 6, 8, 10, and 12. The evidence set must therefore include real execution output for cycle guards, workflow signatures, finalization, subworkflow calls, and loops alongside validation-only smoke checks for the syntax-heavy tranches and the legacy compatibility smoke check.
+Run the dry-run commands from Tasks 2, 3, 4, 8, 12, and 14, and run the isolated real orchestrator commands from Tasks 5, 7, 9, 11, and 13. The evidence set must therefore include real execution output for cycle guards, workflow signatures, finalization, subworkflow calls, and loops alongside validation-only smoke checks for the syntax-heavy tranches and the legacy compatibility smoke check.
 
 **Completion criteria:**
 
