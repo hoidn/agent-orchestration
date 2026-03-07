@@ -499,6 +499,63 @@ def test_resume_clears_current_step_after_looped_completion(temp_workspace):
     assert payload.get("current_step") is None
 
 
+def test_resume_ignores_stale_running_current_step_for_completed_side_effecting_step(temp_workspace):
+    """Resume should not rerun a completed side-effecting step just because current_step is stale."""
+    workflow_path = temp_workspace / "stale_current_step.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "1.1",
+                "name": "stale-current-step",
+                "steps": [
+                    {
+                        "name": "FixImplementation",
+                        "command": ["bash", "-lc", "printf 'fix\\n' >> state/history.log"],
+                    },
+                    {
+                        "name": "NextStep",
+                        "command": ["bash", "-lc", "printf 'next\\n' >> state/history.log"],
+                    },
+                ],
+            },
+            sort_keys=False,
+        )
+    )
+
+    state_dir = temp_workspace / "state"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "history.log").write_text("fix\n")
+
+    run_id = "stale-current-step-run"
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize("stale_current_step.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.steps = {
+        "FixImplementation": {"status": "completed", "exit_code": 0},
+        "NextStep": {"status": "pending"},
+    }
+    state_manager.state.current_step = {
+        "name": "FixImplementation",
+        "index": 0,
+        "type": "command",
+        "status": "running",
+        "started_at": "2024-01-01T00:00:10Z",
+        "last_heartbeat_at": "2024-01-01T00:00:11Z",
+    }
+    state_manager._write_state()
+
+    with patch("os.getcwd", return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert (state_dir / "history.log").read_text() == "fix\nnext\n"
+
+
 def test_at4_resume_with_retry_parameters(temp_workspace, partial_run_state):
     """Test resume with custom retry parameters."""
     run_id, state_dir = partial_run_state

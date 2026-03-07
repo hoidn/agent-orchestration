@@ -246,3 +246,49 @@ def test_resume_skips_only_until_restart_point_not_after_loop_back(tmp_path: Pat
     history = (state_dir / "history.log").read_text()
     assert "review-2\n" in history
     assert "maxed\n" not in history
+
+
+def test_resume_restart_index_skips_completed_top_level_for_each(tmp_path: Path):
+    workflow = {
+        "version": "1.1",
+        "name": "resume-foreach-restart",
+        "steps": [
+            {"name": "Generate", "command": ["bash", "-lc", "printf 'generate\\n' >> state/history.log"]},
+            {
+                "name": "Loop",
+                "for_each": {
+                    "items": ["a", "b"],
+                    "steps": [
+                        {
+                            "name": "Inner",
+                            "command": ["bash", "-lc", "printf 'inner-${item}\\n' >> state/history.log"],
+                        }
+                    ],
+                },
+            },
+            {"name": "After", "command": ["bash", "-lc", "printf 'after\\n' >> state/history.log"]},
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="resume-foreach-run")
+    state_manager.initialize("workflow.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.workflow_checksum = f"sha256:{hashlib.sha256(workflow_file.read_bytes()).hexdigest()}"
+    state_manager.state.steps = {
+        "Generate": {"status": "completed", "exit_code": 0},
+        "Loop": [{"status": "completed"}, {"status": "completed"}],
+        "Loop[0].Inner": {"status": "completed", "exit_code": 0},
+        "Loop[1].Inner": {"status": "completed", "exit_code": 0},
+        "After": {"status": "failed", "exit_code": 1},
+    }
+    state_manager._write_state()
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    restart_index = executor._determine_resume_restart_index(state_manager.load().to_dict())
+
+    assert restart_index == 2

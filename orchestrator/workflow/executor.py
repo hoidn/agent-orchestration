@@ -107,28 +107,42 @@ class WorkflowExecutor:
         """Return the durable identity for a top-level step."""
         return runtime_step_id(step, self.current_step if fallback_index is None else fallback_index)
 
+    def _resume_entry_is_terminal(self, entry: Any) -> bool:
+        """Return True when persisted step state is fully completed/skipped for resume purposes."""
+        if isinstance(entry, dict):
+            status = entry.get("status")
+            if isinstance(status, str):
+                return status in ["completed", "skipped"]
+            if not entry:
+                return False
+            return all(self._resume_entry_is_terminal(value) for value in entry.values())
+        if isinstance(entry, list):
+            return all(self._resume_entry_is_terminal(value) for value in entry)
+        return False
+
     def _determine_resume_restart_index(self, state: Dict[str, Any]) -> Optional[int]:
         """Determine the top-level step index where resumed execution should restart."""
+        steps_state = state.get("steps", {})
+        if not isinstance(steps_state, dict):
+            steps_state = {}
+
         current_step = state.get("current_step")
         if isinstance(current_step, dict):
             current_index = current_step.get("index")
             current_status = current_step.get("status")
             if isinstance(current_index, int) and current_status == "running":
                 if 0 <= current_index < len(self.steps):
-                    return current_index
-
-        steps_state = state.get("steps", {})
-        if not isinstance(steps_state, dict):
-            return None
+                    current_step_name = self.steps[current_index].get("name", f"step_{current_index}")
+                    current_result = steps_state.get(current_step_name)
+                    if not self._resume_entry_is_terminal(current_result):
+                        return current_index
 
         for step_index, step in enumerate(self.steps):
             step_name = step.get("name", f"step_{step_index}")
             step_result = steps_state.get(step_name)
-            if isinstance(step_result, list):
+            if step_result is None:
                 return step_index
-            if not isinstance(step_result, dict):
-                return step_index
-            if step_result.get("status") not in ["completed", "skipped"]:
+            if not self._resume_entry_is_terminal(step_result):
                 return step_index
 
         return None
