@@ -133,6 +133,8 @@ class WorkflowExecutor:
         state = run_state.to_dict()
         state.setdefault('artifact_versions', {})
         state.setdefault('artifact_consumes', {})
+        state.setdefault('transition_count', 0)
+        state.setdefault('step_visits', {})
         state['_resolved_consumes'] = {}
         terminal_status = 'completed'
 
@@ -173,6 +175,32 @@ class WorkflowExecutor:
                             logger.info(f"Step {step_name} previously failed, retrying")
                             # Continue to retry the failed step
 
+                transition_guard = self._check_transition_guard(state, step_name)
+                if transition_guard is not None:
+                    self._persist_step_result(
+                        state,
+                        step_name,
+                        step,
+                        transition_guard,
+                        phase_hint='pre_execution',
+                        class_hint='pre_execution_failed',
+                        retryable_hint=False,
+                    )
+                    next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                    if next_step == '_end':
+                        break
+                    if next_step == '_stop':
+                        terminal_status = 'failed'
+                        break
+
+                    target_index = self._resolve_next_step_index(step_index, next_step)
+                    if target_index is None:
+                        step_index += 1
+                    else:
+                        self._increment_transition_count(state)
+                        step_index = target_index
+                    continue
+
                 # Check conditional execution (AT-37, AT-46, AT-47)
                 if 'when' in step:
                     # Build variables for condition evaluation
@@ -205,8 +233,19 @@ class WorkflowExecutor:
                             class_hint='pre_execution_failed',
                             retryable_hint=False,
                         )
+                        next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                        if next_step == '_end':
+                            break
+                        if next_step == '_stop':
+                            terminal_status = 'failed'
+                            break
 
-                        step_index += 1
+                        target_index = self._resolve_next_step_index(step_index, next_step)
+                        if target_index is None:
+                            step_index += 1
+                        else:
+                            self._increment_transition_count(state)
+                            step_index = target_index
                         continue
 
                     if not should_execute:
@@ -217,8 +256,19 @@ class WorkflowExecutor:
                             'skipped': True
                         }
                         self._persist_step_result(state, step_name, step, result)
+                        next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                        if next_step == '_end':
+                            break
+                        if next_step == '_stop':
+                            terminal_status = 'failed'
+                            break
 
-                        step_index += 1
+                        target_index = self._resolve_next_step_index(step_index, next_step)
+                        if target_index is None:
+                            step_index += 1
+                        else:
+                            self._increment_transition_count(state)
+                            step_index = target_index
                         continue
 
                 # AT-69: Create backup before step execution if debug enabled
@@ -226,6 +276,38 @@ class WorkflowExecutor:
                     self.state_manager.backup_state(step_name)
 
                 consume_error = self._enforce_consumes_contract(step, step_name, state)
+                visit_count = self._increment_step_visit(state, step_name)
+                max_visits = step.get('max_visits')
+                if isinstance(max_visits, int) and visit_count > max_visits:
+                    self._persist_step_result(
+                        state,
+                        step_name,
+                        step,
+                        self._cycle_guard_result(
+                            step_name=step_name,
+                            limit_type='max_visits',
+                            limit=max_visits,
+                            observed=visit_count,
+                        ),
+                        phase_hint='pre_execution',
+                        class_hint='pre_execution_failed',
+                        retryable_hint=False,
+                    )
+                    next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                    if next_step == '_end':
+                        break
+                    if next_step == '_stop':
+                        terminal_status = 'failed'
+                        break
+
+                    target_index = self._resolve_next_step_index(step_index, next_step)
+                    if target_index is None:
+                        step_index += 1
+                    else:
+                        self._increment_transition_count(state)
+                        step_index = target_index
+                    continue
+
                 if consume_error is not None:
                     self._persist_step_result(
                         state,
@@ -243,10 +325,12 @@ class WorkflowExecutor:
                     if next_step == '_stop':
                         terminal_status = 'failed'
                         break
-                    if isinstance(next_step, int):
-                        step_index = next_step
-                    else:
+                    target_index = self._resolve_next_step_index(step_index, next_step)
+                    if target_index is None:
                         step_index += 1
+                    else:
+                        self._increment_transition_count(state)
+                        step_index = target_index
                     continue
 
                 self.state_manager.start_step(
@@ -314,9 +398,10 @@ class WorkflowExecutor:
                     # Stop execution due to error with strict_flow
                     terminal_status = 'failed'
                     break
-                elif isinstance(next_step, int):
-                    # Jump to specific step index
-                    step_index = next_step
+                target_index = self._resolve_next_step_index(step_index, next_step)
+                if target_index is not None:
+                    self._increment_transition_count(state)
+                    step_index = target_index
                 else:
                     # Continue to next step
                     step_index += 1
@@ -502,6 +587,106 @@ class WorkflowExecutor:
             state['artifact_consumes'] = artifact_consumes
 
         self.state_manager.update_dataflow_state(artifact_versions, artifact_consumes)
+
+    def _persist_control_flow_state(self, state: Dict[str, Any]) -> None:
+        """Persist cycle-guard counters to state.json."""
+        transition_count = state.get('transition_count', 0)
+        if not isinstance(transition_count, int):
+            transition_count = 0
+            state['transition_count'] = transition_count
+
+        step_visits = state.get('step_visits', {})
+        if not isinstance(step_visits, dict):
+            step_visits = {}
+            state['step_visits'] = step_visits
+
+        self.state_manager.update_control_flow_counters(
+            transition_count=transition_count,
+            step_visits=step_visits,
+        )
+
+    def _increment_step_visit(self, state: Dict[str, Any], step_name: str) -> int:
+        """Increment and persist the visit count for a top-level step entry."""
+        step_visits = state.setdefault('step_visits', {})
+        if not isinstance(step_visits, dict):
+            step_visits = {}
+            state['step_visits'] = step_visits
+
+        current_value = step_visits.get(step_name, 0)
+        if not isinstance(current_value, int):
+            current_value = 0
+
+        step_visits[step_name] = current_value + 1
+        self._persist_control_flow_state(state)
+        return step_visits[step_name]
+
+    def _increment_transition_count(self, state: Dict[str, Any]) -> int:
+        """Increment and persist the workflow transition counter."""
+        transition_count = state.get('transition_count', 0)
+        if not isinstance(transition_count, int):
+            transition_count = 0
+        transition_count += 1
+        state['transition_count'] = transition_count
+        self._persist_control_flow_state(state)
+        return transition_count
+
+    def _check_transition_guard(
+        self,
+        state: Dict[str, Any],
+        step_name: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Fail the target step before execution when transition budget is exhausted."""
+        max_transitions = self.workflow.get('max_transitions')
+        if not isinstance(max_transitions, int):
+            return None
+
+        transition_count = state.get('transition_count', 0)
+        if not isinstance(transition_count, int):
+            transition_count = 0
+
+        if transition_count <= max_transitions:
+            return None
+
+        return self._cycle_guard_result(
+            step_name=step_name,
+            limit_type='max_transitions',
+            limit=max_transitions,
+            observed=transition_count,
+        )
+
+    def _cycle_guard_result(
+        self,
+        step_name: str,
+        limit_type: str,
+        limit: int,
+        observed: int,
+    ) -> Dict[str, Any]:
+        """Build a deterministic cycle-guard failure result."""
+        return {
+            'status': 'failed',
+            'exit_code': 2,
+            'duration_ms': 0,
+            'error': {
+                'type': 'cycle_guard_exceeded',
+                'message': f"Cycle guard '{limit_type}' exceeded for step '{step_name}'",
+                'context': {
+                    'step': step_name,
+                    'guard': limit_type,
+                    'limit': limit,
+                    'observed': observed,
+                },
+            },
+        }
+
+    def _resolve_next_step_index(self, current_index: int, next_step: Any) -> Optional[int]:
+        """Resolve the concrete next step index for transition accounting."""
+        if isinstance(next_step, int):
+            return next_step
+
+        implicit_index = current_index + 1
+        if implicit_index < len(self.steps):
+            return implicit_index
+        return None
 
     def _record_published_artifacts(
         self,
@@ -994,6 +1179,8 @@ class WorkflowExecutor:
             return None  # No result yet, continue
 
         exit_code = step_result.get('exit_code', 0)
+        error = step_result.get('error')
+        error_type = error.get('type') if isinstance(error, dict) else None
 
         # Check if step was skipped (conditional execution)
         if step_result.get('skipped'):
@@ -1020,6 +1207,13 @@ class WorkflowExecutor:
             # If we found a goto target, use it
             if goto_target:
                 return self._resolve_goto_target(goto_target)
+
+        if error_type == 'cycle_guard_exceeded':
+            logger.error(
+                "Step '%s' exceeded a cycle guard and has no recovery edge. Stopping execution.",
+                step_name,
+            )
+            return '_stop'
 
         # AT-56, AT-57: Apply strict_flow and on_error behavior
         # Only if no goto handler was found

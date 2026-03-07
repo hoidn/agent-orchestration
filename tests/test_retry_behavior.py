@@ -506,3 +506,69 @@ class TestWorkflowRetryExecution:
 
             # Should not retry due to step-level override
             assert call_count == 1
+            assert result['steps']['ProviderStep']['exit_code'] == 1
+
+    def test_max_visits_ignores_internal_command_retries(self):
+        """Cycle-guard visit accounting does not count command retries as extra visits."""
+        workflow = {
+            'version': '1.8',
+            'name': 'retry-visit-budget',
+            'steps': [
+                {
+                    'name': 'RetryingCommand',
+                    'max_visits': 1,
+                    'command': ['bash', '-lc', 'printf ok'],
+                    'retries': {'max': 1, 'delay_ms': 0},
+                }
+            ],
+        }
+
+        workflow_file = self.workspace / 'retry_visits.yaml'
+        workflow_file.write_text(yaml.dump(workflow))
+
+        state_manager = StateManager(self.workspace, run_id='retry-visits-run')
+        state_manager.initialize('retry_visits.yaml', {})
+
+        executor = WorkflowExecutor(
+            workflow=workflow,
+            workspace=self.workspace,
+            state_manager=state_manager,
+        )
+
+        call_count = 0
+
+        def mock_execute_command(**kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                return ExecutionResult(
+                    step_name='RetryingCommand',
+                    exit_code=1,
+                    capture_result=CaptureResult(
+                        mode=CaptureMode.TEXT,
+                        output='',
+                        truncated=False,
+                        exit_code=1,
+                    ),
+                    duration_ms=5,
+                    error={'type': 'command_failed', 'message': 'retry me'},
+                )
+            return ExecutionResult(
+                step_name='RetryingCommand',
+                exit_code=0,
+                capture_result=CaptureResult(
+                    mode=CaptureMode.TEXT,
+                    output='ok',
+                    truncated=False,
+                    exit_code=0,
+                ),
+                duration_ms=5,
+                error=None,
+            )
+
+        with patch.object(executor.step_executor, 'execute_command', side_effect=mock_execute_command):
+            result = executor.execute()
+
+        assert result['status'] == 'completed'
+        assert call_count == 2
+        assert result['step_visits']['RetryingCommand'] == 1

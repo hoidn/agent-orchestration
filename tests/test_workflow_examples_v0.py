@@ -14,6 +14,7 @@ EXAMPLE_FILES = [
     "backlog_plan_execute_v0.yaml",
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
+    "cycle_guard_demo.yaml",
     "dsl_follow_on_plan_impl_review_loop.yaml",
     "dsl_tracked_plan_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
@@ -305,6 +306,23 @@ def test_scalar_bookkeeping_demo_runtime(tmp_path: Path):
     assert state["steps"]["IncrementCount"]["artifacts"] == {"failed_count": 2}
     assert [entry["value"] for entry in state["artifact_versions"]["failed_count"]] == [0, 2]
     assert state["steps"]["GateFinalCount"]["status"] == "completed"
+
+
+def test_cycle_guard_demo_runtime(tmp_path: Path):
+    """Cycle guard demo recovers from a guard trip and records persisted counters."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "cycle_guard_demo.yaml")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["GuardLoop"]["error"]["type"] == "cycle_guard_exceeded"
+    assert state["step_visits"]["GuardLoop"] == 3
+    assert state["steps"]["RecordGuardTrip"]["status"] == "completed"
 
 
 def test_backlog_plan_execute_v1_3_json_bundles_runtime(tmp_path: Path):

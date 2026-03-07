@@ -230,6 +230,54 @@ class TestLoaderValidation:
         assert any("declared scalar artifact" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_max_transitions_requires_version_1_8(self):
+        """Cycle guards are gated to v1.8+."""
+        workflow = {
+            "version": "1.7",
+            "name": "cycle-guard-gated",
+            "max_transitions": 3,
+            "steps": [{
+                "name": "RunCheck",
+                "command": ["bash", "-lc", "exit 1"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("max_transitions requires version '1.8'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_for_each_steps_reject_max_visits_before_stable_ids_land(self):
+        """Cycle guards are limited to top-level steps in the first tranche."""
+        workflow = {
+            "version": "1.8",
+            "name": "nested-cycle-guard",
+            "steps": [{
+                "name": "Loop",
+                "for_each": {
+                    "items": ["a"],
+                    "steps": [{
+                        "name": "NestedCheck",
+                        "max_visits": 2,
+                        "command": ["bash", "-lc", "printf '%s' '${item}'"],
+                    }],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("max_visits is only supported on top-level steps" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_at38_absolute_path_rejected(self):
         """AT-38: Absolute paths rejected at validation."""
         workflow = {

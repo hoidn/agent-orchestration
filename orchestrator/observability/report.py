@@ -24,6 +24,8 @@ def _step_kind(step: Dict[str, Any]) -> str:
         return "for_each"
     if "wait_for" in step:
         return "wait_for"
+    if "assert" in step:
+        return "assert"
     if "set_scalar" in step:
         return "set_scalar"
     if "increment_scalar" in step:
@@ -139,6 +141,7 @@ def build_status_snapshot(
     """Build a deterministic status snapshot from workflow + state artifacts."""
     steps = list(workflow.get("steps", []))
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
+    step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
 
     step_entries = []
     for idx, step in enumerate(steps):
@@ -156,6 +159,8 @@ def build_status_snapshot(
             "status": status,
             "consumes": step.get("consumes", []),
             "expected_outputs": step.get("expected_outputs", []),
+            "visit_count": step_visits.get(name),
+            "max_visits": step.get("max_visits"),
             "input": {},
             "output": {},
         }
@@ -223,6 +228,8 @@ def build_status_snapshot(
         "updated_at": state.get("updated_at"),
         "run_root": str(run_root),
         "run_log_path": str(run_log_path) if run_log_path else None,
+        "transition_count": state.get("transition_count", 0),
+        "max_transitions": workflow.get("max_transitions"),
     }
     if status_reason:
         run_payload["status_reason"] = status_reason

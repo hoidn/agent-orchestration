@@ -356,6 +356,63 @@ def test_at4_resume_with_retry_parameters(temp_workspace, partial_run_state):
     assert result == 0
 
 
+def test_resume_preserves_control_flow_counters(temp_workspace):
+    """Resume keeps persisted cycle-guard counters available to the executor."""
+    workflow_path = temp_workspace / "control_flow_resume.yaml"
+    workflow_content = """
+version: "1.8"
+name: Control Flow Resume Workflow
+max_transitions: 5
+steps:
+  - name: Step1
+    max_visits: 3
+    command: ["echo", "Hello from Step1"]
+  - name: Step2
+    command: ["echo", "Hello from Step2"]
+"""
+    workflow_path.write_text(workflow_content)
+    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
+
+    run_id = "control-flow-run"
+    state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.json").write_text(json.dumps({
+        "schema_version": "1.1.1",
+        "run_id": run_id,
+        "workflow_file": str(workflow_path),
+        "workflow_checksum": checksum,
+        "started_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:01:00Z",
+        "status": "suspended",
+        "context": {},
+        "steps": {
+            "Step1": {"status": "completed", "exit_code": 0},
+        },
+        "transition_count": 1,
+        "step_visits": {"Step1": 1},
+    }, indent=2))
+
+    with patch('orchestrator.cli.commands.resume.WorkflowExecutor') as MockExecutor:
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = {
+            'status': 'completed',
+            'steps': {
+                'Step1': {'status': 'completed'},
+                'Step2': {'status': 'completed'},
+            },
+        }
+        MockExecutor.return_value = mock_executor
+
+        with patch('os.getcwd', return_value=str(temp_workspace)):
+            result = resume_workflow(run_id=run_id)
+
+        state_manager = MockExecutor.call_args.kwargs['state_manager']
+        assert state_manager.state.transition_count == 1
+        assert state_manager.state.step_visits == {"Step1": 1}
+
+    assert result == 0
+
+
 def test_at4_resume_displays_progress_information(temp_workspace, partial_run_state, capsys):
     """Test that resume command displays progress information."""
     run_id, state_dir = partial_run_state

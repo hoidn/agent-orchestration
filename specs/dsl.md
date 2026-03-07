@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", or "1.7"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", or "1.8"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -19,6 +19,10 @@
       - forbids `pointer`, `under`, and `must_exist_target`
     - `allowed: string[]` required for enum artifacts
   - `steps`: ordered list of step objects.
+  - `max_transitions: integer` (v1.8+; optional; must be `> 0`)
+    - Counts routed transfers between settled top-level steps.
+    - Terminal workflow completion does not consume another transition.
+    - When exceeded, the target step fails pre-execution with `error.type: "cycle_guard_exceeded"`.
   - `observability` is intentionally not a DSL key; run observability is configured via CLI/runtime flags (see `cli.md`).
 
 - Step schema (consolidated; MVP + v1.1.1)
@@ -31,6 +35,11 @@
     - `set_scalar: { artifact, value }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `increment_scalar: { artifact, by }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `wait_for: { ... }` (exclusive with provider/command/for_each)
+  - Cycle guards:
+    - `max_visits: integer` (v1.8+; optional; must be `> 0`)
+    - First tranche is limited to top-level non-`for_each` steps.
+    - Visit counts increment after `when` evaluation and before consume/execution preflight; skipped steps do not consume visit budget, internal retries do not consume extra visits.
+    - When exceeded, the step fails pre-execution with `error.type: "cycle_guard_exceeded"`.
   - IO:
     - `input_file: string`
     - `output_file: string`
@@ -160,11 +169,13 @@
     - `assert` requires `version: "1.5"` or higher.
     - Typed predicates and structured `ref:` require `version: "1.6"` or higher.
     - `set_scalar` and `increment_scalar` require `version: "1.7"` or higher.
+    - `max_transitions` and `max_visits` require `version: "1.8"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.
   - `_end`: reserved goto target that terminates the run successfully.
   - Precedence: step `on.*` handlers are evaluated first; if none apply, `strict_flow` and CLI `--on-error` govern.
+  - `cycle_guard_exceeded` is recoverable only through an explicit step `on.failure.goto`; otherwise it stops the run even when CLI `--on-error continue` is set.
   - Retry policy defaults: provider steps consider exit codes `1` and `124` retryable; raw `command` steps are not retried unless a per-step `retries` block is set. Step-level settings override CLI/global defaults.
 
 - Loop scoping and state
@@ -184,6 +195,7 @@ version: string                 # Workflow DSL version (e.g., "1.1"); independen
 name: string                    # Human-friendly name
 strict_flow: boolean            # Default: true; non-zero exit halts unless on.failure.goto present
 context: { [key: string]: any } # Optional key/value map available via ${context.*}
+max_transitions: integer        # v1.8+ optional workflow-level cycle budget (> 0)
 
 # v1.2+: canonical artifact contracts for publish/consume dataflow
 artifacts:                      # Optional

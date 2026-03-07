@@ -69,11 +69,19 @@
   - Publication still happens only through `publishes.from`; scalar bookkeeping does not mutate the top-level artifact ledger directly.
   - This tranche remains on state schema `1.1.1`; local scalar artifacts reuse the existing `steps.<Step>.artifacts` and `artifact_versions` surfaces.
 
+- v1.8 additions (cycle guards)
+  - Workflow-level `max_transitions` bounds routed transfers between settled top-level steps.
+  - Step-level `max_visits` bounds top-level non-skipped step entries after `when` evaluation.
+  - Guard failures use `error.type: "cycle_guard_exceeded"` and fail the target step in pre-execution state.
+  - Step `on.failure.goto` may recover from a guard trip; without an explicit recovery edge, guard failures stop the run even when CLI `--on-error continue` is set.
+  - `transition_count` and `step_visits` persist under state schema `1.1.1`; skipped steps do not consume visit budget and internal retries do not consume extra visits.
+  - The first tranche rejects nested/`for_each` `max_visits` usage until stable internal IDs land.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
   - `v1.7`: D2a scalar bookkeeping
-  - `v1.8` (planned): D3 cycle guards
+  - `v1.8`: D3 cycle guards
   - `v2.0` (planned schema boundary): D4-D5 scoped refs + stable internal IDs
   - `v2.1` (planned): D6 workflow signatures
   - `v2.2` (planned): D7 structured `if/else`
@@ -199,5 +207,6 @@ Planned acceptance:
 | 1.5 | `assert` gate steps with dedicated `assert_failed` failure channel | First-class control-flow gates without shell glue; still uses legacy condition forms. |
 | 1.6 | Typed predicates, structured `ref:`, normalized `outcome.*` fields | Opt-in typed gate surface; no reinterpretation of legacy `${steps.*}` semantics. |
 | 1.7 | `set_scalar`, `increment_scalar` | Narrow runtime primitive for local scalar artifact production plus normal `publishes.from` lineage. |
+| 1.8 | `max_transitions`, `max_visits` | Resume-safe cycle guards for top-level raw-graph workflows with persisted transition/visit counters. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

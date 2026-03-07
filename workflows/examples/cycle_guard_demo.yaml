@@ -1,0 +1,44 @@
+version: "1.8"
+name: cycle-guard-demo
+
+artifacts:
+  loop_budget:
+    kind: scalar
+    type: integer
+
+max_transitions: 20
+
+steps:
+  - name: InitializeBudget
+    set_scalar:
+      artifact: loop_budget
+      value: 1
+
+  - name: RunCheck
+    command:
+      - bash
+      - -lc
+      - exit 1
+    on:
+      failure:
+        goto: GuardLoop
+
+  - name: GuardLoop
+    max_visits: 2
+    assert:
+      compare:
+        left:
+          ref: root.steps.InitializeBudget.artifacts.loop_budget
+        op: eq
+        right: 1
+    on:
+      success:
+        goto: RunCheck
+      failure:
+        goto: RecordGuardTrip
+
+  - name: RecordGuardTrip
+    command:
+      - bash
+      - -lc
+      - mkdir -p state && printf 'guard tripped' > state/cycle_guard.txt

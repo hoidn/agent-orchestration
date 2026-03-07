@@ -74,6 +74,7 @@ Do not rely on review prose as the only enforcement mechanism. Route control flo
 Two practical upgrades now exist:
 - v1.5: use first-class `assert` instead of shelling out to `test`, `jq`, or tiny one-line Python gates.
 - v1.6: use typed predicates plus structured `ref:` for booleans, numeric thresholds, and recovered-failure routing instead of stringly `when.equals` hacks.
+- v1.8: use `max_visits` and `max_transitions` instead of shell counters or ad hoc file-backed loop budgets when the goal is simply to cap a raw `goto` loop.
 
 ## 5) Prompt Authoring Guidance
 
@@ -119,6 +120,11 @@ For execute/review/fix loops, separate "doing" from "deciding":
 `Execute` -> `Checks` -> `Assess` -> `Review` -> `Gate` -> (`Fix` -> back to `Checks`)
 
 Add at least one hard closure assertion step if "looks done" is not good enough.
+
+For raw-graph review/fix loops, add an explicit cycle cap:
+- use `max_visits` when one particular gate or work step should own the retry budget
+- use `max_transitions` when you want one workflow-wide ceiling across several back-edges
+- keep the first tranche top-level only; do not try to guard nested `for_each` steps until the later stable-ID work lands
 
 ### Plan-Time Strategy vs Runtime Check Plan
 

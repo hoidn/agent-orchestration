@@ -127,12 +127,19 @@
 117. v1.7 scalar bookkeeping validation: loader rejects bookkeeping steps that do not target a declared top-level scalar artifact
 118. v1.7 local scalar result surface: successful bookkeeping steps persist their produced value under `steps.<Step>.artifacts`
 119. v1.7 scalar lineage composition: `publishes.from` can publish bookkeeping outputs and advance `artifact_versions` without any direct registry mutation path
+120. v1.8 loader gating: `max_transitions` and `max_visits` are rejected below `version: "1.8"`
+121. v1.8 top-level-only guard scope: nested/`for_each` `max_visits` usage is rejected until stable internal IDs land
+122. v1.8 visit accounting: skipped steps do not consume visit budget and command/provider retries do not consume extra visits
+123. v1.8 transition accounting: routed back-edge loops increment `transition_count` and fail the target step pre-execution when `max_transitions` is exceeded
+124. v1.8 resume-safe counters: `transition_count` and `step_visits` persist in `state.json` and remain available on resume
+125. v1.8 guard recovery: `on.failure.goto` may recover from `cycle_guard_exceeded`; without that edge the run stops
 
 ## DSL Evolution Rollout Crosswalk
 
 - Task 2 executable proof: `tests/test_loader_validation.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/assert_gate_demo.yaml`
 - Task 3 executable proof: `tests/test_typed_predicates.py`, `tests/test_conditional_execution.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/typed_predicate_routing.yaml`
 - Task 4 executable proof: `tests/test_scalar_bookkeeping.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/scalar_bookkeeping_demo.yaml`
+- Task 5 executable proof: `tests/test_control_flow_foundations.py`, `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_retry_behavior.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/cycle_guard_demo.yaml`
 - Later-task roadmap proof ownership remains as written in `docs/plans/2026-03-06-dsl-evolution-execution-plan.md`; those tranches are not accepted until their named test/smoke blocks land with the corresponding implementation.
 
 ## Future Acceptance (v1.2)

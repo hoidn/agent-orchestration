@@ -67,6 +67,8 @@ steps:
         assert data["status"] == "running"
         assert data["context"] == {"key": "value"}
         assert data["steps"] == {}
+        assert data["transition_count"] == 0
+        assert data["step_visits"] == {}
 
         # Load state in new manager
         manager2 = StateManager(temp_workspace, run_id=manager.run_id)
@@ -79,6 +81,24 @@ steps:
         assert loaded_state.workflow_checksum == state.workflow_checksum
         assert loaded_state.status == state.status
         assert loaded_state.context == state.context
+        assert loaded_state.transition_count == 0
+        assert loaded_state.step_visits == {}
+
+    def test_control_flow_counters_persist_across_writes(self, temp_workspace, workflow_file):
+        """Cycle-guard counters are durable in state.json."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+
+        manager.update_control_flow_counters(
+            transition_count=4,
+            step_visits={"LoopStart": 2, "GuardLoop": 2},
+        )
+
+        manager2 = StateManager(temp_workspace, run_id=manager.run_id)
+        loaded_state = manager2.load()
+
+        assert loaded_state.transition_count == 4
+        assert loaded_state.step_visits == {"LoopStart": 2, "GuardLoop": 2}
 
     def test_at4_step_result_recording(self, temp_workspace, workflow_file):
         """AT-4: Record step results in state."""

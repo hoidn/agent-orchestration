@@ -32,10 +32,10 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
-    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7"]
+    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8"]
 
     def __init__(self, workspace: Path):
         """Initialize loader with workspace root."""
@@ -97,7 +97,7 @@ class WorkflowLoader:
         known_fields = {
             'version', 'name', 'strict_flow', 'context', 'providers', 'secrets',
             'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps',
-            'artifacts'
+            'artifacts', 'max_transitions'
         }
 
         # Strict unknown field rejection (skip if version is invalid/empty)
@@ -124,6 +124,16 @@ class WorkflowLoader:
                 self._add_error("artifacts requires version '1.2'")
             else:
                 self._validate_artifacts_registry(workflow['artifacts'])
+
+        if 'max_transitions' in workflow:
+            if not self._version_at_least(version, "1.8"):
+                self._add_error("max_transitions requires version '1.8'")
+            else:
+                self._validate_positive_integer(
+                    workflow['max_transitions'],
+                    "max_transitions",
+                    allow_zero=False,
+                )
 
     def _validate_secrets(self, secrets: Any):
         """Validate secrets configuration."""
@@ -172,6 +182,7 @@ class WorkflowLoader:
         version: str,
         artifacts_registry: Optional[Any] = None,
         root_catalog: Optional[Dict[str, Any]] = None,
+        top_level: bool = True,
     ):
         """Validate step definitions."""
         if not isinstance(steps, list):
@@ -211,6 +222,20 @@ class WorkflowLoader:
                 if exec_count > 0:
                     self._add_error(f"Step '{name}': for_each cannot be combined with {execution_fields}")
                 self._validate_for_each(step['for_each'], name, version, artifacts_registry, root_catalog)
+
+            if 'max_visits' in step:
+                if not top_level or 'for_each' in step:
+                    self._add_error(
+                        f"Step '{name}': max_visits is only supported on top-level steps before stable internal IDs land"
+                    )
+                elif not self._version_at_least(version, "1.8"):
+                    self._add_error(f"Step '{name}': max_visits requires version '1.8'")
+                else:
+                    self._validate_positive_integer(
+                        step['max_visits'],
+                        f"Step '{name}': max_visits",
+                        allow_zero=False,
+                    )
             elif exec_count > 1:
                 # AT-10: Mutual exclusivity
                 present = [f for f in execution_fields if f in step]
@@ -414,7 +439,22 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': for_each missing required 'steps'")
         else:
             # Recursively validate nested steps
-            self._validate_steps(for_each['steps'], version, artifacts_registry, root_catalog)
+            self._validate_steps(
+                for_each['steps'],
+                version,
+                artifacts_registry,
+                root_catalog,
+                top_level=False,
+            )
+
+    def _validate_positive_integer(self, value: Any, context: str, allow_zero: bool = False) -> None:
+        """Validate integer fields used for cycle guards."""
+        if type(value) is not int:
+            self._add_error(f"{context} must be an integer")
+            return
+        if value < 0 or (value == 0 and not allow_zero):
+            comparator = ">= 0" if allow_zero else "> 0"
+            self._add_error(f"{context} must be {comparator}")
 
     def _validate_dependencies(self, depends_on: Any, step_name: str, version: str):
         """Validate dependency configuration."""

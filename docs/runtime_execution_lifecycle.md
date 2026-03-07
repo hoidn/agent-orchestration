@@ -12,13 +12,15 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 2) Initialize run root and state.json
 3) Iterate steps in graph order (or goto targets)
 4) For each step:
-   a) evaluate `when` (may skip)
-   b) enforce consumes preflight (if configured)
-   c) execute step body (`assert`/command/provider/wait_for/for_each)
-   d) validate deterministic outputs (`expected_outputs` or `output_bundle`)
-   e) record published artifacts (if configured)
-   e1) project normalized step `outcome` metadata for observable results
-   f) compute next step (`on.success`, `on.failure`, `on.always`, fallback flow)
+   a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
+   b) evaluate `when` (may skip)
+   c) enforce consumes preflight (if configured)
+   d) execute step body (`assert`/command/provider/wait_for/for_each)
+   e) validate deterministic outputs (`expected_outputs` or `output_bundle`)
+   f) record published artifacts (if configured)
+   f1) project normalized step `outcome` metadata for observable results
+   g) compute next step (`on.success`, `on.failure`, `on.always`, fallback flow)
+   h) increment `transition_count` if control transfers into another top-level step
 5) Terminate at `_end`, terminal step, or failure policy
 6) Persist final run status and report artifacts
 ```
@@ -48,6 +50,7 @@ pending -> skipped
 Key notes:
 - `when` false produces `skipped` with `exit_code: 0`.
 - `assert` false produces `failed` with `exit_code: 3` and `error.type: "assert_failed"`.
+- `cycle_guard_exceeded` fails the target step before body execution; explicit `on.failure.goto` may recover, otherwise the run stops.
 - `contract_violation` failures are represented as failed steps (typically exit code `2`).
 - Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.
 
@@ -89,6 +92,8 @@ Runtime resolves next step in this order:
 1. Applicable `on.success` or `on.failure`
 2. `on.always` (if present)
 3. Default flow behavior (next sequential step or strict-flow/on-error behavior)
+
+After the next top-level target is known, the executor increments `transition_count`. If the next routed target would exceed `max_transitions`, that target fails pre-execution on entry.
 
 Special target:
 - `_end`: explicit successful termination.

@@ -15,6 +15,9 @@
   - v1.2 runtime dataflow fields:
     - `artifact_versions`: `{artifact_name: [{version, value, producer, step_index}, ...]}`
     - `artifact_consumes`: `{consumer_step: {artifact_name: last_consumed_version}}` with optional `__global__` aggregate entry
+  - v1.8 control-flow fields:
+    - `transition_count`: integer count of routed top-level step-to-step transfers
+    - `step_visits`: `{step_name: visit_count}` for top-level non-skipped step entries
 
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
@@ -27,6 +30,7 @@
     - `retryable`: boolean
   - `artifacts` is a map of typed values parsed from `expected_outputs` and is available at `steps.<Step>.artifacts` when `persist_artifacts_in_state` is not set to `false`.
   - v1.7 `set_scalar` / `increment_scalar` reuse that same `steps.<Step>.artifacts` surface for local produced scalar values; successful publication still advances `artifact_versions` only through `publishes.from`.
+  - v1.8 cycle-guard failures use `error.type: "cycle_guard_exceeded"` with `outcome.phase: "pre_execution"` and `outcome.class: "pre_execution_failed"`.
   - Tasks 1-5 of the DSL evolution roadmap remain additive under schema `1.1.1`; the first explicit state-schema migration boundary is reserved for the later scoped-ref / stable-ID tranche.
 
 - Output contract failure shape
@@ -81,6 +85,11 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
     "__global__": {
       "execution_log": 1
     }
+  },
+  "transition_count": 3,
+  "step_visits": {
+    "ExecutePlan": 1,
+    "ReviewPlan": 2
   },
   "steps": {
     "StepName": {

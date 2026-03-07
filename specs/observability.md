@@ -12,6 +12,7 @@
   - On step failure, record message, exit code, tails of stdout/stderr, and error context details (undefined variables, missing deps, substituted command, missing secrets, etc.).
   - v1.5 gate failures use `error.type: "assert_failed"` and `exit_code: 3`.
   - v1.6 typed predicate resolution/evaluation failures use `error.type: "predicate_evaluation_failed"` with structured predicate context.
+  - v1.8 cycle guards use `error.type: "cycle_guard_exceeded"` with structured context (`guard`, `limit`, `observed`, `step`).
 
 - Progress and metrics
   - Optional `--progress` renders `[n/N] StepName: Running (Xs)...` and loop progress `[i/total]`.
@@ -31,6 +32,7 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
   - Step snapshots may include normalized `output.outcome` fields when present in `state.json`.
   - The normalized outcome surface is intended for human-readable reports and typed routing; it does not replace the underlying `status`, `exit_code`, or `error` fields.
   - v1.7 scalar bookkeeping steps report distinct kinds (`set_scalar`, `increment_scalar`) and expose their local produced values through the normal `output.artifacts` surface.
+  - v1.8 status/report snapshots expose workflow-level `transition_count` / `max_transitions` and step-level `visit_count` / `max_visits` when present.
 
 ## Error Context (shape)
 

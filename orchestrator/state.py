@@ -82,6 +82,8 @@ class RunState:
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
     artifact_versions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     artifact_consumes: Dict[str, Dict[str, int]] = field(default_factory=dict)
+    transition_count: int = 0
+    step_visits: Dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict for JSON serialization."""
@@ -98,6 +100,8 @@ class RunState:
             "for_each": {},
             "artifact_versions": self.artifact_versions,
             "artifact_consumes": self.artifact_consumes,
+            "transition_count": self.transition_count,
+            "step_visits": self.step_visits,
         }
 
         # Include run_root if set
@@ -151,6 +155,8 @@ class RunState:
             for_each=for_each,
             artifact_versions=data.get("artifact_versions", {}),
             artifact_consumes=data.get("artifact_consumes", {}),
+            transition_count=data.get("transition_count", 0),
+            step_visits=data.get("step_visits", {}),
         )
 
 
@@ -400,6 +406,20 @@ class StateManager:
 
             self.state.artifact_versions = artifact_versions
             self.state.artifact_consumes = artifact_consumes
+            self._write_state()
+
+    def update_control_flow_counters(
+        self,
+        transition_count: int,
+        step_visits: Dict[str, int],
+    ):
+        """Persist cycle-guard counters in state.json."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            self.state.transition_count = transition_count
+            self.state.step_visits = step_visits
             self._write_state()
 
     def update_status(self, status: StateStatus):

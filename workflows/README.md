@@ -23,6 +23,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/backlog_plan_execute_v0.yaml` | `1.1.1` | `backlog-plan-execute-v0` | Minimal backlog -> draft plan -> execute flow with deterministic file outputs and optional review loop. |
 | `workflows/examples/backlog_plan_execute_v1_2_dataflow.yaml` | `1.2` | `backlog-plan-execute-v1-2-dataflow` | Execute/review/fix loop showing publish/consume artifact lineage and freshness semantics. |
 | `workflows/examples/backlog_plan_execute_v1_3_json_bundles.yaml` | `1.3` | `backlog-plan-execute-v1-3-json-bundles` | Execute/review/fix loop using `output_bundle` and `consume_bundle` for strict JSON-gated routing. |
+| `workflows/examples/cycle_guard_demo.yaml` | `1.8` | `cycle-guard-demo` | Demonstrates `max_visits`/`max_transitions` counters, a typed `assert.compare` loop gate, and recovery from a guard trip without shell counters. |
 | `workflows/examples/assert_gate_demo.yaml` | `1.5` | `assert-gate-demo` | Demonstrates first-class `assert` gates and `on.failure.goto` recovery without shell glue. |
 | `workflows/examples/bad_processed.yaml` | `1.1` | `bad_processed` | Negative fixture for path-safety validation of an invalid `processed_dir`. |
 | `workflows/examples/claude_basic.yaml` | `1.1` | `claude_basic_example` | Smallest Claude provider example using argv prompt delivery. |
