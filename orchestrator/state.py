@@ -41,6 +41,7 @@ class StepResult:
     wait_duration_ms: Optional[int] = None
     poll_count: Optional[int] = None
     timed_out: Optional[bool] = None
+    outcome: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dict, omitting None values."""

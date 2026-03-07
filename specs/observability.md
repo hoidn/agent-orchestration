@@ -10,6 +10,8 @@
 
 - Error context (normative)
   - On step failure, record message, exit code, tails of stdout/stderr, and error context details (undefined variables, missing deps, substituted command, missing secrets, etc.).
+  - v1.5 gate failures use `error.type: "assert_failed"` and `exit_code: 3`.
+  - v1.6 typed predicate resolution/evaluation failures use `error.type: "predicate_evaluation_failed"` with structured predicate context.
 
 - Progress and metrics
   - Optional `--progress` renders `[n/N] StepName: Running (Xs)...` and loop progress `[i/total]`.
@@ -24,6 +26,10 @@
   - All file paths within a status JSON must be relative to WORKSPACE.
 
 Orchestrator interaction: The orchestrator does not consume or act on status JSON files. They are for observability and external tooling only; control flow derives solely from the workflow YAML and `state.json`.
+
+- Status/report surfaces
+  - Step snapshots may include normalized `output.outcome` fields when present in `state.json`.
+  - The normalized outcome surface is intended for human-readable reports and typed routing; it does not replace the underlying `status`, `exit_code`, or `error` fields.
 
 ## Error Context (shape)
 

@@ -20,7 +20,13 @@
   - Step `status`: `pending | running | completed | failed | skipped`.
   - `when` false → `skipped` with `exit_code: 0` and no process execution.
   - Step results may include `output`, `lines`, `json`, `text`, `error`, `debug`, and `artifacts`.
+  - v1.6 step results may also include normalized `outcome`:
+    - `status`: `completed|failed|skipped`
+    - `phase`: `pre_execution|execution|post_execution`
+    - `class`: normalized failure/success classification (for example `completed`, `assert_failed`, `command_failed`, `provider_failed`, `timeout`, `contract_violation`, `pre_execution_failed`)
+    - `retryable`: boolean
   - `artifacts` is a map of typed values parsed from `expected_outputs` and is available at `steps.<Step>.artifacts` when `persist_artifacts_in_state` is not set to `false`.
+  - Tasks 1-5 of the DSL evolution roadmap remain additive under schema `1.1.1`; the first explicit state-schema migration boundary is reserved for the later scoped-ref / stable-ID tranche.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:

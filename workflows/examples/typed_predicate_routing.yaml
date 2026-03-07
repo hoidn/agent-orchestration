@@ -1,0 +1,32 @@
+version: "1.6"
+name: typed-predicate-routing
+steps:
+  - name: WriteScore
+    command: ["bash", "-lc", "mkdir -p state && printf '7' > state/score.txt"]
+    expected_outputs:
+      - name: score
+        path: state/score.txt
+        type: integer
+
+  - name: RunCheck
+    command: ["bash", "-lc", "exit 1"]
+    on:
+      failure:
+        goto: GateRecoveredFailure
+
+  - name: GateRecoveredFailure
+    assert:
+      compare:
+        left:
+          ref: root.steps.RunCheck.outcome.class
+        op: eq
+        right: command_failed
+
+  - name: RunHighScorePath
+    command: ["bash", "-lc", "printf 'high-score' > high-score.txt"]
+    when:
+      compare:
+        left:
+          ref: root.steps.WriteScore.artifacts.score
+        op: gte
+        right: 5

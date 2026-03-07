@@ -73,3 +73,42 @@ def test_long_running_step_updates_current_step_heartbeat(tmp_path: Path):
     final_snapshot = json.loads(state_file.read_text(encoding="utf-8"))
     assert final_snapshot.get("current_step") is None
     assert final_snapshot["steps"]["LongCommand"]["status"] == "completed"
+
+
+def test_assert_gate_persists_failed_outcome(tmp_path: Path):
+    workflow = {
+        "version": "1.5",
+        "name": "assert-lifecycle",
+        "steps": [
+            {
+                "name": "Gate",
+                "assert": {
+                    "equals": {
+                        "left": "APPROVE",
+                        "right": "REVISE",
+                    }
+                },
+                "on": {"failure": {"goto": "_end"}},
+            }
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="assert-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    gate = state["steps"]["Gate"]
+    assert gate["status"] == "failed"
+    assert gate["exit_code"] == 3
+    assert gate["outcome"] == {
+        "status": "failed",
+        "phase": "execution",
+        "class": "assert_failed",
+        "retryable": False,
+    }

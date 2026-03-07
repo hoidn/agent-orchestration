@@ -170,6 +170,7 @@ def build_status_snapshot(
                 "output_preview": _normalize_output_preview(result),
                 "artifacts": result.get("artifacts", {}),
                 "error": result.get("error"),
+                "outcome": result.get("outcome"),
             }
 
         if status == "completed":

@@ -114,6 +114,21 @@
 104. v1.3 consume bundle runtime: successful consume preflight writes JSON bundle to `consume_bundle.path`
 105. v1.3 consume bundle subset: `consume_bundle.include` limits emitted keys to selected consumed artifacts
 106. v1.3 strict review gating policy: workflow branch decisions consume strict published assessment/review artifacts, not raw execution prose logs
+107. v1.5 loader gating: step `assert` rejected below `version: "1.5"`
+108. v1.5 assert exclusivity: `assert` cannot be combined with `provider|command|wait_for|for_each`
+109. v1.5 assert runtime: false assertion fails with `exit_code:3` and `error.type:"assert_failed"`
+110. v1.5 assert routing: `on.failure.goto` can recover from `assert_failed`
+111. v1.6 typed predicates: `when` and `assert` accept `artifact_bool|compare|all_of|any_of|not`
+112. v1.6 structured refs: bare `steps.*`, `self.*`, `parent.*`, and untyped `context.*` are rejected in typed predicates
+113. v1.6 single-visit boundary: loader rejects structured refs that target provably multi-visit step identities
+114. v1.6 normalized outcomes: observable step results expose `outcome.{status,phase,class,retryable}` for reports and typed routing
+115. v1.6 runtime predicate failure shape: dynamically unavailable structured refs fail with `exit_code:2` and `error.type:"predicate_evaluation_failed"`
+
+## DSL Evolution Rollout Crosswalk
+
+- Task 2 executable proof: `tests/test_loader_validation.py`, `tests/test_runtime_step_lifecycle.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/assert_gate_demo.yaml`
+- Task 3 executable proof: `tests/test_typed_predicates.py`, `tests/test_conditional_execution.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/typed_predicate_routing.yaml`
+- Later-task roadmap proof ownership remains as written in `docs/plans/2026-03-06-dsl-evolution-execution-plan.md`; those tranches are not accepted until their named test/smoke blocks land with the corresponding implementation.
 
 ## Future Acceptance (v1.2)
 

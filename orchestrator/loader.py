@@ -32,9 +32,10 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
+    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6"]
 
     def __init__(self, workspace: Path):
         """Initialize loader with workspace root."""
@@ -119,7 +120,7 @@ class WorkflowLoader:
                 self._validate_path_safety(workflow[dir_field], dir_field)
 
         if 'artifacts' in workflow:
-            if version not in {"1.2", "1.3", "1.4"}:
+            if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
                 self._add_error("artifacts requires version '1.2'")
             else:
                 self._validate_artifacts_registry(workflow['artifacts'])
@@ -165,11 +166,20 @@ class WorkflowLoader:
                 if config['input_mode'] not in ['argv', 'stdin']:
                     self._add_error(f"Provider '{name}' input_mode must be 'argv' or 'stdin'")
 
-    def _validate_steps(self, steps: List[Any], version: str, artifacts_registry: Optional[Any] = None):
+    def _validate_steps(
+        self,
+        steps: List[Any],
+        version: str,
+        artifacts_registry: Optional[Any] = None,
+        root_catalog: Optional[Dict[str, Any]] = None,
+    ):
         """Validate step definitions."""
         if not isinstance(steps, list):
             self._add_error("'steps' must be a list")
             return
+
+        if root_catalog is None:
+            root_catalog = self._build_root_ref_catalog(steps)
 
         step_names = set()
 
@@ -193,18 +203,27 @@ class WorkflowLoader:
                 step_names.add(name)
 
             # AT-10: Provider/Command exclusivity
-            execution_fields = ['provider', 'command', 'wait_for']
+            execution_fields = ['provider', 'command', 'wait_for', 'assert']
             exec_count = sum(1 for f in execution_fields if f in step)
 
             if 'for_each' in step:
                 # for_each is exclusive with execution fields
                 if exec_count > 0:
                     self._add_error(f"Step '{name}': for_each cannot be combined with {execution_fields}")
-                self._validate_for_each(step['for_each'], name, version, artifacts_registry)
+                self._validate_for_each(step['for_each'], name, version, artifacts_registry, root_catalog)
             elif exec_count > 1:
                 # AT-10: Mutual exclusivity
                 present = [f for f in execution_fields if f in step]
-                self._add_error(f"Step '{name}': mutually exclusive fields {present}")
+                if 'assert' in present:
+                    self._add_error(f"Step '{name}': assert cannot be combined with {present}")
+                else:
+                    self._add_error(f"Step '{name}': mutually exclusive fields {present}")
+
+            if 'assert' in step:
+                if not self._version_at_least(version, "1.5"):
+                    self._add_error(f"Step '{name}': assert requires version '1.5'")
+                else:
+                    self._validate_assert_condition(step['assert'], name, version, root_catalog)
 
             # AT-40: Reject deprecated command_override
             if 'command_override' in step:
@@ -227,7 +246,7 @@ class WorkflowLoader:
                 self._validate_expected_outputs(step['expected_outputs'], name)
 
             if 'output_bundle' in step:
-                if version not in {"1.3", "1.4"}:
+                if version not in {"1.3", "1.4", "1.5", "1.6"}:
                     self._add_error(f"Step '{name}': output_bundle requires version '1.3'")
                 else:
                     self._validate_output_bundle(step['output_bundle'], name)
@@ -244,7 +263,7 @@ class WorkflowLoader:
                 self._add_error(f"Step '{name}': 'persist_artifacts_in_state' must be a boolean")
 
             if 'publishes' in step:
-                if version not in {"1.2", "1.3", "1.4"}:
+                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
                     self._add_error(f"Step '{name}': publishes requires version '1.2'")
                 else:
                     if step.get('persist_artifacts_in_state') is False:
@@ -254,13 +273,13 @@ class WorkflowLoader:
                     self._validate_publishes(step['publishes'], name)
 
             if 'consumes' in step:
-                if version not in {"1.2", "1.3", "1.4"}:
+                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
                     self._add_error(f"Step '{name}': consumes requires version '1.2'")
                 else:
                     self._validate_consumes(step['consumes'], name)
 
             if 'prompt_consumes' in step:
-                if version not in {"1.2", "1.3", "1.4"}:
+                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
                     self._add_error(f"Step '{name}': prompt_consumes requires version '1.2'")
                 else:
                     prompt_consumes = step['prompt_consumes']
@@ -290,13 +309,13 @@ class WorkflowLoader:
                                 )
 
             if 'inject_consumes' in step:
-                if version not in {"1.2", "1.3", "1.4"}:
+                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
                     self._add_error(f"Step '{name}': inject_consumes requires version '1.2'")
                 elif not isinstance(step['inject_consumes'], bool):
                     self._add_error(f"Step '{name}': 'inject_consumes' must be a boolean")
 
             if 'consumes_injection_position' in step:
-                if version not in {"1.2", "1.3", "1.4"}:
+                if version not in {"1.2", "1.3", "1.4", "1.5", "1.6"}:
                     self._add_error(f"Step '{name}': consumes_injection_position requires version '1.2'")
                 else:
                     position = step['consumes_injection_position']
@@ -310,7 +329,7 @@ class WorkflowLoader:
                         )
 
             if 'consume_bundle' in step:
-                if version not in {"1.3", "1.4"}:
+                if version not in {"1.3", "1.4", "1.5", "1.6"}:
                     self._add_error(f"Step '{name}': consume_bundle requires version '1.3'")
                 else:
                     self._validate_consume_bundle(step['consume_bundle'], name, step.get('consumes'))
@@ -321,7 +340,7 @@ class WorkflowLoader:
 
             # Validate when conditions
             if 'when' in step:
-                self._validate_when_condition(step['when'], name)
+                self._validate_when_condition(step['when'], name, version, root_catalog)
 
             # Validate control flow
             if 'on' in step:
@@ -345,7 +364,14 @@ class WorkflowLoader:
 
         return collected
 
-    def _validate_for_each(self, for_each: Any, step_name: str, version: str, artifacts_registry: Optional[Any] = None):
+    def _validate_for_each(
+        self,
+        for_each: Any,
+        step_name: str,
+        version: str,
+        artifacts_registry: Optional[Any] = None,
+        root_catalog: Optional[Dict[str, Any]] = None,
+    ):
         """Validate for_each loop configuration."""
         if not isinstance(for_each, dict):
             self._add_error(f"Step '{step_name}': for_each must be a dictionary")
@@ -364,7 +390,7 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': for_each missing required 'steps'")
         else:
             # Recursively validate nested steps
-            self._validate_steps(for_each['steps'], version, artifacts_registry)
+            self._validate_steps(for_each['steps'], version, artifacts_registry, root_catalog)
 
     def _validate_dependencies(self, depends_on: Any, step_name: str, version: str):
         """Validate dependency configuration."""
@@ -595,13 +621,25 @@ class WorkflowLoader:
                             f"Step '{step_name}': consume_bundle.include artifact '{name}' must appear in consumes"
                         )
 
-    def _validate_when_condition(self, when: Any, step_name: str):
+    def _validate_when_condition(
+        self,
+        when: Any,
+        step_name: str,
+        version: str,
+        root_catalog: Dict[str, Any],
+    ):
         """Validate when condition structure."""
         if not isinstance(when, dict):
             self._add_error(f"Step '{step_name}': when must be a dictionary")
             return
 
-        # Must have exactly one condition type
+        if self._is_typed_predicate_node(when):
+            if not self._version_at_least(version, "1.6"):
+                self._add_error(f"Step '{step_name}': typed predicates require version '1.6'")
+                return
+            self._validate_typed_predicate(when, step_name, root_catalog)
+            return
+
         condition_types = ['equals', 'exists', 'not_exists']
         present = [t for t in condition_types if t in when]
 
@@ -609,6 +647,304 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': when requires one of {condition_types}")
         elif len(present) > 1:
             self._add_error(f"Step '{step_name}': when can only have one condition type, found {present}")
+
+    def _validate_assert_condition(
+        self,
+        assertion: Any,
+        step_name: str,
+        version: str,
+        root_catalog: Dict[str, Any],
+    ) -> None:
+        if not isinstance(assertion, dict):
+            self._add_error(f"Step '{step_name}': assert must be a dictionary")
+            return
+        if self._is_typed_predicate_node(assertion):
+            if not self._version_at_least(version, "1.6"):
+                self._add_error(f"Step '{step_name}': typed assert predicates require version '1.6'")
+                return
+            self._validate_typed_predicate(assertion, step_name, root_catalog)
+            return
+
+        condition_types = ['equals', 'exists', 'not_exists']
+        present = [t for t in condition_types if t in assertion]
+        if len(present) == 0:
+            self._add_error(f"Step '{step_name}': assert requires one of {condition_types}")
+        elif len(present) > 1:
+            self._add_error(f"Step '{step_name}': assert can only have one condition type, found {present}")
+
+    def _is_typed_predicate_node(self, node: Any) -> bool:
+        return isinstance(node, dict) and any(
+            key in node for key in ('artifact_bool', 'compare', 'all_of', 'any_of', 'not')
+        )
+
+    def _version_at_least(self, version: str, minimum: str) -> bool:
+        if version not in self.VERSION_ORDER or minimum not in self.VERSION_ORDER:
+            return False
+        return self.VERSION_ORDER.index(version) >= self.VERSION_ORDER.index(minimum)
+
+    def _build_root_ref_catalog(self, steps: List[Any]) -> Dict[str, Any]:
+        artifact_map: Dict[str, Dict[str, Any]] = {}
+        step_names: List[str] = []
+
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            name = step.get('name')
+            if not isinstance(name, str):
+                continue
+            step_names.append(name)
+            outputs: Dict[str, Any] = {}
+
+            expected_outputs = step.get('expected_outputs')
+            if isinstance(expected_outputs, list):
+                for spec in expected_outputs:
+                    if isinstance(spec, dict):
+                        artifact_name = spec.get('name')
+                        artifact_type = spec.get('type')
+                        if isinstance(artifact_name, str) and isinstance(artifact_type, str):
+                            outputs[artifact_name] = {
+                                'type': artifact_type,
+                                'persisted': step.get('persist_artifacts_in_state', True) is not False,
+                            }
+
+            output_bundle = step.get('output_bundle')
+            if isinstance(output_bundle, dict):
+                for spec in output_bundle.get('fields', []):
+                    if isinstance(spec, dict):
+                        artifact_name = spec.get('name')
+                        artifact_type = spec.get('type')
+                        if isinstance(artifact_name, str) and isinstance(artifact_type, str):
+                            outputs[artifact_name] = {
+                                'type': artifact_type,
+                                'persisted': step.get('persist_artifacts_in_state', True) is not False,
+                            }
+
+            artifact_map[name] = outputs
+
+        edges: Dict[str, Set[str]] = {name: set() for name in step_names}
+        for index, step in enumerate(steps):
+            if not isinstance(step, dict):
+                continue
+            name = step.get('name')
+            if not isinstance(name, str):
+                continue
+
+            if index + 1 < len(steps):
+                next_name = steps[index + 1].get('name') if isinstance(steps[index + 1], dict) else None
+                if isinstance(next_name, str):
+                    edges[name].add(next_name)
+
+            on = step.get('on')
+            if isinstance(on, dict):
+                for handler in ('success', 'failure', 'always'):
+                    target = on.get(handler, {}).get('goto') if isinstance(on.get(handler), dict) else None
+                    if isinstance(target, str) and target != '_end':
+                        edges[name].add(target)
+
+        return {
+            'artifacts': artifact_map,
+            'multi_visit': self._detect_multi_visit_steps(edges),
+        }
+
+    def _detect_multi_visit_steps(self, edges: Dict[str, Set[str]]) -> Set[str]:
+        index = 0
+        indices: Dict[str, int] = {}
+        lowlinks: Dict[str, int] = {}
+        stack: List[str] = []
+        on_stack: Set[str] = set()
+        multi_visit: Set[str] = set()
+
+        def strongconnect(node: str) -> None:
+            nonlocal index
+            indices[node] = index
+            lowlinks[node] = index
+            index += 1
+            stack.append(node)
+            on_stack.add(node)
+
+            for neighbor in edges.get(node, set()):
+                if neighbor not in edges:
+                    continue
+                if neighbor not in indices:
+                    strongconnect(neighbor)
+                    lowlinks[node] = min(lowlinks[node], lowlinks[neighbor])
+                elif neighbor in on_stack:
+                    lowlinks[node] = min(lowlinks[node], indices[neighbor])
+
+            if lowlinks[node] != indices[node]:
+                return
+
+            component: List[str] = []
+            while stack:
+                current = stack.pop()
+                on_stack.remove(current)
+                component.append(current)
+                if current == node:
+                    break
+
+            if len(component) > 1:
+                multi_visit.update(component)
+            elif component and component[0] in edges.get(component[0], set()):
+                multi_visit.add(component[0])
+
+        for node in edges:
+            if node not in indices:
+                strongconnect(node)
+
+        return multi_visit
+
+    def _validate_typed_predicate(
+        self,
+        predicate: Any,
+        step_name: str,
+        root_catalog: Dict[str, Any],
+    ) -> None:
+        if not isinstance(predicate, dict):
+            self._add_error(f"Step '{step_name}': typed predicate must be a dictionary")
+            return
+
+        if 'artifact_bool' in predicate:
+            node = predicate['artifact_bool']
+            if not isinstance(node, dict):
+                self._add_error(f"Step '{step_name}': artifact_bool must be a dictionary")
+                return
+            ref_type = self._validate_structured_ref(node.get('ref'), step_name, root_catalog)
+            if ref_type != 'bool':
+                self._add_error(f"Step '{step_name}': artifact_bool requires a bool artifact ref")
+            return
+
+        if 'compare' in predicate:
+            node = predicate['compare']
+            if not isinstance(node, dict):
+                self._add_error(f"Step '{step_name}': compare must be a dictionary")
+                return
+            left_type = self._validate_compare_operand(node.get('left'), step_name, root_catalog)
+            right_type = self._validate_compare_operand(node.get('right'), step_name, root_catalog)
+            op = node.get('op')
+            if op not in {'eq', 'ne', 'lt', 'lte', 'gt', 'gte'}:
+                self._add_error(f"Step '{step_name}': compare.op must be one of eq|ne|lt|lte|gt|gte")
+                return
+            if op in {'lt', 'lte', 'gt', 'gte'} and (
+                left_type not in {'integer', 'float'} or right_type not in {'integer', 'float'}
+            ):
+                self._add_error(
+                    f"Step '{step_name}': ordered compare operators require numeric operands"
+                )
+            return
+
+        if 'all_of' in predicate:
+            items = predicate['all_of']
+            if not isinstance(items, list) or not items:
+                self._add_error(f"Step '{step_name}': all_of must be a non-empty list")
+                return
+            for item in items:
+                self._validate_typed_predicate(item, step_name, root_catalog)
+            return
+
+        if 'any_of' in predicate:
+            items = predicate['any_of']
+            if not isinstance(items, list) or not items:
+                self._add_error(f"Step '{step_name}': any_of must be a non-empty list")
+                return
+            for item in items:
+                self._validate_typed_predicate(item, step_name, root_catalog)
+            return
+
+        if 'not' in predicate:
+            self._validate_typed_predicate(predicate['not'], step_name, root_catalog)
+            return
+
+        self._add_error(f"Step '{step_name}': unsupported typed predicate")
+
+    def _validate_compare_operand(
+        self,
+        operand: Any,
+        step_name: str,
+        root_catalog: Dict[str, Any],
+    ) -> str:
+        if isinstance(operand, dict):
+            if set(operand.keys()) != {'ref'}:
+                self._add_error(f"Step '{step_name}': compare operands must be literals or {{ref: ...}}")
+                return 'unknown'
+            return self._validate_structured_ref(operand.get('ref'), step_name, root_catalog)
+        if isinstance(operand, bool):
+            return 'bool'
+        if type(operand) is int:
+            return 'integer'
+        if isinstance(operand, float):
+            return 'float'
+        if isinstance(operand, str):
+            return 'string'
+        self._add_error(
+            f"Step '{step_name}': unsupported compare operand type '{type(operand).__name__}'"
+        )
+        return 'unknown'
+
+    def _validate_structured_ref(
+        self,
+        ref: Any,
+        step_name: str,
+        root_catalog: Dict[str, Any],
+    ) -> str:
+        if not isinstance(ref, str) or not ref:
+            self._add_error(f"Step '{step_name}': structured refs must be non-empty strings")
+            return 'unknown'
+        if ref.startswith('steps.'):
+            self._add_error(
+                f"Step '{step_name}': bare 'steps.' refs are invalid in structured predicates"
+            )
+            return 'unknown'
+        if ref.startswith('self.') or ref.startswith('parent.'):
+            scope = ref.split('.', 1)[0]
+            self._add_error(
+                f"Step '{step_name}': {scope}. refs are not available before scoped refs land"
+            )
+            return 'unknown'
+        if ref.startswith('context.'):
+            self._add_error(f"Step '{step_name}': structured refs cannot read untyped context values")
+            return 'unknown'
+        if not ref.startswith('root.steps.'):
+            self._add_error(f"Step '{step_name}': structured refs must start with 'root.steps.'")
+            return 'unknown'
+
+        parts = ref.split('.')
+        if len(parts) < 4:
+            self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
+            return 'unknown'
+
+        target_step = parts[2]
+        if target_step in root_catalog.get('multi_visit', set()):
+            self._add_error(
+                f"Step '{step_name}': structured ref '{ref}' targets multi-visit step '{target_step}'"
+            )
+            return 'unknown'
+
+        tail = parts[3:]
+        if tail == ['exit_code']:
+            return 'integer'
+        if len(tail) == 2 and tail[0] == 'outcome':
+            return {
+                'status': 'string',
+                'phase': 'string',
+                'class': 'string',
+                'retryable': 'bool',
+            }.get(tail[1], 'unknown')
+        if len(tail) == 2 and tail[0] == 'artifacts':
+            artifact_name = tail[1]
+            artifacts = root_catalog.get('artifacts', {}).get(target_step, {})
+            artifact_spec = artifacts.get(artifact_name)
+            if artifact_spec is None:
+                self._add_error(f"Step '{step_name}': structured ref '{ref}' targets unknown artifact")
+                return 'unknown'
+            if not artifact_spec.get('persisted', True):
+                self._add_error(
+                    f"Step '{step_name}': structured ref '{ref}' targets a non-persisted artifact"
+                )
+                return 'unknown'
+            return artifact_spec.get('type', 'unknown')
+
+        self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
+        return 'unknown'
 
     def _validate_on_handlers(self, on: Any, step_name: str):
         """Validate on success/failure/always handlers."""

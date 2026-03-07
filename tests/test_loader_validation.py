@@ -126,6 +126,57 @@ class TestLoaderValidation:
         assert any("wait_for cannot be combined" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_assert_requires_version_1_5(self):
+        """Assert steps are gated to v1.5+."""
+        workflow = {
+            "version": "1.4",
+            "name": "assert-gated",
+            "steps": [{
+                "name": "Gate",
+                "assert": {
+                    "equals": {
+                        "left": "APPROVE",
+                        "right": "APPROVE",
+                    }
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("assert requires version '1.5'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_assert_is_exclusive_with_other_step_execution_fields(self):
+        """Assert steps cannot also declare command/provider/wait_for/for_each."""
+        workflow = {
+            "version": "1.5",
+            "name": "invalid-assert-step",
+            "steps": [{
+                "name": "Gate",
+                "assert": {
+                    "equals": {
+                        "left": "APPROVE",
+                        "right": "APPROVE",
+                    }
+                },
+                "command": ["echo", "unexpected"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("assert cannot be combined" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_at38_absolute_path_rejected(self):
         """AT-38: Absolute paths rejected at validation."""
         workflow = {

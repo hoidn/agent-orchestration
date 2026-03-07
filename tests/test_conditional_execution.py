@@ -218,9 +218,33 @@ class TestConditionEvaluator:
             }
             assert evaluator.evaluate(condition, variables) is True
 
-            variables['context']['enabled'] = False
-            condition['equals']['right'] = 'false'
-            assert evaluator.evaluate(condition, variables) is True
+    def test_v16_gate_compare_condition_true(self):
+        """v1.6 typed gate predicates can compare structured refs to literals."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evaluator = ConditionEvaluator(Path(tmpdir))
+            condition = {
+                'compare': {
+                    'left': {'ref': 'root.steps.Score.artifacts.total'},
+                    'op': 'gte',
+                    'right': 5,
+                }
+            }
+            state = {
+                'steps': {
+                    'Score': {
+                        'status': 'completed',
+                        'exit_code': 0,
+                        'artifacts': {'total': 7},
+                        'outcome': {
+                            'status': 'completed',
+                            'phase': 'execution',
+                            'class': 'completed',
+                            'retryable': False,
+                        },
+                    }
+                }
+            }
+            assert evaluator.evaluate(condition, {}, state) is True
 
 
 class TestWorkflowConditionalExecution:

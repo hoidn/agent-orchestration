@@ -46,6 +46,43 @@
   - Backward compatibility: v1.2/v1.3 workflows retain legacy pointer-materialization consume behavior.
   - Migration recommendation for command steps: read consumed artifact values from `consume_bundle` JSON rather than relying on consume-time pointer rewrites.
 
+- v1.5 additions (first-class gates)
+  - Step-level `assert` becomes a first-class execution form.
+  - `assert` reuses the legacy `equals|exists|not_exists` condition surface and is exclusive with `provider|command|wait_for|for_each`.
+  - False assertions fail with `exit_code: 3` and `error.type: "assert_failed"`.
+  - Assertion failure remains observable to normal `on.failure.goto` routing.
+
+- v1.6 additions (typed predicates and normalized outcomes)
+  - `when` and `assert` accept typed predicates:
+    - `artifact_bool`
+    - `compare` with `eq|ne|lt|lte|gt|gte`
+    - `all_of|any_of|not`
+  - Typed predicates use structured `ref:` operands and do not reuse legacy `${...}` string interpolation.
+  - Initial structured refs are limited to `root.steps.<Step>...` and reject bare `steps.`, `self.`, `parent.`, and untyped `context.*`.
+  - Step results gain normalized `outcome.{status,phase,class,retryable}` fields for observable results.
+  - This tranche remains on state schema `1.1.1`; the added `outcome` object is an additive field under existing step results.
+
+- DSL evolution rollout roadmap
+  - `v1.5`: D1 `assert`
+  - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
+  - `v1.7` (planned): D2a scalar bookkeeping
+  - `v1.8` (planned): D3 cycle guards
+  - `v2.0` (planned schema boundary): D4-D5 scoped refs + stable internal IDs
+  - `v2.1` (planned): D6 workflow signatures
+  - `v2.2` (planned): D7 structured `if/else`
+  - `v2.3` (planned): D8 `finally`
+  - `v2.4` (planned docs/contract boundary): D9 reusable-call contract
+  - `v2.5` (planned): D10 imports + `call`
+  - `v2.6` (planned): D11 `match`
+  - `v2.7` (planned): D12 `repeat_until`
+  - `v2.8` (planned): D13 score-aware gates
+  - `v2.9` (planned): D14 authoring linting and normalization
+
+- Ordering note
+  - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
+  - Rationale: scalar bookkeeping only extends the current top-level name-keyed execution/result shape, while cycle guards introduce persisted counters and resume-sensitive control-flow state.
+  - The first durable identity and schema migration remains reserved for the later D4-D5 tranche.
+
 - Planned future (declarative per-item lifecycle)
   - `for_each.on_item_complete` with `success.move_to` / `failure.move_to` directories.
   - Version gating and rollout details are deferred until feature implementation.
@@ -152,5 +189,7 @@ Planned acceptance:
 | 1.2 | `artifacts(kind=relpath|scalar)`, `publishes`, `consumes`, `prompt_consumes` with runtime publish/consume enforcement | Keeps `expected_outputs` as file-validation primitive; adds provenance/freshness guarantees plus optional prompt-noise reduction and scalar consume flow. |
 | 1.3 | `output_bundle`, `consume_bundle`, and `publishes.from` support for bundle fields | Reduces deterministic I/O fragmentation while preserving v1.2 publish/consume guarantees. |
 | 1.4 | Read-only relpath consume semantics (no consume-time pointer mutation) | Preserves v1.2/v1.3 behavior by version; command steps should prefer `consume_bundle` for deterministic consumed values. |
+| 1.5 | `assert` gate steps with dedicated `assert_failed` failure channel | First-class control-flow gates without shell glue; still uses legacy condition forms. |
+| 1.6 | Typed predicates, structured `ref:`, normalized `outcome.*` fields | Opt-in typed gate surface; no reinterpretation of legacy `${steps.*}` semantics. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

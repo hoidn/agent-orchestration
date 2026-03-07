@@ -14,9 +14,10 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 4) For each step:
    a) evaluate `when` (may skip)
    b) enforce consumes preflight (if configured)
-   c) execute step body (command/provider/wait_for/for_each)
+   c) execute step body (`assert`/command/provider/wait_for/for_each)
    d) validate deterministic outputs (`expected_outputs` or `output_bundle`)
    e) record published artifacts (if configured)
+   e1) project normalized step `outcome` metadata for observable results
    f) compute next step (`on.success`, `on.failure`, `on.always`, fallback flow)
 5) Terminate at `_end`, terminal step, or failure policy
 6) Persist final run status and report artifacts
@@ -46,6 +47,7 @@ pending -> skipped
 
 Key notes:
 - `when` false produces `skipped` with `exit_code: 0`.
+- `assert` false produces `failed` with `exit_code: 3` and `error.type: "assert_failed"`.
 - `contract_violation` failures are represented as failed steps (typically exit code `2`).
 - Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.
 
@@ -110,9 +112,11 @@ Loop variables are resolved per iteration (`item`, alias, `loop.index`, `loop.to
 ## Failure Taxonomy (Common)
 
 - process failure: command/provider non-zero exit
+- gate failure: first-class `assert` evaluated false
 - timeout failure: enforced timeout (often exit `124`)
 - parse failure: invalid JSON capture when strict JSON mode required
 - contract failure: deterministic output or consume/publish contract violation
+- predicate evaluation failure: typed predicate/ref resolution failed before the step body could complete
 
 These are reflected in step `status`, `exit_code`, and `error` fields in `state.json`.
 

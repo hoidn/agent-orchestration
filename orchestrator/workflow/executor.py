@@ -183,10 +183,11 @@ class WorkflowExecutor:
 
                     # Evaluate condition
                     try:
-                        should_execute = self.condition_evaluator.evaluate(step['when'], variables)
+                        should_execute = self.condition_evaluator.evaluate(step['when'], variables, state)
                     except Exception as e:
                         # Condition evaluation error - record and skip
                         error_info = {
+                            'type': 'predicate_evaluation_failed',
                             'message': f"Condition evaluation failed: {e}",
                             'context': {'condition': step['when']}
                         }
@@ -195,19 +196,15 @@ class WorkflowExecutor:
                             'exit_code': 2,
                             'error': error_info
                         }
-                        if 'steps' not in state:
-                            state['steps'] = {}
-                        state['steps'][step_name] = result
-
-                        # Persist to state manager
-                        from ..state import StepResult
-                        step_result = StepResult(
-                            status='failed',
-                            exit_code=2,
-                            error=error_info
+                        self._persist_step_result(
+                            state,
+                            step_name,
+                            step,
+                            result,
+                            phase_hint='pre_execution',
+                            class_hint='pre_execution_failed',
+                            retryable_hint=False,
                         )
-                        self.state_manager.update_step(step_name, step_result)
-                        self._emit_step_summary(step_name, step, result)
 
                         step_index += 1
                         continue
@@ -219,19 +216,7 @@ class WorkflowExecutor:
                             'exit_code': 0,
                             'skipped': True
                         }
-                        if 'steps' not in state:
-                            state['steps'] = {}
-                        state['steps'][step_name] = result
-
-                        # Persist to state manager
-                        from ..state import StepResult
-                        step_result = StepResult(
-                            status='skipped',
-                            exit_code=0,
-                            skipped=True
-                        )
-                        self.state_manager.update_step(step_name, step_result)
-                        self._emit_step_summary(step_name, step, result)
+                        self._persist_step_result(state, step_name, step, result)
 
                         step_index += 1
                         continue
@@ -242,24 +227,15 @@ class WorkflowExecutor:
 
                 consume_error = self._enforce_consumes_contract(step, step_name, state)
                 if consume_error is not None:
-                    if 'steps' not in state:
-                        state['steps'] = {}
-                    state['steps'][step_name] = consume_error
-
-                    from ..state import StepResult
-                    step_result = StepResult(
-                        status='failed',
-                        exit_code=consume_error.get('exit_code', 2),
-                        error=consume_error.get('error'),
-                        output=consume_error.get('output'),
-                        duration_ms=consume_error.get('duration_ms', 0),
-                        truncated=consume_error.get('truncated', False),
-                        lines=consume_error.get('lines'),
-                        json=consume_error.get('json'),
-                        artifacts=consume_error.get('artifacts'),
+                    self._persist_step_result(
+                        state,
+                        step_name,
+                        step,
+                        consume_error,
+                        phase_hint='pre_execution',
+                        class_hint='contract_violation',
+                        retryable_hint=False,
                     )
-                    self.state_manager.update_step(step_name, step_result)
-                    self._emit_step_summary(step_name, step, consume_error)
 
                     next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
                     if next_step == '_end':
@@ -300,58 +276,21 @@ class WorkflowExecutor:
                         )
                     elif 'wait_for' in step:
                         state = self._execute_wait_for(step, state)
-                        self._emit_step_summary(step_name, step, state.get('steps', {}).get(step_name, {}))
+                    elif 'assert' in step:
+                        result = self._execute_assert(step, state)
+                        self._persist_step_result(state, step_name, step, result)
                     elif 'provider' in step:
                         result = self._execute_provider(step, state)
                         publish_error = self._record_published_artifacts(step, step_name, result, state)
                         if publish_error is not None:
                             result = publish_error
-                        # Store result in state
-                        if 'steps' not in state:
-                            state['steps'] = {}
-                        state['steps'][step_name] = result
-
-                        # Update state manager (persist to disk) - AT-72
-                        from ..state import StepResult
-                        step_result = StepResult(
-                            status='completed' if result.get('exit_code') == 0 else 'failed',
-                            exit_code=result.get('exit_code', 0),
-                            duration_ms=result.get('duration_ms', 0),
-                            output=result.get('output'),
-                            lines=result.get('lines'),
-                            json=result.get('json'),
-                            error=result.get('error'),
-                            truncated=result.get('truncated', False),
-                            debug=result.get('debug'),  # Include debug fields for injection metadata
-                            artifacts=result.get('artifacts')
-                        )
-                        self.state_manager.update_step(step_name, step_result)
-                        self._emit_step_summary(step_name, step, result)
+                        self._persist_step_result(state, step_name, step, result)
                     elif 'command' in step:
                         result = self._execute_command(step, state)
                         publish_error = self._record_published_artifacts(step, step_name, result, state)
                         if publish_error is not None:
                             result = publish_error
-                        # Store result in state
-                        if 'steps' not in state:
-                            state['steps'] = {}
-                        state['steps'][step_name] = result
-
-                        # Update state manager (persist to disk)
-                        from ..state import StepResult
-                        step_result = StepResult(
-                            status='completed' if result.get('exit_code') == 0 else 'failed',
-                            exit_code=result.get('exit_code', 0),
-                            duration_ms=result.get('duration_ms', 0),
-                            output=result.get('output'),
-                            lines=result.get('lines'),
-                            json=result.get('json'),
-                            error=result.get('error'),
-                            truncated=result.get('truncated', False),
-                            artifacts=result.get('artifacts')
-                        )
-                        self.state_manager.update_step(step_name, step_result)
-                        self._emit_step_summary(step_name, step, result)
+                        self._persist_step_result(state, step_name, step, result)
 
                 # Handle control flow after step execution (AT-56, AT-57, AT-58)
                 next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
@@ -391,6 +330,8 @@ class WorkflowExecutor:
             return 'command'
         if 'wait_for' in step:
             return 'wait_for'
+        if 'assert' in step:
+            return 'assert'
         if 'for_each' in step:
             return 'for_each'
         return 'unknown'
@@ -1236,13 +1177,14 @@ class WorkflowExecutor:
 
                     # Evaluate condition
                     try:
-                        should_execute = self.condition_evaluator.evaluate(nested_step['when'], variables)
+                        should_execute = self.condition_evaluator.evaluate(nested_step['when'], variables, state)
                     except Exception as e:
                         # Condition evaluation error
                         result = {
                             'status': 'failed',
                             'exit_code': 2,
                             'error': {
+                                'type': 'predicate_evaluation_failed',
                                 'message': f"Condition evaluation failed: {e}",
                                 'context': {'condition': nested_step['when']}
                             }
@@ -1663,7 +1605,10 @@ class WorkflowExecutor:
                 return {
                     'status': 'failed',
                     'exit_code': 2,
-                    'error': error or {'message': 'Failed to create provider invocation'}
+                    'error': error or {
+                        'type': 'provider_preparation_failed',
+                        'message': 'Failed to create provider invocation',
+                    }
                 }
 
             # Execute the prepared invocation
@@ -1718,6 +1663,7 @@ class WorkflowExecutor:
                 result['error'] = exec_result.error
             elif exec_result.missing_placeholders:
                 result['error'] = {
+                    'type': 'missing_placeholders',
                     'message': 'Missing placeholders in provider template',
                     'context': {
                         'missing_placeholders': exec_result.missing_placeholders
@@ -1725,6 +1671,7 @@ class WorkflowExecutor:
                 }
             elif exec_result.invalid_prompt_placeholder:
                 result['error'] = {
+                    'type': 'invalid_prompt_placeholder',
                     'message': 'Invalid ${PROMPT} placeholder in stdin mode',
                     'context': {
                         'invalid_prompt_placeholder': True
@@ -2043,6 +1990,156 @@ class WorkflowExecutor:
 
         return state
 
+    def _execute_assert(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+        variables = self.variable_substitutor.build_variables(
+            run_state=state,
+            context=self.workflow.get('context', {}),
+        )
+        try:
+            passed = self.condition_evaluator.evaluate(step.get('assert'), variables, state)
+        except Exception as exc:
+            return {
+                'status': 'failed',
+                'exit_code': 2,
+                'duration_ms': 0,
+                'error': {
+                    'type': 'predicate_evaluation_failed',
+                    'message': str(exc),
+                    'context': {'assert': step.get('assert')},
+                },
+            }
+
+        if passed:
+            return {
+                'status': 'completed',
+                'exit_code': 0,
+                'duration_ms': 0,
+            }
+
+        return {
+            'status': 'failed',
+            'exit_code': 3,
+            'duration_ms': 0,
+            'error': {
+                'type': 'assert_failed',
+                'message': 'Assertion failed',
+                'context': {'assert': step.get('assert')},
+            },
+        }
+
+    def _persist_step_result(
+        self,
+        state: Dict[str, Any],
+        step_name: str,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+        phase_hint: Optional[str] = None,
+        class_hint: Optional[str] = None,
+        retryable_hint: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        if 'steps' not in state:
+            state['steps'] = {}
+
+        finalized = self._attach_outcome(step, result, phase_hint, class_hint, retryable_hint)
+        state['steps'][step_name] = finalized
+
+        from ..state import StepResult
+
+        step_result = StepResult(
+            status=finalized.get('status', 'completed' if finalized.get('exit_code', 0) == 0 else 'failed'),
+            exit_code=finalized.get('exit_code'),
+            duration_ms=finalized.get('duration_ms', 0),
+            output=finalized.get('output'),
+            truncated=finalized.get('truncated', False),
+            lines=finalized.get('lines'),
+            json=finalized.get('json'),
+            error=finalized.get('error'),
+            debug=finalized.get('debug'),
+            artifacts=finalized.get('artifacts'),
+            skipped=finalized.get('skipped', False),
+            files=finalized.get('files'),
+            wait_duration_ms=finalized.get('wait_duration_ms'),
+            poll_count=finalized.get('poll_count'),
+            timed_out=finalized.get('timed_out'),
+            outcome=finalized.get('outcome'),
+        )
+        self.state_manager.update_step(step_name, step_result)
+        self._emit_step_summary(step_name, step, finalized)
+        return finalized
+
+    def _attach_outcome(
+        self,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+        phase_hint: Optional[str] = None,
+        class_hint: Optional[str] = None,
+        retryable_hint: Optional[bool] = None,
+    ) -> Dict[str, Any]:
+        finalized = dict(result)
+        status = finalized.get('status')
+        if status is None:
+            exit_code = finalized.get('exit_code', 0)
+            status = 'completed' if exit_code == 0 else 'failed'
+            finalized['status'] = status
+
+        if status == 'skipped':
+            finalized['outcome'] = {
+                'status': 'skipped',
+                'phase': 'pre_execution',
+                'class': 'skipped',
+                'retryable': False,
+            }
+            return finalized
+
+        if status == 'completed':
+            finalized['outcome'] = {
+                'status': 'completed',
+                'phase': 'execution',
+                'class': 'completed',
+                'retryable': False,
+            }
+            return finalized
+
+        error = finalized.get('error')
+        error_type = error.get('type') if isinstance(error, dict) else None
+        step_type = self._resolve_step_type(step)
+        normalized_class = class_hint
+        normalized_phase = phase_hint
+        retryable = retryable_hint
+
+        if normalized_class is None:
+            if error_type == 'assert_failed':
+                normalized_class = 'assert_failed'
+            elif error_type == 'contract_violation':
+                normalized_class = 'contract_violation'
+            elif error_type == 'timeout' or finalized.get('timed_out') or finalized.get('exit_code') == 124:
+                normalized_class = 'timeout'
+            elif step_type == 'provider' and finalized.get('exit_code', 0) != 0:
+                normalized_class = 'provider_failed'
+            elif step_type == 'command' and finalized.get('exit_code', 0) != 0:
+                normalized_class = 'command_failed'
+            else:
+                normalized_class = 'pre_execution_failed'
+
+        if normalized_phase is None:
+            if normalized_class in {'assert_failed', 'command_failed', 'provider_failed', 'timeout'}:
+                normalized_phase = 'execution'
+            elif normalized_class == 'contract_violation':
+                normalized_phase = 'post_execution'
+            else:
+                normalized_phase = 'pre_execution'
+
+        if retryable is None:
+            retryable = normalized_class == 'provider_failed'
+
+        finalized['outcome'] = {
+            'status': 'failed',
+            'phase': normalized_phase,
+            'class': normalized_class,
+            'retryable': retryable,
+        }
+        return finalized
+
     # Stub implementations for other step types
     def _execute_wait_for(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute wait_for step and record results in state (AT-60)."""
@@ -2057,32 +2154,23 @@ class WorkflowExecutor:
 
         # Add status field based on exit code
         step_result['status'] = 'completed' if result.exit_code == 0 else 'failed'
-
-        # Update state with the result
-        state['steps'][step_name] = step_result
-
-        # Persist to state manager
-        from ..state import StepResult
-        if result.exit_code == 0:
-            status = 'completed'
-        else:
-            status = 'failed'
-
-        state_result = StepResult(
-            status=status,
-            exit_code=step_result.get('exit_code', 0),
-            duration_ms=step_result.get('wait_duration_ms', 0),
-            # Add the wait_for specific fields to the state
-            files=step_result.get('files', []),
-            wait_duration_ms=step_result.get('wait_duration_ms', 0),
-            poll_count=step_result.get('poll_count', 0),
-            timed_out=step_result.get('timed_out', False)
+        phase_hint = None
+        class_hint = None
+        if step_result.get('timed_out'):
+            phase_hint = 'execution'
+            class_hint = 'timeout'
+        elif isinstance(step_result.get('error'), dict) and step_result['error'].get('type') == 'path_safety_error':
+            phase_hint = 'pre_execution'
+            class_hint = 'pre_execution_failed'
+        self._persist_step_result(
+            state,
+            step_name,
+            step,
+            step_result,
+            phase_hint=phase_hint,
+            class_hint=class_hint,
+            retryable_hint=False if class_hint == 'pre_execution_failed' else None,
         )
-
-        if step_result.get('error'):
-            state_result.error = step_result['error']
-
-        self.state_manager.update_step(step_name, state_result)
 
         return state
 
