@@ -189,6 +189,8 @@ class WorkflowLoader:
         parent_artifacts: Optional[Dict[str, Any]] = None,
         scope_multi_visit: Optional[Set[str]] = None,
         parent_multi_visit: Optional[Set[str]] = None,
+        scope_non_step_results: Optional[Set[str]] = None,
+        parent_non_step_results: Optional[Set[str]] = None,
         top_level: bool = True,
     ):
         """Validate step definitions."""
@@ -202,6 +204,8 @@ class WorkflowLoader:
             scope_artifacts = root_catalog.get('artifacts', {})
         if scope_multi_visit is None:
             scope_multi_visit = root_catalog.get('multi_visit', set())
+        if scope_non_step_results is None:
+            scope_non_step_results = root_catalog.get('non_step_results', set())
 
         step_names = set()
         authored_ids = set()
@@ -254,6 +258,7 @@ class WorkflowLoader:
                     root_catalog,
                     scope_artifacts,
                     scope_multi_visit,
+                    scope_non_step_results,
                 )
 
             if 'max_visits' in step:
@@ -282,15 +287,17 @@ class WorkflowLoader:
                     self._add_error(f"Step '{name}': assert requires version '1.5'")
                 else:
                     self._validate_assert_condition(
-                        step['assert'],
-                        name,
-                        version,
-                        root_catalog,
-                        scope_artifacts,
-                        scope_multi_visit,
-                        parent_artifacts,
-                        parent_multi_visit,
-                    )
+                    step['assert'],
+                    name,
+                    version,
+                    root_catalog,
+                    scope_artifacts,
+                    scope_multi_visit,
+                    parent_artifacts,
+                    parent_multi_visit,
+                    scope_non_step_results,
+                    parent_non_step_results,
+                )
 
             if 'set_scalar' in step:
                 if not self._version_at_least(version, "1.7"):
@@ -440,6 +447,8 @@ class WorkflowLoader:
                     scope_multi_visit,
                     parent_artifacts,
                     parent_multi_visit,
+                    scope_non_step_results,
+                    parent_non_step_results,
                 )
 
             # Validate control flow
@@ -473,6 +482,7 @@ class WorkflowLoader:
         root_catalog: Optional[Dict[str, Any]] = None,
         parent_scope_artifacts: Optional[Dict[str, Any]] = None,
         parent_scope_multi_visit: Optional[Set[str]] = None,
+        parent_scope_non_step_results: Optional[Set[str]] = None,
     ):
         """Validate for_each loop configuration."""
         if not isinstance(for_each, dict):
@@ -499,6 +509,9 @@ class WorkflowLoader:
                 for_each['steps'],
                 artifacts_registry,
             ).get('multi_visit', set())
+            nested_scope_non_step_results = self._build_scope_non_step_result_targets(
+                for_each['steps']
+            )
             # Recursively validate nested steps
             self._validate_steps(
                 for_each['steps'],
@@ -509,6 +522,8 @@ class WorkflowLoader:
                 parent_artifacts=parent_scope_artifacts,
                 scope_multi_visit=nested_scope_multi_visit,
                 parent_multi_visit=parent_scope_multi_visit,
+                scope_non_step_results=nested_scope_non_step_results,
+                parent_non_step_results=parent_scope_non_step_results,
                 top_level=False,
             )
 
@@ -587,12 +602,25 @@ class WorkflowLoader:
                 self._check_env_variables(value, f"step '{name}' {field}")
 
         # Check when conditions
-        if 'when' in step and 'equals' in step['when']:
-            equals = step['when']['equals']
-            if isinstance(equals, dict):
-                for key in ['left', 'right']:
-                    if key in equals:
-                        self._check_env_variables(equals[key], f"step '{name}' when.equals.{key}")
+        if 'when' in step:
+            self._validate_legacy_condition_variable_usage(step['when'], f"step '{name}' when")
+        if 'assert' in step:
+            self._validate_legacy_condition_variable_usage(step['assert'], f"step '{name}' assert")
+
+    def _validate_legacy_condition_variable_usage(self, condition: Any, context: str) -> None:
+        """Apply ${env.*} validation to legacy conditional substitution surfaces."""
+        if not isinstance(condition, dict):
+            return
+
+        if 'equals' in condition and isinstance(condition['equals'], dict):
+            for key in ('left', 'right'):
+                if key in condition['equals']:
+                    self._check_env_variables(condition['equals'][key], f"{context}.equals.{key}")
+
+        if 'exists' in condition:
+            self._check_env_variables(condition['exists'], f"{context}.exists")
+        if 'not_exists' in condition:
+            self._check_env_variables(condition['not_exists'], f"{context}.not_exists")
 
     def _check_env_variables(self, value: Any, context: str):
         """Check for and reject ${env.*} variables (AT-7)."""
@@ -804,6 +832,8 @@ class WorkflowLoader:
         scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
     ):
         """Validate when condition structure."""
         if not isinstance(when, dict):
@@ -823,6 +853,8 @@ class WorkflowLoader:
                 scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
             )
             return
 
@@ -844,6 +876,8 @@ class WorkflowLoader:
         scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
     ) -> None:
         if not isinstance(assertion, dict):
             self._add_error(f"Step '{step_name}': assert must be a dictionary")
@@ -861,6 +895,8 @@ class WorkflowLoader:
                 scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
             )
             return
 
@@ -920,6 +956,7 @@ class WorkflowLoader:
         return {
             'artifacts': artifact_map,
             'multi_visit': self._detect_multi_visit_steps(edges),
+            'non_step_results': self._build_scope_non_step_result_targets(steps),
         }
 
     def _build_scope_artifact_catalog(
@@ -979,6 +1016,18 @@ class WorkflowLoader:
 
         return artifact_map
 
+    def _build_scope_non_step_result_targets(self, steps: List[Any]) -> Set[str]:
+        non_step_results: Set[str] = set()
+
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            name = step.get('name')
+            if isinstance(name, str) and 'for_each' in step:
+                non_step_results.add(name)
+
+        return non_step_results
+
     def _detect_multi_visit_steps(self, edges: Dict[str, Set[str]]) -> Set[str]:
         index = 0
         indices: Dict[str, int] = {}
@@ -1036,6 +1085,8 @@ class WorkflowLoader:
         scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
     ) -> None:
         if not isinstance(predicate, dict):
             self._add_error(f"Step '{step_name}': typed predicate must be a dictionary")
@@ -1055,6 +1106,8 @@ class WorkflowLoader:
                 scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
             )
             if ref_type != 'bool':
                 self._add_error(f"Step '{step_name}': artifact_bool requires a bool artifact ref")
@@ -1074,6 +1127,8 @@ class WorkflowLoader:
                 scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
             )
             right_type = self._validate_compare_operand(
                 node.get('right'),
@@ -1084,6 +1139,8 @@ class WorkflowLoader:
                 scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
             )
             op = node.get('op')
             if op not in {'eq', 'ne', 'lt', 'lte', 'gt', 'gte'}:
@@ -1112,6 +1169,8 @@ class WorkflowLoader:
                     scope_multi_visit,
                     parent_artifacts,
                     parent_multi_visit,
+                    scope_non_step_results,
+                    parent_non_step_results,
                 )
             return
 
@@ -1130,6 +1189,8 @@ class WorkflowLoader:
                     scope_multi_visit,
                     parent_artifacts,
                     parent_multi_visit,
+                    scope_non_step_results,
+                    parent_non_step_results,
                 )
             return
 
@@ -1143,6 +1204,8 @@ class WorkflowLoader:
                 scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
             )
             return
 
@@ -1158,6 +1221,8 @@ class WorkflowLoader:
         scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
     ) -> str:
         if isinstance(operand, dict):
             if set(operand.keys()) != {'ref'}:
@@ -1172,6 +1237,8 @@ class WorkflowLoader:
                 scope_multi_visit,
                 parent_artifacts,
                 parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
             )
         if isinstance(operand, bool):
             return 'bool'
@@ -1196,6 +1263,8 @@ class WorkflowLoader:
         scope_multi_visit: Set[str],
         parent_artifacts: Optional[Dict[str, Any]],
         parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
     ) -> str:
         if not isinstance(ref, str) or not ref:
             self._add_error(f"Step '{step_name}': structured refs must be non-empty strings")
@@ -1255,10 +1324,19 @@ class WorkflowLoader:
         target_step = parsed_ref.step_name
         if scope_name == 'root':
             multi_visit = root_catalog.get('multi_visit', set())
+            non_step_results = root_catalog.get('non_step_results', set())
         elif scope_name == 'parent':
             multi_visit = parent_multi_visit or set()
+            non_step_results = parent_non_step_results or set()
         else:
             multi_visit = scope_multi_visit
+            non_step_results = scope_non_step_results
+
+        if target_step in non_step_results:
+            self._add_error(
+                f"Step '{step_name}': structured ref '{ref}' targets for_each summary step '{target_step}', which does not expose step-result fields"
+            )
+            return 'unknown'
 
         if target_step in multi_visit:
             self._add_error(

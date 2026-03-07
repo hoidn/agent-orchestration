@@ -673,3 +673,61 @@ steps:
         assert first["output"] == "one"
         assert second["status"] == "completed"
         assert second["output"] == "two"
+
+    def test_for_each_assert_equals_resolves_steps_against_iteration_scope(self):
+        """Legacy assert conditions inside loops must keep iteration-local steps scoping."""
+        workflow = {
+            "version": "1.5",
+            "name": "loop-assert-scope",
+            "steps": [
+                {
+                    "name": "ProcessItems",
+                    "for_each": {
+                        "items": ["one", "two"],
+                        "steps": [
+                            {
+                                "name": "StepA",
+                                "command": ["bash", "-lc", "printf '%s' \"${item}\""],
+                                "output_capture": "text",
+                            },
+                            {
+                                "name": "CheckScoped",
+                                "assert": {
+                                    "equals": {
+                                        "left": "${steps.StepA.output}",
+                                        "right": "${item}",
+                                    }
+                                },
+                            },
+                        ],
+                    },
+                }
+            ],
+        }
+        workflow_file = self.workspace / "workflow.yaml"
+        workflow_file.write_text(json.dumps(workflow))
+
+        loader = WorkflowLoader(self.workspace)
+        workflow = loader.load(str(workflow_file))
+
+        state_manager = StateManager(
+            workspace=self.workspace,
+            run_id="test_run",
+            backup_enabled=False,
+        )
+        state_manager.initialize(str(workflow_file))
+
+        executor = WorkflowExecutor(
+            workflow=workflow,
+            workspace=self.workspace,
+            state_manager=state_manager,
+        )
+
+        state = executor.execute()
+
+        first = state["steps"]["ProcessItems"][0]["CheckScoped"]
+        second = state["steps"]["ProcessItems"][1]["CheckScoped"]
+        assert first["status"] == "completed"
+        assert first["exit_code"] == 0
+        assert second["status"] == "completed"
+        assert second["exit_code"] == 0

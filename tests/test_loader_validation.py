@@ -177,6 +177,31 @@ class TestLoaderValidation:
         assert any("assert cannot be combined" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_assert_equals_rejects_env_namespace(self):
+        """AT-7 applies to legacy assert variable substitution surfaces."""
+        workflow = {
+            "version": "1.5",
+            "name": "assert-env-invalid",
+            "steps": [{
+                "name": "Gate",
+                "assert": {
+                    "equals": {
+                        "left": "${env.SECRET}",
+                        "right": "APPROVE",
+                    }
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("${env.*} namespace not allowed" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_scalar_bookkeeping_requires_version_1_7(self):
         """Scalar bookkeeping steps are gated to v1.7+."""
         workflow = {

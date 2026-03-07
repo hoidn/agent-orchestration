@@ -2574,8 +2574,12 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         if context is None:
             context = {}
+        scoped_state = state.copy()
+        steps_namespace = context.get('steps')
+        if isinstance(steps_namespace, dict):
+            scoped_state['steps'] = steps_namespace
         variables = self.variable_substitutor.build_variables(
-            run_state=state,
+            run_state=scoped_state,
             context=context.get('context', self.workflow.get('context', {})),
             loop_vars=context.get('loop'),
             item=context.get('item'),
