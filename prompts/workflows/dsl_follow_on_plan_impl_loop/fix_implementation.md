@@ -4,11 +4,8 @@ Read the `Consumed Artifacts` section first and treat it as the authoritative in
 Read the consumed `design`, `plan`, `execution_report`, and `implementation_review_report` artifacts before acting.
 
 Apply the review feedback to the repo while staying aligned with the design and plan. Use executing-plans if appropriate.
-The authoritative workspace for this step is the workflow run workspace root, not any git worktree or alternate checkout.
-Do not create, enter, or use `git worktree`, and do not move the work to another checkout.
-If the git state in the run workspace is dirty, clean only the unrelated git dirt that blocks implementation or commit instead of switching workspaces.
-Do not delete or relocate workflow-owned runtime files under `.orchestrate/`, `state/`, or the required report path under `artifacts/`.
-Do not edit workflow YAML, prompt files, or runtime state files unless the design, plan, or output contract explicitly requires it.
-Any output-contract files, including the execution report and pointer files, must be written in the run workspace paths that already exist for this run.
-Update the execution report at the workspace-relative path stored in `state/execution_report_path.txt` so the next review pass has current evidence.
+Do not use `git worktree` or another checkout.
+If the repo is dirty, stay in the current checkout and leave unrelated files alone.
+Do not modify workflow YAML, prompt files, or runtime state files unless the plan explicitly requires it.
+Update the execution report at the exact path named by `state/execution_report_path.txt` so the next review pass has current evidence.
 Finally, stage and commit your changes
