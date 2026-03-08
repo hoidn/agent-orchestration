@@ -440,11 +440,38 @@ class TestLoaderValidation:
                         "max_iterations": 2,
                         "steps": [
                             {
+                                "name": "PrepareCallInputs",
+                                "id": "prepare_call_inputs",
+                                "command": [
+                                    "bash",
+                                    "-lc",
+                                    "\n".join(
+                                        [
+                                            "mkdir -p state/review-loop-inputs",
+                                            "iteration=$(( ${loop.index} + 1 ))",
+                                            "printf '{\"write_root\":\"state/review-loop/iterations/%s\"}\\n' \"$iteration\" > state/review-loop-inputs/current.json",
+                                        ]
+                                    ),
+                                ],
+                                "output_bundle": {
+                                    "path": "state/review-loop-inputs/current.json",
+                                    "fields": [
+                                        {
+                                            "name": "write_root",
+                                            "json_pointer": "/write_root",
+                                            "type": "relpath",
+                                        }
+                                    ],
+                                },
+                            },
+                            {
                                 "name": "RunReviewLoop",
                                 "id": "run_review_loop",
                                 "call": "review_loop",
                                 "with": {
-                                    "write_root": "state/review-loop",
+                                    "write_root": {
+                                        "ref": "self.steps.PrepareCallInputs.artifacts.write_root",
+                                    },
                                 },
                             },
                             {
@@ -515,6 +542,10 @@ class TestLoaderValidation:
             step["name"]: step["step_id"]
             for step in loaded["steps"][0]["repeat_until"]["steps"]
         }
+        assert (
+            body_steps["PrepareCallInputs"]
+            == "root.review_loop.iteration_body.prepare_call_inputs"
+        )
         assert body_steps["RunReviewLoop"] == "root.review_loop.iteration_body.run_review_loop"
         assert body_steps["RouteDecision.APPROVE"] == "root.review_loop.iteration_body.route_decision.approve_path"
         assert (
