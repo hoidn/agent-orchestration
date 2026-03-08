@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", or "2.3"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", or "2.3"). `versioning.md` also reserves the planned reusable-call boundary versions `2.4` and `2.5`; the current runtime remains executable only through the implemented surface. Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -22,6 +22,11 @@
     - Keys are output names; values reuse the same typed contract fields as `inputs` plus required `from`.
     - `from` must be exactly `{ ref: "root.steps.<Step>.artifacts.<name>|exit_code|outcome.<field>" }`.
     - Export validation runs after the workflow body completes successfully and, for v2.3+ workflows with `finally`, only after finalization completes successfully.
+  - `imports`: reusable workflow aliases (planned execution in v2.5; contract boundary fixed in v2.4 docs).
+    - Shape: `{ <alias>: "<workflow-source-relative path>" }`.
+    - Import paths resolve relative to the directory containing the authored workflow file and must remain within that workflow source tree.
+    - Imported workflows validate independently and, in the first `call` tranche, caller and callee must declare the same DSL version.
+    - The Task 10 contract boundary reserves this syntax and meaning before loader/runtime support lands; current v2.3 runtimes still reject `imports`.
   - `finally`: structured workflow finalization (v2.3+).
     - Accepts either `Step[]` or `{ id?, steps: Step[] }`.
     - `id` uses the same pattern as step `id`.
@@ -59,6 +64,11 @@
     - `set_scalar: { artifact, value }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `increment_scalar: { artifact, by }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `wait_for: { ... }` (exclusive with provider/command/for_each)
+    - Planned reusable execution form (v2.5; contract fixed in v2.4 docs):
+      - `call: <import alias>`
+      - `with: { <callee-input-name>: Literal|{ref} }`
+      - first tranche requires an authored stable `id` on the outer call step so call-frame identities survive sibling insertion or import-alias reshaping
+      - only declared callee `outputs` cross the boundary back to the caller
   - Structured control (v2.2+):
     - top-level `if: Condition|TypedPredicate`
     - `then: Step[] | { id?, steps: Step[], outputs: WorkflowOutputMap }`
@@ -76,7 +86,17 @@
     - When exceeded, the step fails pre-execution with `error.type: "cycle_guard_exceeded"`.
   - IO:
     - `input_file: string`
+      - Workspace-relative runtime path, even when the workflow later runs under `call`.
+    - `asset_file: string` (planned v2.5; contract fixed in v2.4 docs)
+      - Provider-only workflow-source-relative prompt/template asset.
+      - Mutually exclusive with `input_file`.
+      - Resolves relative to the directory containing the authored workflow file and must remain within that workflow source tree.
     - `output_file: string`
+      - Workspace-relative runtime path. `call` namespaces step/result identities, not authored output files.
+    - `asset_depends_on: string[]` (planned v2.5; contract fixed in v2.4 docs)
+      - Provider-only list of exact workflow-source-relative reference files injected into the composed prompt.
+      - Not a substitute for workspace-relative `depends_on`.
+      - No globbing or optional/mode variants in the first tranche; the author controls the exact ordered file list.
     - `output_capture: text|lines|json` (default text)
     - `allow_parse_error: boolean` (json mode only)
     - `expected_outputs: ExpectedOutput[]` (optional deterministic artifact contracts)
@@ -217,6 +237,10 @@
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.
   - top-level `finally` requires `version: "2.3"` or higher.
+  - reusable-call contract boundary:
+    - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
+    - When Task 11 lands, those fields require `version: "2.5"` or higher.
+    - `version: "2.4"` is a documentation/contract boundary, not a promise that the current loader/runtime executes reusable-call workflows.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.
@@ -236,6 +260,37 @@
   - The referenced value must resolve to an array; otherwise the step fails with exit 2 and error context.
   - Dot-paths do not support wildcards or advanced expressions.
 
+## Planned Reusable-Call Contract Boundary (v2.4 docs, v2.5 execution)
+
+- Path taxonomy
+  - Workflow-source-relative paths:
+    - `imports`
+    - nested import targets
+    - `asset_file`
+    - `asset_depends_on`
+  - Workspace-relative runtime paths:
+    - `input_file`
+    - `depends_on`
+    - `output_file`
+    - `expected_outputs.path`
+    - `output_bundle.path`
+    - `consume_bundle.path`
+    - deterministic `relpath` outputs and authored `state/*` / `artifacts/*` paths
+  - `call` does not reinterpret authored workspace-relative paths; it only introduces call-scoped identities for state, lineage, freshness, and logs.
+
+- Boundary semantics
+  - `call` executes inline within the same run once Task 11 lands.
+  - Caller-visible results remain on the outer step at `steps.<CallStep>.artifacts.<output-name>`.
+  - Only declared callee `outputs` cross back into the caller.
+  - Imported workflow `providers`, `artifacts`, and `context` defaults remain private to the callee unless a future contract explicitly binds or exports them.
+  - The first tranche requires caller/callee same-version execution to avoid mixed-version lowering and state semantics.
+
+- Accepted-risk constraint
+  - Reusable workflows may still include `command` and `provider` steps.
+  - The first tranche does not claim sandboxing or loader-proved isolation of child-process filesystem effects.
+  - Every DSL-managed reusable-workflow write root that must remain distinct across invocations is expected to be surfaced as a typed `relpath` workflow input and bound explicitly by each call site.
+  - Call sites are expected to bind distinct per-invocation values whenever repeated or concurrent calls could otherwise alias the same managed paths.
+
 ## Workflow Schema (Top-Level)
 
 ```yaml
@@ -246,6 +301,7 @@ context: { [key: string]: any } # Optional key/value map available via ${context
 max_transitions: integer        # v1.8+ optional workflow-level cycle budget (> 0)
 inputs: { [name: string]: WorkflowInput }   # v2.1+ workflow-boundary typed inputs
 outputs: { [name: string]: WorkflowOutput } # v2.1+ workflow-boundary typed outputs
+imports: { [alias: string]: string }        # v2.5 planned; reusable workflow aliases (workflow-source-relative)
 
 # v1.2+: canonical artifact contracts for publish/consume dataflow
 artifacts:                      # Optional

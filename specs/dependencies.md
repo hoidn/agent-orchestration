@@ -5,6 +5,7 @@
   - `depends_on.optional`: missing matches are allowed and omitted without error.
   - Patterns resolve relative to WORKSPACE; symlinks are followed; dotfiles matched only when explicitly specified; case sensitivity follows the host FS.
   - Globstar `**` is not supported in v1.1.
+  - When reusable `call` lands, plain `depends_on` keeps these same workspace-relative semantics inside imported workflows; it does not become import-local automatically.
 
 - Injection (v1.1.1)
   - Shorthand: `inject: true` ≡ `{ mode: 'list', position: 'prepend' }` with default instruction.
@@ -22,6 +23,24 @@
   - Reject absolute paths and any path containing `..`.
   - Follow symlinks; if the resolved real path escapes WORKSPACE, reject the path.
   - Enforce at load time and before FS operations. See `security.md#path-safety`.
+
+## Planned Source-Relative Asset Surface (Task 10 contract; v2.5 execution)
+
+- `depends_on` remains the workspace-relative runtime dependency surface.
+  - Use it for authored files that are expected to exist in the execution workspace at run time.
+  - Inside imported workflows, it still resolves from WORKSPACE and can consume caller-bound write roots or other runtime-produced files.
+
+- `asset_depends_on` is the separate workflow-source-relative asset surface for reusable provider workflows.
+  - Shape: `asset_depends_on: ["relative/file.md", "schemas/review.json"]`
+  - Scope: provider steps only.
+  - Paths are exact workflow-source-relative files; the first tranche does not add globs, optional assets, or injection knobs.
+  - Resolution base is the directory containing the authored workflow file, not WORKSPACE.
+  - Validation must reject traversal outside that workflow source tree.
+
+- Taxonomy rule
+  - Do not overload plain `depends_on` with import-local semantics.
+  - Use `asset_depends_on` only for bundled source assets owned by the reusable workflow itself.
+  - Source-relative asset reads and workspace-relative runtime dependencies are intentionally different contract families.
 
 ## Injection examples
 

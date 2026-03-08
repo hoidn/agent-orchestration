@@ -154,6 +154,18 @@
 144. v2.3 resume-safe finalization: resume restarts from the first unfinished `finally` step instead of replaying completed cleanup
 145. v2.3 failure classification: cleanup failure after body success fails the run with `finalization_failed`, while cleanup failure after body failure remains secondary diagnostic state
 146. v2.3 deferred workflow outputs: `workflow_outputs` remain unmaterialized until finalization succeeds and are suppressed on finalization failure
+147. v2.5 caller/callee version boundary: the first `call` tranche rejects mixed-version caller/callee execution
+148. v2.5 typed `with:` binding: call-site bindings are checked against declared callee `inputs`
+149. v2.5 declared export boundary: only declared callee `outputs` cross back to the caller and surface as `steps.<CallStep>.artifacts.<name>`
+150. v2.5 reusable-library write-root rule: reusable workflows that hard-code DSL-managed write roots instead of exposing typed `relpath` inputs are rejected
+151. v2.5 call-site write-root rule: missing required write-root bindings and colliding bound write roots are rejected
+152. v2.5 path taxonomy: `asset_file` / `asset_depends_on` / nested imports resolve from the workflow source tree, while `input_file` / `depends_on` / outputs remain WORKSPACE-relative; source-asset traversal is rejected
+153. v2.5 caller-visible producer identity: exported call outputs enter caller-visible lineage with the outer call step as the external producer
+154. v2.5 preserved internal provenance: exported call outputs retain callee-internal origin metadata as secondary provenance/debug information
+155. v2.5 callee-private defaults: imported `providers`, `artifacts`, and `context` defaults stay private to the call frame unless explicitly bound or exported
+156. v2.5 call-scoped freshness: callee-internal `artifact_versions`, `artifact_consumes`, and `since_last_consume` freshness bookkeeping use call-frame-qualified identities rather than bare names
+157. v2.5 finalization-aware exports: caller-visible callee outputs materialize only after callee body and callee finalization both succeed, and stay suppressed when callee finalization fails
+158. v2.5 call-frame diagnostics/reporting: status and report surfaces expose call-frame identity/import/export state without leaking undeclared callee-private artifacts into caller-visible state
 
 ## DSL Evolution Rollout Crosswalk
 
@@ -165,7 +177,25 @@
 - Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, `tests/test_workflow_output_contract_integration.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/workflow_signature_demo.yaml`
 - Task 8 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/structured_if_else_demo.yaml`
 - Task 9 executable proof: `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/finally_demo.yaml`
-- Later-task roadmap proof ownership remains as written in `docs/plans/2026-03-06-dsl-evolution-execution-plan.md`; those tranches are not accepted until their named test/smoke blocks land with the corresponding implementation.
+- Task 10 contract-boundary stability proof: `pytest tests/test_loader_validation.py -k "call or import or version" -v`, plus a forward-proof cross-check that each acceptance item 147-158 is mapped to Task 11 coverage below.
+- Task 10 -> Task 11 reusable-call proof map:
+
+| Acceptance | Task 11 proof ownership |
+| --- | --- |
+| 147 | `tests/test_subworkflow_calls.py` coverage bullet for caller/callee same-version rejection; verification command `pytest tests/test_subworkflow_calls.py tests/test_loader_validation.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_resume_command.py -k "call or call_frame or resume" -v` |
+| 148 | `tests/test_subworkflow_calls.py` coverage bullet for typed `with:` binding against callee inputs; same Task 11 call-frame verification command |
+| 149 | `tests/test_subworkflow_calls.py` coverage bullet for caller-visible outputs surfacing as `steps.<CallStep>.artifacts.<name>`; `tests/test_workflow_examples_v0.py -k call_subworkflow -v`; dry-run `python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --dry-run` |
+| 150 | `tests/test_subworkflow_calls.py` coverage bullet for reusable-workflow rejection when DSL-managed write roots remain fixed instead of parameterized typed `relpath` inputs; same Task 11 call-frame verification command |
+| 151 | `tests/test_subworkflow_calls.py` coverage bullet for call-site rejection when required write-root inputs are missing or colliding; same Task 11 call-frame verification command |
+| 152 | Task 11 Step 2 coverage for source-relative asset resolution plus path-traversal rejection in `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, and `tests/test_secrets.py`; verification command `pytest tests/test_dependency_resolution.py tests/test_dependency_injection.py tests/test_prompt_contract_injection.py tests/test_provider_execution.py tests/test_provider_integration.py tests/test_secrets.py -k "asset or import or call or path or context" -v` |
+| 153 | `tests/test_subworkflow_calls.py` bullet for exported call outputs entering caller-visible lineage with the outer call step as producer, backed by `tests/test_artifact_dataflow_integration.py`; verified by the Task 11 call-frame verification command |
+| 154 | `tests/test_subworkflow_calls.py` bullet for preserved callee-internal provenance plus `tests/test_state_manager.py` coverage for persisted export metadata; verified by the Task 11 call-frame verification command |
+| 155 | `tests/test_subworkflow_calls.py` bullet for private provider/artifact/context namespaces and callee-default isolation plus the Task 11 asset/import/path/context verification command |
+| 156 | `tests/test_subworkflow_calls.py`, `tests/test_artifact_dataflow_integration.py`, and `tests/test_state_manager.py` coverage for call-scoped `artifact_versions` / `artifact_consumes` / freshness bookkeeping; verified by the Task 11 call-frame verification command |
+| 157 | `tests/test_subworkflow_calls.py` and `tests/test_resume_command.py` coverage for deferred export until callee finalization completes plus suppression on finalization failure; verified by the Task 11 call-frame verification command, the `call_subworkflow_demo` run command, and `pytest tests/test_resume_command.py -k call_subworkflow_smoke -v` |
+| 158 | `tests/test_resume_command.py` and `tests/test_state_manager.py` coverage for call-frame identities, deferred export state, and operator-facing diagnostics, plus the `call_subworkflow_demo` run/resume commands |
+
+- Task 11 executable proof: `tests/test_subworkflow_calls.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_prompt_contract_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, `tests/test_secrets.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/call_subworkflow_demo.yaml`
 
 ## Future Acceptance (v1.2)
 

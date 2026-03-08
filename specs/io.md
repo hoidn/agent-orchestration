@@ -2,6 +2,8 @@
 
 - Input handling
   - `input_file`: read literal contents; no substitution inside file contents.
+    - Under the planned reusable-call boundary, `input_file` remains workspace-relative and does not become import-local.
+  - `asset_file` (planned v2.5; contract fixed in v2.4 docs): read literal contents from the authored workflow source tree; provider-only and mutually exclusive with `input_file`.
   - When using a provider, the composed prompt (after optional injection) is passed via argv `${PROMPT}` or piped to stdin per provider template.
 
 - Output handling
@@ -10,6 +12,30 @@
   - Deterministic artifact contracts:
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
+  - Planned reusable-call boundary:
+    - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
+    - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.
+
+## Planned Source-Relative vs Workspace-Relative Taxonomy
+
+- Workflow-source-relative reads:
+  - `imports`
+  - nested import targets
+  - `asset_file`
+  - `asset_depends_on`
+
+- Workspace-relative runtime reads/writes:
+  - `input_file`
+  - `depends_on`
+  - `output_file`
+  - `expected_outputs.path`
+  - `output_bundle.path`
+  - `consume_bundle.path`
+  - authored `state/*`, `artifacts/*`, and other deterministic `relpath` paths
+
+- First-tranche reusable-library rule
+  - Do not treat `input_file` or plain `depends_on` as workflow-bundled asset mechanisms.
+  - Use the source-relative asset surface for library-owned prompts, rubrics, templates, and schemas.
 
 - Output capture modes
   - `text` (default): store up to 8 KiB in `state.json`. If exceeded, set `truncated: true` and write full stdout to `logs/<Step>.stdout`.

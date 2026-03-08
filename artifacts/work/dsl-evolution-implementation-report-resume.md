@@ -2,18 +2,14 @@
 
 ## Completed In This Pass
 
-- Fixed the Task 8 structured-control review defects:
-  - loader validation now rejects duplicate lowered branch tokens for `then` / `else`, preventing durable `step_id` collisions
-  - nested `for_each` bodies inside structured branches now resolve `parent.steps.*` against the enclosing lexical branch scope instead of the root scope
-- Completed Task 9 from the approved execution plan:
-  - added `version: "2.3"` loader support for top-level `finally`
-  - validated `finally` block ids, rejected `goto` / `_end` routing inside cleanup steps, and assigned stable cleanup `step_id` ancestry under `root.finally.<block>`
-  - appended finalization steps as durable top-level runtime/report nodes under `finally.<StepName>`
-  - persisted finalization progress in `state.json` (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional failure details)
-  - made resume continue from the first unfinished cleanup step instead of replaying completed cleanup
-  - deferred workflow output export until finalization succeeded and suppressed exports on finalization failure
-  - surfaced finalization bookkeeping in status snapshots and added `workflows/examples/finally_demo.yaml`
-  - updated the relevant specs, lifecycle guide, acceptance map, and workflow catalog
+- Completed Task 10 from the approved execution plan:
+  - locked the reusable-call contract boundary across the normative DSL/spec modules and the workflow drafting guide
+  - reserved the future workflow-source-relative asset surface (`imports`, `asset_file`, `asset_depends_on`) without claiming current runtime support
+  - documented the source-relative versus workspace-relative path taxonomy so `call` will namespace identities, not authored workspace files
+  - documented the first-tranche accepted operational-risk boundary: inline/non-isolating `call`, mandatory typed `relpath` write-root inputs for reusable workflows, and distinct per-invocation bindings when managed paths could collide
+  - scheduled the explicit Task 11 state boundary (`schema_version: "2.1"`) for call frames, call-scoped lineage/freshness, and the outer-producer/internal-provenance split for exported call outputs
+  - added reusable-call acceptance items 147-158 plus an explicit Task 10 -> Task 11 proof crosswalk in `specs/acceptance/index.md`
+  - added authoring guidance for preparing workflows for later `call` reuse
 
 ## Completed Plan Tasks
 
@@ -26,10 +22,10 @@
 - Task 7: Land D6 typed workflow signatures and top-level input/output binding
 - Task 8: Add a structured statement layer with `if/else`
 - Task 9: Add structured finalization (`finally`) as a separate tranche
+- Task 10: Lock the accepted-risk reusable-call contract before execution work
 
 ## Remaining Required Plan Tasks
 
-- Task 10: Lock the accepted-risk reusable-call contract before execution work
 - Task 11: Land imports and `call` on top of typed boundaries and qualified identities
 - Task 12: Add `match` as a separate structured-control tranche
 - Task 13: Add post-test `repeat_until` as its own loop tranche
@@ -39,34 +35,13 @@
 
 ## Verification
 
-- `pytest --collect-only tests/test_structured_control_flow.py tests/test_resume_command.py tests/test_observability_report.py tests/test_workflow_examples_v0.py -q`
-  - `53 tests collected`
-- `pytest tests/test_structured_control_flow.py tests/test_resume_command.py -k finally -v`
-  - `6 passed, 23 deselected`
-- `pytest tests/test_observability_report.py -k finalization -v`
-  - `1 passed, 7 deselected`
-- `pytest tests/test_workflow_examples_v0.py -k finally -v`
-  - `1 passed, 15 deselected`
-- `pytest tests/test_structured_control_flow.py tests/test_resume_command.py tests/test_observability_report.py tests/test_workflow_examples_v0.py -k 'duplicate_branch_ids or nested_for_each_parent_scope or finally' -v`
-  - `9 passed, 44 deselected`
-- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --dry-run`
-  - `[DRY RUN] Workflow validation successful`
-- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run`
-  - `[DRY RUN] Workflow validation successful`
-- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run`
-  - `[DRY RUN] Workflow validation successful`
-- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --state-dir /tmp/dsl-evolution-finally-demo`
-  - created run `20260308T003654Z-wzxvr2`
-  - persisted state at `.orchestrate/runs/20260308T003654Z-wzxvr2/state.json` with:
-    - `status: completed`
-    - `workflow_outputs: {"final_decision": "APPROVE"}`
-    - `finalization.block_id: cleanup`
-    - `finalization.status: completed`
-    - `finalization.completed_indices: [0, 1]`
-    - `finalization.workflow_outputs_status: completed`
+- `pytest tests/test_loader_validation.py -k "call or import or version" -v`
+  - `9 passed, 71 deselected`
+- `rg -n '^(147|148|149|150|151|152|153|154|155|156|157|158)\.|^\| (147|148|149|150|151|152|153|154|155|156|157|158) \|' specs/acceptance/index.md`
+  - confirmed acceptance items 147-158 exist and each item has an explicit Task 11 proof-mapping row in the rollout crosswalk
 
 ## Residual Risks
 
-- Task 9 intentionally stops at top-level workflow finalization; block-scoped teardown/defer semantics remain deferred.
-- Finalization first tranche is intentionally conservative: cleanup steps reject `goto` / `_end`, and nested structured statements inside `finally` remain out of scope until a later tranche defines lowering/identity behavior for them.
-- The broader DSL evolution roadmap remains incomplete from Task 10 onward; reusable-call/import semantics, `match`, `repeat_until`, score-aware gates, linting, and the final compatibility sweep are still required.
+- Task 10 is a docs/contract tranche only: the current loader/runtime still stop at the implemented `v2.3` surface and do not yet execute `imports`, `call`, `asset_file`, or `asset_depends_on`.
+- Task 11 must still enforce the documented write-root/input contract and deliver the planned `schema_version: "2.1"` call-frame state boundary for private callee lineage and freshness bookkeeping.
+- The broader roadmap remains incomplete from Task 11 onward; reusable-call execution, `match`, `repeat_until`, score-aware gates, linting, and the final full-suite smoke sweep are still required.

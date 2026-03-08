@@ -10,10 +10,16 @@
   - `provider: <name>` uses the template; merge `defaults` overlaid by `provider_params` (step wins).
   - In argv mode, `${PROMPT}` is replaced by the composed prompt (see below).
   - In stdin mode, the composed prompt is piped to the child stdin; provider templates MUST NOT include `${PROMPT}`.
+  - Planned reusable-workflow prompt assets:
+    - `input_file` stays workspace-relative.
+    - `asset_file` is the workflow-source-relative prompt/template surface reserved by Task 10 and implemented with `call` in Task 11.
 
 - Prompt composition
-  - Read `input_file` literally.
-  - Apply dependency injection in-memory if `depends_on.inject` is enabled (see `dependencies.md`).
+  - Read exactly one base prompt source:
+    - `input_file` literally from WORKSPACE, or
+    - planned `asset_file` literally from the directory containing the authored workflow file.
+  - Planned `asset_depends_on` source assets are injected in-memory as deterministic content blocks in declared order.
+  - Apply workspace dependency injection in-memory if `depends_on.inject` is enabled (see `dependencies.md`).
   - For `version: "1.2"` provider steps with `consumes`, inject a deterministic `Consumed Artifacts` block by default using resolved consume values from preflight (not prompt-authored paths).
     - Disable with `inject_consumes: false`.
     - Position with `consumes_injection_position: prepend|append` (default `prepend`).
@@ -26,9 +32,16 @@
     - These annotations are prompt guidance only and do not change runtime contract validation semantics.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
+- Planned reusable-call provider boundary (Task 10 contract; v2.5 execution)
+  - `asset_file` and `asset_depends_on` resolve relative to the authored workflow file and must stay within that workflow source tree.
+  - `input_file` and plain `depends_on` remain workspace-relative, even under `call`.
+  - Imported workflows bring private `providers` namespaces; caller/callee provider-template name collisions do not merge unless a later contract adds explicit binding rules.
+  - The first `call` tranche is inline and non-isolating: provider child processes may still perform undeclared filesystem reads/writes permitted by the OS.
+  - Caller and callee are expected to use the same DSL version in the first tranche.
+
 - Placeholder and parameter substitution
   - Substitution pipeline:
-    1) Compose prompt from `input_file` and optional dependency injection.
+    1) Compose prompt from the selected base prompt source (`input_file` today; `asset_file` once the reusable-call surface lands) plus any source/workspace dependency injection.
     2) Merge `providers.<name>.defaults` overlaid by `step.provider_params` (step wins).
     3) Substitute inside `provider_params` values (strings only; recursively visit arrays/objects; non-strings unchanged).
     4) Substitute template tokens: `${PROMPT}` (argv mode only), `${<provider_param>}`, and `${run|context|loop|steps.*}`.

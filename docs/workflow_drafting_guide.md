@@ -78,6 +78,7 @@ Two practical upgrades now exist:
 - v2.0: when authoring new typed predicates in nested scopes, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
 - v2.1: prefer typed workflow `inputs`/`outputs` over ad hoc `context` conventions when the value is part of the workflow boundary and should survive validation, resume, and later `call` reuse.
 - v2.2: prefer top-level structured `if/else` when the workflow intent is branch selection rather than a reusable raw `goto` diamond.
+- Task 10 reusable-call boundary: if a workflow is intended for later `call` reuse, keep bundled prompts/rubrics/schemas on the future workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep runtime reads/writes on the existing WORKSPACE-relative surfaces (`input_file`, `depends_on`, `output_file`, deterministic outputs).
 
 ## 5) Prompt Authoring Guidance
 
@@ -172,6 +173,17 @@ For post-v2.0 workflows, separate display names from durable identity:
 - keep `name` optimized for readable reports
 - use `id` when the step participates in lineage, scoped refs, or any flow you expect to survive sibling insertion / block reshaping
 - do not rely on compiler-generated ids for cross-edit stability; they are only safe within the same validated workflow checksum
+
+### Preparing A Workflow For Future `call`
+
+If you expect a workflow to become a reusable library workflow once `call` lands:
+
+- Surface every DSL-managed write root that needs to vary per invocation as a typed workflow `input` with `type: relpath`.
+- Bind those write-root inputs uniquely at each call site when repeated or concurrent calls could otherwise share the same managed `state/*`, `artifacts/*`, or other deterministic output roots.
+- Keep bundled source assets on the workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) instead of teaching callers to copy prompt files into the workspace.
+- Keep cross-boundary data narrow: caller -> callee through typed `inputs`; callee -> caller only through declared `outputs`.
+- Assume imported `command` / `provider` steps still have accepted operational risk for undeclared filesystem effects. First-tranche `call` is reuse, not sandboxing.
+- Treat imported `providers`, `artifacts`, and `context` defaults as callee-private by default; do not design workflows that depend on implicit caller/callee namespace merging.
 
 ### Plan-Time Strategy vs Runtime Check Plan
 

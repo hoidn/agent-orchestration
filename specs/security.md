@@ -4,8 +4,20 @@
   - Reject absolute paths and any path containing `..` during validation.
   - Follow symlinks; if the resolved path escapes WORKSPACE, reject the path.
   - Apply checks at load time and before filesystem operations.
+  - Planned reusable-call additions:
+    - `imports`, nested import targets, `asset_file`, and `asset_depends_on` use workflow-source-relative validation instead of WORKSPACE-relative validation.
+    - Workflow-source-relative paths resolve from the directory containing the authored workflow file and must remain within that workflow source tree.
+    - `input_file`, `depends_on`, `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and deterministic `relpath` outputs remain WORKSPACE-relative under `call`.
 
 Note: These safety checks apply to paths the orchestrator resolves (e.g., `input_file`, `output_file`, `depends_on`, `wait_for`). Child processes invoked by `command`/`provider` can read/write any locations permitted by the OS; use OS/user sandboxing if stricter isolation is required.
+
+- Reusable-call operational-risk boundary (Task 10 contract; v2.5 execution)
+  - The first `call` tranche is intentionally non-isolating.
+  - The loader/runtime must not claim proof of arbitrary child-process filesystem effects from imported `command` / `provider` steps.
+  - Every DSL-managed reusable-workflow write root that must remain distinct across invocations is expected to be surfaced as a typed workflow `input` with `type: relpath`.
+  - Call sites are expected to bind distinct per-invocation values for those write-root inputs whenever repeated or concurrent calls could otherwise alias the same managed paths.
+  - Reusable workflows that hard-code DSL-managed write roots instead of parameterizing them as typed `relpath` inputs are outside the first shippable reusable-library subset and should be rejected once Task 11 implements `call`.
+  - This contract covers orchestrator-managed paths only. Undeclared child-process reads/writes remain an accepted operational risk until a later execution-boundary change exists.
 
 - Secrets handling
   - `secrets: string[]` declares environment variable names that MUST be present in the orchestrator environment.
@@ -19,4 +31,3 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
 
 - Cross-platform note
   - Examples use POSIX tools (`bash`, `find`, `mv`, `test`). On Windows, use WSL or adapt to PowerShell equivalents.
-

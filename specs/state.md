@@ -34,6 +34,16 @@
     - lowered finalization steps are recorded as ordinary top-level step entries under presentation keys such as `finally.ReleaseLock`
     - `finalization.workflow_outputs_status` records whether workflow outputs are `pending`, `completed`, `failed`, `suppressed`, or `not_configured`
     - workflow outputs remain `{}` until finalization succeeds
+  - Planned next schema boundary for reusable `call` (Task 10 contract; Task 11 execution):
+    - `schema_version: "2.1"` is reserved for the first call-frame state model because the current artifact ledger cannot represent private callee artifacts and call-scoped freshness keys cleanly under the `schema_version: "2.0"` layout.
+    - Planned durable additions:
+      - `call_frames`: call-frame records keyed by durable `call_frame_id`, with caller step identity, import alias, callee workflow identity, bound inputs, body/finalization/export status, and current nested execution position.
+      - qualified internal producer/consumer identities rooted in the call frame for callee-private `artifact_versions`, `artifact_consumes`, and `since_last_consume` bookkeeping.
+      - caller-visible exported output provenance that records the outer call step as the external producer while retaining callee-internal source metadata as secondary provenance.
+    - Planned presentation/debug views:
+      - caller-visible outer step remains `steps.<CallStep>`
+      - nested execution may be rendered under `steps.<CallStep>.call...` or an equivalent call-frame view
+      - display labels such as import alias or inner step name remain presentation-only and must not replace durable `call_frame_id` / qualified identity keys
 
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
@@ -55,6 +65,7 @@
   - v2.1 workflow signatures reuse the v2.0 state schema and append `bound_inputs` / `workflow_outputs` as additive fields under the same `schema_version: "2.0"` boundary.
   - v2.2 structured `if/else` also reuses schema `2.0`; lowered branch markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
   - v2.3 structured finalization also reuses schema `2.0`; finalization bookkeeping and lowered `finally.*` step entries are additive fields.
+  - The reusable-call boundary is a new schema change, not another additive `schema_version: "2.0"` extension, because bare artifact-name ledgers cannot preserve callee-private lineage or freshness safely.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:
@@ -77,6 +88,21 @@
 
 - Logs directory (see `observability.md`)
   - `logs/` contains `orchestrator.log`, `StepName.stdout` (when large or parse error), `StepName.stderr` (when non-empty), and optional debug artifacts.
+
+## Planned Reusable-Call State Contract (Task 10)
+
+- Caller-visible exports
+  - Declared callee outputs materialize only on the outer call step as `steps.<CallStep>.artifacts.<name>`.
+  - When an exported call output enters caller-visible lineage, the outer call step is the external producer identity.
+  - The callee-internal `outputs[*].from` origin is preserved as secondary provenance/debug metadata and does not masquerade as the caller-visible producer.
+
+- Callee-private lineage
+  - Callee-private artifact names must not occupy bare names in the caller-global artifact ledger.
+  - Internal publish/consume state uses call-frame-qualified identities rather than bare display names.
+  - `since_last_consume` freshness inside a call frame is keyed by those qualified consumer identities.
+
+- Resume boundary
+  - Because call frames add new durable lineage and resume keys, Task 11 must reject resume from pre-call state unless a tested upgrader ships with the same tranche.
 
 ## State File Schema (example)
 

@@ -117,6 +117,21 @@
   - Workflow `outputs` remain withheld until finalization succeeds and are suppressed on finalization failure.
   - This tranche remains on state schema `2.0`; `finalization` bookkeeping and lowered cleanup-step metadata are additive top-level fields.
 
+- v2.4 contract boundary (reusable-call docs lock; not executable by itself)
+  - Reserves the future reusable-workflow path taxonomy before runtime support lands:
+    - workflow-source-relative `imports`, nested imports, `asset_file`, and `asset_depends_on`
+    - workspace-relative runtime paths unchanged for `input_file`, `depends_on`, `output_file`, deterministic relpath outputs, and bundle paths
+  - Locks the first `call` tranche as inline and non-isolating.
+  - Requires reusable workflows to surface DSL-managed write roots as typed `relpath` inputs and requires call sites to bind distinct values where multiple invocations could alias the same managed paths.
+  - Locks the first-tranche same-version caller/callee rule and callee-private `providers` / `artifacts` / `context` defaults.
+  - Schedules a state-schema bump for Task 11 because the current bare artifact-name ledger cannot represent call-scoped internal lineage and freshness safely.
+  - Current loader/runtime support still stops at the implemented v2.3 surface; `v2.4` is a contract boundary, not an already-executable workflow version.
+
+- v2.5 additions (planned imports + `call`)
+  - Top-level `imports` plus step-level `call` / typed `with:` binding.
+  - Only declared callee outputs cross the boundary and materialize on the outer call step.
+  - Planned state boundary: `schema_version: "2.1"` with call frames, call-scoped lineage/freshness, deferred export state, and preserved internal provenance for exported outputs.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -126,8 +141,8 @@
   - `v2.1`: D6 workflow signatures
   - `v2.2`: D7 structured `if/else`
   - `v2.3`: D8 `finally`
-  - `v2.4` (planned docs/contract boundary): D9 reusable-call contract
-  - `v2.5` (planned): D10 imports + `call`
+  - `v2.4` (docs/contract boundary): D9 reusable-call contract
+  - `v2.5` (planned execution tranche): D10 imports + `call`
   - `v2.6` (planned): D11 `match`
   - `v2.7` (planned): D12 `repeat_until`
   - `v2.8` (planned): D13 score-aware gates
@@ -252,5 +267,7 @@ Planned acceptance:
 | 2.1 | Top-level `inputs`/`outputs`, `${inputs.*}`, `ref: inputs.*`, and CLI input binding | Typed workflow-boundary signatures layered on top of the v2.0 identity/state model. |
 | 2.2 | Top-level structured `if/else` with lowered branch markers/join nodes | Branch-local work stays scoped to `then` / `else`; downstream refs target statement outputs on the join node. |
 | 2.3 | Top-level `finally` with resume-safe cleanup progress and deferred workflow outputs | Cleanup runs once after body success/failure, keeps stable finalization ids, and suppresses workflow outputs on cleanup failure. |
+| 2.4 | Reusable-call contract boundary only (not executable by itself) | Locks path taxonomy, same-version rule, write-root parameterization, and accepted operational-risk language before runtime work lands. |
+| 2.5 | Planned `imports` + inline `call` with typed `with:` binding | Requires the planned `schema_version: "2.1"` call-frame lineage/export boundary. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |
