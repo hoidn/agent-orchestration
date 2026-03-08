@@ -414,6 +414,7 @@ def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path:
     assert frame["import_alias"] == "review_loop"
     assert frame["status"] == "completed"
     assert frame["export_status"] == "completed"
+    assert frame["state"]["workflow_checksum"].startswith("sha256:")
     assert frame["state"]["workflow_outputs"] == {"approved": True}
     assert frame["state"]["steps"]["SetApproved"]["artifacts"] == {"approved": True}
 

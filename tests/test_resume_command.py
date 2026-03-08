@@ -1227,6 +1227,63 @@ def test_call_subworkflow_smoke_resume_preserves_completed_nested_steps(temp_wor
     assert frame["state"]["steps"]["SetApproved"]["status"] == "completed"
 
 
+def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(temp_workspace):
+    run_id = "call-subworkflow-checksum-run"
+    library_path = temp_workspace / "workflows" / "library" / "review_fix_loop.yaml"
+    library_path.parent.mkdir(parents=True, exist_ok=True)
+    library_path.write_text(
+        yaml.safe_dump(_build_call_resume_library_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = temp_workspace / "resume_call_workflow.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_call_resume_caller_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    loader = WorkflowLoader(temp_workspace)
+    loaded = loader.load(workflow_path)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(str(workflow_path), context=loaded.get("context", {}))
+
+    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
+
+    history_path = temp_workspace / "state" / "review-loop" / "history.log"
+    assert first_run["status"] == "failed"
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "child-one",
+        "gate-failed",
+    ]
+
+    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+    library_path.write_text(
+        library_path.read_text(encoding="utf-8") + "\n# checksum-change\n",
+        encoding="utf-8",
+    )
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 1
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "child-one",
+        "gate-failed",
+    ]
+
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "failed"
+    assert len(loaded_state.call_frames) == 1
+    frame = next(iter(loaded_state.call_frames.values()))
+    assert frame["status"] == "failed"
+    assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
+    assert frame["state"]["steps"]["ResumeGate"]["status"] == "failed"
+    assert "SetApproved" not in frame["state"]["steps"]
+
+
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')
 @patch('orchestrator.cli.commands.resume.WorkflowLoader')
 def test_resume_preserves_bound_inputs_in_loaded_state(mock_loader, mock_executor, temp_workspace, sample_workflow):

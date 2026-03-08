@@ -246,6 +246,10 @@ class StateManager:
                 sha256.update(chunk)
         return f"sha256:{sha256.hexdigest()}"
 
+    def calculate_checksum(self, file_path: Path | str) -> str:
+        """Calculate a SHA256 checksum for a workflow or artifact file."""
+        return self._calculate_checksum(Path(file_path))
+
     def initialize(
         self,
         workflow_file: str,
@@ -272,7 +276,7 @@ class StateManager:
             if not workflow_path.exists():
                 raise FileNotFoundError(f"Workflow file not found: {workflow_file}")
 
-            workflow_checksum = self._calculate_checksum(workflow_path)
+            workflow_checksum = self.calculate_checksum(workflow_path)
 
             # Create initial state
             now = datetime.now(timezone.utc).isoformat()
@@ -610,7 +614,7 @@ class StateManager:
         if not workflow_path.exists():
             return False
 
-        current_checksum = self._calculate_checksum(workflow_path)
+        current_checksum = self.calculate_checksum(workflow_path)
         return current_checksum == self.state.workflow_checksum
 
     def attempt_repair(self) -> bool:

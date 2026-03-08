@@ -87,12 +87,15 @@ class _CallFrameStateManager:
             self.state = RunState.from_dict(existing_state)
         else:
             workflow_path = workflow.get("__workflow_path", "")
+            workflow_checksum = ""
+            if isinstance(workflow_path, str) and workflow_path:
+                workflow_checksum = parent_manager.calculate_checksum(Path(workflow_path))
             now = datetime.now(timezone.utc).isoformat()
             self.state = RunState(
                 schema_version=StateManager.SCHEMA_VERSION,
                 run_id=self.run_id,
                 workflow_file=_display_workflow_path(self.workspace, workflow_path) if workflow_path else "",
-                workflow_checksum="call_frame",
+                workflow_checksum=workflow_checksum,
                 started_at=now,
                 updated_at=now,
                 status="running",
@@ -3966,6 +3969,108 @@ class WorkflowExecutor:
             'nested_call_frames': nested_frames,
         }
 
+    def _call_resume_checksum_mismatch_result(
+        self,
+        *,
+        step_name: str,
+        call_alias: Any,
+        frame_id: str,
+        workflow_file: Optional[str],
+        persisted_checksum: Optional[str],
+        current_checksum: Optional[str],
+        reason: str,
+    ) -> Dict[str, Any]:
+        """Build a deterministic failure when nested resume checksum validation fails."""
+        return {
+            'status': 'failed',
+            'exit_code': 2,
+            'duration_ms': 0,
+            'error': {
+                'type': 'call_resume_checksum_mismatch',
+                'message': 'Called workflow has been modified since the run started',
+                'context': {
+                    'step': step_name,
+                    'call': call_alias,
+                    'call_frame_id': frame_id,
+                    'workflow_file': workflow_file,
+                    'persisted_checksum': persisted_checksum,
+                    'current_checksum': current_checksum,
+                    'reason': reason,
+                },
+            },
+        }
+
+    def _validate_call_resume_checksum(
+        self,
+        *,
+        step_name: str,
+        call_alias: Any,
+        frame_id: str,
+        imported_workflow: Dict[str, Any],
+        existing_frame: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Reject resumed call frames when the imported workflow checksum changed."""
+        if not getattr(self, "resume_mode", False) or not isinstance(existing_frame, dict):
+            return None
+
+        workflow_path = imported_workflow.get('__workflow_path')
+        workflow_file = (
+            _display_workflow_path(self.workspace, workflow_path)
+            if isinstance(workflow_path, str) and workflow_path
+            else None
+        )
+        persisted_state = existing_frame.get('state')
+        persisted_checksum = (
+            persisted_state.get('workflow_checksum')
+            if isinstance(persisted_state, dict)
+            else None
+        )
+        if not isinstance(persisted_checksum, str) or not persisted_checksum.startswith("sha256:"):
+            return self._call_resume_checksum_mismatch_result(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=frame_id,
+                workflow_file=workflow_file,
+                persisted_checksum=persisted_checksum if isinstance(persisted_checksum, str) else None,
+                current_checksum=None,
+                reason='missing_recorded_checksum',
+            )
+
+        if not isinstance(workflow_path, str) or not workflow_path:
+            return self._call_resume_checksum_mismatch_result(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=frame_id,
+                workflow_file=workflow_file,
+                persisted_checksum=persisted_checksum,
+                current_checksum=None,
+                reason='missing_workflow_path',
+            )
+
+        try:
+            current_checksum = self.state_manager.calculate_checksum(Path(workflow_path))
+        except FileNotFoundError:
+            return self._call_resume_checksum_mismatch_result(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=frame_id,
+                workflow_file=workflow_file,
+                persisted_checksum=persisted_checksum,
+                current_checksum=None,
+                reason='workflow_unavailable',
+            )
+        if current_checksum != persisted_checksum:
+            return self._call_resume_checksum_mismatch_result(
+                step_name=step_name,
+                call_alias=call_alias,
+                frame_id=frame_id,
+                workflow_file=workflow_file,
+                persisted_checksum=persisted_checksum,
+                current_checksum=current_checksum,
+                reason='workflow_modified',
+            )
+        return None
+
     def _execute_call(
         self,
         step: Dict[str, Any],
@@ -4012,6 +4117,16 @@ class WorkflowExecutor:
         if not isinstance(call_frames, dict):
             call_frames = {}
             state['call_frames'] = call_frames
+
+        checksum_error = self._validate_call_resume_checksum(
+            step_name=step_name,
+            call_alias=call_alias,
+            frame_id=frame_id,
+            imported_workflow=imported_workflow,
+            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
+        )
+        if checksum_error is not None:
+            return checksum_error
 
         child_state_manager = _CallFrameStateManager(
             parent_manager=self.state_manager,
@@ -4999,6 +5114,7 @@ class WorkflowExecutor:
             if error_type == 'assert_failed':
                 normalized_class = 'assert_failed'
             elif error_type in {
+                'call_resume_checksum_mismatch',
                 'undefined_variables',
                 'missing_secrets',
                 'provider_not_found',
