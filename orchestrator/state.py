@@ -187,8 +187,14 @@ class StateManager:
 
     SCHEMA_VERSION = "2.1"
 
-    def __init__(self, workspace: Path, run_id: Optional[str] = None,
-                 backup_enabled: bool = False, debug: bool = False):
+    def __init__(
+        self,
+        workspace: Path,
+        run_id: Optional[str] = None,
+        backup_enabled: bool = False,
+        debug: bool = False,
+        state_dir: Optional[Path] = None,
+    ):
         """Initialize state manager.
 
         Args:
@@ -196,8 +202,9 @@ class StateManager:
             run_id: Optional run ID to use (generates one if not provided)
             backup_enabled: Enable state backups before each step
             debug: Debug mode (implies backup_enabled)
+            state_dir: Optional override for the runs root directory
         """
-        self.workspace = Path(workspace)
+        self.workspace = Path(workspace).resolve()
         self.backup_enabled = backup_enabled or debug
         self.debug = debug
 
@@ -208,7 +215,12 @@ class StateManager:
             self.run_id = self._generate_run_id()
 
         # Set up run directory
-        self.run_root = self.workspace / ".orchestrate" / "runs" / self.run_id
+        self.runs_root = (
+            Path(state_dir).resolve()
+            if state_dir is not None
+            else self.workspace / ".orchestrate" / "runs"
+        )
+        self.run_root = self.runs_root / self.run_id
         self.state_file = self.run_root / "state.json"
         self.logs_dir = self.run_root / "logs"
 

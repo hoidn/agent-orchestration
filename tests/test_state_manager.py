@@ -84,6 +84,24 @@ steps:
         assert loaded_state.transition_count == 0
         assert loaded_state.step_visits == {}
 
+    def test_custom_state_dir_overrides_default_runs_root(self, temp_workspace, workflow_file):
+        """Custom state-dir roots should store runs outside WORKSPACE/.orchestrate."""
+        custom_state_dir = temp_workspace / "external-runs"
+        manager = StateManager(temp_workspace, state_dir=custom_state_dir, run_id="custom-run")
+
+        state = manager.initialize(workflow_file)
+
+        expected_state_file = custom_state_dir / "custom-run" / "state.json"
+        default_state_file = temp_workspace / ".orchestrate" / "runs" / "custom-run" / "state.json"
+
+        assert state.run_root == str(custom_state_dir / "custom-run")
+        assert expected_state_file.exists()
+        assert not default_state_file.exists()
+
+        manager2 = StateManager(temp_workspace, state_dir=custom_state_dir, run_id="custom-run")
+        loaded_state = manager2.load()
+        assert loaded_state.run_root == str(custom_state_dir / "custom-run")
+
     def test_control_flow_counters_persist_across_writes(self, temp_workspace, workflow_file):
         """Cycle-guard counters are durable in state.json."""
         manager = StateManager(temp_workspace)

@@ -253,6 +253,50 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
+    def test_run_workflow_passes_state_dir_override_to_state_manager(self, mock_loader, mock_state, mock_executor):
+        """run_workflow should honor the documented --state-dir override."""
+        mock_loader.return_value.load.return_value = {
+            'version': '1.1',
+            'name': 'test',
+            'steps': [],
+        }
+
+        mock_state_inst = MagicMock()
+        mock_state_inst.logs_dir = Path('/tmp/custom-runs') / 'test-run-123' / 'logs'
+        mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
+        mock_state.return_value = mock_state_inst
+
+        mock_executor_inst = MagicMock()
+        mock_executor_inst.execute.return_value = True
+        mock_executor.return_value = mock_executor_inst
+
+        args = MagicMock()
+        args.workflow = str(self.workflow_file)
+        args.context = None
+        args.context_file = None
+        args.clean_processed = False
+        args.archive_processed = None
+        args.dry_run = False
+        args.debug = False
+        args.quiet = False
+        args.verbose = False
+        args.log_level = 'info'
+        args.backup_state = False
+        args.state_dir = '/tmp/custom-runs'
+        args.on_error = 'stop'
+        args.max_retries = 0
+        args.retry_delay = 1000
+        args.stream_output = False
+
+        result = run_workflow(args)
+
+        self.assertEqual(result, 0)
+        state_kwargs = mock_state.call_args.kwargs
+        self.assertEqual(state_kwargs['state_dir'], Path('/tmp/custom-runs').resolve())
+
+    @patch('orchestrator.cli.commands.run.WorkflowExecutor')
+    @patch('orchestrator.cli.commands.run.StateManager')
+    @patch('orchestrator.cli.commands.run.WorkflowLoader')
     def test_run_workflow_passes_merged_context_to_state(self, mock_loader, mock_state, mock_executor):
         """run_workflow should initialize state with workflow context defaults plus CLI overrides."""
         mock_loader.return_value.load.return_value = {

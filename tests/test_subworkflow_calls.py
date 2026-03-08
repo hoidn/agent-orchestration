@@ -67,6 +67,23 @@ def _caller_workflow(*, call_step: dict, imports: dict | None = None, version: s
     }
 
 
+def _run_workflow(
+    tmp_path: Path,
+    workflow: dict,
+    run_id: str,
+    *,
+    on_error: str = "stop",
+) -> tuple[dict, dict]:
+    workflow_path = _write_yaml(tmp_path / "workflow.yaml", workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_path)
+    state_manager = StateManager(tmp_path, run_id=run_id)
+    state_manager.initialize("workflow.yaml", context=loaded.get("context", {}))
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    final_state = executor.execute(on_error=on_error)
+    persisted = state_manager.load().to_dict()
+    return final_state, persisted
+
+
 def test_imported_workflows_must_validate_independently(tmp_path: Path):
     library_path = _write_yaml(
         tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
@@ -471,3 +488,290 @@ def test_call_outputs_publish_into_caller_lineage_with_outer_producer(tmp_path: 
 
     consumes = persisted.get("artifact_consumes", {}).get("root.read_approved", {})
     assert consumes.get("approved") == 1
+
+
+def test_call_keeps_callee_context_defaults_isolated_from_caller(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.5",
+            "name": "review-fix-loop",
+            "context": {
+                "decision": "child",
+            },
+            "steps": [
+                {
+                    "name": "DoWork",
+                    "id": "do_work",
+                    "command": ["echo", "ok"],
+                }
+            ],
+        },
+    )
+
+    state, persisted = _run_workflow(
+        tmp_path,
+        {
+            "version": "2.5",
+            "name": "call-context-isolation",
+            "context": {
+                "decision": "parent",
+            },
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "steps": [
+                {
+                    "name": "RunReviewLoop",
+                    "id": "run_review_loop",
+                    "call": "review_loop",
+                },
+                {
+                    "name": "ReadParentContext",
+                    "id": "read_parent_context",
+                    "command": ["bash", "-lc", "printf '%s' '${context.decision}'"],
+                },
+            ],
+        },
+        run_id="call-context-isolation",
+    )
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReadParentContext"]["output"] == "parent"
+    assert persisted["context"] == {"decision": "parent"}
+
+    frame = next(iter(persisted["call_frames"].values()))
+    assert frame["state"]["context"] == {"decision": "child"}
+    assert frame["bound_inputs"] == {}
+
+
+def test_call_frame_persists_internal_since_last_consume_bookkeeping(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.5",
+            "name": "review-fix-loop",
+            "inputs": {
+                "write_root": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                }
+            },
+            "artifacts": {
+                "failed_count": {
+                    "kind": "scalar",
+                    "type": "integer",
+                }
+            },
+            "steps": [
+                {
+                    "name": "Initialize",
+                    "id": "initialize",
+                    "set_scalar": {
+                        "artifact": "failed_count",
+                        "value": 1,
+                    },
+                    "publishes": [{"artifact": "failed_count", "from": "failed_count"}],
+                },
+                {
+                    "name": "ReadInitial",
+                    "id": "read_initial",
+                    "consumes": [
+                        {
+                            "artifact": "failed_count",
+                            "producers": ["Initialize"],
+                            "policy": "latest_successful",
+                            "freshness": "since_last_consume",
+                        }
+                    ],
+                    "consume_bundle": {"path": "${inputs.write_root}/read_initial.json"},
+                    "command": ["bash", "-lc", "cat ${inputs.write_root}/read_initial.json"],
+                },
+                {
+                    "name": "Increment",
+                    "id": "increment",
+                    "increment_scalar": {
+                        "artifact": "failed_count",
+                        "by": 1,
+                    },
+                    "publishes": [{"artifact": "failed_count", "from": "failed_count"}],
+                },
+                {
+                    "name": "ReadFresh",
+                    "id": "read_fresh",
+                    "consumes": [
+                        {
+                            "artifact": "failed_count",
+                            "producers": ["Initialize", "Increment"],
+                            "policy": "latest_successful",
+                            "freshness": "since_last_consume",
+                        }
+                    ],
+                    "consume_bundle": {"path": "${inputs.write_root}/read_fresh.json"},
+                    "command": ["bash", "-lc", "cat ${inputs.write_root}/read_fresh.json"],
+                },
+            ],
+        },
+    )
+
+    state, persisted = _run_workflow(
+        tmp_path,
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+                "with": {
+                    "write_root": "state/review-loop",
+                },
+            },
+        ),
+        run_id="call-freshness",
+    )
+
+    assert state["status"] == "completed"
+    frame = next(iter(persisted["call_frames"].values()))
+    child_state = frame["state"]
+
+    versions = child_state["artifact_versions"]["failed_count"]
+    assert [entry["value"] for entry in versions] == [1, 2]
+    assert child_state["artifact_consumes"]["root.read_initial"]["failed_count"] == 1
+    assert child_state["artifact_consumes"]["root.read_fresh"]["failed_count"] == 2
+    assert "root.read_initial" not in persisted.get("artifact_consumes", {})
+    assert "root.read_fresh" not in persisted.get("artifact_consumes", {})
+
+
+def test_call_exports_outputs_after_callee_finalization_completes(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.5",
+            "name": "review-fix-loop",
+            "artifacts": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "outputs": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.SetApproved.artifacts.approved"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetApproved",
+                    "id": "set_approved",
+                    "set_scalar": {
+                        "artifact": "approved",
+                        "value": True,
+                    },
+                }
+            ],
+            "finally": {
+                "id": "cleanup",
+                "steps": [
+                    {
+                        "name": "Cleanup",
+                        "id": "cleanup_step",
+                        "command": [
+                            "bash",
+                            "-lc",
+                            "mkdir -p state && printf 'cleanup\\n' >> state/call-finalization.log",
+                        ],
+                    }
+                ],
+            },
+        },
+    )
+
+    state, persisted = _run_workflow(
+        tmp_path,
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+            },
+        ),
+        run_id="call-finalization-success",
+    )
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
+
+    frame = next(iter(persisted["call_frames"].values()))
+    assert frame["status"] == "completed"
+    assert frame["finalization_status"] == "completed"
+    assert frame["export_status"] == "completed"
+    assert frame["state"]["workflow_outputs"] == {"approved": True}
+
+
+def test_call_suppresses_outputs_when_callee_finalization_fails(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.5",
+            "name": "review-fix-loop",
+            "artifacts": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "outputs": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.SetApproved.artifacts.approved"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetApproved",
+                    "id": "set_approved",
+                    "set_scalar": {
+                        "artifact": "approved",
+                        "value": True,
+                    },
+                }
+            ],
+            "finally": {
+                "id": "cleanup",
+                "steps": [
+                    {
+                        "name": "FailCleanup",
+                        "id": "fail_cleanup",
+                        "command": [
+                            "bash",
+                            "-lc",
+                            "mkdir -p state && printf 'cleanup-failed\\n' >> state/call-finalization.log && exit 1",
+                        ],
+                    }
+                ],
+            },
+        },
+    )
+
+    state, persisted = _run_workflow(
+        tmp_path,
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+            },
+        ),
+        run_id="call-finalization-failure",
+    )
+
+    assert state["status"] == "failed"
+    assert state["steps"]["RunReviewLoop"]["status"] == "failed"
+    assert state["steps"]["RunReviewLoop"]["error"]["type"] == "call_failed"
+    assert "artifacts" not in state["steps"]["RunReviewLoop"]
+
+    frame = next(iter(persisted["call_frames"].values()))
+    assert frame["status"] == "failed"
+    assert frame["finalization_status"] == "failed"
+    assert frame["export_status"] == "suppressed"
+    assert frame["state"]["workflow_outputs"] == {}

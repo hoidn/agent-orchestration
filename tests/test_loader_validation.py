@@ -151,6 +151,24 @@ class TestLoaderValidation:
         assert any("assert requires version '1.5'" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_version_2_9_is_supported(self):
+        """Advisory linting release version should load successfully."""
+        workflow = {
+            "version": "2.9",
+            "name": "lint-release-version",
+            "steps": [{
+                "name": "Echo",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        loaded = self.loader.load(path)
+
+        assert loaded["version"] == "2.9"
+        assert loaded["steps"][0]["name"] == "Echo"
+
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""
         workflow = {

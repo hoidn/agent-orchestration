@@ -6,6 +6,7 @@ Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 import json
 import logging
 import threading
+from copy import deepcopy
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -1955,6 +1956,7 @@ class WorkflowExecutor:
             write_error = self._write_consume_bundle(
                 consume_bundle=consume_bundle,
                 step_name=step_name,
+                state=state,
                 resolved_values=step_resolved_consumes,
             )
             if write_error is not None:
@@ -1963,10 +1965,42 @@ class WorkflowExecutor:
         self._persist_dataflow_state(state)
         return None
 
+    def _substitute_path_template(
+        self,
+        path_value: str,
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+        field_name: str,
+    ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Resolve runtime path templates against workflow context and bound inputs."""
+        raw_context = state.get('context', {})
+        variables = self.variable_substitutor.build_variables(
+            run_state=state,
+            context=raw_context if isinstance(raw_context, dict) else {},
+        )
+        try:
+            substituted = self.variable_substitutor.substitute(path_value, variables)
+        except ValueError:
+            undefined_vars = list(self.variable_substitutor.undefined_vars)
+            return None, self._contract_violation_result(
+                "Path substitution failed",
+                {
+                    "step": step_name,
+                    "field": field_name,
+                    "reason": "undefined_path_variables",
+                    "path": path_value,
+                    "undefined_vars": undefined_vars,
+                },
+            )
+
+        return substituted, None
+
     def _write_consume_bundle(
         self,
         consume_bundle: Any,
         step_name: str,
+        state: Dict[str, Any],
         resolved_values: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Materialize resolved consumes into a deterministic JSON bundle file."""
@@ -1988,6 +2022,16 @@ class WorkflowExecutor:
                     "reason": "invalid_consume_bundle_path",
                 },
             )
+
+        bundle_path_raw, path_error = self._substitute_path_template(
+            bundle_path_raw,
+            state,
+            step_name=step_name,
+            field_name='consume_bundle.path',
+        )
+        if path_error is not None:
+            return path_error
+        assert bundle_path_raw is not None
 
         bundle_path = self._resolve_workspace_path(bundle_path_raw)
         if bundle_path is None:
@@ -3412,7 +3456,7 @@ class WorkflowExecutor:
                 'error': {'message': 'Command execution failed with no result'}
             }
 
-        return self._apply_expected_outputs_contract(step, result.to_state_dict())
+        return self._apply_expected_outputs_contract(step, result.to_state_dict(), state)
 
     def _execute_provider_with_context(
         self,
@@ -3711,7 +3755,7 @@ class WorkflowExecutor:
         if debug_info:
             result['debug'] = debug_info
 
-        return self._apply_expected_outputs_contract(step, result)
+        return self._apply_expected_outputs_contract(step, result, state)
 
     def _call_frame_id(self, step: Dict[str, Any], state: Dict[str, Any]) -> str:
         """Derive a durable call-frame id from the authored call step and visit count."""
@@ -3957,7 +4001,61 @@ class WorkflowExecutor:
                 raise
             return execute_fn(invocation)
 
-    def _apply_expected_outputs_contract(self, step: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    def _resolve_output_contract_paths(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Resolve runtime path templates for output contract surfaces."""
+        step_name = step.get('name', f'step_{self.current_step}')
+
+        expected_outputs = step.get('expected_outputs')
+        resolved_expected_outputs: Optional[List[Dict[str, Any]]] = None
+        if isinstance(expected_outputs, list):
+            resolved_expected_outputs = []
+            for index, spec in enumerate(expected_outputs):
+                if not isinstance(spec, dict):
+                    resolved_expected_outputs.append(spec)
+                    continue
+
+                spec_copy = deepcopy(spec)
+                path_value = spec_copy.get('path')
+                if isinstance(path_value, str):
+                    resolved_path, path_error = self._substitute_path_template(
+                        path_value,
+                        state,
+                        step_name=step_name,
+                        field_name=f"expected_outputs[{index}].path",
+                    )
+                    if path_error is not None:
+                        return None, None, path_error
+                    spec_copy['path'] = resolved_path
+                resolved_expected_outputs.append(spec_copy)
+
+        output_bundle = step.get('output_bundle')
+        resolved_output_bundle: Optional[Dict[str, Any]] = None
+        if isinstance(output_bundle, dict):
+            resolved_output_bundle = deepcopy(output_bundle)
+            path_value = resolved_output_bundle.get('path')
+            if isinstance(path_value, str):
+                resolved_path, path_error = self._substitute_path_template(
+                    path_value,
+                    state,
+                    step_name=step_name,
+                    field_name='output_bundle.path',
+                )
+                if path_error is not None:
+                    return None, None, path_error
+                resolved_output_bundle['path'] = resolved_path
+
+        return resolved_expected_outputs, resolved_output_bundle, None
+
+    def _apply_expected_outputs_contract(
+        self,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
         """Validate deterministic output contracts and attach parsed values to step result."""
         expected_outputs = step.get('expected_outputs')
         output_bundle = step.get('output_bundle')
@@ -3968,11 +4066,18 @@ class WorkflowExecutor:
             # Only enforce contract after a successful process/provider execution.
             return result
 
+        resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
+            step,
+            state,
+        )
+        if path_error is not None:
+            return path_error
+
         try:
-            if output_bundle:
-                artifacts = validate_output_bundle(output_bundle, workspace=self.workspace)
+            if resolved_output_bundle:
+                artifacts = validate_output_bundle(resolved_output_bundle, workspace=self.workspace)
             else:
-                artifacts = validate_expected_outputs(expected_outputs, workspace=self.workspace)
+                artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=self.workspace)
         except OutputContractError as contract_error:
             failed_result = dict(result)
             failed_result['status'] = 'failed'

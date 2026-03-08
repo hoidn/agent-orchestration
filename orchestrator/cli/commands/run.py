@@ -256,6 +256,7 @@ def run_workflow(args: Namespace) -> int:
     try:
         # Determine workspace
         workspace = Path.cwd()
+        state_dir_override = Path(args.state_dir).expanduser().resolve() if args.state_dir else None
 
         # Load workflow
         workflow_path = Path(args.workflow).resolve()
@@ -292,8 +293,8 @@ def run_workflow(args: Namespace) -> int:
             else:
                 # Default to RUN_ROOT/processed.zip
                 run_id = datetime.now().strftime("%Y%m%dT%H%M%SZ")
-                state_dir = workspace / '.orchestrate' / 'runs'
-                run_root = state_dir / run_id
+                runs_root = state_dir_override or (workspace / '.orchestrate' / 'runs')
+                run_root = runs_root / run_id
                 archive_dest = run_root / 'processed.zip'
 
             validate_archive_destination(processed_dir, archive_dest)
@@ -331,7 +332,8 @@ def run_workflow(args: Namespace) -> int:
         state_manager = StateManager(
             workspace=workspace,
             backup_enabled=args.backup_state,
-            debug=args.debug if hasattr(args, 'debug') else False
+            debug=args.debug if hasattr(args, 'debug') else False,
+            state_dir=state_dir_override,
         )
 
         # Create new run
