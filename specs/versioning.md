@@ -146,7 +146,8 @@
   - `condition` reads loop-frame outputs through `self.outputs.<name>` and must not read inner multi-visit body steps directly.
   - Loop-frame outputs materialize on the authored step itself, so downstream refs target `root.steps.<Statement>.artifacts.<name>`.
   - Resume persists `repeat_until` iteration bookkeeping (`current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, `last_condition_result`) under state schema `2.1`.
-  - First tranche remains conservative: body steps reject `goto`, nested structured control, nested `for_each`, and nested `call`.
+  - First tranche remains conservative: body steps reject `goto`, nested `for_each`, and nested `repeat_until`.
+  - Direct nested `call`, `match`, and `if/else` bodies are allowed and lower into loop-local executable nodes that keep body-local structured refs on `self.steps.*` and outer lexical refs on `parent.steps.*`.
 
 - v2.8 additions (score-aware gates)
   - Typed predicates also accept `score: { ref, gt?, gte?, lt?, lte? }` for benchmark-style threshold and band checks.
@@ -296,7 +297,7 @@ Planned acceptance:
 | 2.4 | Reusable-call contract boundary only (not executable by itself) | Locks path taxonomy, same-version rule, write-root parameterization, and accepted operational-risk language before runtime work lands. |
 | 2.5 | `imports` + inline `call` with typed `with:` binding | Uses `schema_version: "2.1"` for persisted call-frame lineage/export state. |
 | 2.6 | Top-level structured `match` with exhaustive enum case coverage | Case-local work stays scoped to the selected case; downstream refs target statement outputs on the join node. |
-| 2.7 | Top-level post-test `repeat_until` with loop-frame outputs and resume-safe iteration bookkeeping | Loop conditions read only `self.outputs.*`; downstream refs target the loop frame outputs on the authored step. |
+| 2.7 | Top-level post-test `repeat_until` with loop-frame outputs and resume-safe iteration bookkeeping | Loop conditions read only `self.outputs.*`; downstream refs target the loop frame outputs on the authored step; direct nested `call`, `match`, and `if/else` bodies are allowed. |
 | 2.8 | Score-aware predicate helper `score` for thresholds and score bands | Thin sugar over numeric typed predicates; keeps benchmark gating inside the existing `when` / `assert` / structured-control surfaces. |
 | 2.9 | Advisory authoring linting / normalization hints surfaced in CLI dry-run and report output | Warns about migration candidates without turning valid workflows into validation failures. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
