@@ -18,6 +18,7 @@ EXAMPLE_FILES = [
     "dsl_follow_on_plan_impl_review_loop.yaml",
     "dsl_tracked_plan_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
+    "finally_demo.yaml",
     "scalar_bookkeeping_demo.yaml",
     "structured_if_else_demo.yaml",
     "test_fix_loop_v0.yaml",
@@ -181,6 +182,24 @@ def test_structured_if_else_demo_runtime(tmp_path: Path):
     assert state["steps"]["RouteReview.then.WriteApproved"]["status"] == "completed"
     assert state["steps"]["RouteReview.else.WriteRevision"]["status"] == "skipped"
     assert state["steps"]["RouteReview"]["artifacts"]["review_decision"] == "APPROVE"
+
+
+def test_finally_demo_runtime(tmp_path: Path):
+    """Finally demo runs cleanup before exporting workflow outputs."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "finally_demo.yaml")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["WriteDecision"]["artifacts"]["review_decision"] == "APPROVE"
+    assert state["steps"]["finally.AssertOutputsPending"]["status"] == "completed"
+    assert state["steps"]["finally.WriteCleanupMarker"]["status"] == "completed"
+    assert state["workflow_outputs"] == {"final_decision": "APPROVE"}
 
 
 def test_test_fix_loop_v0_runtime(tmp_path: Path):

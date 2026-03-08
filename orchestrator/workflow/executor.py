@@ -98,7 +98,15 @@ class WorkflowExecutor:
 
         # Execution state
         self.current_step = 0
-        self.steps = workflow.get('steps', [])
+        self.body_steps = workflow.get('steps', [])
+        self.finalization = workflow.get('finally') if isinstance(workflow.get('finally'), dict) else None
+        self.finalization_steps = (
+            self.finalization.get('steps', [])
+            if isinstance(self.finalization, dict) and isinstance(self.finalization.get('steps'), list)
+            else []
+        )
+        self.finalization_start_index = len(self.body_steps)
+        self.steps = list(self.body_steps) + list(self.finalization_steps)
         self.variables = workflow.get('variables', {})
         self.global_secrets = workflow.get('secrets', [])
 
@@ -208,6 +216,169 @@ class WorkflowExecutor:
         """Parse a dotted workflow version like 1.1.1 or 2.0 into a comparable tuple."""
         return tuple(int(part) for part in version.split("."))
 
+    def _initial_finalization_state(self) -> Optional[Dict[str, Any]]:
+        """Return durable finalization bookkeeping for workflows with cleanup."""
+        if not self.finalization_steps:
+            return None
+        output_status = 'pending' if self.workflow.get('outputs') else 'not_configured'
+        block_token = self.finalization.get('token') if isinstance(self.finalization, dict) else None
+        return {
+            'block_id': block_token or 'finally',
+            'status': 'pending',
+            'body_status': None,
+            'current_index': None,
+            'completed_indices': [],
+            'step_names': [step.get('name') for step in self.finalization_steps if isinstance(step, dict)],
+            'workflow_outputs_status': output_status,
+        }
+
+    def _persist_finalization_state(self, state: Dict[str, Any]) -> None:
+        """Persist finalization bookkeeping when present."""
+        finalization = state.get('finalization')
+        if isinstance(finalization, dict):
+            self.state_manager.update_finalization_state(finalization)
+
+    def _ensure_finalization_state(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Ensure run state contains the finalization bookkeeping structure."""
+        if not self.finalization_steps:
+            return None
+        finalization = state.get('finalization')
+        if not isinstance(finalization, dict):
+            finalization = self._initial_finalization_state() or {}
+            state['finalization'] = finalization
+        finalization.setdefault(
+            'block_id',
+            self.finalization.get('token') if isinstance(self.finalization, dict) else 'finally',
+        )
+        finalization.setdefault('status', 'pending')
+        finalization.setdefault('body_status', None)
+        finalization.setdefault('current_index', None)
+        finalization.setdefault('completed_indices', [])
+        finalization.setdefault('step_names', [
+            step.get('name') for step in self.finalization_steps if isinstance(step, dict)
+        ])
+        if 'workflow_outputs_status' not in finalization:
+            finalization['workflow_outputs_status'] = (
+                'pending' if self.workflow.get('outputs') else 'not_configured'
+            )
+        return finalization
+
+    def _activate_finalization(self, state: Dict[str, Any], body_status: str) -> None:
+        """Mark finalization as pending/running after the workflow body settles."""
+        finalization = self._ensure_finalization_state(state)
+        if finalization is None:
+            return
+        finalization['body_status'] = body_status
+        if finalization.get('status') == 'pending':
+            finalization['status'] = 'running'
+        self._persist_finalization_state(state)
+
+    def _record_finalization_step_start(self, state: Dict[str, Any], final_index: int, body_status: str) -> None:
+        """Persist which cleanup step is currently running."""
+        finalization = self._ensure_finalization_state(state)
+        if finalization is None:
+            return
+        finalization['body_status'] = body_status
+        finalization['status'] = 'running'
+        finalization['current_index'] = final_index
+        self._persist_finalization_state(state)
+
+    def _record_finalization_step_result(
+        self,
+        state: Dict[str, Any],
+        final_index: int,
+        step_name: str,
+        failed: bool,
+        result: Any,
+        body_status: str,
+    ) -> None:
+        """Persist one cleanup step outcome for resume and reporting."""
+        finalization = self._ensure_finalization_state(state)
+        if finalization is None:
+            return
+        completed_indices = finalization.setdefault('completed_indices', [])
+        if not failed and final_index not in completed_indices:
+            completed_indices.append(final_index)
+            completed_indices.sort()
+        finalization['body_status'] = body_status
+        finalization['current_index'] = None if not failed else final_index
+        if failed:
+            finalization['status'] = 'failed'
+            error = result.get('error') if isinstance(result, dict) else None
+            finalization['failure'] = {
+                'step': step_name,
+                'step_id': result.get('step_id') if isinstance(result, dict) else None,
+                'error': error,
+            }
+        elif len(completed_indices) == len(self.finalization_steps):
+            finalization['status'] = 'completed'
+            finalization.pop('failure', None)
+        else:
+            finalization['status'] = 'running'
+        self._persist_finalization_state(state)
+
+    def _record_finalization_settled_result(
+        self,
+        state: Dict[str, Any],
+        step_index: int,
+        step_name: str,
+        body_status: str,
+    ) -> None:
+        """Project one settled cleanup result into finalization bookkeeping."""
+        if not self._is_finalization_step(step_index):
+            return
+        result = state.get('steps', {}).get(step_name)
+        failed = isinstance(result, dict) and result.get('status') == 'failed'
+        self._record_finalization_step_result(
+            state,
+            step_index - self.finalization_start_index,
+            step_name,
+            failed,
+            result,
+            body_status,
+        )
+        finalization = self._ensure_finalization_state(state)
+        if failed:
+            if body_status == 'completed' and isinstance(result, dict):
+                state['error'] = self._finalization_failure_error(result, step_name)
+            if isinstance(finalization, dict):
+                finalization['workflow_outputs_status'] = 'suppressed'
+                self._persist_finalization_state(state)
+
+    def _maybe_continue_into_finalization(
+        self,
+        next_step: Optional[str],
+        step_index: int,
+        terminal_status: str,
+        state: Dict[str, Any],
+    ) -> tuple[Optional[int], str, bool]:
+        """Redirect body termination into finalization when configured."""
+        if next_step not in {'_end', '_stop'}:
+            return None, terminal_status, False
+        if next_step == '_stop':
+            terminal_status = 'failed'
+        if self.finalization_steps and step_index < self.finalization_start_index:
+            self._activate_finalization(state, terminal_status)
+            return self.finalization_start_index, terminal_status, False
+        return None, terminal_status, True
+
+    def _is_finalization_step(self, step_index: int) -> bool:
+        """Return True when the current step belongs to the appended finalization slice."""
+        return bool(self.finalization_steps) and step_index >= self.finalization_start_index
+
+    def _finalization_failure_error(self, result: Dict[str, Any], step_name: str) -> Dict[str, Any]:
+        """Build a dedicated run-level error payload for cleanup failures after body success."""
+        return {
+            'type': 'finalization_failed',
+            'message': 'Workflow finalization failed',
+            'context': {
+                'scope': 'workflow_finalization',
+                'step': step_name,
+                'step_id': result.get('step_id'),
+                'error': result.get('error'),
+            },
+        }
+
     def _persist_workflow_boundary_state(self, state: Dict[str, Any]) -> None:
         """Persist workflow-boundary inputs/outputs and run-level error metadata."""
         bound_inputs = state.get('bound_inputs', {})
@@ -220,6 +391,7 @@ class WorkflowExecutor:
             workflow_outputs = {}
             state['workflow_outputs'] = workflow_outputs
 
+        self._persist_finalization_state(state)
         self.state_manager.update_workflow_outputs(workflow_outputs)
         self.state_manager.update_run_error(state.get('error') if isinstance(state.get('error'), dict) else None)
 
@@ -258,6 +430,9 @@ class WorkflowExecutor:
         state.setdefault('step_visits', {})
         state.setdefault('bound_inputs', {})
         state.setdefault('workflow_outputs', {})
+        initial_finalization = self._initial_finalization_state()
+        if initial_finalization is not None:
+            state.setdefault('finalization', initial_finalization)
         state.pop('error', None)
         state['_resolved_consumes'] = {}
         if state.get('status') != 'running':
@@ -286,6 +461,20 @@ class WorkflowExecutor:
                         resume_current_step = True
                         resume_restart_index = None
 
+                is_finalization_step = self._is_finalization_step(step_index)
+                finalization_body_status = terminal_status
+                if is_finalization_step:
+                    finalization = self._ensure_finalization_state(state)
+                    if isinstance(finalization, dict):
+                        body_status = finalization.get('body_status')
+                        if isinstance(body_status, str) and body_status:
+                            finalization_body_status = body_status
+                    self._record_finalization_step_start(
+                        state,
+                        step_index - self.finalization_start_index,
+                        finalization_body_status,
+                    )
+
                 transition_guard = self._check_transition_guard(state, step_name)
                 if transition_guard is not None:
                     self._persist_step_result(
@@ -297,11 +486,23 @@ class WorkflowExecutor:
                         class_hint='pre_execution_failed',
                         retryable_hint=False,
                     )
+                    self._record_finalization_settled_result(
+                        state,
+                        step_index,
+                        step_name,
+                        finalization_body_status,
+                    )
                     next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    if next_step == '_end':
-                        break
-                    if next_step == '_stop':
-                        terminal_status = 'failed'
+                    finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                        next_step,
+                        step_index,
+                        terminal_status,
+                        state,
+                    )
+                    if finalization_target is not None:
+                        step_index = finalization_target
+                        continue
+                    if should_break:
                         break
 
                     target_index = self._resolve_next_step_index(step_index, next_step)
@@ -345,11 +546,23 @@ class WorkflowExecutor:
                             class_hint='pre_execution_failed',
                             retryable_hint=False,
                         )
+                        self._record_finalization_settled_result(
+                            state,
+                            step_index,
+                            step_name,
+                            finalization_body_status,
+                        )
                         next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        if next_step == '_end':
-                            break
-                        if next_step == '_stop':
-                            terminal_status = 'failed'
+                        finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                            next_step,
+                            step_index,
+                            terminal_status,
+                            state,
+                        )
+                        if finalization_target is not None:
+                            step_index = finalization_target
+                            continue
+                        if should_break:
                             break
 
                         target_index = self._resolve_next_step_index(step_index, next_step)
@@ -367,11 +580,23 @@ class WorkflowExecutor:
                             'skipped': True
                         }
                         self._persist_step_result(state, step_name, step, result)
+                        self._record_finalization_settled_result(
+                            state,
+                            step_index,
+                            step_name,
+                            finalization_body_status,
+                        )
                         next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        if next_step == '_end':
-                            break
-                        if next_step == '_stop':
-                            terminal_status = 'failed'
+                        finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                            next_step,
+                            step_index,
+                            terminal_status,
+                            state,
+                        )
+                        if finalization_target is not None:
+                            step_index = finalization_target
+                            continue
+                        if should_break:
                             break
 
                         target_index = self._resolve_next_step_index(step_index, next_step)
@@ -414,11 +639,23 @@ class WorkflowExecutor:
                             class_hint='pre_execution_failed',
                             retryable_hint=False,
                         )
+                        self._record_finalization_settled_result(
+                            state,
+                            step_index,
+                            step_name,
+                            finalization_body_status,
+                        )
                         next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        if next_step == '_end':
-                            break
-                        if next_step == '_stop':
-                            terminal_status = 'failed'
+                        finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                            next_step,
+                            step_index,
+                            terminal_status,
+                            state,
+                        )
+                        if finalization_target is not None:
+                            step_index = finalization_target
+                            continue
+                        if should_break:
                             break
 
                         target_index = self._resolve_next_step_index(step_index, next_step)
@@ -437,11 +674,23 @@ class WorkflowExecutor:
                             'skipped': True
                         }
                         self._persist_step_result(state, step_name, step, result)
+                        self._record_finalization_settled_result(
+                            state,
+                            step_index,
+                            step_name,
+                            finalization_body_status,
+                        )
                         next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        if next_step == '_end':
-                            break
-                        if next_step == '_stop':
-                            terminal_status = 'failed'
+                        finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                            next_step,
+                            step_index,
+                            terminal_status,
+                            state,
+                        )
+                        if finalization_target is not None:
+                            step_index = finalization_target
+                            continue
+                        if should_break:
                             break
 
                         target_index = self._resolve_next_step_index(step_index, next_step)
@@ -474,11 +723,23 @@ class WorkflowExecutor:
                         class_hint='pre_execution_failed',
                         retryable_hint=False,
                     )
+                    self._record_finalization_settled_result(
+                        state,
+                        step_index,
+                        step_name,
+                        finalization_body_status,
+                    )
                     next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    if next_step == '_end':
-                        break
-                    if next_step == '_stop':
-                        terminal_status = 'failed'
+                    finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                        next_step,
+                        step_index,
+                        terminal_status,
+                        state,
+                    )
+                    if finalization_target is not None:
+                        step_index = finalization_target
+                        continue
+                    if should_break:
                         break
 
                     target_index = self._resolve_next_step_index(step_index, next_step)
@@ -499,12 +760,24 @@ class WorkflowExecutor:
                         class_hint='contract_violation',
                         retryable_hint=False,
                     )
+                    self._record_finalization_settled_result(
+                        state,
+                        step_index,
+                        step_name,
+                        finalization_body_status,
+                    )
 
                     next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    if next_step == '_end':
-                        break
-                    if next_step == '_stop':
-                        terminal_status = 'failed'
+                    finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                        next_step,
+                        step_index,
+                        terminal_status,
+                        state,
+                    )
+                    if finalization_target is not None:
+                        step_index = finalization_target
+                        continue
+                    if should_break:
                         break
                     target_index = self._resolve_next_step_index(step_index, next_step)
                     if target_index is None:
@@ -579,13 +852,28 @@ class WorkflowExecutor:
 
                 # Handle control flow after step execution (AT-56, AT-57, AT-58)
                 next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                if is_finalization_step:
+                    self._record_finalization_settled_result(
+                        state,
+                        step_index,
+                        step_name,
+                        finalization_body_status,
+                    )
+                    finalization_result = state.get('steps', {}).get(step_name)
+                    if isinstance(finalization_result, dict) and finalization_result.get('status') == 'failed':
+                        if next_step is None:
+                            next_step = '_stop'
 
-                if next_step == '_end':
-                    # Special target to end workflow successfully
-                    break
-                elif next_step == '_stop':
-                    # Stop execution due to error with strict_flow
-                    terminal_status = 'failed'
+                finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                    next_step,
+                    step_index,
+                    terminal_status,
+                    state,
+                )
+                if finalization_target is not None:
+                    step_index = finalization_target
+                    continue
+                if should_break:
                     break
                 target_index = self._resolve_next_step_index(step_index, next_step)
                 if target_index is not None:
@@ -599,6 +887,8 @@ class WorkflowExecutor:
             self.state_manager.update_status(terminal_status)
             raise
 
+        finalization = self._ensure_finalization_state(state)
+
         if terminal_status == 'completed':
             try:
                 workflow_outputs = resolve_workflow_outputs(
@@ -609,9 +899,18 @@ class WorkflowExecutor:
             except WorkflowSignatureError as exc:
                 terminal_status = 'failed'
                 state['error'] = exc.error
+                if isinstance(finalization, dict) and self.workflow.get('outputs'):
+                    finalization['workflow_outputs_status'] = 'failed'
+                    self._persist_finalization_state(state)
             else:
                 state['workflow_outputs'] = workflow_outputs
                 state.pop('error', None)
+                if isinstance(finalization, dict) and self.workflow.get('outputs'):
+                    finalization['workflow_outputs_status'] = 'completed'
+                    self._persist_finalization_state(state)
+        elif isinstance(finalization, dict) and finalization.get('workflow_outputs_status') == 'pending':
+            finalization['workflow_outputs_status'] = 'suppressed'
+            self._persist_finalization_state(state)
 
         self._persist_workflow_boundary_state(state)
         self.state_manager.update_status(terminal_status)
@@ -1712,6 +2011,7 @@ class WorkflowExecutor:
 
         # Execute loop iterations (starting from start_index for resume)
         loop_step_id = self._step_id(step)
+        parent_scope_steps = self._build_loop_parent_scope_steps(step, state)
         for index in range(start_index, len(items)):
             item = items[index]
             self._persist_for_each_progress(
@@ -1757,7 +2057,7 @@ class WorkflowExecutor:
                             state,
                             scope={
                                 'self_steps': iteration_state,
-                                'parent_steps': state.get('steps', {}),
+                                'parent_steps': parent_scope_steps,
                                 'root_steps': state.get('steps', {}),
                             },
                         )
@@ -1847,6 +2147,7 @@ class WorkflowExecutor:
                         nested_context,
                         state,
                         iteration_state,
+                        parent_scope_steps,
                         runtime_step_id=nested_runtime_step_id,
                     )
                     publish_error = self._record_published_artifacts(
@@ -1931,11 +2232,12 @@ class WorkflowExecutor:
         context: Dict[str, Any],
         state: Dict[str, Any],
         iteration_state: Dict[str, Any],
+        parent_scope_steps: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         scope = {
             'self_steps': iteration_state,
-            'parent_steps': state.get('steps', {}),
+            'parent_steps': parent_scope_steps,
             'root_steps': state.get('steps', {}),
         }
         if 'command' in step:
@@ -1956,6 +2258,54 @@ class WorkflowExecutor:
         if 'wait_for' in step:
             return self._execute_wait_for_result(step)
         return {'status': 'skipped', 'exit_code': 0, 'skipped': True}
+
+    def _build_loop_parent_scope_steps(
+        self,
+        loop_step: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build the lexical parent scope for structured refs inside one loop body."""
+        steps_state = state.get('steps', {})
+        if not isinstance(steps_state, dict):
+            return {}
+
+        loop_step_id = self._step_id(loop_step)
+        if '.' in loop_step_id:
+            parent_step_id = loop_step_id.rsplit('.', 1)[0]
+        else:
+            parent_step_id = 'root'
+
+        loop_name = loop_step.get('name')
+        name_prefix = None
+        if isinstance(loop_name, str) and '.' in loop_name:
+            name_prefix = loop_name.rsplit('.', 1)[0]
+
+        parent_scope_steps: Dict[str, Any] = {}
+        for candidate in self.steps:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_name = candidate.get('name')
+            candidate_step_id = candidate.get('step_id')
+            if not isinstance(candidate_name, str) or not isinstance(candidate_step_id, str):
+                continue
+            if '.' in candidate_step_id:
+                candidate_parent_id = candidate_step_id.rsplit('.', 1)[0]
+            else:
+                candidate_parent_id = 'root'
+            if candidate_parent_id != parent_step_id:
+                continue
+
+            candidate_result = steps_state.get(candidate_name)
+            if not isinstance(candidate_result, dict):
+                continue
+
+            if name_prefix and candidate_name.startswith(f"{name_prefix}."):
+                local_name = candidate_name[len(name_prefix) + 1:]
+            else:
+                local_name = candidate_name
+            parent_scope_steps[local_name] = candidate_result
+
+        return parent_scope_steps
 
     def _execute_command_with_context(
         self,

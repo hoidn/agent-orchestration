@@ -107,6 +107,16 @@
     - `goto` / `_end` routing inside branch steps is rejected
     - state schema remains `2.0`; lowered-node metadata is additive under existing step results
 
+- v2.3 additions (structured finalization)
+  - Workflows may declare a top-level `finally` block as either `Step[]` or `{ id?, steps: Step[] }`.
+  - Finalization steps are lowered into stable top-level execution nodes under `finally.<StepName>` presentation keys and `root.finally.<block-id-or-finally>.*` durable ancestry.
+  - Finalization runs once after the workflow body settles on either success or failure.
+  - Resume restarts from the first unfinished finalization step instead of replaying completed cleanup.
+  - When the workflow body succeeds and finalization fails, the run fails with `error.type: "finalization_failed"`.
+  - When the workflow body already failed and finalization also fails, the original body failure remains primary and the finalization failure is recorded as secondary diagnostic state under `finalization.failure`.
+  - Workflow `outputs` remain withheld until finalization succeeds and are suppressed on finalization failure.
+  - This tranche remains on state schema `2.0`; `finalization` bookkeeping and lowered cleanup-step metadata are additive top-level fields.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -115,7 +125,7 @@
   - `v2.0`: D4-D5 scoped refs + stable internal IDs
   - `v2.1`: D6 workflow signatures
   - `v2.2`: D7 structured `if/else`
-  - `v2.3` (planned): D8 `finally`
+  - `v2.3`: D8 `finally`
   - `v2.4` (planned docs/contract boundary): D9 reusable-call contract
   - `v2.5` (planned): D10 imports + `call`
   - `v2.6` (planned): D11 `match`
@@ -241,5 +251,6 @@ Planned acceptance:
 | 2.0 | Stable step `id`, scoped `self.steps.*` / `parent.steps.*` refs, qualified lineage/freshness | Establishes the durable internal identity boundary and the `schema_version: "2.0"` state model. |
 | 2.1 | Top-level `inputs`/`outputs`, `${inputs.*}`, `ref: inputs.*`, and CLI input binding | Typed workflow-boundary signatures layered on top of the v2.0 identity/state model. |
 | 2.2 | Top-level structured `if/else` with lowered branch markers/join nodes | Branch-local work stays scoped to `then` / `else`; downstream refs target statement outputs on the join node. |
+| 2.3 | Top-level `finally` with resume-safe cleanup progress and deferred workflow outputs | Cleanup runs once after body success/failure, keeps stable finalization ids, and suppresses workflow outputs on cleanup failure. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

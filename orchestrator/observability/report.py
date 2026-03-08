@@ -16,6 +16,8 @@ def _step_name(step: Dict[str, Any], index: int) -> str:
 
 
 def _step_kind(step: Dict[str, Any]) -> str:
+    if "workflow_finalization" in step:
+        return "finally"
     if "structured_if_branch" in step:
         return "structured_if_branch"
     if "structured_if_join" in step:
@@ -141,6 +143,9 @@ def build_status_snapshot(
 ) -> Dict[str, Any]:
     """Build a deterministic status snapshot from workflow + state artifacts."""
     steps = list(workflow.get("steps", []))
+    finally_block = workflow.get("finally") if isinstance(workflow.get("finally"), dict) else None
+    if isinstance(finally_block, dict) and isinstance(finally_block.get("steps"), list):
+        steps.extend(finally_block.get("steps", []))
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
     current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
@@ -245,6 +250,8 @@ def build_status_snapshot(
         run_payload["bound_inputs"] = state.get("bound_inputs", {})
     if isinstance(state.get("workflow_outputs"), dict):
         run_payload["workflow_outputs"] = state.get("workflow_outputs", {})
+    if isinstance(state.get("finalization"), dict) and state.get("finalization"):
+        run_payload["finalization"] = state.get("finalization")
     if isinstance(state.get("error"), dict):
         run_payload["error"] = state.get("error")
 

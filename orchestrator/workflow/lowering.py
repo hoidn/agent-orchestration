@@ -7,7 +7,13 @@ from typing import Any, Dict, Iterable, List
 
 from .identity import assign_step_ids
 from .predicates import TYPED_PREDICATE_OPERATOR_KEYS
-from .statements import branch_token, is_if_statement, normalize_branch_block
+from .statements import (
+    branch_token,
+    finally_block_token,
+    is_if_statement,
+    normalize_branch_block,
+    normalize_finally_block,
+)
 
 
 def lower_structured_steps(steps: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -19,6 +25,29 @@ def lower_structured_steps(steps: Iterable[Dict[str, Any]]) -> List[Dict[str, An
             continue
         lowered.extend(_lower_if_statement(step))
     return lowered
+
+
+def lower_finalization_block(finally_block: Dict[str, Any] | None) -> Dict[str, Any] | None:
+    """Lower a workflow finally block into stable executable top-level steps."""
+    normalized = normalize_finally_block(finally_block)
+    if normalized is None:
+        return None
+
+    block_steps = deepcopy(normalized.get("steps") or [])
+    block_token = finally_block_token(normalized)
+    assign_step_ids(
+        block_steps,
+        parent_step_id=f"root.finally.{block_token}",
+    )
+    prefix_top_level_step_names(block_steps, "finally")
+    for step in block_steps:
+        if isinstance(step, dict):
+            step["workflow_finalization"] = {"block_id": block_token}
+    return {
+        "id": normalized.get("id"),
+        "token": block_token,
+        "steps": block_steps,
+    }
 
 
 def _lower_if_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
@@ -211,3 +240,13 @@ def _rewrite_legacy_step_variables(value: Any, local_name_map: Dict[str, str]) -
             for key, item in value.items()
         }
     return value
+
+
+def prefix_top_level_step_names(steps: Iterable[Dict[str, Any]], prefix: str) -> None:
+    """Prefix top-level presentation names while leaving nested loop names local."""
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        name = step.get("name")
+        if isinstance(name, str) and name:
+            step["name"] = f"{prefix}.{name}"

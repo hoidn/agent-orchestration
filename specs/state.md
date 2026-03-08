@@ -12,6 +12,7 @@
   - `context`: key/value map
   - `bound_inputs`: v2.1+ typed workflow inputs bound before execution starts
   - `workflow_outputs`: v2.1+ typed workflow outputs exported after successful workflow completion
+  - `finalization`: v2.3+ workflow finalization bookkeeping (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional `failure`)
   - `error`: optional run-level error object for workflow-boundary failures such as output export contract violations
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
@@ -29,6 +30,10 @@
   - v2.2 structured-control additions:
     - lowered branch markers and lowered branch-body steps are recorded as ordinary top-level step entries under presentation keys such as `RouteReview.then` and `RouteReview.then.WriteApproved`
     - the lowered join node keeps the authored statement presentation key (for example `RouteReview`) and materializes branch outputs there
+  - v2.3 finalization additions:
+    - lowered finalization steps are recorded as ordinary top-level step entries under presentation keys such as `finally.ReleaseLock`
+    - `finalization.workflow_outputs_status` records whether workflow outputs are `pending`, `completed`, `failed`, `suppressed`, or `not_configured`
+    - workflow outputs remain `{}` until finalization succeeds
 
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
@@ -49,6 +54,7 @@
   - Resume from pre-v2.0 state is rejected unless a dedicated upgrader is introduced in a later tranche.
   - v2.1 workflow signatures reuse the v2.0 state schema and append `bound_inputs` / `workflow_outputs` as additive fields under the same `schema_version: "2.0"` boundary.
   - v2.2 structured `if/else` also reuses schema `2.0`; lowered branch markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
+  - v2.3 structured finalization also reuses schema `2.0`; finalization bookkeeping and lowered `finally.*` step entries are additive fields.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:

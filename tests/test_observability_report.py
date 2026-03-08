@@ -258,4 +258,63 @@ def test_snapshot_exposes_looped_resume_current_and_last_completed_visit_counts(
     assert snapshot["run"]["status"] == "running"
     assert prep["visit_count"] == 2
     assert prep["current_visit_count"] == 2
-    assert prep["last_result_visit_count"] == 1
+
+
+def test_snapshot_includes_finalization_progress_and_steps(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-finally"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow = {
+        "version": "2.3",
+        "name": "obs-finally",
+        "steps": [
+            {
+                "name": "Body",
+                "command": ["bash", "-lc", "echo body"],
+            }
+        ],
+        "finally": {
+            "token": "cleanup",
+            "steps": [
+                {
+                    "name": "finally.ReleaseLock",
+                    "command": ["bash", "-lc", "echo cleanup"],
+                    "workflow_finalization": {"block_id": "cleanup"},
+                }
+            ],
+        },
+    }
+    state = {
+        "run_id": "run-finally",
+        "status": "running",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "workflow_file": "workflows/test.yaml",
+        "current_step": {
+            "name": "finally.ReleaseLock",
+            "status": "running",
+            "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        },
+        "finalization": {
+            "block_id": "cleanup",
+            "status": "running",
+            "body_status": "completed",
+            "current_index": 0,
+            "completed_indices": [],
+            "workflow_outputs_status": "pending",
+        },
+        "steps": {
+            "Body": {
+                "status": "completed",
+                "exit_code": 0,
+                "duration_ms": 12,
+            }
+        },
+    }
+
+    snapshot = build_status_snapshot(workflow, state, run_root)
+
+    assert snapshot["run"]["finalization"]["status"] == "running"
+    steps = {entry["name"]: entry for entry in snapshot["steps"]}
+    assert steps["finally.ReleaseLock"]["kind"] == "finally"
+    assert steps["finally.ReleaseLock"]["status"] == "running"

@@ -1,0 +1,54 @@
+version: "2.3"
+name: finally-demo
+
+artifacts:
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed:
+      - APPROVE
+      - REVISE
+
+outputs:
+  final_decision:
+    kind: scalar
+    type: enum
+    allowed:
+      - APPROVE
+      - REVISE
+    from:
+      ref: root.steps.WriteDecision.artifacts.review_decision
+
+steps:
+  - name: WriteDecision
+    id: write_decision
+    set_scalar:
+      artifact: review_decision
+      value: APPROVE
+
+finally:
+  id: cleanup
+  steps:
+    - name: AssertOutputsPending
+      id: assert_outputs_pending
+      command:
+        - bash
+        - -lc
+        - |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          state = json.loads(Path('${run.root}/state.json').read_text(encoding='utf-8'))
+          assert state.get('workflow_outputs', {}) == {}, state.get('workflow_outputs')
+          Path('state').mkdir(exist_ok=True)
+          Path('state/finalization.log').write_text('outputs-pending\n', encoding='utf-8')
+          PY
+    - name: WriteCleanupMarker
+      id: write_cleanup_marker
+      command:
+        - bash
+        - -lc
+        - |
+          mkdir -p state
+          printf 'cleanup-complete\n' >> state/finalization.log

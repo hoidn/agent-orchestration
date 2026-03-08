@@ -81,6 +81,7 @@ class RunState:
     context: Dict[str, Any] = field(default_factory=dict)
     bound_inputs: Dict[str, Any] = field(default_factory=dict)
     workflow_outputs: Dict[str, Any] = field(default_factory=dict)
+    finalization: Dict[str, Any] = field(default_factory=dict)
     error: Optional[Dict[str, Any]] = None
     observability: Optional[Dict[str, Any]] = None
     current_step: Optional[Dict[str, Any]] = None
@@ -104,6 +105,7 @@ class RunState:
             "context": self.context,
             "bound_inputs": self.bound_inputs,
             "workflow_outputs": self.workflow_outputs,
+            "finalization": self.finalization,
             "steps": {},
             "for_each": {},
             "artifact_versions": self.artifact_versions,
@@ -161,6 +163,7 @@ class RunState:
             context=data.get("context", {}),
             bound_inputs=data.get("bound_inputs", {}),
             workflow_outputs=data.get("workflow_outputs", {}),
+            finalization=data.get("finalization", {}),
             error=data.get("error"),
             observability=data.get("observability"),
             current_step=data.get("current_step"),
@@ -430,6 +433,15 @@ class StateManager:
                 raise RuntimeError("State not initialized")
 
             self.state.workflow_outputs = workflow_outputs
+            self._write_state()
+
+    def update_finalization_state(self, finalization: Dict[str, Any]):
+        """Persist workflow finalization bookkeeping."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            self.state.finalization = finalization
             self._write_state()
 
     def update_run_error(self, error: Optional[Dict[str, Any]]):

@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", or "2.2"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", or "2.3"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -21,7 +21,15 @@
   - `outputs`: workflow-boundary output contracts (v2.1+).
     - Keys are output names; values reuse the same typed contract fields as `inputs` plus required `from`.
     - `from` must be exactly `{ ref: "root.steps.<Step>.artifacts.<name>|exit_code|outcome.<field>" }`.
-    - Export validation runs after the workflow body completes successfully.
+    - Export validation runs after the workflow body completes successfully and, for v2.3+ workflows with `finally`, only after finalization completes successfully.
+  - `finally`: structured workflow finalization (v2.3+).
+    - Accepts either `Step[]` or `{ id?, steps: Step[] }`.
+    - `id` uses the same pattern as step `id`.
+    - Finalization steps are recorded under `finally.<StepName>` presentation keys and durable `step_id` ancestry rooted under `root.finally.<block-id-or-finally>`.
+    - First tranche restrictions:
+      - top-level only
+      - `goto` / `_end` routing inside finalization steps is rejected
+      - workflow outputs remain unmaterialized until finalization succeeds and are suppressed on finalization failure
   - `artifacts`: map of named artifact contracts (v1.2+).
     - `kind: relpath|scalar` (optional; default `relpath`)
     - `type: enum|integer|float|bool|relpath` (required)
@@ -208,6 +216,7 @@
   - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.
+  - top-level `finally` requires `version: "2.3"` or higher.
 
 - Control flow defaults
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.

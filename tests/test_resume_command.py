@@ -196,6 +196,65 @@ def _build_structured_if_else_resume_workflow() -> dict:
     }
 
 
+def _build_finally_resume_workflow() -> dict:
+    return {
+        "version": "2.3",
+        "name": "Resume Finally Workflow",
+        "steps": [
+            {
+                "name": "WriteBodyHistory",
+                "id": "write_body_history",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'body\\n' >> state/history.log",
+                ],
+            }
+        ],
+        "finally": {
+            "id": "cleanup",
+            "steps": [
+                {
+                    "name": "WriteCleanupOne",
+                    "id": "write_cleanup_one",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        "mkdir -p state && printf 'cleanup-one\\n' >> state/history.log",
+                    ],
+                },
+                {
+                    "name": "ResumeGate",
+                    "id": "resume_gate",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        "\n".join(
+                            [
+                                "mkdir -p state",
+                                "if [ ! -f state/resume_ready.txt ]; then",
+                                "  printf 'cleanup-gate-failed\\n' >> state/history.log",
+                                "  exit 1",
+                                "fi",
+                                "printf 'cleanup-gate-passed\\n' >> state/history.log",
+                            ]
+                        ),
+                    ],
+                },
+                {
+                    "name": "WriteCleanupTwo",
+                    "id": "write_cleanup_two",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        "mkdir -p state && printf 'cleanup-two\\n' >> state/history.log",
+                    ],
+                },
+            ],
+        },
+    }
+
+
 def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "resume_loop.yaml"
     workflow_path.write_text(yaml.safe_dump(_build_resume_loop_workflow(), sort_keys=False))
@@ -387,6 +446,55 @@ def test_structured_if_else_smoke_resume_does_not_replay_completed_lowered_steps
     assert loaded_state.steps["RouteReview.then.WriteHistory"]["status"] == "completed"
     assert loaded_state.steps["RouteReview.then.ResumeGate"]["status"] == "completed"
     assert loaded_state.steps["RouteReview"]["artifacts"] == {"route_result": True}
+
+
+def test_finally_smoke_resume_restarts_at_first_unfinished_cleanup_step(temp_workspace):
+    """Resume should continue finalization from the first unfinished cleanup step."""
+    workflow_path = temp_workspace / "resume_finally.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_finally_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    loader = WorkflowLoader(temp_workspace)
+    loaded = loader.load(workflow_path)
+
+    state_manager = StateManager(workspace=temp_workspace, run_id="finally-resume-run")
+    state_manager.initialize("resume_finally.yaml")
+    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
+
+    history_path = temp_workspace / "state" / "history.log"
+    assert first_run["status"] == "failed"
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "body",
+        "cleanup-one",
+        "cleanup-gate-failed",
+    ]
+
+    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id="finally-resume-run",
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "body",
+        "cleanup-one",
+        "cleanup-gate-failed",
+        "cleanup-gate-passed",
+        "cleanup-two",
+    ]
+
+    loaded_state = StateManager(temp_workspace, run_id="finally-resume-run").load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["WriteBodyHistory"]["status"] == "completed"
+    assert loaded_state.steps["finally.WriteCleanupOne"]["status"] == "completed"
+    assert loaded_state.steps["finally.ResumeGate"]["status"] == "completed"
+    assert loaded_state.steps["finally.WriteCleanupTwo"]["status"] == "completed"
 
 
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')

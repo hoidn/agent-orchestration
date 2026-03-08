@@ -1,4 +1,4 @@
-"""Structured statement helpers for v2.2 control flow."""
+"""Structured statement helpers for v2.x control flow."""
 
 from __future__ import annotations
 
@@ -6,6 +6,7 @@ from typing import Any, Dict, Optional
 
 
 STRUCTURED_IF_VERSION = "2.2"
+STRUCTURED_FINALLY_VERSION = "2.3"
 
 
 def is_if_statement(step: Any) -> bool:
@@ -40,3 +41,28 @@ def branch_token(branch_name: str, branch_block: Dict[str, Any]) -> str:
     if isinstance(authored, str) and authored:
         return authored
     return branch_name
+
+
+def normalize_finally_block(block: Any) -> Optional[Dict[str, Any]]:
+    """Normalize author-friendly finalization syntax into a dict form."""
+    if block is None:
+        return None
+    if isinstance(block, list):
+        return {
+            "id": None,
+            "steps": block,
+        }
+    if isinstance(block, dict):
+        return {
+            "id": block.get("id"),
+            "steps": block.get("steps"),
+        }
+    return None
+
+
+def finally_block_token(block: Dict[str, Any]) -> str:
+    """Return the stable token for a workflow finally block."""
+    authored = block.get("id")
+    if isinstance(authored, str) and authored:
+        return authored
+    return "finally"

@@ -149,6 +149,11 @@
 139. v2.2 non-taken branches: lowered non-selected branch nodes are recorded explicitly as skipped
 140. v2.2 statement outputs: selected branch outputs materialize onto the statement node as `steps.<Statement>.artifacts`
 141. v2.2 conservative routing boundary: `goto` / `_end` is rejected inside structured `if/else` branches in the first tranche
+142. v2.3 loader gating: top-level `finally` is rejected below `version: "2.3"`
+143. v2.3 stable cleanup identity: authored finalization `id` preserves lowered cleanup-step `step_id` ancestry across sibling insertion
+144. v2.3 resume-safe finalization: resume restarts from the first unfinished `finally` step instead of replaying completed cleanup
+145. v2.3 failure classification: cleanup failure after body success fails the run with `finalization_failed`, while cleanup failure after body failure remains secondary diagnostic state
+146. v2.3 deferred workflow outputs: `workflow_outputs` remain unmaterialized until finalization succeeds and are suppressed on finalization failure
 
 ## DSL Evolution Rollout Crosswalk
 
@@ -159,6 +164,7 @@
 - Task 6 executable proof: `tests/test_loader_validation.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_at65_loop_scoping.py`, and `workflows/examples/for_each_demo.yaml` dry-run verification
 - Task 7 executable proof: `tests/test_loader_validation.py`, `tests/test_cli_safety.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_output_contract.py`, `tests/test_workflow_output_contract_integration.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/workflow_signature_demo.yaml`
 - Task 8 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/structured_if_else_demo.yaml`
+- Task 9 executable proof: `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_observability_report.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/finally_demo.yaml`
 - Later-task roadmap proof ownership remains as written in `docs/plans/2026-03-06-dsl-evolution-execution-plan.md`; those tranches are not accepted until their named test/smoke blocks land with the corresponding implementation.
 
 ## Future Acceptance (v1.2)

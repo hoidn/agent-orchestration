@@ -9,7 +9,7 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 
 ```text
 1) Load + validate workflow YAML (version-gated strict schema)
-2) Bind workflow `inputs` (v2.1+, if declared), lower any v2.2 structured `if/else`, then initialize run root and state.json
+2) Bind workflow `inputs` (v2.1+, if declared), lower any v2.2 structured `if/else` and v2.3 `finally`, then initialize run root and state.json
 3) Iterate steps in graph order (or goto targets)
 4) For each step:
    a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
@@ -21,8 +21,8 @@ Normative behavior is defined by `specs/`. This file is explanatory.
    f1) project normalized step `outcome` metadata for observable results
    g) compute next step (`on.success`, `on.failure`, `on.always`, fallback flow)
    h) increment `transition_count` if control transfers into another top-level step
-5) Terminate at `_end`, terminal step, or failure policy
-6) Export workflow `outputs` (v2.1+, if declared and no `finally` is involved), then persist final run status and report artifacts
+5) If declared, run workflow `finally` exactly once after the body settles on success or failure
+6) Export workflow `outputs` (v2.1+, if declared) only after successful finalization, then persist final run status and report artifacts
 ```
 
 Identity note:
@@ -30,7 +30,9 @@ Identity note:
 - Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping and resume-facing identity now use `step_id`.
 - `for_each` iterations derive qualified identities such as `root.loop_publish#0.produce_in_loop`.
 - v2.2 structured `if/else` lowers to branch markers, lowered branch-body nodes, and a join node that keeps the authored statement presentation key.
+- v2.3 structured `finally` lowers to stable cleanup-step identities under `finally.<StepName>` while keeping durable ancestry rooted under `root.finally.<block-id-or-finally>`.
 - `resume` uses persisted run position only to choose the initial top-level restart point. After execution reaches that point, normal control-flow semantics resume, so a later `goto` may revisit the same top-level step name without being auto-skipped.
+- When finalization is partially complete, `resume` restarts at the first unfinished cleanup step instead of replaying completed cleanup.
 - During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
 
 ## Run Artifacts
@@ -63,6 +65,7 @@ Key notes:
 - Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.
 - After a resumed run terminates, `current_step` is cleared the same way it is for non-resumed runs.
 - For structured `if/else`, non-selected lowered branch nodes appear as `skipped`, while the selected-branch outputs are materialized on the join node under the authored statement name.
+- For structured `finally`, cleanup failures after body success become the run's primary failure; if the body already failed, cleanup failures are recorded as secondary diagnostics under `state.finalization`.
 
 ## Provider Step Runtime Order
 

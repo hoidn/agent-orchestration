@@ -43,6 +43,8 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - branch markers use kind `structured_if_branch`
     - statement join nodes use kind `structured_if_join`
     - join-node `output.error` / `output.artifacts` / `output.debug.structured_if` show selected-branch materialization status
+  - v2.3 status/report snapshots may expose `run.finalization` bookkeeping and render lowered finalization steps as ordinary top-level entries with kind `finally`.
+  - When finalization is present, `run.workflow_outputs` stays empty until cleanup completes successfully; failed cleanup reports `workflow_outputs_status: suppressed|failed` in `run.finalization`.
 
 ## Error Context (shape)
 

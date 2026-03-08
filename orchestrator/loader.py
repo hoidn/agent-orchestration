@@ -1,6 +1,7 @@
 """Workflow loader and strict DSL validation per specs/dsl.md."""
 
 import re
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Set
 import yaml
@@ -8,11 +9,18 @@ import yaml
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
-from orchestrator.workflow.lowering import lower_structured_steps
+from orchestrator.workflow.lowering import lower_finalization_block, lower_structured_steps
 from orchestrator.workflow.predicates import typed_predicate_operator_keys
 from orchestrator.workflow.references import ReferenceResolutionError, parse_structured_ref
 from orchestrator.workflow.signatures import WORKFLOW_SIGNATURE_VERSION
-from orchestrator.workflow.statements import STRUCTURED_IF_VERSION, branch_token, is_if_statement, normalize_branch_block
+from orchestrator.workflow.statements import (
+    STRUCTURED_FINALLY_VERSION,
+    STRUCTURED_IF_VERSION,
+    branch_token,
+    is_if_statement,
+    normalize_branch_block,
+    normalize_finally_block,
+)
 
 
 class PreservingLoader(yaml.SafeLoader):
@@ -39,10 +47,10 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2"}
+    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3"}
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
-    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2"]
+    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3"]
 
     def __init__(self, workspace: Path):
         """Initialize loader with workspace root."""
@@ -85,12 +93,28 @@ class WorkflowLoader:
 
         # Validate steps
         steps = workflow.get('steps', [])
+        finalization_present = self._version_at_least(version, STRUCTURED_FINALLY_VERSION) and 'finally' in workflow
+        normalized_finally = None
+        finally_catalog_steps: List[Dict[str, Any]] = []
+        if finalization_present:
+            normalized_finally = normalize_finally_block(workflow.get('finally'))
+            finally_catalog_steps = self._build_finalization_catalog_steps(normalized_finally)
         root_catalog: Dict[str, Any] = {}
         if not steps:
             self._add_error("'steps' field is required and must not be empty")
         else:
-            root_catalog = self._build_root_ref_catalog(steps, workflow.get('artifacts'))
+            root_catalog = self._build_root_ref_catalog(
+                list(steps) + finally_catalog_steps,
+                workflow.get('artifacts'),
+            )
             self._validate_steps(steps, version, workflow.get('artifacts'), root_catalog=root_catalog)
+            if finalization_present:
+                self._validate_finally_block(
+                    normalized_finally,
+                    version,
+                    workflow.get('artifacts'),
+                    root_catalog,
+                )
             if version == "1.2":
                 all_steps = self._collect_all_steps(steps)
                 self._validate_dataflow_cross_references(all_steps, workflow.get('artifacts'))
@@ -107,6 +131,8 @@ class WorkflowLoader:
         assign_step_ids(workflow.get('steps', []))
         if self._version_at_least(version, STRUCTURED_IF_VERSION):
             workflow['steps'] = lower_structured_steps(workflow.get('steps', []))
+        if normalized_finally is not None:
+            workflow['finally'] = lower_finalization_block(normalized_finally)
         return workflow
 
     def _validate_top_level(self, workflow: Dict[str, Any], version: str):
@@ -115,7 +141,7 @@ class WorkflowLoader:
         known_fields = {
             'version', 'name', 'strict_flow', 'context', 'providers', 'secrets',
             'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps',
-            'artifacts', 'max_transitions', 'inputs', 'outputs'
+            'artifacts', 'max_transitions', 'inputs', 'outputs', 'finally'
         }
 
         # Strict unknown field rejection (skip if version is invalid/empty)
@@ -161,6 +187,9 @@ class WorkflowLoader:
 
         if 'outputs' in workflow and not self._version_at_least(version, WORKFLOW_SIGNATURE_VERSION):
             self._add_error(f"outputs requires version '{WORKFLOW_SIGNATURE_VERSION}'")
+
+        if 'finally' in workflow and not self._version_at_least(version, STRUCTURED_FINALLY_VERSION):
+            self._add_error(f"finally requires version '{STRUCTURED_FINALLY_VERSION}'")
 
     def _validate_workflow_inputs(self, inputs: Any) -> None:
         """Validate top-level workflow input contracts."""
@@ -793,6 +822,18 @@ class WorkflowLoader:
         then_block = normalize_branch_block(step.get('then'), 'then')
         else_block = normalize_branch_block(step.get('else'), 'else')
 
+        branch_tokens: Dict[str, str] = {}
+        for branch_name, branch in (('then', then_block), ('else', else_block)):
+            if branch is None:
+                continue
+            token = branch_token(branch_name, branch)
+            if token in branch_tokens:
+                self._add_error(
+                    f"Step '{step_name}': duplicate branch id '{token}'"
+                )
+            else:
+                branch_tokens[token] = branch_name
+
         then_outputs = self._validate_if_branch(
             statement_name=step_name,
             branch_name='then',
@@ -931,6 +972,61 @@ class WorkflowLoader:
             )
 
         return outputs
+
+    def _build_finalization_catalog_steps(
+        self,
+        finally_block: Optional[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Build presentation-prefixed finalization steps for validation catalogs."""
+        if finally_block is None:
+            return []
+        steps = finally_block.get('steps')
+        if not isinstance(steps, list):
+            return []
+
+        prefixed_steps = deepcopy(steps)
+        for step in prefixed_steps:
+            if not isinstance(step, dict):
+                continue
+            name = step.get('name')
+            if isinstance(name, str) and name:
+                step['name'] = f"finally.{name}"
+        return prefixed_steps
+
+    def _validate_finally_block(
+        self,
+        finally_block: Optional[Dict[str, Any]],
+        version: str,
+        artifacts_registry: Optional[Any],
+        root_catalog: Dict[str, Any],
+    ) -> None:
+        """Validate a top-level workflow finalization block."""
+        if finally_block is None:
+            self._add_error("finally must be a list of steps or an object with steps")
+            return
+
+        block_id = finally_block.get('id')
+        if block_id is not None:
+            if not isinstance(block_id, str) or not STEP_ID_PATTERN.fullmatch(block_id):
+                self._add_error(f"finally.id must match {STEP_ID_PATTERN.pattern}")
+
+        prefixed_steps = self._build_finalization_catalog_steps(finally_block)
+        if not prefixed_steps:
+            self._add_error("finally.steps must be a non-empty list")
+            return
+
+        if self._branch_contains_goto(prefixed_steps):
+            self._add_error(
+                "finally steps do not permit goto/_end routing in the first tranche"
+            )
+
+        self._validate_steps(
+            prefixed_steps,
+            version,
+            artifacts_registry,
+            root_catalog,
+            top_level=False,
+        )
 
     def _branch_contains_goto(self, steps: List[Any]) -> bool:
         """Return True when any nested step declares an explicit goto handler."""

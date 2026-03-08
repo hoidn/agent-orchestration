@@ -2,15 +2,18 @@
 
 ## Completed In This Pass
 
-- Fixed the additive `since_last_consume` freshness regression: post-v1.4 workflows now keep step-scoped freshness through `v1.5`-`v2.1`, and qualified-identity freshness remains additive beyond `v2.0` instead of being hard-coded to one release.
-- Completed Task 8 from the approved execution plan:
-  - added `version: "2.2"` loader support for top-level structured `if/else`
-  - validated branch blocks (`id`, `steps`, `outputs`) with branch-local typed refs and conservative `goto` / `_end` rejection inside branches
-  - lowered structured statements into guarded branch markers, lowered branch-body steps, and a join node with stable ancestry-derived `step_id`s
-  - materialized selected-branch outputs onto the statement node and surfaced selected-branch debug/report metadata
-  - verified resume restarts from the first unfinished lowered node instead of replaying completed branch work
-  - added `workflows/examples/structured_if_else_demo.yaml`
-  - updated the relevant specs, runtime lifecycle guide, drafting guide, and workflow catalog
+- Fixed the Task 8 structured-control review defects:
+  - loader validation now rejects duplicate lowered branch tokens for `then` / `else`, preventing durable `step_id` collisions
+  - nested `for_each` bodies inside structured branches now resolve `parent.steps.*` against the enclosing lexical branch scope instead of the root scope
+- Completed Task 9 from the approved execution plan:
+  - added `version: "2.3"` loader support for top-level `finally`
+  - validated `finally` block ids, rejected `goto` / `_end` routing inside cleanup steps, and assigned stable cleanup `step_id` ancestry under `root.finally.<block>`
+  - appended finalization steps as durable top-level runtime/report nodes under `finally.<StepName>`
+  - persisted finalization progress in `state.json` (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional failure details)
+  - made resume continue from the first unfinished cleanup step instead of replaying completed cleanup
+  - deferred workflow output export until finalization succeeded and suppressed exports on finalization failure
+  - surfaced finalization bookkeeping in status snapshots and added `workflows/examples/finally_demo.yaml`
+  - updated the relevant specs, lifecycle guide, acceptance map, and workflow catalog
 
 ## Completed Plan Tasks
 
@@ -22,10 +25,10 @@
 - Task 6: Build the D4-D5 foundations: scoped refs and stable internal step IDs
 - Task 7: Land D6 typed workflow signatures and top-level input/output binding
 - Task 8: Add a structured statement layer with `if/else`
+- Task 9: Add structured finalization (`finally`) as a separate tranche
 
 ## Remaining Required Plan Tasks
 
-- Task 9: Add structured finalization (`finally`) as a separate tranche
 - Task 10: Lock the accepted-risk reusable-call contract before execution work
 - Task 11: Land imports and `call` on top of typed boundaries and qualified identities
 - Task 12: Add `match` as a separate structured-control tranche
@@ -36,25 +39,34 @@
 
 ## Verification
 
-- `pytest --collect-only tests/test_structured_control_flow.py -q`
-  - `3 tests collected`
-- `pytest tests/test_artifact_dataflow_integration.py -k "scoped_to_consumer_step" -v`
-  - `7 passed, 15 deselected in 0.23s`
-- `pytest tests/test_loader_validation.py tests/test_structured_control_flow.py tests/test_state_manager.py -k "if_else or lowered" -v`
-  - `6 passed, 92 deselected in 0.10s`
-- `pytest tests/test_resume_command.py -k structured_if_else_smoke -v`
-  - `1 passed, 17 deselected in 0.10s`
-- `pytest tests/test_workflow_examples_v0.py -k structured_if_else -v`
-  - `1 passed, 14 deselected in 0.05s`
-- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/structured_if_else_demo.yaml --dry-run`
+- `pytest --collect-only tests/test_structured_control_flow.py tests/test_resume_command.py tests/test_observability_report.py tests/test_workflow_examples_v0.py -q`
+  - `53 tests collected`
+- `pytest tests/test_structured_control_flow.py tests/test_resume_command.py -k finally -v`
+  - `6 passed, 23 deselected`
+- `pytest tests/test_observability_report.py -k finalization -v`
+  - `1 passed, 7 deselected`
+- `pytest tests/test_workflow_examples_v0.py -k finally -v`
+  - `1 passed, 15 deselected`
+- `pytest tests/test_structured_control_flow.py tests/test_resume_command.py tests/test_observability_report.py tests/test_workflow_examples_v0.py -k 'duplicate_branch_ids or nested_for_each_parent_scope or finally' -v`
+  - `9 passed, 44 deselected`
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --dry-run`
   - `[DRY RUN] Workflow validation successful`
 - `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/for_each_demo.yaml --dry-run`
   - `[DRY RUN] Workflow validation successful`
 - `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/generic_task_plan_execute_review_loop.yaml --dry-run`
   - `[DRY RUN] Workflow validation successful`
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/finally_demo.yaml --state-dir /tmp/dsl-evolution-finally-demo`
+  - created run `20260308T003654Z-wzxvr2`
+  - persisted state at `.orchestrate/runs/20260308T003654Z-wzxvr2/state.json` with:
+    - `status: completed`
+    - `workflow_outputs: {"final_decision": "APPROVE"}`
+    - `finalization.block_id: cleanup`
+    - `finalization.status: completed`
+    - `finalization.completed_indices: [0, 1]`
+    - `finalization.workflow_outputs_status: completed`
 
 ## Residual Risks
 
-- Task 8 intentionally stops at top-level `if/else`; nested structured statements and finalization semantics remain deferred.
-- Lowered structured-control nodes now appear explicitly in reports/state. Later structured tranches (`finally`, `call`, `match`, `repeat_until`) must preserve the same durable ancestry model instead of inventing sibling-order-sensitive runtime ids.
-- The broader DSL evolution roadmap remains incomplete from Task 9 onward; reusable-call/import semantics, `match`, `repeat_until`, score-aware gates, linting, and the final compatibility sweep are still required.
+- Task 9 intentionally stops at top-level workflow finalization; block-scoped teardown/defer semantics remain deferred.
+- Finalization first tranche is intentionally conservative: cleanup steps reject `goto` / `_end`, and nested structured statements inside `finally` remain out of scope until a later tranche defines lowering/identity behavior for them.
+- The broader DSL evolution roadmap remains incomplete from Task 10 onward; reusable-call/import semantics, `match`, `repeat_until`, score-aware gates, linting, and the final compatibility sweep are still required.
