@@ -255,6 +255,105 @@ def _build_finally_resume_workflow() -> dict:
     }
 
 
+def _build_call_resume_library_workflow() -> dict:
+    return {
+        "version": "2.5",
+        "name": "resume-review-loop",
+        "inputs": {
+            "write_root": {
+                "kind": "relpath",
+                "type": "relpath",
+            }
+        },
+        "artifacts": {
+            "approved": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "outputs": {
+            "approved": {
+                "kind": "scalar",
+                "type": "bool",
+                "from": {
+                    "ref": "root.steps.SetApproved.artifacts.approved",
+                },
+            }
+        },
+        "steps": [
+            {
+                "name": "WriteHistory",
+                "id": "write_history",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "mkdir -p \"${inputs.write_root}\"",
+                            "printf 'child-one\\n' >> \"${inputs.write_root}/history.log\"",
+                        ]
+                    ),
+                ],
+            },
+            {
+                "name": "ResumeGate",
+                "id": "resume_gate",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "mkdir -p \"${inputs.write_root}\"",
+                            "if [ ! -f state/resume_ready.txt ]; then",
+                            "  printf 'gate-failed\\n' >> \"${inputs.write_root}/history.log\"",
+                            "  exit 1",
+                            "fi",
+                            "printf 'gate-passed\\n' >> \"${inputs.write_root}/history.log\"",
+                        ]
+                    ),
+                ],
+            },
+            {
+                "name": "SetApproved",
+                "id": "set_approved",
+                "set_scalar": {
+                    "artifact": "approved",
+                    "value": True,
+                },
+            },
+        ],
+    }
+
+
+def _build_call_resume_caller_workflow() -> dict:
+    return {
+        "version": "2.5",
+        "name": "resume-call-workflow",
+        "imports": {
+            "review_loop": "workflows/library/review_fix_loop.yaml",
+        },
+        "steps": [
+            {
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+                "with": {
+                    "write_root": "state/review-loop",
+                },
+            },
+            {
+                "name": "VerifyApproved",
+                "id": "verify_approved",
+                "assert": {
+                    "artifact_bool": {
+                        "ref": "root.steps.RunReviewLoop.artifacts.approved",
+                    }
+                },
+            },
+        ],
+    }
+
+
 def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "resume_loop.yaml"
     workflow_path.write_text(yaml.safe_dump(_build_resume_loop_workflow(), sort_keys=False))
@@ -495,6 +594,63 @@ def test_finally_smoke_resume_restarts_at_first_unfinished_cleanup_step(temp_wor
     assert loaded_state.steps["finally.WriteCleanupOne"]["status"] == "completed"
     assert loaded_state.steps["finally.ResumeGate"]["status"] == "completed"
     assert loaded_state.steps["finally.WriteCleanupTwo"]["status"] == "completed"
+
+
+def test_call_subworkflow_smoke_resume_preserves_completed_nested_steps(temp_workspace):
+    run_id = "call-subworkflow-resume-run"
+    library_path = temp_workspace / "workflows" / "library" / "review_fix_loop.yaml"
+    library_path.parent.mkdir(parents=True, exist_ok=True)
+    library_path.write_text(
+        yaml.safe_dump(_build_call_resume_library_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = temp_workspace / "resume_call_workflow.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_call_resume_caller_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    loader = WorkflowLoader(temp_workspace)
+    loaded = loader.load(workflow_path)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(str(workflow_path), context=loaded.get("context", {}))
+
+    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
+
+    history_path = temp_workspace / "state" / "review-loop" / "history.log"
+    assert first_run["status"] == "failed"
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "child-one",
+        "gate-failed",
+    ]
+
+    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "child-one",
+        "gate-failed",
+        "gate-passed",
+    ]
+
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["RunReviewLoop"]["artifacts"] == {"approved": True}
+    assert loaded_state.steps["VerifyApproved"]["status"] == "completed"
+    assert len(loaded_state.call_frames) == 1
+    frame = next(iter(loaded_state.call_frames.values()))
+    assert frame["status"] == "completed"
+    assert frame["export_status"] == "completed"
+    assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
+    assert frame["state"]["steps"]["ResumeGate"]["status"] == "completed"
+    assert frame["state"]["steps"]["SetApproved"]["status"] == "completed"
 
 
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')

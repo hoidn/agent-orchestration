@@ -1,4 +1,4 @@
-"""Loader validation coverage for reusable workflow imports and call boundaries."""
+"""Loader and runtime coverage for reusable workflow imports and call boundaries."""
 
 from pathlib import Path
 
@@ -7,6 +7,8 @@ import yaml
 
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
+from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -238,3 +240,161 @@ def test_import_path_rejects_source_tree_escape(tmp_path: Path):
         "workflow source tree" in str(error.message)
         for error in exc_info.value.errors
     )
+
+
+def test_reusable_workflow_rejects_hard_coded_dsl_managed_write_root(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.5",
+            "name": "review-fix-loop",
+            "steps": [
+                {
+                    "name": "WriteOutput",
+                    "id": "write_output",
+                    "command": ["bash", "-lc", "printf 'ok\\n'"],
+                    "output_file": "state/fixed-output.txt",
+                }
+            ],
+        },
+    )
+    caller_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+            },
+        ),
+    )
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        WorkflowLoader(tmp_path).load(caller_path)
+
+    assert any(
+        "DSL-managed write roots" in str(error.message)
+        for error in exc_info.value.errors
+    )
+
+
+def test_call_rejects_colliding_write_root_bindings(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.5",
+            "name": "review-fix-loop",
+            "inputs": {
+                "write_root": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                }
+            },
+            "steps": [
+                {
+                    "name": "WriteOutput",
+                    "id": "write_output",
+                    "command": ["bash", "-lc", "printf 'ok\\n'"],
+                    "output_file": "${inputs.write_root}/result.txt",
+                }
+            ],
+        },
+    )
+    caller_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.5",
+            "name": "call-demo",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "steps": [
+                {
+                    "name": "RunReviewLoopA",
+                    "id": "run_review_loop_a",
+                    "call": "review_loop",
+                    "with": {
+                        "write_root": "state/shared",
+                    },
+                },
+                {
+                    "name": "RunReviewLoopB",
+                    "id": "run_review_loop_b",
+                    "call": "review_loop",
+                    "with": {
+                        "write_root": "state/shared",
+                    },
+                },
+            ],
+        },
+    )
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        WorkflowLoader(tmp_path).load(caller_path)
+
+    assert any(
+        "colliding write-root bindings" in str(error.message)
+        for error in exc_info.value.errors
+    )
+
+
+def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.5",
+            "name": "review-fix-loop",
+            "artifacts": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "outputs": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.SetApproved.artifacts.approved"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetApproved",
+                    "id": "set_approved",
+                    "set_scalar": {
+                        "artifact": "approved",
+                        "value": True,
+                    },
+                }
+            ],
+        },
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+            },
+        ),
+    )
+
+    workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="call-run")
+    state_manager.initialize("workflow.yaml", context=workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, tmp_path, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunReviewLoop"]["status"] == "completed"
+    assert state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
+    assert "SetApproved" not in state["steps"]
+
+    call_frames = state.get("call_frames", {})
+    assert len(call_frames) == 1
+    frame = next(iter(call_frames.values()))
+    assert frame["import_alias"] == "review_loop"
+    assert frame["status"] == "completed"
+    assert frame["export_status"] == "completed"
+    assert frame["state"]["workflow_outputs"] == {"approved": True}
+    assert frame["state"]["steps"]["SetApproved"]["artifacts"] == {"approved": True}

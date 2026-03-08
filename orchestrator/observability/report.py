@@ -36,6 +36,8 @@ def _step_kind(step: Dict[str, Any]) -> str:
         return "set_scalar"
     if "increment_scalar" in step:
         return "increment_scalar"
+    if "call" in step:
+        return "call"
     return "unknown"
 
 
@@ -194,6 +196,9 @@ def build_status_snapshot(
                 "error": result.get("error"),
                 "outcome": result.get("outcome"),
             }
+            debug_payload = result.get("debug")
+            if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
+                entry["output"]["call"] = debug_payload.get("call")
 
         if status == "completed":
             entry["summary"] = "completed"

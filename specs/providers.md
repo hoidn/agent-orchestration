@@ -10,15 +10,15 @@
   - `provider: <name>` uses the template; merge `defaults` overlaid by `provider_params` (step wins).
   - In argv mode, `${PROMPT}` is replaced by the composed prompt (see below).
   - In stdin mode, the composed prompt is piped to the child stdin; provider templates MUST NOT include `${PROMPT}`.
-  - Planned reusable-workflow prompt assets:
+  - Reusable-workflow prompt assets:
     - `input_file` stays workspace-relative.
-    - `asset_file` is the workflow-source-relative prompt/template surface reserved by Task 10 and implemented with `call` in Task 11.
+    - `asset_file` is the workflow-source-relative prompt/template surface for reusable workflows.
 
 - Prompt composition
   - Read exactly one base prompt source:
     - `input_file` literally from WORKSPACE, or
-    - planned `asset_file` literally from the directory containing the authored workflow file.
-  - Planned `asset_depends_on` source assets are injected in-memory as deterministic content blocks in declared order.
+    - `asset_file` literally from the directory containing the authored workflow file.
+  - `asset_depends_on` source assets are injected in-memory as deterministic content blocks in declared order.
   - Apply workspace dependency injection in-memory if `depends_on.inject` is enabled (see `dependencies.md`).
   - For `version: "1.2"` provider steps with `consumes`, inject a deterministic `Consumed Artifacts` block by default using resolved consume values from preflight (not prompt-authored paths).
     - Disable with `inject_consumes: false`.
@@ -32,7 +32,7 @@
     - These annotations are prompt guidance only and do not change runtime contract validation semantics.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
-- Planned reusable-call provider boundary (Task 10 contract; v2.5 execution)
+- Reusable-call provider boundary
   - `asset_file` and `asset_depends_on` resolve relative to the authored workflow file and must stay within that workflow source tree.
   - `input_file` and plain `depends_on` remain workspace-relative, even under `call`.
   - Imported workflows bring private `providers` namespaces; caller/callee provider-template name collisions do not merge unless a later contract adds explicit binding rules.

@@ -2,8 +2,8 @@
 
 - Input handling
   - `input_file`: read literal contents; no substitution inside file contents.
-    - Under the planned reusable-call boundary, `input_file` remains workspace-relative and does not become import-local.
-  - `asset_file` (planned v2.5; contract fixed in v2.4 docs): read literal contents from the authored workflow source tree; provider-only and mutually exclusive with `input_file`.
+    - Under reusable `call`, `input_file` remains workspace-relative and does not become import-local.
+  - `asset_file` (v2.5): read literal contents from the authored workflow source tree; provider-only and mutually exclusive with `input_file`.
   - When using a provider, the composed prompt (after optional injection) is passed via argv `${PROMPT}` or piped to stdin per provider template.
 
 - Output handling
@@ -12,11 +12,11 @@
   - Deterministic artifact contracts:
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
-  - Planned reusable-call boundary:
+  - Reusable-call boundary:
     - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
     - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.
 
-## Planned Source-Relative vs Workspace-Relative Taxonomy
+## Source-Relative vs Workspace-Relative Taxonomy
 
 - Workflow-source-relative reads:
   - `imports`

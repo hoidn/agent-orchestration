@@ -7,10 +7,11 @@ import json
 import logging
 import threading
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from ..state import ForEachState, StateManager, StepResult
+from ..state import ForEachState, RunState, StateManager, StepResult
 from ..exec.step_executor import StepExecutor
 from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
@@ -38,6 +39,207 @@ from .references import ReferenceResolutionError, ReferenceResolver
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 
 logger = logging.getLogger(__name__)
+
+
+def _display_workflow_path(workspace: Path, workflow_path: Any) -> str:
+    """Render a workflow path relative to the workspace when possible."""
+    path = Path(str(workflow_path)).resolve()
+    try:
+        return str(path.relative_to(workspace.resolve()))
+    except ValueError:
+        return str(path)
+
+
+class _CallFrameStateManager:
+    """Persist a nested workflow state snapshot under the parent run state."""
+
+    def __init__(
+        self,
+        *,
+        parent_manager: StateManager,
+        workflow: Dict[str, Any],
+        frame_id: str,
+        call_step_name: str,
+        call_step_id: str,
+        import_alias: str,
+        bound_inputs: Dict[str, Any],
+        existing_frame: Optional[Dict[str, Any]] = None,
+        observability: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.parent_manager = parent_manager
+        self.workspace = parent_manager.workspace
+        self.workflow = workflow
+        self.frame_id = frame_id
+        self.call_step_name = call_step_name
+        self.call_step_id = call_step_id
+        self.import_alias = import_alias
+        self.run_id = parent_manager.run_id
+        frame_root_name = frame_id.replace("/", "_").replace(":", "_")
+        self.run_root = parent_manager.run_root / "call_frames" / frame_root_name
+        self.logs_dir = self.run_root / "logs"
+        self.run_root.mkdir(parents=True, exist_ok=True)
+        self.logs_dir.mkdir(exist_ok=True)
+
+        existing_state = existing_frame.get("state") if isinstance(existing_frame, dict) else None
+        if isinstance(existing_state, dict):
+            self.state = RunState.from_dict(existing_state)
+        else:
+            workflow_path = workflow.get("__workflow_path", "")
+            now = datetime.now(timezone.utc).isoformat()
+            self.state = RunState(
+                schema_version=StateManager.SCHEMA_VERSION,
+                run_id=self.run_id,
+                workflow_file=_display_workflow_path(self.workspace, workflow_path) if workflow_path else "",
+                workflow_checksum="call_frame",
+                started_at=now,
+                updated_at=now,
+                status="running",
+                run_root=str(self.run_root),
+                context=workflow.get("context", {}),
+                bound_inputs=dict(bound_inputs),
+                observability=observability,
+            )
+        self._persist()
+
+    def _snapshot(self) -> Dict[str, Any]:
+        """Build the persisted call-frame metadata snapshot."""
+        finalization = self.state.finalization if isinstance(self.state.finalization, dict) else {}
+        body_status = finalization.get("body_status")
+        finalization_status = finalization.get("status", "not_configured") if finalization else "not_configured"
+        has_outputs = isinstance(self.workflow.get("outputs"), dict) and bool(self.workflow.get("outputs"))
+        if finalization:
+            export_status = finalization.get(
+                "workflow_outputs_status",
+                "pending" if has_outputs else "not_configured",
+            )
+        elif has_outputs:
+            export_status = "completed" if self.state.status == "completed" else "suppressed"
+        else:
+            export_status = "not_configured"
+        if body_status is None and self.state.status in {"completed", "failed"}:
+            body_status = self.state.status
+
+        return {
+            "call_frame_id": self.frame_id,
+            "call_step_name": self.call_step_name,
+            "call_step_id": self.call_step_id,
+            "import_alias": self.import_alias,
+            "workflow_file": self.state.workflow_file,
+            "status": self.state.status,
+            "body_status": body_status,
+            "finalization_status": finalization_status,
+            "export_status": export_status,
+            "bound_inputs": dict(self.state.bound_inputs),
+            "current_step": self.state.current_step,
+            "state": self.state.to_dict(),
+        }
+
+    def _persist(self) -> None:
+        self.parent_manager.update_call_frame(self.frame_id, self._snapshot())
+
+    def load(self) -> RunState:
+        return self.state
+
+    def backup_state(self, step_name: str) -> None:
+        del step_name
+
+    def update_step(self, step_name: str, result: StepResult) -> None:
+        self.state.steps[step_name] = result
+        if (
+            self.state.current_step is not None
+            and self.state.current_step.get("name") == step_name
+        ):
+            self.state.current_step = None
+        self._persist()
+
+    def update_loop_step(self, loop_name: str, index: int, step_name: str, result: StepResult) -> None:
+        self.state.steps[f"{loop_name}[{index}].{step_name}"] = result
+        self._persist()
+
+    def update_loop_results(self, loop_name: str, loop_results: List[Dict[str, Any]]) -> None:
+        self.state.steps[loop_name] = loop_results
+        self._persist()
+
+    def update_for_each(self, loop_name: str, state: ForEachState) -> None:
+        self.state.for_each[loop_name] = state
+        self._persist()
+
+    def update_dataflow_state(
+        self,
+        artifact_versions: Dict[str, List[Dict[str, Any]]],
+        artifact_consumes: Dict[str, Dict[str, int]],
+    ) -> None:
+        self.state.artifact_versions = artifact_versions
+        self.state.artifact_consumes = artifact_consumes
+        self._persist()
+
+    def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]) -> None:
+        self.state.call_frames[frame_id] = frame_state
+        self._persist()
+
+    def update_workflow_outputs(self, workflow_outputs: Dict[str, Any]) -> None:
+        self.state.workflow_outputs = workflow_outputs
+        self._persist()
+
+    def update_finalization_state(self, finalization: Dict[str, Any]) -> None:
+        self.state.finalization = finalization
+        self._persist()
+
+    def update_run_error(self, error: Optional[Dict[str, Any]]) -> None:
+        self.state.error = error
+        self._persist()
+
+    def update_control_flow_counters(
+        self,
+        transition_count: int,
+        step_visits: Dict[str, int],
+    ) -> None:
+        self.state.transition_count = transition_count
+        self.state.step_visits = step_visits
+        self._persist()
+
+    def update_status(self, status: str) -> None:
+        self.state.status = status
+        self._persist()
+
+    def start_step(
+        self,
+        step_name: str,
+        step_index: int,
+        step_type: str,
+        step_id: Optional[str] = None,
+        visit_count: Optional[int] = None,
+    ) -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        self.state.current_step = {
+            "name": step_name,
+            "index": step_index,
+            "type": step_type,
+            "status": "running",
+            "started_at": now,
+            "last_heartbeat_at": now,
+        }
+        if step_id:
+            self.state.current_step["step_id"] = step_id
+        if visit_count is not None:
+            self.state.current_step["visit_count"] = visit_count
+        self._persist()
+
+    def heartbeat_step(self, step_name: Optional[str] = None) -> None:
+        if self.state.current_step is None:
+            return
+        if step_name and self.state.current_step.get("name") != step_name:
+            return
+        self.state.current_step["last_heartbeat_at"] = datetime.now(timezone.utc).isoformat()
+        self._persist()
+
+    def clear_current_step(self, step_name: Optional[str] = None) -> None:
+        if self.state.current_step is None:
+            return
+        if step_name and self.state.current_step.get("name") != step_name:
+            return
+        self.state.current_step = None
+        self._persist()
 
 
 class WorkflowExecutor:
@@ -437,6 +639,7 @@ class WorkflowExecutor:
         state.setdefault('step_visits', {})
         state.setdefault('bound_inputs', {})
         state.setdefault('workflow_outputs', {})
+        state.setdefault('call_frames', {})
         initial_finalization = self._initial_finalization_state()
         if initial_finalization is not None:
             state.setdefault('finalization', initial_finalization)
@@ -845,7 +1048,7 @@ class WorkflowExecutor:
                             result = publish_error
                         self._persist_step_result(state, step_name, step, result)
                     elif 'call' in step:
-                        result = self._execute_call(step)
+                        result = self._execute_call(step, state)
                         self._persist_step_result(state, step_name, step, result)
                     elif 'provider' in step:
                         result = self._execute_provider(step, state)
@@ -1438,15 +1641,24 @@ class WorkflowExecutor:
                     if isinstance(entry_version, int) and entry_version > max_version:
                         max_version = entry_version
 
-            versions.append(
-                {
-                    'version': max_version + 1,
-                    'value': value,
-                    'producer': producer_identity,
-                    'producer_name': step_name,
-                    'step_index': self.current_step,
-                }
-            )
+            entry = {
+                'version': max_version + 1,
+                'value': value,
+                'producer': producer_identity,
+                'producer_name': step_name,
+                'step_index': self.current_step,
+            }
+            debug_payload = result.get('debug')
+            if isinstance(debug_payload, dict):
+                call_debug = debug_payload.get('call')
+                if isinstance(call_debug, dict):
+                    export_sources = call_debug.get('exports')
+                    if isinstance(export_sources, dict):
+                        source = export_sources.get(output_name)
+                        if isinstance(source, dict):
+                            entry['source_provenance'] = source
+
+            versions.append(entry)
 
         self._persist_dataflow_state(state)
         return None
@@ -1773,6 +1985,14 @@ class WorkflowExecutor:
         except ValueError:
             return None
         return candidate
+
+    def _prepare_output_file_path(self, output_file_value: str) -> Optional[Path]:
+        """Resolve a workspace-relative output file path and ensure its parent exists."""
+        output_file = self._resolve_workspace_path(output_file_value)
+        if output_file is None:
+            return None
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        return output_file
 
     def _read_prompt_source(self, step: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]]]:
         """Read either a workspace-relative input_file or a source-relative asset_file."""
@@ -2489,7 +2709,16 @@ class WorkflowExecutor:
             output_file = None
             if 'output_file' in step:
                 output_file_str = self.variable_substitutor.substitute(step['output_file'], variables)
-                output_file = Path(output_file_str)
+                output_file = self._prepare_output_file_path(output_file_str)
+                if output_file is None:
+                    return self._contract_violation_result(
+                        "Provider execution failed",
+                        {
+                            "step": step.get('name', f'step_{self.current_step}'),
+                            "reason": "output_file_path_escape",
+                            "path": output_file_str,
+                        },
+                    )
 
             # Convert output_capture string to CaptureMode enum
             from ..exec.output_capture import CaptureMode
@@ -2742,7 +2971,16 @@ class WorkflowExecutor:
             output_file = None
             if 'output_file' in step:
                 output_file_str = self.variable_substitutor.substitute(step['output_file'], variables)
-                output_file = Path(output_file_str)
+                output_file = self._prepare_output_file_path(output_file_str)
+                if output_file is None:
+                    return self._contract_violation_result(
+                        "Command execution failed",
+                        {
+                            "step": step.get('name', f'step_{self.current_step}'),
+                            "reason": "output_file_path_escape",
+                            "path": output_file_str,
+                        },
+                    )
 
             capturer = OutputCapture(
                 workspace=self.workspace,
@@ -2823,19 +3061,238 @@ class WorkflowExecutor:
 
         return self._apply_expected_outputs_contract(step, result)
 
-    def _execute_call(self, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Fail explicitly until full call-frame execution support lands."""
-        return {
-            'status': 'failed',
-            'exit_code': 2,
-            'duration_ms': 0,
-            'error': {
-                'type': 'call_not_implemented',
-                'message': 'Reusable call execution is not implemented in this pass',
-                'context': {
-                    'call': step.get('call'),
+    def _call_frame_id(self, step: Dict[str, Any], state: Dict[str, Any]) -> str:
+        """Derive a durable call-frame id from the authored call step and visit count."""
+        if getattr(self, "resume_mode", False):
+            call_frames = state.get('call_frames', {})
+            step_id = self._step_id(step)
+            if isinstance(call_frames, dict):
+                for frame_id, frame in call_frames.items():
+                    if not isinstance(frame, dict):
+                        continue
+                    if frame.get('call_step_id') != step_id:
+                        continue
+                    if frame.get('status') == 'completed':
+                        continue
+                    return frame_id
+
+        step_name = step.get('name', f'step_{self.current_step}')
+        step_visits = state.get('step_visits', {})
+        visit_count = step_visits.get(step_name, 1) if isinstance(step_visits, dict) else 1
+        return f"{self._step_id(step)}::visit::{visit_count}"
+
+    def _resolve_call_bound_inputs(
+        self,
+        step: Dict[str, Any],
+        imported_workflow: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """Resolve call-site literal and structured-ref bindings into typed callee inputs."""
+        bindings = step.get('with', {})
+        if bindings is None:
+            bindings = {}
+        if not isinstance(bindings, dict):
+            return None, self._contract_violation_result(
+                "Call input binding failed",
+                {
+                    "step": step.get('name', f'step_{self.current_step}'),
+                    "reason": "invalid_with_bindings",
                 },
-            },
+            )
+
+        input_specs = imported_workflow.get('inputs', {})
+        if not isinstance(input_specs, dict):
+            input_specs = {}
+
+        bound_inputs: Dict[str, Any] = {}
+        for input_name, input_spec in input_specs.items():
+            if not isinstance(input_spec, dict):
+                continue
+
+            if input_name in bindings:
+                raw_value = bindings[input_name]
+                if isinstance(raw_value, dict):
+                    ref = raw_value.get('ref')
+                    try:
+                        raw_value = self.reference_resolver.resolve(ref, state).value
+                    except ReferenceResolutionError as exc:
+                        return None, self._contract_violation_result(
+                            "Call input binding failed",
+                            {
+                                "step": step.get('name', f'step_{self.current_step}'),
+                                "input": input_name,
+                                "reason": "unresolved_ref",
+                                "ref": ref,
+                                "error": str(exc),
+                            },
+                        )
+                try:
+                    bound_inputs[input_name] = validate_contract_value(
+                        raw_value,
+                        input_spec,
+                        workspace=self.workspace,
+                    )
+                except OutputContractError as exc:
+                    return None, self._contract_violation_result(
+                        "Call input binding failed",
+                        {
+                            "step": step.get('name', f'step_{self.current_step}'),
+                            "input": input_name,
+                            "reason": "invalid_value",
+                            "violations": exc.violations,
+                        },
+                    )
+                continue
+
+            if 'default' in input_spec:
+                bound_inputs[input_name] = input_spec['default']
+                continue
+            if input_spec.get('required', True):
+                return None, self._contract_violation_result(
+                    "Call input binding failed",
+                    {
+                        "step": step.get('name', f'step_{self.current_step}'),
+                        "input": input_name,
+                        "reason": "missing_required_input",
+                    },
+                )
+
+        return bound_inputs, None
+
+    def _build_call_debug_payload(
+        self,
+        *,
+        frame_id: str,
+        step: Dict[str, Any],
+        imported_workflow: Dict[str, Any],
+        child_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build observability metadata for one executed call frame."""
+        workflow_path = imported_workflow.get('__workflow_path')
+        workflow_file = (
+            _display_workflow_path(self.workspace, workflow_path)
+            if isinstance(workflow_path, str) and workflow_path
+            else None
+        )
+        call_frames = child_state.get('call_frames', {})
+        nested_frames = list(call_frames.keys()) if isinstance(call_frames, dict) else []
+        finalization = child_state.get('finalization', {})
+        exports: Dict[str, Any] = {}
+        output_specs = imported_workflow.get('outputs', {})
+        workflow_outputs = child_state.get('workflow_outputs', {})
+        if isinstance(output_specs, dict) and isinstance(workflow_outputs, dict):
+            child_steps = child_state.get('steps', {}) if isinstance(child_state.get('steps'), dict) else {}
+            for output_name, output_spec in output_specs.items():
+                if output_name not in workflow_outputs or not isinstance(output_spec, dict):
+                    continue
+                binding = output_spec.get('from')
+                ref = binding.get('ref') if isinstance(binding, dict) else None
+                export_entry: Dict[str, Any] = {"source_ref": ref}
+                if isinstance(ref, str) and ref.startswith("root.steps."):
+                    step_name = ref[len("root.steps."):].split(".", 1)[0]
+                    child_step = child_steps.get(step_name)
+                    if isinstance(child_step, dict):
+                        export_entry["source_step_name"] = step_name
+                        if isinstance(child_step.get("step_id"), str):
+                            export_entry["source_step_id"] = child_step.get("step_id")
+                exports[output_name] = export_entry
+
+        return {
+            'call_frame_id': frame_id,
+            'import_alias': step.get('call'),
+            'workflow_file': workflow_file,
+            'status': child_state.get('status'),
+            'finalization': finalization if isinstance(finalization, dict) else {},
+            'bound_inputs': child_state.get('bound_inputs', {}),
+            'workflow_outputs': workflow_outputs if isinstance(workflow_outputs, dict) else {},
+            'exports': exports,
+            'nested_call_frames': nested_frames,
+        }
+
+    def _execute_call(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute an imported workflow inline and persist call-frame state."""
+        call_alias = step.get('call')
+        imported_workflow = self.workflow.get('__imports', {}).get(call_alias)
+        if not isinstance(imported_workflow, dict):
+            return self._contract_violation_result(
+                "Call execution failed",
+                {
+                    "step": step.get('name', f'step_{self.current_step}'),
+                    "reason": "unknown_import_alias",
+                    "call": call_alias,
+                },
+            )
+
+        bound_inputs, binding_error = self._resolve_call_bound_inputs(step, imported_workflow, state)
+        if binding_error is not None:
+            return binding_error
+        assert bound_inputs is not None
+
+        frame_id = self._call_frame_id(step, state)
+        call_frames = state.setdefault('call_frames', {})
+        existing_frame = call_frames.get(frame_id) if isinstance(call_frames, dict) else None
+        if not isinstance(call_frames, dict):
+            call_frames = {}
+            state['call_frames'] = call_frames
+
+        child_state_manager = _CallFrameStateManager(
+            parent_manager=self.state_manager,
+            workflow=imported_workflow,
+            frame_id=frame_id,
+            call_step_name=step.get('name', f'step_{self.current_step}'),
+            call_step_id=self._step_id(step),
+            import_alias=str(call_alias),
+            bound_inputs=bound_inputs,
+            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
+            observability=self.observability,
+        )
+        child_executor = WorkflowExecutor(
+            workflow=imported_workflow,
+            workspace=self.workspace,
+            state_manager=child_state_manager,
+            debug=self.debug,
+            stream_output=self.stream_output,
+            max_retries=self.max_retries,
+            retry_delay_ms=self.retry_delay_ms,
+            observability=self.observability,
+            step_heartbeat_interval_sec=self.step_heartbeat_interval_sec,
+        )
+        child_state = child_executor.execute(resume=self.resume_mode)
+        call_frames[frame_id] = child_state_manager._snapshot()
+
+        debug_payload = self._build_call_debug_payload(
+            frame_id=frame_id,
+            step=step,
+            imported_workflow=imported_workflow,
+            child_state=child_state,
+        )
+        if child_state.get('status') != 'completed':
+            return {
+                'status': 'failed',
+                'exit_code': 2,
+                'duration_ms': 0,
+                'error': {
+                    'type': 'call_failed',
+                    'message': 'Called workflow failed',
+                    'context': {
+                        'call': call_alias,
+                        'call_frame_id': frame_id,
+                        'workflow_file': debug_payload.get('workflow_file'),
+                        'error': child_state.get('error'),
+                    },
+                },
+                'debug': {'call': debug_payload},
+            }
+
+        workflow_outputs = child_state.get('workflow_outputs', {})
+        if not isinstance(workflow_outputs, dict):
+            workflow_outputs = {}
+        return {
+            'status': 'completed',
+            'exit_code': 0,
+            'duration_ms': 0,
+            'artifacts': workflow_outputs,
+            'debug': {'call': debug_payload},
         }
 
     def _execute_provider_invocation(self, invocation: Any) -> Any:

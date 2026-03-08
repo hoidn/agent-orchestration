@@ -15,7 +15,7 @@ Normative behavior is defined by `specs/`. This file is explanatory.
    a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
    b) evaluate `when` (may skip)
    c) enforce consumes preflight (if configured)
-   d) execute step body (`assert`/command/provider/wait_for/for_each)
+   d) execute step body (`assert`/command/provider/wait_for/for_each/call)
    e) validate deterministic outputs (`expected_outputs` or `output_bundle`)
    f) record published artifacts (if configured)
    f1) project normalized step `outcome` metadata for observable results
@@ -31,8 +31,10 @@ Identity note:
 - `for_each` iterations derive qualified identities such as `root.loop_publish#0.produce_in_loop`.
 - v2.2 structured `if/else` lowers to branch markers, lowered branch-body nodes, and a join node that keeps the authored statement presentation key.
 - v2.3 structured `finally` lowers to stable cleanup-step identities under `finally.<StepName>` while keeping durable ancestry rooted under `root.finally.<block-id-or-finally>`.
+- v2.5 `call` keeps the authored outer step as the caller-visible node and persists nested callee execution under `state.call_frames[call_frame_id]`.
 - `resume` uses persisted run position only to choose the initial top-level restart point. After execution reaches that point, normal control-flow semantics resume, so a later `goto` may revisit the same top-level step name without being auto-skipped.
 - When finalization is partially complete, `resume` restarts at the first unfinished cleanup step instead of replaying completed cleanup.
+- When a run stops inside a `call`, `resume` reuses the unfinished `call_frame_id` and restarts the callee from its first unfinished nested step instead of replaying completed nested work.
 - During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
 
 ## Run Artifacts
@@ -62,6 +64,7 @@ Key notes:
 - `assert` false produces `failed` with `exit_code: 3` and `error.type: "assert_failed"`.
 - `cycle_guard_exceeded` fails the target step before body execution; explicit `on.failure.goto` may recover, otherwise the run stops.
 - `contract_violation` failures are represented as failed steps (typically exit code `2`).
+- `call` executes an imported workflow inline with its own nested state, private providers/artifacts/context defaults, and caller-visible outputs exported only after the callee body and callee finalization succeed.
 - Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.
 - After a resumed run terminates, `current_step` is cleared the same way it is for non-resumed runs.
 - For structured `if/else`, non-selected lowered branch nodes appear as `skipped`, while the selected-branch outputs are materialized on the join node under the authored statement name.
@@ -98,6 +101,7 @@ Before step execution:
 After successful step execution + output validation:
 - `publishes` appends new artifact versions to `artifact_versions` in state.
 - `artifact_consumes` tracks last consumed version(s) for freshness enforcement.
+- For `call`, callee-private publish/consume state remains inside the persisted call frame; only declared callee outputs cross back to the caller-visible outer step.
 
 ## Control-Flow Resolution Order
 

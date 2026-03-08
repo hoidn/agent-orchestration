@@ -197,6 +197,50 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
     assert "Progress" in md
 
 
+def test_snapshot_recognizes_call_steps(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "call-run"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow = {
+        "version": "2.5",
+        "name": "obs-call",
+        "steps": [
+            {
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+            }
+        ],
+    }
+    state = {
+        "run_id": "call-run",
+        "status": "completed",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": "2026-02-27T00:00:05+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "steps": {
+            "RunReviewLoop": {
+                "status": "completed",
+                "exit_code": 0,
+                "artifacts": {"approved": True},
+                "debug": {
+                    "call": {
+                        "call_frame_id": "root.run_review_loop::visit::1",
+                        "import_alias": "review_loop",
+                        "workflow_file": "workflows/library/review_fix_loop.yaml",
+                        "export_status": "completed",
+                    }
+                },
+            }
+        },
+    }
+
+    snapshot = build_status_snapshot(workflow, state, run_root)
+
+    assert snapshot["steps"][0]["kind"] == "call"
+    assert snapshot["steps"][0]["output"]["call"]["call_frame_id"] == "root.run_review_loop::visit::1"
+
+
 def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "stale-run"
     (run_root / "logs").mkdir(parents=True)

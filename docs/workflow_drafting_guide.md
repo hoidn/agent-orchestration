@@ -174,14 +174,15 @@ For post-v2.0 workflows, separate display names from durable identity:
 - use `id` when the step participates in lineage, scoped refs, or any flow you expect to survive sibling insertion / block reshaping
 - do not rely on compiler-generated ids for cross-edit stability; they are only safe within the same validated workflow checksum
 
-### Preparing A Workflow For Future `call`
+### Preparing A Workflow For `call`
 
-If you expect a workflow to become a reusable library workflow once `call` lands:
+If you expect a workflow to be used through `call`:
 
 - Surface every DSL-managed write root that needs to vary per invocation as a typed workflow `input` with `type: relpath`.
 - Bind those write-root inputs uniquely at each call site when repeated or concurrent calls could otherwise share the same managed `state/*`, `artifacts/*`, or other deterministic output roots.
 - Keep bundled source assets on the workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) instead of teaching callers to copy prompt files into the workspace.
 - Keep cross-boundary data narrow: caller -> callee through typed `inputs`; callee -> caller only through declared `outputs`.
+- Remember the caller-visible contract: exported callee outputs land on the outer call step (`steps.<CallStep>.artifacts.*`) only after the callee body and any callee `finally` work both succeed.
 - Assume imported `command` / `provider` steps still have accepted operational risk for undeclared filesystem effects. First-tranche `call` is reuse, not sandboxing.
 - Treat imported `providers`, `artifacts`, and `context` defaults as callee-private by default; do not design workflows that depend on implicit caller/callee namespace merging.
 

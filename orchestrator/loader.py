@@ -54,6 +54,7 @@ class WorkflowLoader:
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
+    INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5",
@@ -172,6 +173,16 @@ class WorkflowLoader:
 
             self._validate_goto_targets(workflow)
 
+            if self._version_at_least(version, "2.5"):
+                if expected_version is not None:
+                    managed_inputs, managed_errors = self._analyze_reusable_write_roots(workflow)
+                    workflow['__managed_write_root_inputs'] = sorted(managed_inputs)
+                    for message in managed_errors:
+                        self._add_error(message)
+                else:
+                    workflow['__managed_write_root_inputs'] = []
+                self._validate_call_write_root_collisions(steps, workflow.get('finally'))
+
             assign_step_ids(workflow.get('steps', []))
             if self._version_at_least(version, STRUCTURED_IF_VERSION):
                 workflow['steps'] = lower_structured_steps(workflow.get('steps', []))
@@ -263,7 +274,6 @@ class WorkflowLoader:
         if not self._version_at_least(version, "2.5"):
             return {}
 
-        resolver = WorkflowAssetResolver(workflow_path)
         imported_workflows: Dict[str, Dict[str, Any]] = {}
         for alias, import_path in imports.items():
             context = f"imports.{alias}"
@@ -275,8 +285,8 @@ class WorkflowLoader:
                 continue
 
             try:
-                resolved_import_path = resolver.resolve(import_path)
-            except AssetResolutionError as exc:
+                resolved_import_path = self._resolve_import_path(workflow_path, import_path)
+            except ValueError as exc:
                 self._add_error(f"{context}: {exc}")
                 continue
 
@@ -292,6 +302,26 @@ class WorkflowLoader:
             imported_workflows[alias] = imported_workflow
 
         return imported_workflows
+
+    def _resolve_import_path(self, workflow_path: Path, import_path: str) -> Path:
+        """Resolve an import path relative to the authored workflow while keeping it in WORKSPACE."""
+        if not isinstance(import_path, str) or not import_path.strip():
+            raise ValueError("import path must be a non-empty string")
+        if "${" in import_path:
+            raise ValueError("import paths must be literal workflow-relative strings")
+
+        candidate = Path(import_path)
+        if candidate.is_absolute():
+            raise ValueError(f"absolute import paths are not allowed: {import_path}")
+
+        resolved = (workflow_path.parent / candidate).resolve()
+        try:
+            resolved.relative_to(self.workspace)
+        except ValueError as exc:
+            raise ValueError(
+                f"asset path traversal outside the workflow source tree is not allowed: {import_path}"
+            ) from exc
+        return resolved
 
     def _validate_workflow_inputs(self, inputs: Any) -> None:
         """Validate top-level workflow input contracts."""
@@ -1380,6 +1410,144 @@ class WorkflowLoader:
             except OutputContractError as exc:
                 self._add_error(f"Step '{step_name}': call.with.{input_name} is invalid: {exc}")
 
+        managed_inputs = imported_workflow.get('__managed_write_root_inputs', [])
+        if isinstance(managed_inputs, list):
+            callee_inputs = imported_workflow.get('inputs', {})
+            if not isinstance(callee_inputs, dict):
+                callee_inputs = {}
+            for input_name in managed_inputs:
+                if input_name in bindings:
+                    continue
+                input_spec = callee_inputs.get(input_name, {})
+                if isinstance(input_spec, dict) and "default" in input_spec:
+                    continue
+                self._add_error(
+                    f"Step '{step_name}': call is missing required write-root binding '{input_name}'"
+                )
+
+    def _analyze_reusable_write_roots(self, workflow: Dict[str, Any]) -> tuple[Set[str], List[str]]:
+        """Return relpath inputs used for managed write roots and any contract violations."""
+        managed_inputs: Set[str] = set()
+        errors: List[str] = []
+        input_specs = workflow.get('inputs', {})
+        if not isinstance(input_specs, dict):
+            input_specs = {}
+
+        steps = list(workflow.get('steps', [])) if isinstance(workflow.get('steps'), list) else []
+        finally_block = workflow.get('finally')
+        if isinstance(finally_block, dict) and isinstance(finally_block.get('steps'), list):
+            steps.extend(finally_block.get('steps', []))
+
+        for step in self._collect_all_steps(steps):
+            step_name = step.get('name', 'step')
+            for field_label, candidate in self._iter_managed_write_paths(step):
+                if not isinstance(candidate, str) or not candidate:
+                    continue
+                referenced_inputs = set(self.INPUT_REF_PATTERN.findall(candidate))
+                relpath_inputs: Set[str] = set()
+                for input_name in referenced_inputs:
+                    spec = input_specs.get(input_name)
+                    if not isinstance(spec, dict) or spec.get('type') != 'relpath':
+                        errors.append(
+                            f"Reusable workflow step '{step_name}' must use typed relpath inputs for "
+                            f"{field_label}; input '{input_name}' is not declared as type 'relpath'"
+                        )
+                        continue
+                    relpath_inputs.add(input_name)
+
+                if relpath_inputs:
+                    managed_inputs.update(relpath_inputs)
+                    continue
+
+                errors.append(
+                    f"Reusable workflow step '{step_name}' hard-codes DSL-managed write roots in "
+                    f"{field_label}; expose them as typed relpath inputs instead"
+                )
+
+        return managed_inputs, errors
+
+    def _iter_managed_write_paths(self, step: Dict[str, Any]) -> List[tuple[str, Any]]:
+        """Yield explicit DSL-managed write-path surfaces for reusable-call validation."""
+        paths: List[tuple[str, Any]] = []
+        if 'output_file' in step:
+            paths.append(('output_file', step.get('output_file')))
+
+        expected_outputs = step.get('expected_outputs')
+        if isinstance(expected_outputs, list):
+            for index, spec in enumerate(expected_outputs):
+                if isinstance(spec, dict) and 'path' in spec:
+                    paths.append((f"expected_outputs[{index}].path", spec.get('path')))
+
+        output_bundle = step.get('output_bundle')
+        if isinstance(output_bundle, dict) and 'path' in output_bundle:
+            paths.append(('output_bundle.path', output_bundle.get('path')))
+
+        consume_bundle = step.get('consume_bundle')
+        if isinstance(consume_bundle, dict) and 'path' in consume_bundle:
+            paths.append(('consume_bundle.path', consume_bundle.get('path')))
+
+        return paths
+
+    def _validate_call_write_root_collisions(self, steps: Any, finally_block: Any) -> None:
+        """Reject call sites that bind the same managed write root more than once."""
+        collected_steps: List[Any] = []
+        if isinstance(steps, list):
+            collected_steps.extend(steps)
+        if isinstance(finally_block, dict) and isinstance(finally_block.get('steps'), list):
+            collected_steps.extend(finally_block.get('steps', []))
+
+        seen: Dict[tuple[str, Any], str] = {}
+        for step in self._collect_all_steps(collected_steps):
+            if not isinstance(step, dict) or 'call' not in step:
+                continue
+
+            step_name = step.get('name', 'step')
+            imported_workflow = self._current_imports.get(step.get('call'))
+            if not isinstance(imported_workflow, dict):
+                continue
+
+            managed_inputs = imported_workflow.get('__managed_write_root_inputs', [])
+            if not isinstance(managed_inputs, list) or not managed_inputs:
+                continue
+
+            bindings = step.get('with', {})
+            if not isinstance(bindings, dict):
+                bindings = {}
+            callee_inputs = imported_workflow.get('inputs', {})
+            if not isinstance(callee_inputs, dict):
+                callee_inputs = {}
+
+            for input_name in managed_inputs:
+                if input_name in bindings:
+                    binding = bindings[input_name]
+                else:
+                    input_spec = callee_inputs.get(input_name, {})
+                    if not isinstance(input_spec, dict) or 'default' not in input_spec:
+                        continue
+                    binding = input_spec['default']
+
+                collision_key = self._call_write_root_collision_key(binding)
+                if collision_key is None:
+                    continue
+
+                seen_key = (input_name, collision_key)
+                prior_step = seen.get(seen_key)
+                if prior_step is not None:
+                    self._add_error(
+                        f"Step '{step_name}': colliding write-root bindings with step '{prior_step}' "
+                        f"for input '{input_name}'"
+                    )
+                else:
+                    seen[seen_key] = step_name
+
+    def _call_write_root_collision_key(self, binding: Any) -> Optional[Any]:
+        """Return a deterministic comparable key for a call write-root binding."""
+        if isinstance(binding, dict) and set(binding.keys()) == {'ref'}:
+            return ('ref', binding.get('ref'))
+        if isinstance(binding, (str, int, float, bool)):
+            return ('literal', binding)
+        return None
+
     def _validate_legacy_condition_variable_usage(self, condition: Any, context: str) -> None:
         """Apply ${env.*} validation to legacy conditional substitution surfaces."""
         if not isinstance(condition, dict):
@@ -1789,6 +1957,20 @@ class WorkflowLoader:
                         'type': artifact_type,
                         'persisted': True,
                     }
+
+            if 'call' in step:
+                imported_workflow = self._current_imports.get(step.get('call'))
+                imported_outputs = imported_workflow.get('outputs') if isinstance(imported_workflow, dict) else None
+                if isinstance(imported_outputs, dict):
+                    for artifact_name, output_spec in imported_outputs.items():
+                        if not isinstance(artifact_name, str) or not isinstance(output_spec, dict):
+                            continue
+                        artifact_type = output_spec.get('type')
+                        if isinstance(artifact_type, str):
+                            outputs[artifact_name] = {
+                                'type': artifact_type,
+                                'persisted': True,
+                            }
 
             artifact_map[name] = outputs
 

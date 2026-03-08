@@ -45,14 +45,14 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - join-node `output.error` / `output.artifacts` / `output.debug.structured_if` show selected-branch materialization status
   - v2.3 status/report snapshots may expose `run.finalization` bookkeeping and render lowered finalization steps as ordinary top-level entries with kind `finally`.
   - When finalization is present, `run.workflow_outputs` stays empty until cleanup completes successfully; failed cleanup reports `workflow_outputs_status: suppressed|failed` in `run.finalization`.
-  - Planned reusable-call surfaces (Task 10 contract; Task 11 execution):
+  - v2.5 reusable-call surfaces:
     - outer call steps render as ordinary top-level entries with kind `call`
-    - snapshots expose `call_frame_id`, import alias, callee workflow file, body status, finalization status, and export status for the call frame
-    - nested callee execution renders under a call-frame section (for example `steps.<CallStep>.call...`) without changing the caller-visible outer step key
+    - outer call-step results may expose `output.call` metadata including `call_frame_id`, import alias, callee workflow file, bound inputs, export status, and exported-output provenance
+    - nested callee execution is persisted under `state.call_frames` without changing the caller-visible outer step key
     - caller-visible exported outputs remain absent until callee body and callee finalization both succeed
     - report/debug surfaces may show secondary provenance for exported call outputs, but the caller-visible producer remains the outer call step
 
-- Planned reusable-call diagnostics
+- Reusable-call diagnostics
   - Loader-facing failures should distinguish:
     - unknown import alias
     - caller/callee version mismatch
@@ -60,6 +60,7 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - missing or colliding reusable-workflow write-root bindings
     - source-asset path traversal outside the imported workflow source tree
   - Runtime-facing failures should distinguish:
+    - `call_failed` outer-step failures when the callee run fails
     - callee output export contract failures
     - callee finalization failure with exports suppressed
     - call-frame resume/export state when a run is interrupted mid-call

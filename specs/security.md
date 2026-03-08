@@ -4,9 +4,9 @@
   - Reject absolute paths and any path containing `..` during validation.
   - Follow symlinks; if the resolved path escapes WORKSPACE, reject the path.
   - Apply checks at load time and before filesystem operations.
-  - Planned reusable-call additions:
-    - `imports`, nested import targets, `asset_file`, and `asset_depends_on` use workflow-source-relative validation instead of WORKSPACE-relative validation.
-    - Workflow-source-relative paths resolve from the directory containing the authored workflow file and must remain within that workflow source tree.
+  - Reusable-call additions:
+    - `imports` and nested import targets resolve relative to the authored workflow file and must remain within WORKSPACE.
+    - `asset_file` and `asset_depends_on` resolve from the directory containing the authored workflow file and must remain within that workflow source tree.
     - `input_file`, `depends_on`, `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and deterministic `relpath` outputs remain WORKSPACE-relative under `call`.
 
 Note: These safety checks apply to paths the orchestrator resolves (e.g., `input_file`, `output_file`, `depends_on`, `wait_for`). Child processes invoked by `command`/`provider` can read/write any locations permitted by the OS; use OS/user sandboxing if stricter isolation is required.

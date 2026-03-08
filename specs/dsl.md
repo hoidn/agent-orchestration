@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", or "2.3"). `versioning.md` also reserves the planned reusable-call boundary versions `2.4` and `2.5`; the current runtime remains executable only through the implemented surface. Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", or "2.5"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -22,11 +22,11 @@
     - Keys are output names; values reuse the same typed contract fields as `inputs` plus required `from`.
     - `from` must be exactly `{ ref: "root.steps.<Step>.artifacts.<name>|exit_code|outcome.<field>" }`.
     - Export validation runs after the workflow body completes successfully and, for v2.3+ workflows with `finally`, only after finalization completes successfully.
-  - `imports`: reusable workflow aliases (planned execution in v2.5; contract boundary fixed in v2.4 docs).
+  - `imports`: reusable workflow aliases (v2.5+).
     - Shape: `{ <alias>: "<workflow-source-relative path>" }`.
-    - Import paths resolve relative to the directory containing the authored workflow file and must remain within that workflow source tree.
+    - Import paths resolve relative to the directory containing the authored workflow file and must remain within WORKSPACE.
     - Imported workflows validate independently and, in the first `call` tranche, caller and callee must declare the same DSL version.
-    - The Task 10 contract boundary reserves this syntax and meaning before loader/runtime support lands; current v2.3 runtimes still reject `imports`.
+    - Imported workflows keep their own private `providers`, `artifacts`, and `context` defaults at runtime.
   - `finally`: structured workflow finalization (v2.3+).
     - Accepts either `Step[]` or `{ id?, steps: Step[] }`.
     - `id` uses the same pattern as step `id`.

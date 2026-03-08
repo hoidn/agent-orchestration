@@ -1,0 +1,21 @@
+version: "2.5"
+name: call-subworkflow-demo
+imports:
+  review_loop: ../library/review_fix_loop.yaml
+outputs:
+  approved:
+    kind: scalar
+    type: bool
+    from:
+      ref: root.steps.RunReviewLoop.artifacts.approved
+steps:
+  - name: RunReviewLoop
+    id: run_review_loop
+    call: review_loop
+    with:
+      write_root: state/review-loop
+  - name: VerifyApproved
+    id: verify_approved
+    assert:
+      artifact_bool:
+        ref: root.steps.RunReviewLoop.artifacts.approved

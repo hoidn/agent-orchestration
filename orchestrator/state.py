@@ -87,6 +87,7 @@ class RunState:
     current_step: Optional[Dict[str, Any]] = None
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
+    call_frames: Dict[str, Any] = field(default_factory=dict)
     artifact_versions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     artifact_consumes: Dict[str, Dict[str, int]] = field(default_factory=dict)
     transition_count: int = 0
@@ -108,6 +109,7 @@ class RunState:
             "finalization": self.finalization,
             "steps": {},
             "for_each": {},
+            "call_frames": self.call_frames,
             "artifact_versions": self.artifact_versions,
             "artifact_consumes": self.artifact_consumes,
             "transition_count": self.transition_count,
@@ -169,6 +171,7 @@ class RunState:
             current_step=data.get("current_step"),
             steps=data.get("steps", {}),
             for_each=for_each,
+            call_frames=data.get("call_frames", {}),
             artifact_versions=data.get("artifact_versions", {}),
             artifact_consumes=data.get("artifact_consumes", {}),
             transition_count=data.get("transition_count", 0),
@@ -179,7 +182,7 @@ class RunState:
 class StateManager:
     """Manages run state with atomic writes and recovery."""
 
-    SCHEMA_VERSION = "2.0"
+    SCHEMA_VERSION = "2.1"
 
     def __init__(self, workspace: Path, run_id: Optional[str] = None,
                  backup_enabled: bool = False, debug: bool = False):
@@ -424,6 +427,15 @@ class StateManager:
 
             self.state.artifact_versions = artifact_versions
             self.state.artifact_consumes = artifact_consumes
+            self._write_state()
+
+    def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]):
+        """Persist one call-frame snapshot in state.json."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            self.state.call_frames[frame_id] = frame_state
             self._write_state()
 
     def update_workflow_outputs(self, workflow_outputs: Dict[str, Any]):

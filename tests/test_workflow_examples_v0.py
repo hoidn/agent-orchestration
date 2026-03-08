@@ -14,6 +14,7 @@ EXAMPLE_FILES = [
     "backlog_plan_execute_v0.yaml",
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
+    "call_subworkflow_demo.yaml",
     "cycle_guard_demo.yaml",
     "dsl_follow_on_plan_impl_review_loop.yaml",
     "dsl_tracked_plan_review_loop.yaml",
@@ -165,6 +166,25 @@ def test_assert_gate_demo_runtime(tmp_path: Path):
     assert state["steps"]["GateApproval"]["error"]["type"] == "assert_failed"
     assert state["steps"]["WriteRevision"]["status"] == "completed"
     assert not (workspace / "approval.txt").exists()
+
+
+def test_call_subworkflow_demo_runtime(tmp_path: Path):
+    """Call demo runs a reusable subworkflow and surfaces only declared outputs."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "call_subworkflow_demo.yaml")
+    _copy_repo_file_to_workspace(workspace, "workflows/library/review_fix_loop.yaml")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
+    assert state["steps"]["VerifyApproved"]["status"] == "completed"
+    assert (workspace / "state" / "review-loop" / "history.log").read_text() == "review-loop-started\n"
+    assert len(state.get("call_frames", {})) == 1
 
 
 def test_structured_if_else_demo_runtime(tmp_path: Path):

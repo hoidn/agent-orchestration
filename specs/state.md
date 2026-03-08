@@ -5,7 +5,7 @@
   - `RUN_ROOT`: `.orchestrate/runs/${run_id}` under WORKSPACE
 
 - State file schema (authoritative record)
-  - `schema_version: "2.0"`
+  - `schema_version: "2.1"`
   - `run_id`, `workflow_file`, `workflow_checksum`
   - Timestamps: `started_at`, `updated_at`
   - `status`: `running | completed | failed`
@@ -16,6 +16,8 @@
   - `error`: optional run-level error object for workflow-boundary failures such as output export contract violations
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
+  - v2.5+ reusable-call fields:
+    - `call_frames`: call-frame records keyed by durable `call_frame_id`, with caller step identity, import alias, callee workflow file, bound inputs, body/finalization/export status, current nested execution position, and nested call-frame-local state
   - v1.2+ runtime dataflow fields:
     - `artifact_versions`: `{artifact_name: [{version, value, producer, producer_name?, step_index}, ...]}`
     - `artifact_consumes`: `{consumer_identity: {artifact_name: last_consumed_version}}` with optional `__global__` aggregate entry
@@ -34,16 +36,10 @@
     - lowered finalization steps are recorded as ordinary top-level step entries under presentation keys such as `finally.ReleaseLock`
     - `finalization.workflow_outputs_status` records whether workflow outputs are `pending`, `completed`, `failed`, `suppressed`, or `not_configured`
     - workflow outputs remain `{}` until finalization succeeds
-  - Planned next schema boundary for reusable `call` (Task 10 contract; Task 11 execution):
-    - `schema_version: "2.1"` is reserved for the first call-frame state model because the current artifact ledger cannot represent private callee artifacts and call-scoped freshness keys cleanly under the `schema_version: "2.0"` layout.
-    - Planned durable additions:
-      - `call_frames`: call-frame records keyed by durable `call_frame_id`, with caller step identity, import alias, callee workflow identity, bound inputs, body/finalization/export status, and current nested execution position.
-      - qualified internal producer/consumer identities rooted in the call frame for callee-private `artifact_versions`, `artifact_consumes`, and `since_last_consume` bookkeeping.
-      - caller-visible exported output provenance that records the outer call step as the external producer while retaining callee-internal source metadata as secondary provenance.
-    - Planned presentation/debug views:
-      - caller-visible outer step remains `steps.<CallStep>`
-      - nested execution may be rendered under `steps.<CallStep>.call...` or an equivalent call-frame view
-      - display labels such as import alias or inner step name remain presentation-only and must not replace durable `call_frame_id` / qualified identity keys
+  - v2.5 reusable-call additions:
+    - `call_frames` persist nested execution state for inline `call` steps under schema `2.1`.
+    - callee-private `artifact_versions` / `artifact_consumes` remain inside the call-frame-local nested state rather than leaking bare artifact names into the caller-global ledger.
+    - caller-visible exported output provenance remains attached to the outer call step result and any published outer-step lineage entries.
 
 - Step status semantics
   - Step `status`: `pending | running | completed | failed | skipped`.
@@ -62,10 +58,10 @@
   - v1.8 cycle-guard failures use `error.type: "cycle_guard_exceeded"` with `outcome.phase: "pre_execution"` and `outcome.class: "pre_execution_failed"`.
   - Tasks 1-5 of the DSL evolution roadmap were additive under schema `1.1.1`; v2.0 is the explicit stable-ID migration boundary.
   - Resume from pre-v2.0 state is rejected unless a dedicated upgrader is introduced in a later tranche.
-  - v2.1 workflow signatures reuse the v2.0 state schema and append `bound_inputs` / `workflow_outputs` as additive fields under the same `schema_version: "2.0"` boundary.
+  - v2.1 workflow signatures append `bound_inputs` / `workflow_outputs`; the later v2.5 reusable-call tranche moves the top-level schema to `2.1`.
   - v2.2 structured `if/else` also reuses schema `2.0`; lowered branch markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
   - v2.3 structured finalization also reuses schema `2.0`; finalization bookkeeping and lowered `finally.*` step entries are additive fields.
-  - The reusable-call boundary is a new schema change, not another additive `schema_version: "2.0"` extension, because bare artifact-name ledgers cannot preserve callee-private lineage or freshness safely.
+  - v2.5 reusable `call` is the schema boundary that moves state to `2.1`, because bare artifact-name ledgers cannot preserve callee-private lineage or freshness safely.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:
@@ -89,7 +85,7 @@
 - Logs directory (see `observability.md`)
   - `logs/` contains `orchestrator.log`, `StepName.stdout` (when large or parse error), `StepName.stderr` (when non-empty), and optional debug artifacts.
 
-## Planned Reusable-Call State Contract (Task 10)
+## Reusable-Call State Contract (v2.5)
 
 - Caller-visible exports
   - Declared callee outputs materialize only on the outer call step as `steps.<CallStep>.artifacts.<name>`.
@@ -98,11 +94,11 @@
 
 - Callee-private lineage
   - Callee-private artifact names must not occupy bare names in the caller-global artifact ledger.
-  - Internal publish/consume state uses call-frame-qualified identities rather than bare display names.
-  - `since_last_consume` freshness inside a call frame is keyed by those qualified consumer identities.
+  - Internal publish/consume state lives inside the call-frame-local state snapshot instead of the caller-global ledgers.
+  - `since_last_consume` freshness inside a call frame is therefore enforced against the callee-private ledgers persisted under that frame.
 
 - Resume boundary
-  - Because call frames add new durable lineage and resume keys, Task 11 must reject resume from pre-call state unless a tested upgrader ships with the same tranche.
+  - Because call frames add new durable lineage and resume keys, resume from pre-`schema_version: "2.1"` state is rejected unless a tested upgrader ships with the same tranche.
 
 ## State File Schema (example)
 
@@ -110,7 +106,7 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
 
 ```json
 {
-  "schema_version": "2.0",
+  "schema_version": "2.1",
   "run_id": "20250115T143022Z-a3f8c2",
   "workflow_file": "workflows/pipeline.yaml",
   "workflow_checksum": "sha256:abcd1234...",

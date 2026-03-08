@@ -112,6 +112,58 @@ steps:
         assert loaded_state.bound_inputs == {"max_cycles": 3}
         assert loaded_state.workflow_outputs == {"report_ready": True}
 
+    def test_call_frames_persist_across_reload(self, temp_workspace, workflow_file):
+        """Call-frame state survives reload under the Task 11 schema boundary."""
+        manager = StateManager(temp_workspace)
+        manager.initialize(workflow_file)
+        manager.update_call_frame(
+            "root.run_review_loop::visit::1",
+            {
+                "call_frame_id": "root.run_review_loop::visit::1",
+                "call_step_name": "RunReviewLoop",
+                "call_step_id": "root.run_review_loop",
+                "import_alias": "review_loop",
+                "workflow_file": "workflows/library/review_fix_loop.yaml",
+                "status": "running",
+                "body_status": None,
+                "finalization_status": "not_configured",
+                "export_status": "pending",
+                "bound_inputs": {"write_root": "state/review-loop"},
+                "state": {
+                    "schema_version": StateManager.SCHEMA_VERSION,
+                    "run_id": manager.run_id,
+                    "workflow_file": "workflows/library/review_fix_loop.yaml",
+                    "workflow_checksum": "call_frame",
+                    "started_at": datetime.now(timezone.utc).isoformat(),
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                    "status": "running",
+                    "context": {},
+                    "bound_inputs": {"write_root": "state/review-loop"},
+                    "workflow_outputs": {},
+                    "finalization": {},
+                    "steps": {
+                        "WriteHistory": {
+                            "status": "completed",
+                            "exit_code": 0,
+                        }
+                    },
+                    "for_each": {},
+                    "call_frames": {},
+                    "artifact_versions": {},
+                    "artifact_consumes": {},
+                    "transition_count": 0,
+                    "step_visits": {"WriteHistory": 1},
+                },
+            },
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id=manager.run_id).load()
+
+        assert "root.run_review_loop::visit::1" in loaded_state.call_frames
+        frame = loaded_state.call_frames["root.run_review_loop::visit::1"]
+        assert frame["import_alias"] == "review_loop"
+        assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
+
     def test_at4_step_result_recording(self, temp_workspace, workflow_file):
         """AT-4: Record step results in state."""
         manager = StateManager(temp_workspace)
