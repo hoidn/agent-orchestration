@@ -1,0 +1,72 @@
+version: "2.8"
+name: score-gate-demo
+
+artifacts:
+  quality_score:
+    kind: scalar
+    type: float
+  route_action:
+    kind: scalar
+    type: enum
+    allowed: [SHIP, REVIEW]
+
+steps:
+  - name: WriteScore
+    id: write_score
+    set_scalar:
+      artifact: quality_score
+      value: 0.91
+
+  - name: GatePassingScore
+    id: gate_passing_score
+    assert:
+      score:
+        ref: root.steps.WriteScore.artifacts.quality_score
+        gte: 0.8
+
+  - name: RouteScoreBand
+    id: route_score_band
+    if:
+      score:
+        ref: root.steps.WriteScore.artifacts.quality_score
+        gte: 0.8
+        lt: 0.95
+    then:
+      id: review_band
+      outputs:
+        route_action:
+          kind: scalar
+          type: enum
+          allowed: [SHIP, REVIEW]
+          from:
+            ref: self.steps.WriteReview.artifacts.route_action
+      steps:
+        - name: WriteReview
+          id: write_review
+          set_scalar:
+            artifact: route_action
+            value: REVIEW
+    else:
+      id: ship_band
+      outputs:
+        route_action:
+          kind: scalar
+          type: enum
+          allowed: [SHIP, REVIEW]
+          from:
+            ref: self.steps.WriteShip.artifacts.route_action
+      steps:
+        - name: WriteShip
+          id: write_ship
+          set_scalar:
+            artifact: route_action
+            value: SHIP
+
+  - name: CheckRouteAction
+    id: check_route_action
+    assert:
+      compare:
+        left:
+          ref: root.steps.RouteScoreBand.artifacts.route_action
+        op: eq
+        right: REVIEW

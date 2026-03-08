@@ -11,7 +11,12 @@ from orchestrator.exceptions import ValidationError, WorkflowValidationError
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
 from orchestrator.workflow.lowering import lower_finalization_block, lower_structured_steps
-from orchestrator.workflow.predicates import typed_predicate_operator_keys
+from orchestrator.workflow.predicates import (
+    SCORE_PREDICATE_BOUND_KEYS,
+    TYPED_PREDICATE_OPERATOR_KEYS,
+    is_numeric_predicate_value,
+    typed_predicate_operator_keys,
+)
 from orchestrator.workflow.references import ReferenceResolutionError, parse_structured_ref
 from orchestrator.workflow.signatures import WORKFLOW_SIGNATURE_VERSION
 from orchestrator.workflow.statements import (
@@ -58,14 +63,14 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8",
     ]
 
     def __init__(self, workspace: Path):
@@ -2341,7 +2346,7 @@ class WorkflowLoader:
 
     def _is_typed_predicate_node(self, node: Any) -> bool:
         return isinstance(node, dict) and any(
-            key in node for key in ('artifact_bool', 'compare', 'all_of', 'any_of', 'not')
+            key in node for key in TYPED_PREDICATE_OPERATOR_KEYS
         )
 
     def _version_at_least(self, version: str, minimum: str) -> bool:
@@ -2687,6 +2692,56 @@ class WorkflowLoader:
                 )
             return
 
+        if 'score' in predicate:
+            if not self._version_at_least(version, "2.8"):
+                self._add_error(f"Step '{step_name}': score predicates require version '2.8'")
+                return
+
+            node = predicate['score']
+            if not isinstance(node, dict):
+                self._add_error(f"Step '{step_name}': score must be a dictionary")
+                return
+
+            allowed_keys = {'ref', *SCORE_PREDICATE_BOUND_KEYS}
+            unexpected_keys = sorted(set(node.keys()) - allowed_keys)
+            if unexpected_keys:
+                joined = ", ".join(unexpected_keys)
+                self._add_error(
+                    f"Step '{step_name}': score only supports ref, gt, gte, lt, and lte (unexpected: {joined})"
+                )
+
+            ref_type = self._validate_structured_ref(
+                node.get('ref'),
+                step_name,
+                version,
+                root_catalog,
+                scope_artifacts,
+                scope_multi_visit,
+                parent_artifacts,
+                parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
+            )
+            if ref_type not in {'integer', 'float'}:
+                self._add_error(f"Step '{step_name}': score requires a numeric ref")
+
+            bounds = {key: node.get(key) for key in SCORE_PREDICATE_BOUND_KEYS if key in node}
+            if not bounds:
+                self._add_error(f"Step '{step_name}': score requires at least one bound")
+                return
+
+            if 'gt' in node and 'gte' in node:
+                self._add_error(f"Step '{step_name}': score cannot declare both gt and gte")
+            if 'lt' in node and 'lte' in node:
+                self._add_error(f"Step '{step_name}': score cannot declare both lt and lte")
+
+            for key, value in bounds.items():
+                if not is_numeric_predicate_value(value):
+                    self._add_error(f"Step '{step_name}': score bound '{key}' must be numeric")
+
+            self._validate_score_predicate_bounds(node, step_name)
+            return
+
         if 'all_of' in predicate:
             items = predicate['all_of']
             if not isinstance(items, list) or not items:
@@ -2785,6 +2840,33 @@ class WorkflowLoader:
             f"Step '{step_name}': unsupported compare operand type '{type(operand).__name__}'"
         )
         return 'unknown'
+
+    def _validate_score_predicate_bounds(self, node: Dict[str, Any], step_name: str) -> None:
+        lower_bound = None
+        upper_bound = None
+
+        for key in ('gt', 'gte'):
+            value = node.get(key)
+            if is_numeric_predicate_value(value):
+                lower_bound = (key, value)
+                break
+
+        for key in ('lt', 'lte'):
+            value = node.get(key)
+            if is_numeric_predicate_value(value):
+                upper_bound = (key, value)
+                break
+
+        if lower_bound is None or upper_bound is None:
+            return
+
+        lower_key, lower_value = lower_bound
+        upper_key, upper_value = upper_bound
+        if lower_value > upper_value:
+            self._add_error(f"Step '{step_name}': score bounds describe an empty range")
+            return
+        if lower_value == upper_value and (lower_key == 'gt' or upper_key == 'lt'):
+            self._add_error(f"Step '{step_name}': score bounds describe an empty range")
 
     def _validate_structured_ref(
         self,

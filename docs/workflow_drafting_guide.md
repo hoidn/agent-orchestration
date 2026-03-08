@@ -73,13 +73,14 @@ Do not rely on review prose as the only enforcement mechanism. Route control flo
 
 Two practical upgrades now exist:
 - v1.5: use first-class `assert` instead of shelling out to `test`, `jq`, or tiny one-line Python gates.
-- v1.6: use typed predicates plus structured `ref:` for booleans, numeric thresholds, and recovered-failure routing instead of stringly `when.equals` hacks.
+- v1.6: use typed predicates plus structured `ref:` for booleans, generic typed comparisons, and recovered-failure routing instead of stringly `when.equals` hacks.
 - v1.8: use `max_visits` and `max_transitions` instead of shell counters or ad hoc file-backed loop budgets when the goal is simply to cap a raw `goto` loop.
 - v2.0: when authoring new typed predicates in nested scopes, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
 - v2.1: prefer typed workflow `inputs`/`outputs` over ad hoc `context` conventions when the value is part of the workflow boundary and should survive validation, resume, and later `call` reuse.
 - v2.2: prefer top-level structured `if/else` when the workflow intent is branch selection rather than a reusable raw `goto` diamond.
 - v2.6: prefer top-level structured `match` when a typed enum decision has three or more stable cases, or when you want the workflow shape to stay aligned with the decision artifact values instead of layering chained predicates.
 - v2.7: prefer top-level `repeat_until` for bounded post-test review/fix loops when the exit condition should read the latest iteration outputs instead of shell-managed counters or raw `goto` back-edges.
+- v2.8: prefer the `score` predicate helper for evaluator thresholds and score bands instead of repeating numeric `compare` / `all_of` chains around one score artifact.
 - Task 10 reusable-call boundary: if a workflow is intended for later `call` reuse, keep bundled prompts/rubrics/schemas on the future workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep runtime reads/writes on the existing WORKSPACE-relative surfaces (`input_file`, `depends_on`, `output_file`, deterministic outputs).
 
 ## 5) Prompt Authoring Guidance

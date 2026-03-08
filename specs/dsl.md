@@ -212,6 +212,9 @@
         - `all_of: TypedPredicate[]`
         - `any_of: TypedPredicate[]`
         - `not: TypedPredicate`
+      - v2.8 score helper:
+        - `score: { ref: "root.steps.<Step>.artifacts.<name>", gt?: number, gte?: number, lt?: number, lte?: number }`
+      - `score` is thin sugar over numeric `compare` / `all_of`; it requires a numeric structured ref plus at least one bound and may not declare both `gt`+`gte` or both `lt`+`lte`.
       - Initial structured refs are limited to `root.steps.<Step>.artifacts.<name>`, `root.steps.<Step>.exit_code`, and `root.steps.<Step>.outcome.{status|phase|class|retryable}`.
       - Bare `steps.<Name>`, `self.*`, `parent.*`, and untyped `context.*` are invalid in structured predicates for v1.6.
       - v2.0 scoped refs:

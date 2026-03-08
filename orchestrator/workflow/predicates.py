@@ -6,7 +6,8 @@ from typing import Any, Dict, Optional
 
 from .references import ReferenceResolutionError, ReferenceResolver
 
-TYPED_PREDICATE_OPERATOR_KEYS = ("artifact_bool", "compare", "all_of", "any_of", "not")
+SCORE_PREDICATE_BOUND_KEYS = ("gt", "gte", "lt", "lte")
+TYPED_PREDICATE_OPERATOR_KEYS = ("artifact_bool", "compare", "score", "all_of", "any_of", "not")
 
 
 class PredicateEvaluationError(ValueError):
@@ -16,6 +17,11 @@ class PredicateEvaluationError(ValueError):
 def typed_predicate_operator_keys(predicate: Dict[str, Any]) -> list[str]:
     """Return the typed predicate operators present on one predicate node."""
     return [key for key in TYPED_PREDICATE_OPERATOR_KEYS if key in predicate]
+
+
+def is_numeric_predicate_value(value: Any) -> bool:
+    """Return True when one predicate operand is an integer or float, excluding bool."""
+    return type(value) is int or isinstance(value, float)
 
 
 class TypedPredicateEvaluator:
@@ -66,6 +72,44 @@ class TypedPredicateEvaluator:
             if op == "gte":
                 return left >= right
             raise PredicateEvaluationError(f"Unsupported compare operator '{op}'")
+
+        if "score" in predicate:
+            node = predicate["score"]
+            if not isinstance(node, dict):
+                raise PredicateEvaluationError("score predicate must be a dictionary")
+
+            score_ref = node.get("ref")
+            if not isinstance(score_ref, str) or not score_ref:
+                raise PredicateEvaluationError("score requires a ref")
+
+            if "gt" in node and "gte" in node:
+                raise PredicateEvaluationError("score cannot declare both gt and gte")
+            if "lt" in node and "lte" in node:
+                raise PredicateEvaluationError("score cannot declare both lt and lte")
+
+            bounds = {
+                key: node[key]
+                for key in SCORE_PREDICATE_BOUND_KEYS
+                if key in node
+            }
+            if not bounds:
+                raise PredicateEvaluationError("score requires at least one bound")
+            if any(not is_numeric_predicate_value(value) for value in bounds.values()):
+                raise PredicateEvaluationError("score bounds must be numeric")
+
+            score_value = self._resolve_operand({"ref": score_ref}, state, scope)
+            if not is_numeric_predicate_value(score_value):
+                raise PredicateEvaluationError("score requires a numeric ref")
+
+            if "gt" in bounds and not score_value > bounds["gt"]:
+                return False
+            if "gte" in bounds and not score_value >= bounds["gte"]:
+                return False
+            if "lt" in bounds and not score_value < bounds["lt"]:
+                return False
+            if "lte" in bounds and not score_value <= bounds["lte"]:
+                return False
+            return True
 
         if "all_of" in predicate:
             items = predicate["all_of"]

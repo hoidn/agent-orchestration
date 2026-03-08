@@ -22,6 +22,7 @@ EXAMPLE_FILES = [
     "finally_demo.yaml",
     "match_demo.yaml",
     "repeat_until_demo.yaml",
+    "score_gate_demo.yaml",
     "scalar_bookkeeping_demo.yaml",
     "structured_if_else_demo.yaml",
     "test_fix_loop_v0.yaml",
@@ -263,6 +264,23 @@ def test_repeat_until_demo_runtime(tmp_path: Path):
         "iteration-2",
         "iteration-3",
     ]
+
+
+def test_score_gate_demo_runtime(tmp_path: Path):
+    """Score gate demo uses score thresholds and score bands without shell glue."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "score_gate_demo.yaml")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["GatePassingScore"]["status"] == "completed"
+    assert state["steps"]["RouteScoreBand"]["artifacts"] == {"route_action": "REVIEW"}
+    assert state["steps"]["CheckRouteAction"]["status"] == "completed"
 
 
 def test_test_fix_loop_v0_runtime(tmp_path: Path):

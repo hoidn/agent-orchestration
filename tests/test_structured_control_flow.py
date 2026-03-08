@@ -225,6 +225,104 @@ def _structured_if_else_with_nested_loop_parent_scope() -> dict:
     }
 
 
+def _structured_if_else_with_score_band() -> dict:
+    return {
+        "version": "2.8",
+        "name": "structured-if-else-score-band",
+        "artifacts": {
+            "quality_score": {
+                "kind": "scalar",
+                "type": "float",
+            },
+            "route_action": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["SHIP", "REVIEW"],
+            },
+        },
+        "steps": [
+            {
+                "name": "WriteScore",
+                "id": "write_score",
+                "set_scalar": {
+                    "artifact": "quality_score",
+                    "value": 0.91,
+                },
+            },
+            {
+                "name": "RouteScore",
+                "id": "route_score",
+                "if": {
+                    "score": {
+                        "ref": "root.steps.WriteScore.artifacts.quality_score",
+                        "gte": 0.8,
+                        "lt": 0.95,
+                    }
+                },
+                "then": {
+                    "id": "review_band",
+                    "outputs": {
+                        "route_action": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["SHIP", "REVIEW"],
+                            "from": {
+                                "ref": "self.steps.WriteReview.artifacts.route_action",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteReview",
+                            "id": "write_review",
+                            "set_scalar": {
+                                "artifact": "route_action",
+                                "value": "REVIEW",
+                            },
+                        }
+                    ],
+                },
+                "else": {
+                    "id": "ship_band",
+                    "outputs": {
+                        "route_action": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["SHIP", "REVIEW"],
+                            "from": {
+                                "ref": "self.steps.WriteShip.artifacts.route_action",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteShip",
+                            "id": "write_ship",
+                            "set_scalar": {
+                                "artifact": "route_action",
+                                "value": "SHIP",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "name": "CheckScoreRoute",
+                "id": "check_score_route",
+                "assert": {
+                    "compare": {
+                        "left": {
+                            "ref": "root.steps.RouteScore.artifacts.route_action",
+                        },
+                        "op": "eq",
+                        "right": "REVIEW",
+                    }
+                },
+            },
+        ],
+    }
+
+
 def _route_review_match_statement() -> dict:
     return {
         "name": "RouteReviewDecision",
@@ -657,6 +755,14 @@ def test_if_else_nested_for_each_parent_scope_resolves_branch_steps(tmp_path: Pa
     assert state["steps"]["Route.then.Loop[0].MirrorBranchFlag"]["artifacts"] == {"loop_seen": True}
     assert state["steps"]["Route.then.Loop[0].AssertBranchParent"]["status"] == "completed"
     assert state["steps"]["Route.then.Loop[0].AssertMirror"]["status"] == "completed"
+
+
+def test_if_else_can_branch_on_score_band_predicate(tmp_path: Path):
+    state = _run_workflow(tmp_path, _structured_if_else_with_score_band())
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RouteScore"]["artifacts"] == {"route_action": "REVIEW"}
+    assert state["steps"]["CheckScoreRoute"]["status"] == "completed"
 
 
 def test_match_lowered_step_ids_stay_stable_when_siblings_shift(tmp_path: Path):
