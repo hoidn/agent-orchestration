@@ -195,6 +195,136 @@ class TestLoaderValidation:
         assert any("match requires version '2.6'" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_repeat_until_requires_version_2_7(self):
+        """Structured repeat_until statements are gated to v2.7+."""
+        workflow = {
+            "version": "2.6",
+            "name": "repeat-until-gated",
+            "steps": [
+                {
+                    "name": "ReviewLoop",
+                    "id": "review_loop",
+                    "repeat_until": {
+                        "id": "iteration_body",
+                        "outputs": {
+                            "review_decision": {
+                                "kind": "scalar",
+                                "type": "enum",
+                                "allowed": ["APPROVE", "REVISE"],
+                                "from": {
+                                    "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                                },
+                            }
+                        },
+                        "condition": {
+                            "compare": {
+                                "left": {
+                                    "ref": "self.outputs.review_decision",
+                                },
+                                "op": "eq",
+                                "right": "APPROVE",
+                            }
+                        },
+                        "max_iterations": 3,
+                        "steps": [
+                            {
+                                "name": "WriteDecision",
+                                "id": "write_decision",
+                                "command": [
+                                    "bash",
+                                    "-lc",
+                                    "mkdir -p state && printf 'APPROVE\\n' > state/review_decision.txt",
+                                ],
+                                "expected_outputs": [
+                                    {
+                                        "name": "review_decision",
+                                        "path": "state/review_decision.txt",
+                                        "type": "enum",
+                                        "allowed": ["APPROVE", "REVISE"],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("repeat_until requires version '2.7'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_repeat_until_condition_rejects_direct_inner_step_refs(self):
+        """repeat_until conditions must read declared loop-frame outputs, not inner multi-visit steps."""
+        workflow = {
+            "version": "2.7",
+            "name": "repeat-until-direct-inner-ref",
+            "steps": [
+                {
+                    "name": "ReviewLoop",
+                    "id": "review_loop",
+                    "repeat_until": {
+                        "id": "iteration_body",
+                        "outputs": {
+                            "review_decision": {
+                                "kind": "scalar",
+                                "type": "enum",
+                                "allowed": ["APPROVE", "REVISE"],
+                                "from": {
+                                    "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                                },
+                            }
+                        },
+                        "condition": {
+                            "compare": {
+                                "left": {
+                                    "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                                },
+                                "op": "eq",
+                                "right": "APPROVE",
+                            }
+                        },
+                        "max_iterations": 3,
+                        "steps": [
+                            {
+                                "name": "WriteDecision",
+                                "id": "write_decision",
+                                "command": [
+                                    "bash",
+                                    "-lc",
+                                    "mkdir -p state && printf 'APPROVE\\n' > state/review_decision.txt",
+                                ],
+                                "expected_outputs": [
+                                    {
+                                        "name": "review_decision",
+                                        "path": "state/review_decision.txt",
+                                        "type": "enum",
+                                        "allowed": ["APPROVE", "REVISE"],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                }
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "repeat_until.condition" in str(err.message) and "self.outputs" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
     def test_match_requires_enum_ref(self):
         """Structured match only accepts enum refs."""
         workflow = {

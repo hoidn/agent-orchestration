@@ -12,6 +12,7 @@ import yaml
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
 
 
@@ -191,6 +192,120 @@ def _build_structured_if_else_resume_workflow() -> dict:
                     "test \"${steps.RouteReview.artifacts.route_result}\" = true && "
                     "[ \"$(grep -c '^write-one$' state/history.log)\" -eq 1 ]",
                 ],
+            },
+        ],
+    }
+
+
+def _build_repeat_until_resume_workflow() -> dict:
+    return {
+        "version": "2.7",
+        "name": "Resume Repeat Until Workflow",
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                            },
+                        }
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {
+                                "ref": "self.outputs.review_decision",
+                            },
+                            "op": "eq",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "max_iterations": 4,
+                    "steps": [
+                        {
+                            "name": "WriteBodyHistory",
+                            "id": "write_body_history",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "\n".join(
+                                    [
+                                        "mkdir -p state",
+                                        "count=$(cat state/review_count.txt 2>/dev/null || printf '0')",
+                                        "count=$((count + 1))",
+                                        "printf '%s\\n' \"$count\" > state/review_count.txt",
+                                        "printf 'body-%s\\n' \"$count\" >> state/history.log",
+                                    ]
+                                ),
+                            ],
+                        },
+                        {
+                            "name": "ResumeGate",
+                            "id": "resume_gate",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "\n".join(
+                                    [
+                                        "mkdir -p state",
+                                        "count=$(cat state/review_count.txt)",
+                                        "if [ \"$count\" -ge 2 ] && [ ! -f state/resume_ready.txt ]; then",
+                                        "  printf 'gate-failed-%s\\n' \"$count\" >> state/history.log",
+                                        "  exit 1",
+                                        "fi",
+                                        "printf 'gate-passed-%s\\n' \"$count\" >> state/history.log",
+                                    ]
+                                ),
+                            ],
+                        },
+                        {
+                            "name": "WriteDecision",
+                            "id": "write_decision",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "\n".join(
+                                    [
+                                        "mkdir -p state",
+                                        "count=$(cat state/review_count.txt)",
+                                        "if [ \"$count\" -ge 2 ]; then",
+                                        "  printf 'APPROVE\\n' > state/review_decision.txt",
+                                        "else",
+                                        "  printf 'REVISE\\n' > state/review_decision.txt",
+                                        "fi",
+                                    ]
+                                ),
+                            ],
+                            "expected_outputs": [
+                                {
+                                    "name": "review_decision",
+                                    "path": "state/review_decision.txt",
+                                    "type": "enum",
+                                    "allowed": ["APPROVE", "REVISE"],
+                                }
+                            ],
+                        },
+                    ],
+                },
+            },
+            {
+                "name": "VerifyApproval",
+                "id": "verify_approval",
+                "assert": {
+                    "compare": {
+                        "left": {
+                            "ref": "root.steps.ReviewLoop.artifacts.review_decision",
+                        },
+                        "op": "eq",
+                        "right": "APPROVE",
+                    }
+                },
             },
         ],
     }
@@ -396,6 +511,22 @@ def _seed_structured_if_else_failure(workspace: Path, *, run_id: str) -> tuple[P
     return workflow_path, state_manager
 
 
+def _seed_repeat_until_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
+    workflow_path = workspace / "repeat_until_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_repeat_until_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state_manager.initialize("repeat_until_resume.yaml")
+    workflow = WorkflowLoader(workspace).load(workflow_path)
+    state = WorkflowExecutor(workflow, workspace, state_manager).execute(on_error="stop")
+
+    assert state["status"] == "failed"
+    return workflow_path, state_manager
+
+
 @pytest.fixture
 def temp_workspace():
     """Create a temporary workspace directory."""
@@ -545,6 +676,155 @@ def test_structured_if_else_smoke_resume_does_not_replay_completed_lowered_steps
     assert loaded_state.steps["RouteReview.then.WriteHistory"]["status"] == "completed"
     assert loaded_state.steps["RouteReview.then.ResumeGate"]["status"] == "completed"
     assert loaded_state.steps["RouteReview"]["artifacts"] == {"route_result": True}
+
+
+def test_repeat_until_smoke_resume_restarts_unfinished_iteration_without_replaying_completed_nested_steps(
+    temp_workspace,
+):
+    """Resume should continue a failed repeat_until iteration from the first unfinished nested step."""
+    run_id = "repeat-until-resume-run"
+    _seed_repeat_until_failure(temp_workspace, run_id=run_id)
+
+    history_path = temp_workspace / "state" / "history.log"
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "body-1",
+        "gate-passed-1",
+        "body-2",
+        "gate-failed-2",
+    ]
+
+    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "body-1",
+        "gate-passed-1",
+        "body-2",
+        "gate-failed-2",
+        "gate-passed-2",
+    ]
+
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["ReviewLoop[1].WriteBodyHistory"]["status"] == "completed"
+    assert loaded_state.steps["ReviewLoop[1].ResumeGate"]["status"] == "completed"
+    assert loaded_state.steps["ReviewLoop[1].WriteDecision"]["artifacts"] == {
+        "review_decision": "APPROVE"
+    }
+    assert loaded_state.steps["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+
+
+def test_repeat_until_resume_advances_past_already_evaluated_condition_without_replaying_iteration(
+    temp_workspace,
+):
+    """Resume should advance to the next iteration when the prior iteration body and condition already settled."""
+    run_id = "repeat-until-condition-resume-run"
+    workflow_path = temp_workspace / "repeat_until_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_repeat_until_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow = WorkflowLoader(temp_workspace).load(workflow_path)
+    repeat_step = workflow["steps"][0]
+    body_steps = repeat_step["repeat_until"]["steps"]
+
+    state_dir = temp_workspace / "state"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "review_count.txt").write_text("1\n", encoding="utf-8")
+    (state_dir / "review_decision.txt").write_text("REVISE\n", encoding="utf-8")
+    (state_dir / "history.log").write_text("body-1\ngate-passed-1\n", encoding="utf-8")
+    (state_dir / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize("repeat_until_resume.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.step_visits = {"ReviewLoop": 1}
+    state_manager.state.current_step = {
+        "name": "ReviewLoop",
+        "index": 0,
+        "type": "repeat_until",
+        "status": "running",
+        "started_at": state_manager.state.started_at,
+        "last_heartbeat_at": state_manager.state.updated_at,
+        "step_id": repeat_step["step_id"],
+        "visit_count": 1,
+    }
+    state_manager.state.steps = {
+        "ReviewLoop": {
+            "status": "running",
+            "name": "ReviewLoop",
+            "step_id": repeat_step["step_id"],
+            "artifacts": {"review_decision": "REVISE"},
+            "debug": {
+                "structured_repeat_until": {
+                    "completed_iterations": [],
+                    "current_iteration": 0,
+                    "condition_evaluated_for_iteration": 0,
+                    "last_condition_result": False,
+                }
+            },
+        },
+        "ReviewLoop[0].WriteBodyHistory": {
+            "status": "completed",
+            "name": "WriteBodyHistory",
+            "step_id": iteration_step_id(repeat_step["step_id"], 0, body_steps[0], 0),
+            "exit_code": 0,
+        },
+        "ReviewLoop[0].ResumeGate": {
+            "status": "completed",
+            "name": "ResumeGate",
+            "step_id": iteration_step_id(repeat_step["step_id"], 0, body_steps[1], 1),
+            "exit_code": 0,
+        },
+        "ReviewLoop[0].WriteDecision": {
+            "status": "completed",
+            "name": "WriteDecision",
+            "step_id": iteration_step_id(repeat_step["step_id"], 0, body_steps[2], 2),
+            "exit_code": 0,
+            "artifacts": {"review_decision": "REVISE"},
+        },
+    }
+    state_manager.state.repeat_until = {
+        "ReviewLoop": {
+            "current_iteration": 0,
+            "completed_iterations": [],
+            "condition_evaluated_for_iteration": 0,
+            "last_condition_result": False,
+        }
+    }
+    state_manager._write_state()
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert (state_dir / "history.log").read_text(encoding="utf-8").splitlines() == [
+        "body-1",
+        "gate-passed-1",
+        "body-2",
+        "gate-passed-2",
+    ]
+
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["ReviewLoop[1].WriteBodyHistory"]["status"] == "completed"
+    assert loaded_state.steps["ReviewLoop[1].ResumeGate"]["status"] == "completed"
+    assert loaded_state.steps["ReviewLoop[1].WriteDecision"]["artifacts"] == {
+        "review_decision": "APPROVE"
+    }
+    assert loaded_state.steps["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
 
 
 def test_finally_smoke_resume_restarts_at_first_unfinished_cleanup_step(temp_workspace):

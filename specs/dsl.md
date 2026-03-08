@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", or "2.6"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", or "2.7"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -89,6 +89,17 @@
         - `goto` / `_end` are rejected inside case steps
         - `cases` must cover every allowed enum value on the selected ref
         - case outputs must use matching contracts across every case
+    - v2.7 top-level `repeat_until:`
+      - shape: `{ id?, outputs: WorkflowOutputMap, condition: TypedPredicate, max_iterations: integer, steps: Step[] }`
+      - `repeat_until.id` uses the same pattern as step `id`
+      - post-test semantics: iteration `0` always executes once, then `condition` is evaluated after each completed iteration
+      - `condition` must be a typed predicate and may read loop-frame outputs through `self.outputs.<name>`
+      - `condition` must not bypass the loop frame by reading `self.steps.<Inner>...` directly
+      - selected iteration outputs are materialized onto the loop frame itself and become available at `root.steps.<Statement>.artifacts.<name>`
+      - first tranche restrictions:
+        - top-level only
+        - `goto` / `_end` are rejected inside body steps
+        - nested `call`, `for_each`, and nested structured control are rejected inside the body
   - Cycle guards:
     - `max_visits: integer` (v1.8+; optional; must be `> 0`)
     - First tranche is limited to top-level non-`for_each` steps.
@@ -214,6 +225,9 @@
         - downstream refs target `root.steps.<IfStatement>.artifacts.<name>`
       - v2.6 structured match outputs:
         - downstream refs target `root.steps.<MatchStatement>.artifacts.<name>`
+      - v2.7 structured repeat_until outputs:
+        - loop conditions use `self.outputs.<name>`
+        - downstream refs target `root.steps.<RepeatUntilStatement>.artifacts.<name>`
     - `assert`: gate object; any of
       - v1.5: legacy `equals|exists|not_exists`
       - v1.6+: legacy conditions or typed predicates
@@ -250,6 +264,7 @@
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.
   - top-level `finally` requires `version: "2.3"` or higher.
   - structured `match` requires `version: "2.6"` or higher.
+  - structured `repeat_until` requires `version: "2.7"` or higher.
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
     - When Task 11 lands, those fields require `version: "2.5"` or higher.

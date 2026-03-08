@@ -21,6 +21,7 @@ EXAMPLE_FILES = [
     "dsl_review_first_fix_loop.yaml",
     "finally_demo.yaml",
     "match_demo.yaml",
+    "repeat_until_demo.yaml",
     "scalar_bookkeeping_demo.yaml",
     "structured_if_else_demo.yaml",
     "test_fix_loop_v0.yaml",
@@ -239,6 +240,29 @@ def test_match_demo_runtime(tmp_path: Path):
     assert state["steps"]["RouteDecision.REVISE.WriteRevisionAction"]["status"] == "skipped"
     assert state["steps"]["RouteDecision.BLOCKED.WriteBlockedAction"]["status"] == "completed"
     assert state["steps"]["RouteDecision"]["artifacts"] == {"route_action": "ESCALATE"}
+
+
+def test_repeat_until_demo_runtime(tmp_path: Path):
+    """repeat_until demo exposes loop-frame outputs and persists per-iteration results."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "repeat_until_demo.yaml")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert state["steps"]["ReviewLoop[0].WriteDecision"]["artifacts"]["review_decision"] == "REVISE"
+    assert state["steps"]["ReviewLoop[1].WriteDecision"]["artifacts"]["review_decision"] == "REVISE"
+    assert state["steps"]["ReviewLoop[2].WriteDecision"]["artifacts"]["review_decision"] == "APPROVE"
+    assert (workspace / "state" / "history.log").read_text(encoding="utf-8").splitlines() == [
+        "iteration-1",
+        "iteration-2",
+        "iteration-3",
+    ]
 
 
 def test_test_fix_loop_v0_runtime(tmp_path: Path):

@@ -360,6 +360,98 @@ def _structured_match_workflow(*, include_inserted_sibling: bool = False) -> dic
     }
 
 
+def _structured_repeat_until_workflow(*, include_inserted_sibling: bool = False) -> dict:
+    steps = [
+        {
+            "name": "ReviewLoop",
+            "id": "review_loop",
+            "repeat_until": {
+                "id": "iteration_body",
+                "outputs": {
+                    "review_decision": {
+                        "kind": "scalar",
+                        "type": "enum",
+                        "allowed": ["APPROVE", "REVISE"],
+                        "from": {
+                            "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                        },
+                    }
+                },
+                "condition": {
+                    "compare": {
+                        "left": {
+                            "ref": "self.outputs.review_decision",
+                        },
+                        "op": "eq",
+                        "right": "APPROVE",
+                    }
+                },
+                "max_iterations": 4,
+                "steps": [
+                    {
+                        "name": "WriteDecision",
+                        "id": "write_decision",
+                        "command": [
+                            "bash",
+                            "-lc",
+                            "\n".join(
+                                [
+                                    "mkdir -p state",
+                                    "count=$(cat state/repeat_count.txt 2>/dev/null || printf '0')",
+                                    "count=$((count + 1))",
+                                    "printf '%s\\n' \"$count\" > state/repeat_count.txt",
+                                    "if [ \"$count\" -ge 3 ]; then",
+                                    "  printf 'APPROVE\\n' > state/review_decision.txt",
+                                    "else",
+                                    "  printf 'REVISE\\n' > state/review_decision.txt",
+                                    "fi",
+                                    "printf 'iteration-%s\\n' \"$count\" >> state/history.log",
+                                ]
+                            ),
+                        ],
+                        "expected_outputs": [
+                            {
+                                "name": "review_decision",
+                                "path": "state/review_decision.txt",
+                                "type": "enum",
+                                "allowed": ["APPROVE", "REVISE"],
+                            }
+                        ],
+                    }
+                ],
+            },
+        },
+        {
+            "name": "AssertApproved",
+            "id": "assert_approved",
+            "assert": {
+                "compare": {
+                    "left": {
+                        "ref": "root.steps.ReviewLoop.artifacts.review_decision",
+                    },
+                    "op": "eq",
+                    "right": "APPROVE",
+                }
+            },
+        },
+    ]
+    if include_inserted_sibling:
+        steps.insert(
+            0,
+            {
+                "name": "InsertedSibling",
+                "id": "inserted_sibling",
+                "command": ["bash", "-lc", "mkdir -p state && printf 'inserted\\n' >> state/history.log"],
+            },
+        )
+
+    return {
+        "version": "2.7",
+        "name": "structured-repeat-until",
+        "steps": steps,
+    }
+
+
 def _structured_finally_workflow(
     *,
     include_inserted_sibling: bool = False,
@@ -609,6 +701,59 @@ def test_match_case_outputs_materialize_on_statement_and_skip_non_selected_cases
     assert state["steps"]["RouteReviewDecision"]["artifacts"]["route_action"] == "FIX"
     assert state["steps"]["RouteReviewDecision"]["debug"]["structured_match"]["selected_case"] == "REVISE"
     assert state["steps"]["CheckRouteAction"]["exit_code"] == 0
+
+
+def test_repeat_until_body_step_ids_stay_stable_when_siblings_shift(tmp_path: Path):
+    workflow_a = _structured_repeat_until_workflow()
+    workflow_b = _structured_repeat_until_workflow(include_inserted_sibling=True)
+
+    loaded_a = _load_workflow(tmp_path / "a", workflow_a)
+    loaded_b = _load_workflow(tmp_path / "b", workflow_b)
+
+    steps_a = {step["name"]: step for step in loaded_a["steps"]}
+    steps_b = {step["name"]: step for step in loaded_b["steps"]}
+
+    body_a = {
+        step["name"]: step["step_id"]
+        for step in steps_a["ReviewLoop"]["repeat_until"]["steps"]
+    }
+    body_b = {
+        step["name"]: step["step_id"]
+        for step in steps_b["ReviewLoop"]["repeat_until"]["steps"]
+    }
+
+    assert steps_a["ReviewLoop"]["step_id"] == "root.review_loop"
+    assert body_a["WriteDecision"] == "root.review_loop.iteration_body.write_decision"
+    assert steps_b["ReviewLoop"]["step_id"] == steps_a["ReviewLoop"]["step_id"]
+    assert body_b["WriteDecision"] == body_a["WriteDecision"]
+
+
+def test_repeat_until_materializes_loop_frame_outputs_and_iteration_results(tmp_path: Path):
+    state = _run_workflow(tmp_path, _structured_repeat_until_workflow())
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert state["steps"]["ReviewLoop"]["debug"]["structured_repeat_until"]["completed_iterations"] == [
+        0,
+        1,
+        2,
+    ]
+    assert state["steps"]["ReviewLoop[0].WriteDecision"]["artifacts"]["review_decision"] == "REVISE"
+    assert state["steps"]["ReviewLoop[1].WriteDecision"]["artifacts"]["review_decision"] == "REVISE"
+    assert state["steps"]["ReviewLoop[2].WriteDecision"]["artifacts"]["review_decision"] == "APPROVE"
+    assert state["steps"]["ReviewLoop[0].WriteDecision"]["step_id"] == (
+        "root.review_loop#0.iteration_body.write_decision"
+    )
+    assert state["steps"]["ReviewLoop[2].WriteDecision"]["step_id"] == (
+        "root.review_loop#2.iteration_body.write_decision"
+    )
+    assert state["steps"]["AssertApproved"]["status"] == "completed"
+    assert (tmp_path / "state" / "history.log").read_text(encoding="utf-8").splitlines() == [
+        "iteration-1",
+        "iteration-2",
+        "iteration-3",
+    ]
+
 
 def test_finally_step_ids_stay_stable_when_body_siblings_shift(tmp_path: Path):
     workflow_a = _structured_finally_workflow()

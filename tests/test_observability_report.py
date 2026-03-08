@@ -241,6 +241,77 @@ def test_snapshot_recognizes_call_steps(tmp_path: Path):
     assert snapshot["steps"][0]["output"]["call"]["call_frame_id"] == "root.run_review_loop::visit::1"
 
 
+def test_snapshot_recognizes_repeat_until_steps(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "repeat-run"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow = {
+        "version": "2.7",
+        "name": "obs-repeat",
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                            },
+                        }
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {"ref": "self.outputs.review_decision"},
+                            "op": "eq",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "max_iterations": 4,
+                    "steps": [
+                        {
+                            "name": "WriteDecision",
+                            "command": ["bash", "-lc", "echo APPROVE"],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+    state = {
+        "run_id": "repeat-run",
+        "status": "completed",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": "2026-02-27T00:00:05+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "steps": {
+            "ReviewLoop": {
+                "status": "completed",
+                "step_id": "root.review_loop",
+                "artifacts": {"review_decision": "APPROVE"},
+                "debug": {
+                    "structured_repeat_until": {
+                        "completed_iterations": [0, 1, 2],
+                        "current_iteration": 2,
+                        "condition_evaluated_for_iteration": 2,
+                        "last_condition_result": True,
+                    }
+                },
+            }
+        },
+    }
+
+    snapshot = build_status_snapshot(workflow, state, run_root)
+
+    assert snapshot["steps"][0]["kind"] == "repeat_until"
+    assert snapshot["steps"][0]["status"] == "completed"
+    assert snapshot["steps"][0]["output"]["artifacts"] == {"review_decision": "APPROVE"}
+
+
 def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "stale-run"
     (run_root / "logs").mkdir(parents=True)

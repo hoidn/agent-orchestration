@@ -87,6 +87,7 @@ class RunState:
     current_step: Optional[Dict[str, Any]] = None
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
+    repeat_until: Dict[str, Any] = field(default_factory=dict)
     call_frames: Dict[str, Any] = field(default_factory=dict)
     artifact_versions: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     artifact_consumes: Dict[str, Dict[str, int]] = field(default_factory=dict)
@@ -109,6 +110,7 @@ class RunState:
             "finalization": self.finalization,
             "steps": {},
             "for_each": {},
+            "repeat_until": self.repeat_until,
             "call_frames": self.call_frames,
             "artifact_versions": self.artifact_versions,
             "artifact_consumes": self.artifact_consumes,
@@ -171,6 +173,7 @@ class RunState:
             current_step=data.get("current_step"),
             steps=data.get("steps", {}),
             for_each=for_each,
+            repeat_until=data.get("repeat_until", {}),
             call_frames=data.get("call_frames", {}),
             artifact_versions=data.get("artifact_versions", {}),
             artifact_consumes=data.get("artifact_consumes", {}),
@@ -413,6 +416,22 @@ class StateManager:
                 raise RuntimeError("State not initialized")
 
             self.state.for_each[loop_name] = state
+            self._write_state()
+
+    def update_repeat_until_state(
+        self,
+        loop_name: str,
+        progress: Dict[str, Any],
+        frame_result: Optional[Dict[str, Any]] = None,
+    ):
+        """Persist repeat_until bookkeeping and optional loop-frame snapshot."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            self.state.repeat_until[loop_name] = progress
+            if frame_result is not None:
+                self.state.steps[loop_name] = frame_result
             self._write_state()
 
     def update_dataflow_state(

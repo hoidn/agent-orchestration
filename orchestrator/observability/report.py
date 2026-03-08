@@ -26,6 +26,8 @@ def _step_kind(step: Dict[str, Any]) -> str:
         return "structured_match_case"
     if "structured_match_join" in step:
         return "structured_match_join"
+    if "repeat_until" in step:
+        return "repeat_until"
     if "provider" in step:
         return "provider"
     if "command" in step:

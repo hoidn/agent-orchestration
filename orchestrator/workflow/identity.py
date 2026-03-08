@@ -41,6 +41,15 @@ def assign_step_ids(steps: Iterable[Dict[str, Any]], parent_step_id: str = "root
             if isinstance(nested_steps, list):
                 assign_step_ids(nested_steps, parent_step_id=step_id)
 
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, dict):
+            nested_steps = repeat_until.get("steps")
+            if isinstance(nested_steps, list):
+                body_token = repeat_until.get("id")
+                if not authored_id_is_valid(body_token):
+                    body_token = "repeat_until"
+                assign_step_ids(nested_steps, parent_step_id=f"{step_id}.{body_token}")
+
 
 def runtime_step_id(step: Dict[str, Any], fallback_index: int = 0) -> str:
     """Return the durable step id for a loaded step, deriving a fallback when missing."""

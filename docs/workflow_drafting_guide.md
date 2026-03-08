@@ -79,6 +79,7 @@ Two practical upgrades now exist:
 - v2.1: prefer typed workflow `inputs`/`outputs` over ad hoc `context` conventions when the value is part of the workflow boundary and should survive validation, resume, and later `call` reuse.
 - v2.2: prefer top-level structured `if/else` when the workflow intent is branch selection rather than a reusable raw `goto` diamond.
 - v2.6: prefer top-level structured `match` when a typed enum decision has three or more stable cases, or when you want the workflow shape to stay aligned with the decision artifact values instead of layering chained predicates.
+- v2.7: prefer top-level `repeat_until` for bounded post-test review/fix loops when the exit condition should read the latest iteration outputs instead of shell-managed counters or raw `goto` back-edges.
 - Task 10 reusable-call boundary: if a workflow is intended for later `call` reuse, keep bundled prompts/rubrics/schemas on the future workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep runtime reads/writes on the existing WORKSPACE-relative surfaces (`input_file`, `depends_on`, `output_file`, deterministic outputs).
 
 ## 5) Prompt Authoring Guidance
@@ -175,6 +176,13 @@ For v2.6 enum branching:
 - keep case-local work inside the selected case; downstream steps should read only `root.steps.<MatchStatement>.artifacts.*`
 - mirror the `if/else` block pattern: give the statement and any case that needs cross-edit identity stability an authored `id`, and expose any downstream data through matching case `outputs`
 - prefer `match` over chained `if/else` only when the workflow is routing on a published decision token such as `APPROVE|REVISE|BLOCKED`; do not use it as a generic pattern-matching surface
+
+For v2.7 structured loops:
+- use `repeat_until` only for post-test loops: the body runs first, then the loop condition checks the latest loop-frame outputs
+- declare the data the condition needs under `repeat_until.outputs`, then read it only through `self.outputs.<name>` inside `repeat_until.condition`
+- do not point `repeat_until.condition` at `self.steps.<Inner>...`; body steps are multi-visit and that bypasses the loop-frame anti-ambiguity boundary
+- give both the outer step and the repeat body an authored `id` when iteration lineage or resume stability matters across sibling insertion / body reshaping
+- keep the first tranche simple: no `goto`, nested structured control, nested `for_each`, or nested `call` inside the loop body
 
 For post-v2.0 workflows, separate display names from durable identity:
 - keep `name` optimized for readable reports

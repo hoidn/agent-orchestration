@@ -140,6 +140,14 @@
   - Case-local steps stay scoped to the selected case; downstream refs target the statement node outputs.
   - This tranche remains on state schema `2.0`; lowered case markers/join metadata are additive `steps.*` payload fields.
 
+- v2.7 additions (post-test `repeat_until`)
+  - Top-level steps may use structured `repeat_until` with `{ id?, outputs, condition, max_iterations, steps }`.
+  - Iteration `0` always executes once; `condition` is evaluated only after each completed iteration.
+  - `condition` reads loop-frame outputs through `self.outputs.<name>` and must not read inner multi-visit body steps directly.
+  - Loop-frame outputs materialize on the authored step itself, so downstream refs target `root.steps.<Statement>.artifacts.<name>`.
+  - Resume persists `repeat_until` iteration bookkeeping (`current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, `last_condition_result`) under state schema `2.1`.
+  - First tranche remains conservative: body steps reject `goto`, nested structured control, nested `for_each`, and nested `call`.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -152,7 +160,7 @@
   - `v2.4` (docs/contract boundary): D9 reusable-call contract
   - `v2.5`: D10 imports + `call`
   - `v2.6`: D11 `match`
-  - `v2.7` (planned): D12 `repeat_until`
+  - `v2.7`: D12 `repeat_until`
   - `v2.8` (planned): D13 score-aware gates
   - `v2.9` (planned): D14 authoring linting and normalization
 
@@ -278,5 +286,6 @@ Planned acceptance:
 | 2.4 | Reusable-call contract boundary only (not executable by itself) | Locks path taxonomy, same-version rule, write-root parameterization, and accepted operational-risk language before runtime work lands. |
 | 2.5 | `imports` + inline `call` with typed `with:` binding | Uses `schema_version: "2.1"` for persisted call-frame lineage/export state. |
 | 2.6 | Top-level structured `match` with exhaustive enum case coverage | Case-local work stays scoped to the selected case; downstream refs target statement outputs on the join node. |
+| 2.7 | Top-level post-test `repeat_until` with loop-frame outputs and resume-safe iteration bookkeeping | Loop conditions read only `self.outputs.*`; downstream refs target the loop frame outputs on the authored step. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

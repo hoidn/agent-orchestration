@@ -16,6 +16,7 @@
   - `error`: optional run-level error object for workflow-boundary failures such as output export contract violations
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
+  - `repeat_until`: loop bookkeeping: `current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, `last_condition_result`
   - v2.5+ reusable-call fields:
     - `call_frames`: call-frame records keyed by durable `call_frame_id`, with caller step identity, import alias, callee workflow file, bound inputs, body/finalization/export status, current nested execution position, and nested call-frame-local state
   - v1.2+ runtime dataflow fields:
@@ -35,6 +36,10 @@
   - v2.6 structured enum-branching additions:
     - lowered case markers and lowered case-body steps are recorded as ordinary top-level step entries under presentation keys such as `RouteDecision.APPROVE` and `RouteDecision.APPROVE.WriteApprovedAction`
     - the lowered join node keeps the authored statement presentation key (for example `RouteDecision`) and materializes case outputs there
+  - v2.7 structured looping additions:
+    - `steps.<RepeatUntilStatement>` stores the loop-frame result and latest materialized loop outputs
+    - `steps.<RepeatUntilStatement>[i].<StepName>` stores one iteration's nested step result using qualified per-iteration `step_id` ancestry
+    - `repeat_until.<RepeatUntilStatement>` persists `current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, and `last_condition_result` for resume
   - v2.3 finalization additions:
     - lowered finalization steps are recorded as ordinary top-level step entries under presentation keys such as `finally.ReleaseLock`
     - `finalization.workflow_outputs_status` records whether workflow outputs are `pending`, `completed`, `failed`, `suppressed`, or `not_configured`
@@ -66,6 +71,7 @@
   - v2.6 structured `match` also reuses schema `2.0`; lowered case markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
   - v2.3 structured finalization also reuses schema `2.0`; finalization bookkeeping and lowered `finally.*` step entries are additive fields.
   - v2.5 reusable `call` is the schema boundary that moves state to `2.1`, because bare artifact-name ledgers cannot preserve callee-private lineage or freshness safely.
+  - v2.7 `repeat_until` extends schema `2.1` additively; loop-frame bookkeeping lives under the new top-level `repeat_until` map.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:
@@ -172,6 +178,14 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
       "items": ["file1.txt", "file2.txt"],
       "completed_indices": [0],
       "current_index": 1
+    }
+  },
+  "repeat_until": {
+    "ReviewLoop": {
+      "current_iteration": 2,
+      "completed_iterations": [0, 1],
+      "condition_evaluated_for_iteration": 1,
+      "last_condition_result": false
     }
   }
 }

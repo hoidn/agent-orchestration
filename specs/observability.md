@@ -47,6 +47,10 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - case markers use kind `structured_match_case`
     - statement join nodes use kind `structured_match_join`
     - join-node `output.error` / `output.artifacts` / `output.debug.structured_match` show selected-case materialization status
+  - v2.7 structured loop nodes appear in snapshots as ordinary top-level entries with kind `repeat_until`.
+    - the loop frame keeps the authored step name
+    - `output.artifacts` exposes the latest materialized loop-frame outputs
+    - `output.debug.structured_repeat_until` may expose `current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, and `last_condition_result`
   - v2.3 status/report snapshots may expose `run.finalization` bookkeeping and render lowered finalization steps as ordinary top-level entries with kind `finally`.
   - When finalization is present, `run.workflow_outputs` stays empty until cleanup completes successfully; failed cleanup reports `workflow_outputs_status: suppressed|failed` in `run.finalization`.
   - v2.5 reusable-call surfaces:

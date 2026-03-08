@@ -1,0 +1,53 @@
+version: "2.7"
+name: repeat-until-demo
+
+steps:
+  - name: ReviewLoop
+    id: review_loop
+    repeat_until:
+      id: iteration_body
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: [APPROVE, REVISE]
+          from:
+            ref: self.steps.WriteDecision.artifacts.review_decision
+      condition:
+        compare:
+          left:
+            ref: self.outputs.review_decision
+          op: eq
+          right: APPROVE
+      max_iterations: 4
+      steps:
+        - name: WriteDecision
+          id: write_decision
+          command:
+            - bash
+            - -lc
+            - |
+              mkdir -p state
+              count=$(cat state/repeat_count.txt 2>/dev/null || printf '0')
+              count=$((count + 1))
+              printf '%s\n' "$count" > state/repeat_count.txt
+              if [ "$count" -ge 3 ]; then
+                printf 'APPROVE\n' > state/review_decision.txt
+              else
+                printf 'REVISE\n' > state/review_decision.txt
+              fi
+              printf 'iteration-%s\n' "$count" >> state/history.log
+          expected_outputs:
+            - name: review_decision
+              path: state/review_decision.txt
+              type: enum
+              allowed: [APPROVE, REVISE]
+
+  - name: AssertApproved
+    id: assert_approved
+    assert:
+      compare:
+        left:
+          ref: root.steps.ReviewLoop.artifacts.review_decision
+        op: eq
+        right: APPROVE

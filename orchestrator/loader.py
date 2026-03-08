@@ -18,13 +18,17 @@ from orchestrator.workflow.statements import (
     STRUCTURED_FINALLY_VERSION,
     STRUCTURED_IF_VERSION,
     STRUCTURED_MATCH_VERSION,
+    STRUCTURED_REPEAT_UNTIL_VERSION,
     branch_token,
     is_if_statement,
     is_match_statement,
+    is_repeat_until_statement,
     match_case_token,
     normalize_match_case_block,
     normalize_branch_block,
     normalize_finally_block,
+    normalize_repeat_until_block,
+    repeat_until_body_token,
 )
 
 
@@ -54,14 +58,14 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7",
     ]
 
     def __init__(self, workspace: Path):
@@ -596,6 +600,11 @@ class WorkflowLoader:
                     f"Step '{name}': structured if/else cannot be combined with structured match"
                 )
                 continue
+            if is_repeat_until_statement(step) and (is_if_statement(step) or is_match_statement(step)):
+                self._add_error(
+                    f"Step '{name}': repeat_until cannot be combined with other structured control fields"
+                )
+                continue
 
             if is_if_statement(step):
                 self._validate_if_statement(
@@ -616,6 +625,23 @@ class WorkflowLoader:
 
             if is_match_statement(step):
                 self._validate_match_statement(
+                    step=step,
+                    step_name=name,
+                    version=version,
+                    artifacts_registry=artifacts_registry,
+                    root_catalog=root_catalog,
+                    scope_artifacts=scope_artifacts,
+                    scope_multi_visit=scope_multi_visit,
+                    parent_artifacts=parent_artifacts,
+                    parent_multi_visit=parent_multi_visit,
+                    scope_non_step_results=scope_non_step_results,
+                    parent_non_step_results=parent_non_step_results,
+                    top_level=top_level,
+                )
+                continue
+
+            if is_repeat_until_statement(step):
+                self._validate_repeat_until_statement(
                     step=step,
                     step_name=name,
                     version=version,
@@ -1383,6 +1409,212 @@ class WorkflowLoader:
             )
 
         return outputs
+
+    def _validate_repeat_until_statement(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        version: str,
+        artifacts_registry: Optional[Any],
+        root_catalog: Dict[str, Any],
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+        top_level: bool,
+    ) -> None:
+        """Validate one top-level post-test repeat_until statement."""
+        if not top_level:
+            self._add_error(
+                f"Step '{step_name}': structured repeat_until is only supported on top-level steps in v{STRUCTURED_REPEAT_UNTIL_VERSION}"
+            )
+            return
+        if not self._version_at_least(version, STRUCTURED_REPEAT_UNTIL_VERSION):
+            self._add_error(
+                f"Step '{step_name}': repeat_until requires version '{STRUCTURED_REPEAT_UNTIL_VERSION}'"
+            )
+            return
+
+        allowed_fields = {'name', 'id', 'repeat_until'}
+        for field_name in step.keys():
+            if field_name not in allowed_fields:
+                self._add_error(
+                    f"Step '{step_name}': structured repeat_until does not allow field '{field_name}'"
+                )
+
+        block = normalize_repeat_until_block(step.get('repeat_until'))
+        if block is None:
+            self._add_error(f"Step '{step_name}': repeat_until must be a dictionary")
+            return
+
+        body_id = block.get('id')
+        if body_id is not None:
+            if not isinstance(body_id, str) or not STEP_ID_PATTERN.fullmatch(body_id):
+                self._add_error(
+                    f"Step '{step_name}': repeat_until.id must match {STEP_ID_PATTERN.pattern}"
+                )
+
+        max_iterations = block.get('max_iterations')
+        self._validate_positive_integer(
+            max_iterations,
+            f"Step '{step_name}': repeat_until.max_iterations",
+            allow_zero=False,
+        )
+
+        body_steps = block.get('steps')
+        if not isinstance(body_steps, list) or not body_steps:
+            self._add_error(
+                f"Step '{step_name}': repeat_until.steps must be a non-empty list"
+            )
+            return
+
+        if self._branch_contains_goto(body_steps):
+            self._add_error(
+                f"Step '{step_name}': repeat_until steps do not permit goto/_end routing in the first tranche"
+            )
+
+        for nested_step in body_steps:
+            if not isinstance(nested_step, dict):
+                continue
+            nested_name = nested_step.get('name')
+            if not isinstance(nested_name, str):
+                continue
+            if 'call' in nested_step:
+                self._add_error(
+                    f"Step '{step_name}': repeat_until body step '{nested_name}' does not support call in the first tranche"
+                )
+            if 'for_each' in nested_step:
+                self._add_error(
+                    f"Step '{step_name}': repeat_until body step '{nested_name}' does not support for_each in the first tranche"
+                )
+            if is_if_statement(nested_step) or is_match_statement(nested_step) or is_repeat_until_statement(nested_step):
+                self._add_error(
+                    f"Step '{step_name}': repeat_until body step '{nested_name}' does not support nested structured control in the first tranche"
+                )
+
+        body_scope_artifacts = self._build_scope_artifact_catalog(body_steps, artifacts_registry)
+        body_scope_multi_visit = self._build_root_ref_catalog(body_steps, artifacts_registry).get('multi_visit', set())
+        body_scope_non_step_results = self._build_scope_non_step_result_targets(body_steps)
+        self._validate_steps(
+            body_steps,
+            version,
+            artifacts_registry,
+            root_catalog,
+            scope_artifacts=body_scope_artifacts,
+            parent_artifacts=scope_artifacts,
+            scope_multi_visit=body_scope_multi_visit,
+            parent_multi_visit=scope_multi_visit,
+            scope_non_step_results=body_scope_non_step_results,
+            parent_non_step_results=scope_non_step_results,
+            top_level=False,
+        )
+
+        outputs = block.get('outputs')
+        if not isinstance(outputs, dict) or not outputs:
+            self._add_error(f"Step '{step_name}': repeat_until.outputs must be a non-empty dictionary")
+            return
+
+        normalized_outputs: Dict[str, Dict[str, Any]] = {}
+        for output_name, spec in outputs.items():
+            context = f"Step '{step_name}': repeat_until.outputs.{output_name}"
+            self._validate_workflow_signature_contract(spec, context, allow_from=True)
+            if not isinstance(spec, dict):
+                continue
+
+            binding = spec.get('from')
+            ref = binding.get('ref') if isinstance(binding, dict) else None
+            ref_type = self._validate_structured_ref(
+                ref,
+                f"{step_name}.repeat_until.outputs.{output_name}",
+                version,
+                root_catalog,
+                body_scope_artifacts,
+                body_scope_multi_visit,
+                scope_artifacts,
+                scope_multi_visit,
+                body_scope_non_step_results,
+                scope_non_step_results,
+            )
+            declared_type = spec.get('type')
+            if ref_type != 'unknown' and isinstance(declared_type, str):
+                if declared_type != ref_type and not (declared_type == 'float' and ref_type == 'integer'):
+                    self._add_error(
+                        f"{context}.from resolves to '{ref_type}' but output declares '{declared_type}'"
+                    )
+            if isinstance(output_name, str) and isinstance(spec, dict):
+                normalized_outputs[output_name] = spec
+
+        condition = block.get('condition')
+        if not isinstance(condition, dict) or not self._is_typed_predicate_node(condition):
+            self._add_error(f"Step '{step_name}': repeat_until.condition must be a typed predicate")
+            return
+
+        rewritten_condition = self._rewrite_repeat_until_condition_refs(
+            condition,
+            step_name=step_name,
+            output_specs=normalized_outputs,
+        )
+        self._validate_typed_predicate(
+            rewritten_condition,
+            step_name,
+            version,
+            root_catalog,
+            {},
+            set(),
+            None,
+            None,
+            set(),
+            None,
+        )
+        block['condition'] = rewritten_condition
+        step['repeat_until'] = block
+
+    def _rewrite_repeat_until_condition_refs(
+        self,
+        node: Any,
+        *,
+        step_name: str,
+        output_specs: Dict[str, Dict[str, Any]],
+    ) -> Any:
+        """Rewrite repeat_until condition refs onto loop-frame artifacts."""
+        if isinstance(node, list):
+            return [
+                self._rewrite_repeat_until_condition_refs(
+                    item,
+                    step_name=step_name,
+                    output_specs=output_specs,
+                )
+                for item in node
+            ]
+        if not isinstance(node, dict):
+            return node
+
+        if set(node.keys()) == {'ref'}:
+            ref = node.get('ref')
+            if isinstance(ref, str) and ref.startswith('self.outputs.'):
+                output_name = ref[len('self.outputs.'):]
+                if output_name not in output_specs:
+                    self._add_error(
+                        f"Step '{step_name}': repeat_until.condition ref '{ref}' targets unknown loop output '{output_name}'"
+                    )
+                    return {'ref': ref}
+                return {'ref': f"root.steps.{step_name}.artifacts.{output_name}"}
+            if isinstance(ref, str) and ref.startswith('self.steps.'):
+                self._add_error(
+                    f"Step '{step_name}': repeat_until.condition must read declared loop-frame outputs via self.outputs.*, not '{ref}'"
+                )
+            return {'ref': ref}
+
+        rewritten: Dict[str, Any] = {}
+        for key, value in node.items():
+            rewritten[key] = self._rewrite_repeat_until_condition_refs(
+                value,
+                step_name=step_name,
+                output_specs=output_specs,
+            )
+        return rewritten
 
     def _build_finalization_catalog_steps(
         self,
@@ -2183,6 +2415,10 @@ class WorkflowLoader:
                 outputs = self._collect_match_statement_outputs(step)
                 artifact_map[name] = outputs
                 continue
+            if is_repeat_until_statement(step):
+                outputs = self._collect_repeat_until_outputs(step)
+                artifact_map[name] = outputs
+                continue
 
             expected_outputs = step.get('expected_outputs')
             if isinstance(expected_outputs, list):
@@ -2275,6 +2511,23 @@ class WorkflowLoader:
             return collected
 
         return {}
+
+    def _collect_repeat_until_outputs(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Collect loop-frame outputs exposed by a repeat_until statement."""
+        block = normalize_repeat_until_block(step.get('repeat_until'))
+        if not isinstance(block, dict):
+            return {}
+
+        outputs = block.get('outputs')
+        if not isinstance(outputs, dict):
+            return {}
+
+        collected: Dict[str, Dict[str, Any]] = {}
+        for output_name, spec in outputs.items():
+            if not isinstance(output_name, str) or not isinstance(spec, dict):
+                continue
+            collected[output_name] = self._normalize_output_contract_artifact_spec(spec, persisted=True)
+        return collected
 
     def _normalize_output_contract_artifact_spec(
         self,

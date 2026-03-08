@@ -357,6 +357,8 @@ class WorkflowExecutor:
                     current_step_name = self.steps[current_index].get("name", f"step_{current_index}")
                     if self._resume_for_each_has_pending_work(state, current_step_name):
                         return current_index
+                    if self._resume_repeat_until_has_pending_work(state, current_step_name):
+                        return current_index
                     current_result = steps_state.get(current_step_name)
                     if not self._resume_entry_is_terminal(current_result):
                         return current_index
@@ -364,6 +366,8 @@ class WorkflowExecutor:
         for step_index, step in enumerate(self.steps):
             step_name = step.get("name", f"step_{step_index}")
             if self._resume_for_each_has_pending_work(state, step_name):
+                return step_index
+            if self._resume_repeat_until_has_pending_work(state, step_name):
                 return step_index
             step_result = steps_state.get(step_name)
             if step_result is None:
@@ -406,6 +410,23 @@ class WorkflowExecutor:
                 return True
 
         return False
+
+    def _resume_repeat_until_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
+        """Return True when persisted repeat_until bookkeeping shows unfinished iterations."""
+        repeat_until_state = state.get("repeat_until", {})
+        if not isinstance(repeat_until_state, dict):
+            return False
+
+        progress = repeat_until_state.get(step_name)
+        if not isinstance(progress, dict):
+            return False
+
+        current_iteration = progress.get("current_iteration")
+        if isinstance(current_iteration, int):
+            return True
+
+        step_result = state.get("steps", {}).get(step_name)
+        return isinstance(step_result, dict) and not self._resume_entry_is_terminal(step_result)
 
     def _uses_qualified_identities(self) -> bool:
         """Return True when this workflow uses the post-Task-6 state model."""
@@ -1025,6 +1046,13 @@ class WorkflowExecutor:
                             step,
                             state.get('steps', {}).get(step_name, {'status': 'completed'}),
                         )
+                    elif 'repeat_until' in step:
+                        state = self._execute_repeat_until(step, state, resume=resume_current_step)
+                        self._emit_step_summary(
+                            step_name,
+                            step,
+                            state.get('steps', {}).get(step_name, {'status': 'completed'}),
+                        )
                     elif 'structured_if_branch' in step:
                         result = self._execute_structured_if_branch(step)
                         self._persist_step_result(state, step_name, step, result)
@@ -1169,6 +1197,8 @@ class WorkflowExecutor:
             return 'call'
         if 'for_each' in step:
             return 'for_each'
+        if 'repeat_until' in step:
+            return 'repeat_until'
         return 'unknown'
 
     @contextmanager
@@ -1493,6 +1523,43 @@ class WorkflowExecutor:
                 current_index=current_index,
             ),
         )
+
+    def _persist_repeat_until_progress(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        progress: Dict[str, Any],
+        frame_result: Dict[str, Any],
+    ) -> None:
+        """Persist repeat_until bookkeeping plus the current loop-frame snapshot."""
+        state.setdefault('steps', {})
+        state.setdefault('repeat_until', {})
+        state['steps'][loop_name] = frame_result
+        state['repeat_until'][loop_name] = progress
+        self.state_manager.update_repeat_until_state(loop_name, progress, frame_result)
+
+    def _repeat_until_iteration_resume_state(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        iteration: int,
+        body_steps: List[Dict[str, Any]],
+    ) -> tuple[Dict[str, Any], int, bool]:
+        """Return persisted iteration state plus the first unfinished nested step index."""
+        iteration_state = self._collect_persisted_iteration_state(state, loop_name, iteration)
+        start_nested_index = 0
+        for nested_index, nested_step in enumerate(body_steps):
+            nested_name = nested_step.get('name', f'nested_{nested_index}')
+            persisted = iteration_state.get(nested_name)
+            if self._resume_entry_is_terminal(persisted):
+                start_nested_index = nested_index + 1
+                continue
+            start_nested_index = nested_index
+            break
+        else:
+            start_nested_index = len(body_steps)
+
+        return iteration_state, start_nested_index, start_nested_index >= len(body_steps)
 
     def _resume_for_each_state(
         self,
@@ -2223,6 +2290,577 @@ class WorkflowExecutor:
         # This should not happen if validation passed
         logger.error(f"Goto target '{target}' not found")
         return None
+
+    def _build_repeat_until_frame_result(
+        self,
+        step: Dict[str, Any],
+        *,
+        status: str,
+        exit_code: int,
+        artifacts: Optional[Dict[str, Any]],
+        progress: Dict[str, Any],
+        error: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Build the persisted loop-frame result for one repeat_until step."""
+        metadata = step.get('repeat_until', {})
+        result: Dict[str, Any] = {
+            'status': status,
+            'exit_code': exit_code,
+            'duration_ms': 0,
+            'name': step.get('name', f'step_{self.current_step}'),
+            'step_id': self._step_id(step),
+            'debug': {
+                'structured_repeat_until': {
+                    'body_id': metadata.get('id'),
+                    'max_iterations': metadata.get('max_iterations'),
+                    'current_iteration': progress.get('current_iteration'),
+                    'completed_iterations': list(progress.get('completed_iterations', [])),
+                    'condition_evaluated_for_iteration': progress.get('condition_evaluated_for_iteration'),
+                    'last_condition_result': progress.get('last_condition_result'),
+                }
+            },
+        }
+        if isinstance(artifacts, dict):
+            result['artifacts'] = artifacts
+        if isinstance(error, dict):
+            result['error'] = error
+        return result
+
+    def _execute_repeat_until(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        resume: bool = False,
+    ) -> Dict[str, Any]:
+        """Execute a post-test repeat_until loop with durable resume bookkeeping."""
+        step_name = step.get('name', f'step_{self.current_step}')
+        block = step.get('repeat_until', {})
+        body_steps = block.get('steps', []) if isinstance(block, dict) else []
+        outputs = block.get('outputs', {}) if isinstance(block, dict) else {}
+        condition = block.get('condition') if isinstance(block, dict) else None
+        max_iterations = block.get('max_iterations') if isinstance(block, dict) else None
+
+        if not isinstance(body_steps, list) or not isinstance(outputs, dict) or type(max_iterations) is not int:
+            state['steps'][step_name] = self._attach_outcome(
+                step,
+                self._build_repeat_until_frame_result(
+                    step,
+                    status='failed',
+                    exit_code=2,
+                    artifacts=None,
+                    progress={
+                        'current_iteration': 0,
+                        'completed_iterations': [],
+                        'condition_evaluated_for_iteration': None,
+                        'last_condition_result': None,
+                    },
+                    error={
+                        'type': 'contract_violation',
+                        'message': 'repeat_until configuration invalid at execution time',
+                    },
+                ),
+                phase_hint='pre_execution',
+                class_hint='contract_violation',
+                retryable_hint=False,
+            )
+            self.state_manager.update_repeat_until_state(
+                step_name,
+                {
+                    'current_iteration': 0,
+                    'completed_iterations': [],
+                    'condition_evaluated_for_iteration': None,
+                    'last_condition_result': None,
+                },
+                state['steps'][step_name],
+            )
+            return state
+
+        repeat_until_state = state.setdefault('repeat_until', {})
+        if not isinstance(repeat_until_state, dict):
+            repeat_until_state = {}
+            state['repeat_until'] = repeat_until_state
+
+        persisted_progress = repeat_until_state.get(step_name)
+        if not isinstance(persisted_progress, dict):
+            persisted_progress = {}
+
+        completed_iterations = sorted(
+            {
+                index
+                for index in persisted_progress.get('completed_iterations', [])
+                if isinstance(index, int) and index >= 0
+            }
+        )
+        current_iteration = persisted_progress.get('current_iteration')
+        if not isinstance(current_iteration, int) or current_iteration < 0:
+            current_iteration = 0
+        condition_evaluated_for_iteration = persisted_progress.get('condition_evaluated_for_iteration')
+        if not isinstance(condition_evaluated_for_iteration, int):
+            condition_evaluated_for_iteration = None
+        last_condition_result = persisted_progress.get('last_condition_result')
+        if not isinstance(last_condition_result, bool):
+            last_condition_result = None
+
+        frame_artifacts: Dict[str, Any] = {}
+        existing_frame = state.get('steps', {}).get(step_name)
+        if isinstance(existing_frame, dict) and isinstance(existing_frame.get('artifacts'), dict):
+            frame_artifacts = dict(existing_frame.get('artifacts', {}))
+
+        loop_step_id = self._step_id(step)
+        parent_scope_steps = self._build_loop_parent_scope_steps(step, state)
+
+        if resume and current_iteration not in completed_iterations:
+            _, _, body_complete = self._repeat_until_iteration_resume_state(
+                state,
+                step_name,
+                current_iteration,
+                body_steps,
+            )
+            if condition_evaluated_for_iteration == current_iteration:
+                if last_condition_result is True:
+                    completed_iterations = sorted(set(completed_iterations + [current_iteration]))
+                    progress = {
+                        'current_iteration': None,
+                        'completed_iterations': completed_iterations,
+                        'condition_evaluated_for_iteration': current_iteration,
+                        'last_condition_result': True,
+                    }
+                    final_result = self._attach_outcome(
+                        step,
+                        self._build_repeat_until_frame_result(
+                            step,
+                            status='completed',
+                            exit_code=0,
+                            artifacts=frame_artifacts,
+                            progress=progress,
+                        ),
+                    )
+                    self._persist_repeat_until_progress(state, step_name, progress, final_result)
+                    return state
+                if body_complete:
+                    completed_iterations = sorted(set(completed_iterations + [current_iteration]))
+                    current_iteration += 1
+                    condition_evaluated_for_iteration = None
+                    last_condition_result = None
+
+        while current_iteration < max_iterations:
+            progress = {
+                'current_iteration': current_iteration,
+                'completed_iterations': completed_iterations,
+                'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
+                'last_condition_result': last_condition_result,
+            }
+            running_frame = self._build_repeat_until_frame_result(
+                step,
+                status='running',
+                exit_code=0,
+                artifacts=frame_artifacts,
+                progress=progress,
+            )
+            self._persist_repeat_until_progress(state, step_name, progress, running_frame)
+
+            iteration_state, start_nested_index, body_complete = self._repeat_until_iteration_resume_state(
+                state,
+                step_name,
+                current_iteration,
+                body_steps,
+            )
+            loop_context = {
+                'loop': {
+                    'index': current_iteration,
+                    'total': max_iterations,
+                }
+            }
+
+            if not body_complete:
+                for nested_index in range(start_nested_index, len(body_steps)):
+                    nested_step = body_steps[nested_index]
+                    nested_name = nested_step.get('name', f'nested_{nested_index}')
+                    nested_runtime_step_id = iteration_step_id(
+                        loop_step_id,
+                        current_iteration,
+                        nested_step,
+                        nested_index,
+                    )
+
+                    if 'when' in nested_step:
+                        variables = self.variable_substitutor.build_variables(
+                            run_state=state,
+                            context=self.workflow.get('context', {}),
+                            loop_vars=loop_context.get('loop', {}),
+                        )
+                        try:
+                            should_execute = self.condition_evaluator.evaluate(
+                                nested_step['when'],
+                                variables,
+                                state,
+                                scope={
+                                    'self_steps': iteration_state,
+                                    'parent_steps': parent_scope_steps,
+                                    'root_steps': state.get('steps', {}),
+                                },
+                            )
+                        except Exception as exc:
+                            result = self._attach_outcome(
+                                nested_step,
+                                {
+                                    'status': 'failed',
+                                    'exit_code': 2,
+                                    'name': nested_name,
+                                    'step_id': nested_runtime_step_id,
+                                    'error': {
+                                        'type': 'predicate_evaluation_failed',
+                                        'message': f"Condition evaluation failed: {exc}",
+                                        'context': {'condition': nested_step['when']},
+                                    },
+                                },
+                                phase_hint='pre_execution',
+                                class_hint='pre_execution_failed',
+                                retryable_hint=False,
+                            )
+                            iteration_state[nested_name] = result
+                            self.state_manager.update_loop_step(
+                                step_name,
+                                current_iteration,
+                                nested_name,
+                                StepResult(
+                                    status=result.get('status', 'failed'),
+                                    name=result.get('name', nested_name),
+                                    step_id=result.get('step_id'),
+                                    exit_code=result.get('exit_code', 2),
+                                    duration_ms=result.get('duration_ms', 0),
+                                    error=result.get('error'),
+                                    truncated=result.get('truncated', False),
+                                    artifacts=result.get('artifacts'),
+                                    skipped=result.get('skipped', False),
+                                    outcome=result.get('outcome'),
+                                ),
+                            )
+                            failure_progress = {
+                                'current_iteration': current_iteration,
+                                'completed_iterations': completed_iterations,
+                                'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
+                                'last_condition_result': last_condition_result,
+                            }
+                            failure = self._attach_outcome(
+                                step,
+                                self._build_repeat_until_frame_result(
+                                    step,
+                                    status='failed',
+                                    exit_code=2,
+                                    artifacts=frame_artifacts,
+                                    progress=failure_progress,
+                                    error={
+                                        'type': 'repeat_until_body_step_failed',
+                                        'message': 'repeat_until body step failed',
+                                        'context': {
+                                            'iteration': current_iteration,
+                                            'step': nested_name,
+                                            'error': result.get('error'),
+                                        },
+                                    },
+                                ),
+                                phase_hint='pre_execution',
+                                class_hint='pre_execution_failed',
+                                retryable_hint=False,
+                            )
+                            self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
+                            return state
+
+                        if not should_execute:
+                            result = self._attach_outcome(
+                                nested_step,
+                                {
+                                    'status': 'skipped',
+                                    'exit_code': 0,
+                                    'skipped': True,
+                                    'name': nested_name,
+                                    'step_id': nested_runtime_step_id,
+                                },
+                            )
+                            iteration_state[nested_name] = result
+                            self.state_manager.update_loop_step(
+                                step_name,
+                                current_iteration,
+                                nested_name,
+                                StepResult(
+                                    status='skipped',
+                                    name=result.get('name', nested_name),
+                                    step_id=result.get('step_id'),
+                                    exit_code=0,
+                                    duration_ms=0,
+                                    truncated=False,
+                                    skipped=True,
+                                    outcome=result.get('outcome'),
+                                ),
+                            )
+                            continue
+
+                    nested_context = self._create_loop_context(nested_step, loop_context, iteration_state)
+
+                    if self.debug:
+                        backup_name = f"{step_name}[{current_iteration}].{nested_name}"
+                        self.state_manager.backup_state(backup_name)
+
+                    consume_error = self._enforce_consumes_contract(
+                        nested_step,
+                        nested_name,
+                        state,
+                        runtime_step_id=nested_runtime_step_id,
+                    )
+                    if consume_error is not None:
+                        result = consume_error
+                    else:
+                        result = self._execute_nested_loop_step(
+                            nested_step,
+                            nested_context,
+                            state,
+                            iteration_state,
+                            parent_scope_steps,
+                            runtime_step_id=nested_runtime_step_id,
+                        )
+                        publish_error = self._record_published_artifacts(
+                            nested_step,
+                            nested_name,
+                            result,
+                            state,
+                            runtime_step_id=nested_runtime_step_id,
+                        )
+                        if publish_error is not None:
+                            result = publish_error
+
+                    result.setdefault('name', nested_name)
+                    result.setdefault('step_id', nested_runtime_step_id)
+                    result = self._attach_outcome(nested_step, result)
+                    iteration_state[nested_name] = result
+                    self.state_manager.update_loop_step(
+                        step_name,
+                        current_iteration,
+                        nested_name,
+                        StepResult(
+                            status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
+                            name=result.get('name', nested_name),
+                            step_id=result.get('step_id'),
+                            exit_code=result.get('exit_code', 0),
+                            duration_ms=result.get('duration_ms', 0),
+                            output=result.get('output'),
+                            lines=result.get('lines'),
+                            json=result.get('json'),
+                            error=result.get('error'),
+                            truncated=result.get('truncated', False),
+                            artifacts=result.get('artifacts'),
+                            skipped=result.get('skipped', False),
+                            files=result.get('files'),
+                            wait_duration_ms=result.get('wait_duration_ms'),
+                            poll_count=result.get('poll_count'),
+                            timed_out=result.get('timed_out'),
+                            outcome=result.get('outcome'),
+                        ),
+                    )
+
+                    if result.get('exit_code', 0) != 0 and not result.get('skipped', False):
+                        nested_outcome = result.get('outcome') if isinstance(result.get('outcome'), dict) else {}
+                        failure_progress = {
+                            'current_iteration': current_iteration,
+                            'completed_iterations': completed_iterations,
+                            'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
+                            'last_condition_result': last_condition_result,
+                        }
+                        failure = self._attach_outcome(
+                            step,
+                            self._build_repeat_until_frame_result(
+                                step,
+                                status='failed',
+                                exit_code=result.get('exit_code', 1),
+                                artifacts=frame_artifacts,
+                                progress=failure_progress,
+                                error={
+                                    'type': 'repeat_until_body_step_failed',
+                                    'message': 'repeat_until body step failed',
+                                    'context': {
+                                        'iteration': current_iteration,
+                                        'step': nested_name,
+                                        'error': result.get('error'),
+                                    },
+                                },
+                            ),
+                            phase_hint=nested_outcome.get('phase'),
+                            class_hint=nested_outcome.get('class'),
+                            retryable_hint=nested_outcome.get('retryable'),
+                        )
+                        self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
+                        return state
+
+            artifacts = self._resolve_structured_output_artifacts(
+                outputs,
+                state,
+                failure_message='repeat_until output resolution failed',
+                selection_key='iteration',
+                selection_value=str(current_iteration),
+                scope={
+                    'self_steps': iteration_state,
+                    'parent_steps': parent_scope_steps,
+                    'root_steps': state.get('steps', {}),
+                },
+            )
+            if not isinstance(artifacts, dict):
+                failure_progress = {
+                    'current_iteration': current_iteration,
+                    'completed_iterations': completed_iterations,
+                    'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
+                    'last_condition_result': last_condition_result,
+                }
+                failure = self._attach_outcome(
+                    step,
+                    self._build_repeat_until_frame_result(
+                        step,
+                        status='failed',
+                        exit_code=2,
+                        artifacts=frame_artifacts,
+                        progress=failure_progress,
+                        error=artifacts.get('error') if isinstance(artifacts, dict) else None,
+                    ),
+                    phase_hint='post_execution',
+                    class_hint='contract_violation',
+                    retryable_hint=False,
+                )
+                self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
+                return state
+
+            frame_artifacts = artifacts
+            progress = {
+                'current_iteration': current_iteration,
+                'completed_iterations': completed_iterations,
+                'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
+                'last_condition_result': last_condition_result,
+            }
+            self._persist_repeat_until_progress(
+                state,
+                step_name,
+                progress,
+                self._build_repeat_until_frame_result(
+                    step,
+                    status='running',
+                    exit_code=0,
+                    artifacts=frame_artifacts,
+                    progress=progress,
+                ),
+            )
+
+            if condition_evaluated_for_iteration != current_iteration:
+                variables = self.variable_substitutor.build_variables(
+                    run_state=state,
+                    context=self.workflow.get('context', {}),
+                )
+                try:
+                    should_stop = self.condition_evaluator.evaluate(condition, variables, state)
+                except Exception as exc:
+                    failure_progress = {
+                        'current_iteration': current_iteration,
+                        'completed_iterations': completed_iterations,
+                        'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
+                        'last_condition_result': last_condition_result,
+                    }
+                    failure = self._attach_outcome(
+                        step,
+                        self._build_repeat_until_frame_result(
+                            step,
+                            status='failed',
+                            exit_code=2,
+                            artifacts=frame_artifacts,
+                            progress=failure_progress,
+                            error={
+                                'type': 'predicate_evaluation_failed',
+                                'message': f"repeat_until condition evaluation failed: {exc}",
+                                'context': {'condition': condition, 'iteration': current_iteration},
+                            },
+                        ),
+                        phase_hint='post_execution',
+                        class_hint='contract_violation',
+                        retryable_hint=False,
+                    )
+                    self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
+                    return state
+                condition_evaluated_for_iteration = current_iteration
+                last_condition_result = should_stop
+                progress = {
+                    'current_iteration': current_iteration,
+                    'completed_iterations': completed_iterations,
+                    'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
+                    'last_condition_result': last_condition_result,
+                }
+                self._persist_repeat_until_progress(
+                    state,
+                    step_name,
+                    progress,
+                    self._build_repeat_until_frame_result(
+                        step,
+                        status='running',
+                        exit_code=0,
+                        artifacts=frame_artifacts,
+                        progress=progress,
+                    ),
+                )
+            else:
+                should_stop = bool(last_condition_result)
+
+            completed_iterations = sorted(set(completed_iterations + [current_iteration]))
+            if should_stop:
+                progress = {
+                    'current_iteration': None,
+                    'completed_iterations': completed_iterations,
+                    'condition_evaluated_for_iteration': current_iteration,
+                    'last_condition_result': True,
+                }
+                completed = self._attach_outcome(
+                    step,
+                    self._build_repeat_until_frame_result(
+                        step,
+                        status='completed',
+                        exit_code=0,
+                        artifacts=frame_artifacts,
+                        progress=progress,
+                    ),
+                )
+                self._persist_repeat_until_progress(state, step_name, progress, completed)
+                return state
+
+            if current_iteration + 1 >= max_iterations:
+                progress = {
+                    'current_iteration': None,
+                    'completed_iterations': completed_iterations,
+                    'condition_evaluated_for_iteration': current_iteration,
+                    'last_condition_result': False,
+                }
+                exhausted = self._attach_outcome(
+                    step,
+                    self._build_repeat_until_frame_result(
+                        step,
+                        status='failed',
+                        exit_code=3,
+                        artifacts=frame_artifacts,
+                        progress=progress,
+                        error={
+                            'type': 'repeat_until_iterations_exhausted',
+                            'message': 'repeat_until exhausted max_iterations before condition became true',
+                            'context': {
+                                'max_iterations': max_iterations,
+                                'last_iteration': current_iteration,
+                            },
+                        },
+                    ),
+                    phase_hint='post_execution',
+                    class_hint='assert_failed',
+                    retryable_hint=False,
+                )
+                self._persist_repeat_until_progress(state, step_name, progress, exhausted)
+                return state
+
+            current_iteration += 1
+            condition_evaluated_for_iteration = None
+            last_condition_result = None
+
+        return state
 
     def _execute_for_each(self, step: Dict[str, Any], state: Dict[str, Any], resume: bool = False) -> Dict[str, Any]:
         """
@@ -3823,6 +4461,7 @@ class WorkflowExecutor:
         failure_message: str,
         selection_key: str,
         selection_value: str,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any] | None:
         """Resolve one structured statement's declared outputs into validated artifacts."""
         artifacts: Dict[str, Any] = {}
@@ -3841,7 +4480,7 @@ class WorkflowExecutor:
                     },
                 )
             try:
-                raw_value = resolve_typed_operand({"ref": ref}, state)
+                raw_value = resolve_typed_operand({"ref": ref}, state, scope=scope)
             except PredicateEvaluationError as exc:
                 return self._contract_violation_result(
                     failure_message,

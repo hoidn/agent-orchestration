@@ -173,6 +173,11 @@
 163. v2.6 non-selected cases: lowered non-selected case nodes are recorded explicitly as skipped
 164. v2.6 statement outputs: selected case outputs materialize onto the statement node as `steps.<Statement>.artifacts`
 165. v2.6 conservative routing boundary: `goto` / `_end` is rejected inside structured `match` cases in the first tranche
+166. v2.7 loader gating: structured `repeat_until` is rejected below `version: "2.7"`
+167. v2.7 loop-frame boundary: `repeat_until.condition` must read declared loop-frame outputs via `self.outputs.*` and reject direct `self.steps.<Inner>...` refs
+168. v2.7 resume-safe iteration bookkeeping: resume restarts from the first unfinished nested step in the current iteration without replaying completed iteration work
+169. v2.7 condition replay safety: if one iteration's condition already evaluated before interruption, resume advances without replaying that settled iteration
+170. v2.7 loop-frame outputs: the latest selected iteration outputs materialize on `steps.<RepeatUntilStatement>.artifacts`
 
 ## DSL Evolution Rollout Crosswalk
 
@@ -204,6 +209,7 @@
 
 - Task 11 executable proof: `tests/test_subworkflow_calls.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_prompt_contract_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, `tests/test_secrets.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/call_subworkflow_demo.yaml`
 - Task 12 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/match_demo.yaml`
+- Task 13 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/repeat_until_demo.yaml`
 
 ## Future Acceptance (v1.2)
 
