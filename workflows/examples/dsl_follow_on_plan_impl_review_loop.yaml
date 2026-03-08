@@ -2,7 +2,7 @@ version: "1.4"
 name: "dsl-follow-on-plan-impl-review-loop"
 context:
   max_plan_iterations: "20"
-  max_impl_iterations: "20"
+  max_impl_iterations: "30"
   workflow_model: "gpt-5.4"
   workflow_effort: "high"
 
