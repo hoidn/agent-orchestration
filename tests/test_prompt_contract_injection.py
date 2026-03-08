@@ -79,6 +79,141 @@ def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Pa
     assert "type: enum" in captured["prompt"]
 
 
+def test_provider_asset_file_reads_prompt_relative_to_workflow_source(tmp_path: Path):
+    """Provider asset_file resolves from the workflow file's source tree."""
+    workflow_dir = tmp_path / "workflows" / "library"
+    (workflow_dir / "prompts").mkdir(parents=True)
+    (workflow_dir / "prompts" / "review.md").write_text("Review from library asset.\n")
+
+    workflow = {
+        "version": "2.5",
+        "name": "asset-file-prompt",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "provider": "mock_provider",
+            "asset_file": "prompts/review.md",
+            "expected_outputs": [{
+                "name": "review_decision",
+                "path": "state/review_decision.txt",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }],
+        }],
+    }
+
+    workflow_file = _write_workflow(workflow_dir, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(str(workflow_file.relative_to(tmp_path)))
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        (tmp_path / "state").mkdir(exist_ok=True)
+        (tmp_path / "state" / "review_decision.txt").write_text("APPROVE\n")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Review"]["exit_code"] == 0
+    assert captured["prompt"].startswith("Review from library asset.\n")
+
+
+def test_provider_asset_depends_on_injects_source_assets_in_declared_order(tmp_path: Path):
+    """asset_depends_on injects workflow-source-relative files before the base prompt."""
+    workflow_dir = tmp_path / "workflows" / "library"
+    (workflow_dir / "prompts").mkdir(parents=True)
+    (workflow_dir / "rubrics").mkdir(parents=True)
+    (workflow_dir / "schemas").mkdir(parents=True)
+    (workflow_dir / "prompts" / "review.md").write_text("Base prompt.\n")
+    (workflow_dir / "rubrics" / "review.md").write_text("Rubric body.\n")
+    (workflow_dir / "schemas" / "review.json").write_text('{"type":"object"}\n')
+
+    workflow = {
+        "version": "2.5",
+        "name": "asset-depends-on-prompt",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "provider": "mock_provider",
+            "asset_file": "prompts/review.md",
+            "asset_depends_on": [
+                "rubrics/review.md",
+                "schemas/review.json",
+            ],
+            "expected_outputs": [{
+                "name": "review_decision",
+                "path": "state/review_decision.txt",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }],
+        }],
+    }
+
+    workflow_file = _write_workflow(workflow_dir, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(str(workflow_file.relative_to(tmp_path)))
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        (tmp_path / "state").mkdir(exist_ok=True)
+        (tmp_path / "state" / "review_decision.txt").write_text("APPROVE\n")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Review"]["exit_code"] == 0
+    assert "=== File: rubrics/review.md ===" in captured["prompt"]
+    assert "Rubric body.\n" in captured["prompt"]
+    assert "=== File: schemas/review.json ===" in captured["prompt"]
+    assert captured["prompt"].index("rubrics/review.md") < captured["prompt"].index("schemas/review.json")
+    assert "## Output Contract" in captured["prompt"]
+    assert captured["prompt"].index("Base prompt.") < captured["prompt"].index("## Output Contract")
+
+
 def test_output_contract_block_includes_guidance_fields(tmp_path: Path):
     """Output contract prompt suffix includes optional guidance annotations."""
     (tmp_path / "prompts").mkdir()

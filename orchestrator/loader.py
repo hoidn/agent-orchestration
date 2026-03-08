@@ -8,6 +8,7 @@ import yaml
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
+from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
 from orchestrator.workflow.lowering import lower_finalization_block, lower_structured_steps
 from orchestrator.workflow.predicates import typed_predicate_operator_keys
@@ -47,93 +48,146 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
-    SUPPORTED_VERSIONS = {"1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3"}
+    SUPPORTED_VERSIONS = {
+        "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5",
+    }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
-    VERSION_ORDER = ["1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3"]
+    VERSION_ORDER = [
+        "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5",
+    ]
 
     def __init__(self, workspace: Path):
         """Initialize loader with workspace root."""
         self.workspace = workspace.resolve()
         self.errors: List[ValidationError] = []
         self._workflow_input_specs: Dict[str, Dict[str, Any]] = {}
+        self._current_workflow_path: Optional[Path] = None
+        self._current_source_root: Optional[Path] = None
+        self._current_imports: Dict[str, Dict[str, Any]] = {}
+        self._load_stack: List[Path] = []
 
     def load(self, workflow_path: Path) -> Dict[str, Any]:
         """Load and validate workflow YAML."""
         self.errors = []
         self._workflow_input_specs = {}
-        try:
-            with open(workflow_path, 'r') as f:
-                workflow = yaml.load(f, Loader=PreservingLoader)
-        except Exception as e:
-            self._add_error(f"Failed to load workflow: {e}")
-            self._raise_validation_errors()
-
-        if workflow is None or not isinstance(workflow, dict):
-            self._add_error("Workflow must be a YAML object/dictionary")
-            self._raise_validation_errors()
-
-        # Type narrowing: at this point workflow is definitely Dict[str, Any]
-        assert isinstance(workflow, dict), "Type narrowing for workflow"
-
-        # Version validation and feature gating
-        version = workflow.get('version')
-        if not version:
-            self._add_error("'version' field is required")
-            # Use empty string as fallback to avoid None type issues
-            version = ""
-        elif not isinstance(version, str):
-            self._add_error(f"'version' field must be a string, got {type(version).__name__}")
-            version = ""
-        elif version not in self.SUPPORTED_VERSIONS:
-            self._add_error(f"Unsupported version '{version}'. Supported: {self.SUPPORTED_VERSIONS}")
-
-        # Validate top-level schema
-        self._validate_top_level(workflow, version)
-
-        # Validate steps
-        steps = workflow.get('steps', [])
-        finalization_present = self._version_at_least(version, STRUCTURED_FINALLY_VERSION) and 'finally' in workflow
-        normalized_finally = None
-        finally_catalog_steps: List[Dict[str, Any]] = []
-        if finalization_present:
-            normalized_finally = normalize_finally_block(workflow.get('finally'))
-            finally_catalog_steps = self._build_finalization_catalog_steps(normalized_finally)
-        root_catalog: Dict[str, Any] = {}
-        if not steps:
-            self._add_error("'steps' field is required and must not be empty")
-        else:
-            root_catalog = self._build_root_ref_catalog(
-                list(steps) + finally_catalog_steps,
-                workflow.get('artifacts'),
-            )
-            self._validate_steps(steps, version, workflow.get('artifacts'), root_catalog=root_catalog)
-            if finalization_present:
-                self._validate_finally_block(
-                    normalized_finally,
-                    version,
-                    workflow.get('artifacts'),
-                    root_catalog,
-                )
-            if version == "1.2":
-                all_steps = self._collect_all_steps(steps)
-                self._validate_dataflow_cross_references(all_steps, workflow.get('artifacts'))
-
-        if 'outputs' in workflow:
-            self._validate_workflow_outputs(workflow['outputs'], version, root_catalog)
-
-        # Validate goto targets
-        self._validate_goto_targets(workflow)
-
+        self._current_imports = {}
+        workflow = self._load_workflow(Path(workflow_path).resolve())
         if self.errors:
             self._raise_validation_errors()
-
-        assign_step_ids(workflow.get('steps', []))
-        if self._version_at_least(version, STRUCTURED_IF_VERSION):
-            workflow['steps'] = lower_structured_steps(workflow.get('steps', []))
-        if normalized_finally is not None:
-            workflow['finally'] = lower_finalization_block(normalized_finally)
         return workflow
+
+    def _load_workflow(
+        self,
+        workflow_path: Path,
+        *,
+        expected_version: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Load and validate one workflow file without clearing accumulated errors."""
+        resolved_workflow_path = workflow_path.resolve()
+        if resolved_workflow_path in self._load_stack:
+            try:
+                display_path = str(resolved_workflow_path.relative_to(self.workspace))
+            except ValueError:
+                display_path = str(resolved_workflow_path)
+            self._add_error(f"Circular import detected while loading '{display_path}'")
+            return {}
+
+        previous_input_specs = self._workflow_input_specs
+        previous_workflow_path = self._current_workflow_path
+        previous_source_root = self._current_source_root
+        previous_imports = self._current_imports
+
+        self._load_stack.append(resolved_workflow_path)
+        self._workflow_input_specs = {}
+        self._current_workflow_path = resolved_workflow_path
+        self._current_source_root = resolved_workflow_path.parent
+        self._current_imports = {}
+
+        try:
+            try:
+                with open(resolved_workflow_path, 'r') as f:
+                    workflow = yaml.load(f, Loader=PreservingLoader)
+            except Exception as e:
+                self._add_error(f"Failed to load workflow: {e}")
+                return {}
+
+            if workflow is None or not isinstance(workflow, dict):
+                self._add_error("Workflow must be a YAML object/dictionary")
+                return {}
+
+            assert isinstance(workflow, dict), "Type narrowing for workflow"
+
+            version = workflow.get('version')
+            if not version:
+                self._add_error("'version' field is required")
+                version = ""
+            elif not isinstance(version, str):
+                self._add_error(f"'version' field must be a string, got {type(version).__name__}")
+                version = ""
+            elif version not in self.SUPPORTED_VERSIONS:
+                self._add_error(f"Unsupported version '{version}'. Supported: {self.SUPPORTED_VERSIONS}")
+
+            if expected_version and isinstance(version, str) and version and version != expected_version:
+                self._add_error(
+                    f"Imported workflows must declare the same DSL version as their caller "
+                    f"(expected '{expected_version}', found '{version}')"
+                )
+
+            self._validate_top_level(workflow, version)
+            imported_workflows = self._load_imports(workflow.get('imports'), version, resolved_workflow_path)
+            self._current_imports = imported_workflows
+
+            steps = workflow.get('steps', [])
+            finalization_present = self._version_at_least(version, STRUCTURED_FINALLY_VERSION) and 'finally' in workflow
+            normalized_finally = None
+            finally_catalog_steps: List[Dict[str, Any]] = []
+            if finalization_present:
+                normalized_finally = normalize_finally_block(workflow.get('finally'))
+                finally_catalog_steps = self._build_finalization_catalog_steps(normalized_finally)
+            root_catalog: Dict[str, Any] = {}
+            if not steps:
+                self._add_error("'steps' field is required and must not be empty")
+            else:
+                root_catalog = self._build_root_ref_catalog(
+                    list(steps) + finally_catalog_steps,
+                    workflow.get('artifacts'),
+                )
+                self._validate_steps(steps, version, workflow.get('artifacts'), root_catalog=root_catalog)
+                if finalization_present:
+                    self._validate_finally_block(
+                        normalized_finally,
+                        version,
+                        workflow.get('artifacts'),
+                        root_catalog,
+                    )
+                if version == "1.2":
+                    all_steps = self._collect_all_steps(steps)
+                    self._validate_dataflow_cross_references(all_steps, workflow.get('artifacts'))
+
+            if 'outputs' in workflow:
+                self._validate_workflow_outputs(workflow['outputs'], version, root_catalog)
+
+            self._validate_goto_targets(workflow)
+
+            assign_step_ids(workflow.get('steps', []))
+            if self._version_at_least(version, STRUCTURED_IF_VERSION):
+                workflow['steps'] = lower_structured_steps(workflow.get('steps', []))
+            if normalized_finally is not None:
+                workflow['finally'] = lower_finalization_block(normalized_finally)
+
+            workflow['__workflow_path'] = str(resolved_workflow_path)
+            workflow['__source_root'] = str(resolved_workflow_path.parent)
+            workflow['__imports'] = imported_workflows
+            return workflow
+        finally:
+            self._load_stack.pop()
+            self._workflow_input_specs = previous_input_specs
+            self._current_workflow_path = previous_workflow_path
+            self._current_source_root = previous_source_root
+            self._current_imports = previous_imports
 
     def _validate_top_level(self, workflow: Dict[str, Any], version: str):
         """Validate top-level workflow fields."""
@@ -141,7 +195,7 @@ class WorkflowLoader:
         known_fields = {
             'version', 'name', 'strict_flow', 'context', 'providers', 'secrets',
             'inbox_dir', 'processed_dir', 'failed_dir', 'task_extension', 'steps',
-            'artifacts', 'max_transitions', 'inputs', 'outputs', 'finally'
+            'artifacts', 'max_transitions', 'inputs', 'outputs', 'finally', 'imports'
         }
 
         # Strict unknown field rejection (skip if version is invalid/empty)
@@ -190,6 +244,54 @@ class WorkflowLoader:
 
         if 'finally' in workflow and not self._version_at_least(version, STRUCTURED_FINALLY_VERSION):
             self._add_error(f"finally requires version '{STRUCTURED_FINALLY_VERSION}'")
+
+        if 'imports' in workflow and not self._version_at_least(version, "2.5"):
+            self._add_error("imports requires version '2.5'")
+
+    def _load_imports(
+        self,
+        imports: Any,
+        version: str,
+        workflow_path: Path,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Load imported workflows relative to the authored workflow file."""
+        if imports is None:
+            return {}
+        if not isinstance(imports, dict):
+            self._add_error("'imports' must be a dictionary")
+            return {}
+        if not self._version_at_least(version, "2.5"):
+            return {}
+
+        resolver = WorkflowAssetResolver(workflow_path)
+        imported_workflows: Dict[str, Dict[str, Any]] = {}
+        for alias, import_path in imports.items():
+            context = f"imports.{alias}"
+            if not isinstance(alias, str) or not alias.strip():
+                self._add_error(f"{context}: import alias must be a non-empty string")
+                continue
+            if not isinstance(import_path, str) or not import_path.strip():
+                self._add_error(f"{context}: import path must be a non-empty string")
+                continue
+
+            try:
+                resolved_import_path = resolver.resolve(import_path)
+            except AssetResolutionError as exc:
+                self._add_error(f"{context}: {exc}")
+                continue
+
+            error_start = len(self.errors)
+            imported_workflow = self._load_workflow(
+                resolved_import_path,
+                expected_version=version if self._version_at_least(version, "2.5") else None,
+            )
+            if len(self.errors) > error_start:
+                for error in self.errors[error_start:]:
+                    error.message = f"Import '{alias}': {error.message}"
+                continue
+            imported_workflows[alias] = imported_workflow
+
+        return imported_workflows
 
     def _validate_workflow_inputs(self, inputs: Any) -> None:
         """Validate top-level workflow input contracts."""
@@ -473,7 +575,7 @@ class WorkflowLoader:
                 continue
 
             # AT-10: Provider/Command exclusivity
-            execution_fields = ['provider', 'command', 'wait_for', 'assert', 'set_scalar', 'increment_scalar']
+            execution_fields = ['provider', 'command', 'wait_for', 'assert', 'set_scalar', 'increment_scalar', 'call']
             exec_count = sum(1 for f in execution_fields if f in step)
 
             if 'for_each' in step:
@@ -553,6 +655,20 @@ class WorkflowLoader:
                         artifacts_registry=artifacts_registry,
                     )
 
+            if 'call' in step:
+                self._validate_call_step(
+                    step=step,
+                    step_name=name,
+                    version=version,
+                    root_catalog=root_catalog,
+                    scope_artifacts=scope_artifacts,
+                    scope_multi_visit=scope_multi_visit,
+                    parent_artifacts=parent_artifacts,
+                    parent_multi_visit=parent_multi_visit,
+                    scope_non_step_results=scope_non_step_results,
+                    parent_non_step_results=parent_non_step_results,
+                )
+
             # AT-40: Reject deprecated command_override
             if 'command_override' in step:
                 self._add_error(f"Step '{name}': deprecated 'command_override' not supported")
@@ -560,6 +676,12 @@ class WorkflowLoader:
             # Validate dependencies (version-gated features)
             if 'depends_on' in step:
                 self._validate_dependencies(step['depends_on'], name, version)
+
+            if 'asset_file' in step:
+                self._validate_asset_file(step, name, version)
+
+            if 'asset_depends_on' in step:
+                self._validate_asset_depends_on(step, name, version)
 
             # Validate variables in allowed fields
             self._validate_variables_usage(step, name)
@@ -1056,6 +1178,54 @@ class WorkflowLoader:
             if version != "1.1.1":
                 self._add_error(f"Step '{step_name}': depends_on.inject requires version '1.1.1'")
 
+    def _validate_asset_file(self, step: Dict[str, Any], step_name: str, version: str) -> None:
+        """Validate workflow-source-relative prompt assets."""
+        if not self._version_at_least(version, "2.5"):
+            self._add_error(f"Step '{step_name}': asset_file requires version '2.5'")
+            return
+        if 'provider' not in step:
+            self._add_error(f"Step '{step_name}': asset_file is only supported on provider steps")
+            return
+        if 'input_file' in step:
+            self._add_error(f"Step '{step_name}': asset_file is mutually exclusive with input_file")
+            return
+        asset_file = step.get('asset_file')
+        if not isinstance(asset_file, str):
+            self._add_error(f"Step '{step_name}': asset_file must be a string")
+            return
+        self._validate_source_relative_asset_path(asset_file, f"Step '{step_name}': asset_file")
+
+    def _validate_asset_depends_on(self, step: Dict[str, Any], step_name: str, version: str) -> None:
+        """Validate workflow-source-relative dependency assets."""
+        if not self._version_at_least(version, "2.5"):
+            self._add_error(f"Step '{step_name}': asset_depends_on requires version '2.5'")
+            return
+        if 'provider' not in step:
+            self._add_error(f"Step '{step_name}': asset_depends_on is only supported on provider steps")
+            return
+        asset_depends_on = step.get('asset_depends_on')
+        if not isinstance(asset_depends_on, list):
+            self._add_error(f"Step '{step_name}': asset_depends_on must be a list")
+            return
+        for index, path in enumerate(asset_depends_on):
+            if not isinstance(path, str):
+                self._add_error(f"Step '{step_name}': asset_depends_on[{index}] must be a string")
+                continue
+            self._validate_source_relative_asset_path(
+                path,
+                f"Step '{step_name}': asset_depends_on[{index}]",
+            )
+
+    def _validate_source_relative_asset_path(self, path: str, context: str) -> None:
+        """Validate one workflow-source-relative asset path against the current source tree."""
+        if self._current_workflow_path is None:
+            self._add_error(f"{context}: workflow source root is unavailable")
+            return
+        try:
+            WorkflowAssetResolver(self._current_workflow_path).resolve(path)
+        except AssetResolutionError as exc:
+            self._add_error(f"{context}: {exc}")
+
     def _validate_scalar_bookkeeping(
         self,
         step: Dict[str, Any],
@@ -1115,6 +1285,100 @@ class WorkflowLoader:
             self._validate_legacy_condition_variable_usage(step['when'], f"step '{name}' when")
         if 'assert' in step:
             self._validate_legacy_condition_variable_usage(step['assert'], f"step '{name}' assert")
+
+    def _validate_call_step(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        version: str,
+        root_catalog: Dict[str, Any],
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+    ) -> None:
+        """Validate reusable-workflow call boundaries."""
+        if not self._version_at_least(version, "2.5"):
+            self._add_error(f"Step '{step_name}': call requires version '2.5'")
+            return
+        call_alias = step.get('call')
+        if not isinstance(call_alias, str) or not call_alias:
+            self._add_error(f"Step '{step_name}': call must name an imported workflow alias")
+            return
+        if not isinstance(step.get('id'), str) or not STEP_ID_PATTERN.fullmatch(step.get('id')):
+            self._add_error(f"Step '{step_name}': call requires an authored stable 'id'")
+
+        imported_workflow = self._current_imports.get(call_alias)
+        if not isinstance(imported_workflow, dict):
+            self._add_error(f"Step '{step_name}': unknown import alias '{call_alias}'")
+            return
+
+        bindings = step.get('with', {})
+        if bindings is None:
+            bindings = {}
+        if not isinstance(bindings, dict):
+            self._add_error(f"Step '{step_name}': with must be a dictionary")
+            return
+
+        callee_inputs = imported_workflow.get('inputs', {})
+        if not isinstance(callee_inputs, dict):
+            callee_inputs = {}
+
+        for bound_name in bindings:
+            if bound_name not in callee_inputs:
+                self._add_error(
+                    f"Step '{step_name}': call.with.{bound_name} does not match any declared callee input"
+                )
+
+        for input_name, input_spec in callee_inputs.items():
+            if not isinstance(input_spec, dict):
+                continue
+
+            if input_name not in bindings:
+                if "default" in input_spec or input_spec.get("required", True) is False:
+                    continue
+                self._add_error(
+                    f"Step '{step_name}': call.with is missing required callee input '{input_name}'"
+                )
+                continue
+
+            binding = bindings[input_name]
+            if isinstance(binding, dict):
+                if set(binding.keys()) != {'ref'}:
+                    self._add_error(
+                        f"Step '{step_name}': call.with.{input_name} must be a literal or {{ref: ...}}"
+                    )
+                    continue
+                resolved_type = self._validate_structured_ref(
+                    binding.get('ref'),
+                    step_name,
+                    version,
+                    root_catalog,
+                    scope_artifacts,
+                    scope_multi_visit,
+                    parent_artifacts,
+                    parent_multi_visit,
+                    scope_non_step_results,
+                    parent_non_step_results,
+                )
+                declared_type = input_spec.get("type")
+                if (
+                    isinstance(declared_type, str)
+                    and resolved_type != 'unknown'
+                    and declared_type != resolved_type
+                    and not (declared_type == 'float' and resolved_type == 'integer')
+                ):
+                    self._add_error(
+                        f"Step '{step_name}': call.with.{input_name} resolves to '{resolved_type}' but callee input declares '{declared_type}'"
+                    )
+                continue
+
+            try:
+                validate_contract_value(binding, input_spec, workspace=self.workspace)
+            except OutputContractError as exc:
+                self._add_error(f"Step '{step_name}': call.with.{input_name} is invalid: {exc}")
 
     def _validate_legacy_condition_variable_usage(self, condition: Any, context: str) -> None:
         """Apply ${env.*} validation to legacy conditional substitution surfaces."""

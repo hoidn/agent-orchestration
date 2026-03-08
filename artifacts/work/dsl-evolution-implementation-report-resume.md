@@ -1,15 +1,18 @@
-# DSL Evolution Implementation Report
-
 ## Completed In This Pass
 
-- Completed Task 10 from the approved execution plan:
-  - locked the reusable-call contract boundary across the normative DSL/spec modules and the workflow drafting guide
-  - reserved the future workflow-source-relative asset surface (`imports`, `asset_file`, `asset_depends_on`) without claiming current runtime support
-  - documented the source-relative versus workspace-relative path taxonomy so `call` will namespace identities, not authored workspace files
-  - documented the first-tranche accepted operational-risk boundary: inline/non-isolating `call`, mandatory typed `relpath` write-root inputs for reusable workflows, and distinct per-invocation bindings when managed paths could collide
-  - scheduled the explicit Task 11 state boundary (`schema_version: "2.1"`) for call frames, call-scoped lineage/freshness, and the outer-producer/internal-provenance split for exported call outputs
-  - added reusable-call acceptance items 147-158 plus an explicit Task 10 -> Task 11 proof crosswalk in `specs/acceptance/index.md`
-  - added authoring guidance for preparing workflows for later `call` reuse
+- Corrected the stale scalar-bookkeeping verification assertion so `tests/test_scalar_bookkeeping.py` matches the current persisted state contract, including `artifact_versions[*].producer_name`.
+- Started Task 11 with the first coherent execution slice:
+  - added loader support for `version: "2.5"`
+  - added top-level `imports` loading and independent imported-workflow validation
+  - enforced the first-tranche caller/callee same-version rule during import loading
+  - added loader validation for `call` boundaries: authored stable `id` required, unknown import aliases rejected, and literal / `{ref: ...}` `with:` bindings checked against callee input contracts
+  - rejected workflow-source-relative import-path escapes outside the authored workflow source tree
+- Added workflow-source-relative provider asset support:
+  - introduced `orchestrator/workflow/assets.py`
+  - `asset_file` now reads provider prompt text relative to the authored workflow file
+  - `asset_depends_on` now injects ordered source-asset content blocks before the base prompt
+  - loader validation rejects invalid `asset_file` / `asset_depends_on` usage and source-tree traversal
+- Added an explicit runtime failure path for `call` steps (`error.type: "call_not_implemented"`) so v2.5 validation support cannot silently no-op when executed before full call-frame runtime lands.
 
 ## Completed Plan Tasks
 
@@ -26,7 +29,13 @@
 
 ## Remaining Required Plan Tasks
 
-- Task 11: Land imports and `call` on top of typed boundaries and qualified identities
+- Task 11: complete inline `call` execution on top of the new validation groundwork:
+  - call-frame runtime/state model (`schema_version: "2.1"`)
+  - deferred callee output export on the outer call step
+  - callee-private providers/artifacts/context isolation at runtime
+  - call-scoped `artifact_versions` / `artifact_consumes` / freshness bookkeeping
+  - resume coverage for interrupted call frames
+  - operator/runtime docs and example workflows for shipped call execution
 - Task 12: Add `match` as a separate structured-control tranche
 - Task 13: Add post-test `repeat_until` as its own loop tranche
 - Task 14: Add score-aware gates on top of the stable predicate system
@@ -35,13 +44,17 @@
 
 ## Verification
 
-- `pytest tests/test_loader_validation.py -k "call or import or version" -v`
-  - `9 passed, 71 deselected`
-- `rg -n '^(147|148|149|150|151|152|153|154|155|156|157|158)\.|^\| (147|148|149|150|151|152|153|154|155|156|157|158) \|' specs/acceptance/index.md`
-  - confirmed acceptance items 147-158 exist and each item has an explicit Task 11 proof-mapping row in the rollout crosswalk
+- `pytest --collect-only tests/test_subworkflow_calls.py -q`
+  - `6 tests collected`
+- `pytest tests/test_subworkflow_calls.py tests/test_prompt_contract_injection.py tests/test_scalar_bookkeeping.py -k 'asset or call or import or set_scalar' -v`
+  - `10 passed, 17 deselected`
+- `pytest tests/test_loader_validation.py -k 'version or unknown' -v`
+  - `10 passed, 70 deselected`
+- `pytest tests/test_prompt_contract_injection.py -k 'provider_expected_outputs_appends_contract_block_to_prompt or inject_output_contract_false or asset_file or asset_depends_on' -v`
+  - `4 passed, 13 deselected`
 
 ## Residual Risks
 
-- Task 10 is a docs/contract tranche only: the current loader/runtime still stop at the implemented `v2.3` surface and do not yet execute `imports`, `call`, `asset_file`, or `asset_depends_on`.
-- Task 11 must still enforce the documented write-root/input contract and deliver the planned `schema_version: "2.1"` call-frame state boundary for private callee lineage and freshness bookkeeping.
-- The broader roadmap remains incomplete from Task 11 onward; reusable-call execution, `match`, `repeat_until`, score-aware gates, linting, and the final full-suite smoke sweep are still required.
+- Task 11 is still partial. Validation and source-asset prompt composition are in place, but executing a `call` step still fails explicitly with `call_not_implemented` until the call-frame runtime/state work lands.
+- The reserved reusable-call state boundary (`schema_version: "2.1"`) is still outstanding, so call-scoped lineage/freshness and resume semantics are not implemented yet.
+- Normative docs/specs and workflow examples were intentionally left unchanged in this pass because the runtime contract for full reusable-call execution is not complete yet; those updates still belong to the remaining Task 11 runtime tranche.

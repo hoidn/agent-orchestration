@@ -62,7 +62,13 @@ def test_set_scalar_emits_local_artifact_and_publishable_value(tmp_path: Path):
     assert state["steps"]["Initialize"]["artifacts"] == {"failed_count": 2}
     assert persisted["steps"]["Initialize"]["artifacts"] == {"failed_count": 2}
     assert persisted["artifact_versions"]["failed_count"] == [
-        {"version": 1, "value": 2, "producer": "Initialize", "step_index": 0}
+        {
+            "version": 1,
+            "value": 2,
+            "producer": "Initialize",
+            "producer_name": "Initialize",
+            "step_index": 0,
+        }
     ]
 
 

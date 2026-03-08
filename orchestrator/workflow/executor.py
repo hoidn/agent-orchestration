@@ -32,6 +32,7 @@ from .conditions import ConditionEvaluator
 from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
+from .assets import AssetResolutionError, WorkflowAssetResolver
 from .identity import iteration_step_id, runtime_step_id
 from .references import ReferenceResolutionError, ReferenceResolver
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
@@ -95,6 +96,12 @@ class WorkflowExecutor:
         self.variable_substitutor = VariableSubstitutor()
         self.reference_resolver = ReferenceResolver()
         self.summary_observer = self._create_summary_observer()
+        workflow_path = workflow.get('__workflow_path')
+        self.asset_resolver = (
+            WorkflowAssetResolver(Path(workflow_path))
+            if isinstance(workflow_path, str) and workflow_path
+            else None
+        )
 
         # Execution state
         self.current_step = 0
@@ -837,6 +844,9 @@ class WorkflowExecutor:
                         if publish_error is not None:
                             result = publish_error
                         self._persist_step_result(state, step_name, step, result)
+                    elif 'call' in step:
+                        result = self._execute_call(step)
+                        self._persist_step_result(state, step_name, step, result)
                     elif 'provider' in step:
                         result = self._execute_provider(step, state)
                         publish_error = self._record_published_artifacts(step, step_name, result, state)
@@ -941,6 +951,8 @@ class WorkflowExecutor:
             return 'set_scalar'
         if 'increment_scalar' in step:
             return 'increment_scalar'
+        if 'call' in step:
+            return 'call'
         if 'for_each' in step:
             return 'for_each'
         return 'unknown'
@@ -1762,6 +1774,74 @@ class WorkflowExecutor:
             return None
         return candidate
 
+    def _read_prompt_source(self, step: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]]]:
+        """Read either a workspace-relative input_file or a source-relative asset_file."""
+        if 'asset_file' in step:
+            if self.asset_resolver is None:
+                return "", self._contract_violation_result(
+                    "Provider prompt asset resolution failed",
+                    {
+                        "step": step.get('name', f'step_{self.current_step}'),
+                        "reason": "missing_workflow_source_root",
+                    },
+                )
+            try:
+                return self.asset_resolver.read_text(step['asset_file']), None
+            except (AssetResolutionError, OSError) as exc:
+                return "", self._contract_violation_result(
+                    "Provider prompt asset resolution failed",
+                    {
+                        "step": step.get('name', f'step_{self.current_step}'),
+                        "reason": "asset_file_read_failed",
+                        "path": step.get('asset_file'),
+                        "error": str(exc),
+                    },
+                )
+
+        prompt = ""
+        if 'input_file' in step:
+            input_path = self.workspace / step['input_file']
+            if input_path.exists():
+                prompt = input_path.read_text()
+        return prompt, None
+
+    def _apply_asset_depends_on_prompt_injection(
+        self,
+        step: Dict[str, Any],
+        prompt: str,
+    ) -> tuple[str, Optional[Dict[str, Any]]]:
+        """Inject source-relative asset files into the composed provider prompt."""
+        asset_depends_on = step.get('asset_depends_on')
+        if not asset_depends_on:
+            return prompt, None
+        if self.asset_resolver is None:
+            return prompt, self._contract_violation_result(
+                "Provider prompt asset resolution failed",
+                {
+                    "step": step.get('name', f'step_{self.current_step}'),
+                    "reason": "missing_workflow_source_root",
+                },
+            )
+
+        try:
+            assets_block = self.asset_resolver.render_content_blocks(asset_depends_on)
+        except (AssetResolutionError, OSError) as exc:
+            return prompt, self._contract_violation_result(
+                "Provider prompt asset resolution failed",
+                {
+                    "step": step.get('name', f'step_{self.current_step}'),
+                    "reason": "asset_depends_on_read_failed",
+                    "paths": list(asset_depends_on) if isinstance(asset_depends_on, list) else asset_depends_on,
+                    "error": str(exc),
+                },
+            )
+
+        if not assets_block:
+            return prompt, None
+        if not prompt:
+            return assets_block, None
+        return f"{assets_block}\n\n{prompt}", None
+
     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
         """
         Write prompt to audit log with secrets masking.
@@ -2476,8 +2556,10 @@ class WorkflowExecutor:
         # Initialize debug info dict for injection metadata
         debug_info = {}
 
-        # Initialize prompt variable (will be set based on dependencies or input_file)
-        prompt = ""
+        # Initialize prompt variable from either input_file or asset_file.
+        prompt, prompt_error = self._read_prompt_source(step)
+        if prompt_error is not None:
+            return prompt_error
 
         # Handle dependencies if specified (AT-22-27)
         if 'depends_on' in step:
@@ -2509,12 +2591,6 @@ class WorkflowExecutor:
 
             # Get all resolved files in deterministic order
             all_files = resolution.files
-
-            # Get original prompt (needed whether or not we inject)
-            if 'input_file' in step:
-                input_path = self.workspace / step['input_file']
-                if input_path.exists():
-                    prompt = input_path.read_text()
 
             # Apply variable substitution to prompt
             # Build variables for substitution
@@ -2560,13 +2636,6 @@ class WorkflowExecutor:
                     debug_info['injection'] = injection_result.truncation_details
 
         else:
-            # No dependencies - just get prompt normally
-            prompt = ""
-            if 'input_file' in step:
-                input_path = self.workspace / step['input_file']
-                if input_path.exists():
-                    prompt = input_path.read_text()
-
             # Apply variable substitution to prompt
             # Build variables for substitution
             # AT-65: Use context's steps for loop scoping (contains only current iteration)
@@ -2590,6 +2659,10 @@ class WorkflowExecutor:
             # AT-73: Do NOT substitute variables in prompt text (input_file contents are literal)
             # The spec states: "input_file: read literal contents; no substitution inside file contents"
             # prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
+
+        prompt, asset_error = self._apply_asset_depends_on_prompt_injection(step, prompt)
+        if asset_error is not None:
+            return asset_error
 
         # Inject resolved consumes into provider prompt when requested.
         prompt = self._apply_consumes_prompt_injection(
@@ -2749,6 +2822,21 @@ class WorkflowExecutor:
             result['debug'] = debug_info
 
         return self._apply_expected_outputs_contract(step, result)
+
+    def _execute_call(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Fail explicitly until full call-frame execution support lands."""
+        return {
+            'status': 'failed',
+            'exit_code': 2,
+            'duration_ms': 0,
+            'error': {
+                'type': 'call_not_implemented',
+                'message': 'Reusable call execution is not implemented in this pass',
+                'context': {
+                    'call': step.get('call'),
+                },
+            },
+        }
 
     def _execute_provider_invocation(self, invocation: Any) -> Any:
         """Execute provider invocation with backward-compatible call shape."""
