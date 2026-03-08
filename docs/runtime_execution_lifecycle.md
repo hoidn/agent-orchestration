@@ -9,7 +9,7 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 
 ```text
 1) Load + validate workflow YAML (version-gated strict schema)
-2) Bind workflow `inputs` (v2.1+, if declared), lower any v2.2 structured `if/else` and v2.3 `finally`, assign any v2.7 `repeat_until` body step ids, then initialize run root and state.json
+2) Bind workflow `inputs` (v2.1+, if declared), lower any v2.2 structured `if/else`, lower loop-local v2.7 `repeat_until` body `if/else` / `match`, lower any v2.3 `finally`, assign any v2.7 `repeat_until` body step ids, then initialize run root and state.json
 3) Iterate steps in graph order (or goto targets)
 4) For each step:
    a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
@@ -32,7 +32,7 @@ Identity note:
 - v2.2 structured `if/else` lowers to branch markers, lowered branch-body nodes, and a join node that keeps the authored statement presentation key.
 - v2.3 structured `finally` lowers to stable cleanup-step identities under `finally.<StepName>` while keeping durable ancestry rooted under `root.finally.<block-id-or-finally>`.
 - v2.5 `call` keeps the authored outer step as the caller-visible node and persists nested callee execution under `state.call_frames[call_frame_id]`.
-- v2.7 `repeat_until` keeps the authored loop frame as the caller-visible node, derives per-iteration nested identities such as `root.review_loop#1.iteration_body.write_decision`, and persists resume bookkeeping under `state.repeat_until`.
+- v2.7 `repeat_until` keeps the authored loop frame as the caller-visible node, derives per-iteration nested identities such as `root.review_loop#1.iteration_body.run_review_loop` or `root.review_loop#1.iteration_body.route_decision.revise_path.write_revision`, and persists resume bookkeeping under `state.repeat_until`.
 - `resume` uses persisted run position only to choose the initial top-level restart point. After execution reaches that point, normal control-flow semantics resume, so a later `goto` may revisit the same top-level step name without being auto-skipped.
 - When finalization is partially complete, `resume` restarts at the first unfinished cleanup step instead of replaying completed cleanup.
 - When a run stops inside a `call`, `resume` reuses the unfinished `call_frame_id` and restarts the callee from its first unfinished nested step instead of replaying completed nested work.

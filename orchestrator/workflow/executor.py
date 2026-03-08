@@ -2530,118 +2530,79 @@ class WorkflowExecutor:
                         nested_index,
                     )
 
-                    if 'when' in nested_step:
-                        variables = self.variable_substitutor.build_variables(
-                            run_state=state,
-                            context=self.workflow.get('context', {}),
-                            loop_vars=loop_context.get('loop', {}),
+                    loop_scope = self._build_loop_scope(state, iteration_state, parent_scope_steps)
+                    result = None
+                    guard = nested_step.get('structured_if_guard')
+                    if isinstance(guard, dict) and isinstance(guard.get('condition'), dict):
+                        result = self._evaluate_loop_body_condition(
+                            nested_step,
+                            guard['condition'],
+                            state,
+                            loop_context=loop_context,
+                            scope=loop_scope,
+                            runtime_step_id=nested_runtime_step_id,
+                            invert=bool(guard.get('invert')),
                         )
-                        try:
-                            should_execute = self.condition_evaluator.evaluate(
-                                nested_step['when'],
-                                variables,
-                                state,
-                                scope={
-                                    'self_steps': iteration_state,
-                                    'parent_steps': parent_scope_steps,
-                                    'root_steps': state.get('steps', {}),
-                                },
-                            )
-                        except Exception as exc:
-                            result = self._attach_outcome(
-                                nested_step,
-                                {
-                                    'status': 'failed',
-                                    'exit_code': 2,
-                                    'name': nested_name,
-                                    'step_id': nested_runtime_step_id,
-                                    'error': {
-                                        'type': 'predicate_evaluation_failed',
-                                        'message': f"Condition evaluation failed: {exc}",
-                                        'context': {'condition': nested_step['when']},
-                                    },
-                                },
-                                phase_hint='pre_execution',
-                                class_hint='pre_execution_failed',
-                                retryable_hint=False,
-                            )
-                            iteration_state[nested_name] = result
-                            self.state_manager.update_loop_step(
-                                step_name,
-                                current_iteration,
-                                nested_name,
-                                StepResult(
-                                    status=result.get('status', 'failed'),
-                                    name=result.get('name', nested_name),
-                                    step_id=result.get('step_id'),
-                                    exit_code=result.get('exit_code', 2),
-                                    duration_ms=result.get('duration_ms', 0),
-                                    error=result.get('error'),
-                                    truncated=result.get('truncated', False),
-                                    artifacts=result.get('artifacts'),
-                                    skipped=result.get('skipped', False),
-                                    outcome=result.get('outcome'),
-                                ),
-                            )
-                            failure_progress = {
-                                'current_iteration': current_iteration,
-                                'completed_iterations': completed_iterations,
-                                'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
-                                'last_condition_result': last_condition_result,
-                            }
-                            failure = self._attach_outcome(
-                                step,
-                                self._build_repeat_until_frame_result(
-                                    step,
-                                    status='failed',
-                                    exit_code=2,
-                                    artifacts=frame_artifacts,
-                                    progress=failure_progress,
-                                    error={
-                                        'type': 'repeat_until_body_step_failed',
-                                        'message': 'repeat_until body step failed',
-                                        'context': {
-                                            'iteration': current_iteration,
-                                            'step': nested_name,
-                                            'error': result.get('error'),
-                                        },
-                                    },
-                                ),
-                                phase_hint='pre_execution',
-                                class_hint='pre_execution_failed',
-                                retryable_hint=False,
-                            )
-                            self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
-                            return state
-
-                        if not should_execute:
-                            result = self._attach_outcome(
-                                nested_step,
-                                {
-                                    'status': 'skipped',
-                                    'exit_code': 0,
-                                    'skipped': True,
-                                    'name': nested_name,
-                                    'step_id': nested_runtime_step_id,
-                                },
-                            )
-                            iteration_state[nested_name] = result
-                            self.state_manager.update_loop_step(
-                                step_name,
-                                current_iteration,
-                                nested_name,
-                                StepResult(
-                                    status='skipped',
-                                    name=result.get('name', nested_name),
-                                    step_id=result.get('step_id'),
-                                    exit_code=0,
-                                    duration_ms=0,
-                                    truncated=False,
-                                    skipped=True,
-                                    outcome=result.get('outcome'),
-                                ),
-                            )
+                    if result is None and isinstance(nested_step.get('when'), dict):
+                        result = self._evaluate_loop_body_condition(
+                            nested_step,
+                            nested_step['when'],
+                            state,
+                            loop_context=loop_context,
+                            scope=loop_scope,
+                            runtime_step_id=nested_runtime_step_id,
+                        )
+                    if result is not None:
+                        iteration_state[nested_name] = result
+                        self.state_manager.update_loop_step(
+                            step_name,
+                            current_iteration,
+                            nested_name,
+                            StepResult(
+                                status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
+                                name=result.get('name', nested_name),
+                                step_id=result.get('step_id'),
+                                exit_code=result.get('exit_code', 0),
+                                duration_ms=result.get('duration_ms', 0),
+                                error=result.get('error'),
+                                truncated=result.get('truncated', False),
+                                artifacts=result.get('artifacts'),
+                                skipped=result.get('skipped', False),
+                                outcome=result.get('outcome'),
+                            ),
+                        )
+                        if result.get('skipped', False):
                             continue
+                        failure_progress = {
+                            'current_iteration': current_iteration,
+                            'completed_iterations': completed_iterations,
+                            'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
+                            'last_condition_result': last_condition_result,
+                        }
+                        failure = self._attach_outcome(
+                            step,
+                            self._build_repeat_until_frame_result(
+                                step,
+                                status='failed',
+                                exit_code=2,
+                                artifacts=frame_artifacts,
+                                progress=failure_progress,
+                                error={
+                                    'type': 'repeat_until_body_step_failed',
+                                    'message': 'repeat_until body step failed',
+                                    'context': {
+                                        'iteration': current_iteration,
+                                        'step': nested_name,
+                                        'error': result.get('error'),
+                                    },
+                                },
+                            ),
+                            phase_hint='pre_execution',
+                            class_hint='pre_execution_failed',
+                            retryable_hint=False,
+                        )
+                        self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
+                        return state
 
                     nested_context = self._create_loop_context(nested_step, loop_context, iteration_state)
 
@@ -3231,11 +3192,8 @@ class WorkflowExecutor:
         parent_scope_steps: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        scope = {
-            'self_steps': iteration_state,
-            'parent_steps': parent_scope_steps,
-            'root_steps': state.get('steps', {}),
-        }
+        scope = self._build_loop_scope(state, iteration_state, parent_scope_steps)
+        step_name_override = step.get('name')
         if 'command' in step:
             return self._execute_command_with_context(step, context, state)
         if 'provider' in step:
@@ -3253,6 +3211,22 @@ class WorkflowExecutor:
             return self._execute_increment_scalar(step, state)
         if 'wait_for' in step:
             return self._execute_wait_for_result(step)
+        if 'structured_if_branch' in step:
+            return self._execute_structured_if_branch(step)
+        if 'structured_if_join' in step:
+            return self._execute_structured_if_join(step, state, scope=scope)
+        if 'structured_match_case' in step:
+            return self._execute_structured_match_case(step)
+        if 'structured_match_join' in step:
+            return self._execute_structured_match_join(step, state, scope=scope)
+        if 'call' in step:
+            return self._execute_call(
+                step,
+                state,
+                scope=scope,
+                runtime_step_id=runtime_step_id,
+                step_name_override=step_name_override,
+            )
         return {'status': 'skipped', 'exit_code': 0, 'skipped': True}
 
     def _build_loop_parent_scope_steps(
@@ -3302,6 +3276,78 @@ class WorkflowExecutor:
             parent_scope_steps[local_name] = candidate_result
 
         return parent_scope_steps
+
+    def _build_loop_scope(
+        self,
+        state: Dict[str, Any],
+        iteration_state: Dict[str, Any],
+        parent_scope_steps: Dict[str, Any],
+    ) -> Dict[str, Dict[str, Any]]:
+        """Build structured-ref scope maps for one nested loop step."""
+        return {
+            'self_steps': iteration_state,
+            'parent_steps': parent_scope_steps,
+            'root_steps': state.get('steps', {}),
+        }
+
+    def _evaluate_loop_body_condition(
+        self,
+        step: Dict[str, Any],
+        condition: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        loop_context: Dict[str, Any],
+        scope: Dict[str, Dict[str, Any]],
+        runtime_step_id: str,
+        invert: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Evaluate one loop-body guard/when condition and return failure or skip results."""
+        variables = self.variable_substitutor.build_variables(
+            run_state=state,
+            context=self.workflow.get('context', {}),
+            loop_vars=loop_context.get('loop', {}),
+        )
+        try:
+            should_execute = self.condition_evaluator.evaluate(
+                condition,
+                variables,
+                state,
+                scope=scope,
+            )
+            if invert:
+                should_execute = not should_execute
+        except Exception as exc:
+            return self._attach_outcome(
+                step,
+                {
+                    'status': 'failed',
+                    'exit_code': 2,
+                    'name': step.get('name', f'nested_{self.current_step}'),
+                    'step_id': runtime_step_id,
+                    'error': {
+                        'type': 'predicate_evaluation_failed',
+                        'message': f"Condition evaluation failed: {exc}",
+                        'context': {'condition': condition},
+                    },
+                },
+                phase_hint='pre_execution',
+                class_hint='pre_execution_failed',
+                retryable_hint=False,
+            )
+
+        if should_execute:
+            return None
+
+        return self._attach_outcome(
+            step,
+            {
+                'status': 'skipped',
+                'exit_code': 0,
+                'skipped': True,
+                'name': step.get('name', f'nested_{self.current_step}'),
+                'step_id': runtime_step_id,
+            },
+        )
 
     def _execute_command_with_context(
         self,
@@ -3759,29 +3805,44 @@ class WorkflowExecutor:
 
     def _call_frame_id(self, step: Dict[str, Any], state: Dict[str, Any]) -> str:
         """Derive a durable call-frame id from the authored call step and visit count."""
+        return self._call_frame_id_with_overrides(step, state)
+
+    def _call_frame_id_with_overrides(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        step_name: Optional[str] = None,
+        step_id: Optional[str] = None,
+    ) -> str:
+        """Derive a durable call-frame id from an optional runtime-local step identity."""
         if getattr(self, "resume_mode", False):
             call_frames = state.get('call_frames', {})
-            step_id = self._step_id(step)
+            effective_step_id = step_id or self._step_id(step)
             if isinstance(call_frames, dict):
                 for frame_id, frame in call_frames.items():
                     if not isinstance(frame, dict):
                         continue
-                    if frame.get('call_step_id') != step_id:
+                    if frame.get('call_step_id') != effective_step_id:
                         continue
                     if frame.get('status') == 'completed':
                         continue
                     return frame_id
 
-        step_name = step.get('name', f'step_{self.current_step}')
+        effective_step_name = step_name or step.get('name', f'step_{self.current_step}')
         step_visits = state.get('step_visits', {})
-        visit_count = step_visits.get(step_name, 1) if isinstance(step_visits, dict) else 1
-        return f"{self._step_id(step)}::visit::{visit_count}"
+        visit_count = step_visits.get(effective_step_name, 1) if isinstance(step_visits, dict) else 1
+        effective_step_id = step_id or self._step_id(step)
+        return f"{effective_step_id}::visit::{visit_count}"
 
     def _resolve_call_bound_inputs(
         self,
         step: Dict[str, Any],
         imported_workflow: Dict[str, Any],
         state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+        step_name_override: Optional[str] = None,
     ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Resolve call-site literal and structured-ref bindings into typed callee inputs."""
         bindings = step.get('with', {})
@@ -3810,12 +3871,12 @@ class WorkflowExecutor:
                 if isinstance(raw_value, dict):
                     ref = raw_value.get('ref')
                     try:
-                        raw_value = self.reference_resolver.resolve(ref, state).value
+                        raw_value = self.reference_resolver.resolve(ref, state, scope=scope).value
                     except ReferenceResolutionError as exc:
                         return None, self._contract_violation_result(
                             "Call input binding failed",
                             {
-                                "step": step.get('name', f'step_{self.current_step}'),
+                                "step": step_name_override or step.get('name', f'step_{self.current_step}'),
                                 "input": input_name,
                                 "reason": "unresolved_ref",
                                 "ref": ref,
@@ -3832,7 +3893,7 @@ class WorkflowExecutor:
                     return None, self._contract_violation_result(
                         "Call input binding failed",
                         {
-                            "step": step.get('name', f'step_{self.current_step}'),
+                            "step": step_name_override or step.get('name', f'step_{self.current_step}'),
                             "input": input_name,
                             "reason": "invalid_value",
                             "violations": exc.violations,
@@ -3847,7 +3908,7 @@ class WorkflowExecutor:
                 return None, self._contract_violation_result(
                     "Call input binding failed",
                     {
-                        "step": step.get('name', f'step_{self.current_step}'),
+                        "step": step_name_override or step.get('name', f'step_{self.current_step}'),
                         "input": input_name,
                         "reason": "missing_required_input",
                     },
@@ -3905,26 +3966,47 @@ class WorkflowExecutor:
             'nested_call_frames': nested_frames,
         }
 
-    def _execute_call(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_call(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+        runtime_step_id: Optional[str] = None,
+        step_name_override: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Execute an imported workflow inline and persist call-frame state."""
         call_alias = step.get('call')
         imported_workflow = self.workflow.get('__imports', {}).get(call_alias)
+        step_name = step_name_override or step.get('name', f'step_{self.current_step}')
+        step_id = runtime_step_id or self._step_id(step)
         if not isinstance(imported_workflow, dict):
             return self._contract_violation_result(
                 "Call execution failed",
                 {
-                    "step": step.get('name', f'step_{self.current_step}'),
+                    "step": step_name,
                     "reason": "unknown_import_alias",
                     "call": call_alias,
                 },
             )
 
-        bound_inputs, binding_error = self._resolve_call_bound_inputs(step, imported_workflow, state)
+        bound_inputs, binding_error = self._resolve_call_bound_inputs(
+            step,
+            imported_workflow,
+            state,
+            scope=scope,
+            step_name_override=step_name,
+        )
         if binding_error is not None:
             return binding_error
         assert bound_inputs is not None
 
-        frame_id = self._call_frame_id(step, state)
+        frame_id = self._call_frame_id_with_overrides(
+            step,
+            state,
+            step_name=step_name,
+            step_id=step_id,
+        )
         call_frames = state.setdefault('call_frames', {})
         existing_frame = call_frames.get(frame_id) if isinstance(call_frames, dict) else None
         if not isinstance(call_frames, dict):
@@ -3935,8 +4017,8 @@ class WorkflowExecutor:
             parent_manager=self.state_manager,
             workflow=imported_workflow,
             frame_id=frame_id,
-            call_step_name=step.get('name', f'step_{self.current_step}'),
-            call_step_id=self._step_id(step),
+            call_step_name=step_name,
+            call_step_id=step_id,
             import_alias=str(call_alias),
             bound_inputs=bound_inputs,
             existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
@@ -4633,7 +4715,13 @@ class WorkflowExecutor:
             },
         }
 
-    def _execute_structured_if_join(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_structured_if_join(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Materialize selected branch outputs onto the lowered join node."""
         metadata = step.get('structured_if_join', {})
         branches = metadata.get('branches', {}) if isinstance(metadata, dict) else {}
@@ -4643,7 +4731,11 @@ class WorkflowExecutor:
                 {"reason": "missing_branch_metadata"},
             )
 
-        steps_state = state.get('steps', {})
+        steps_state = (
+            scope.get('self_steps')
+            if isinstance(scope, dict) and isinstance(scope.get('self_steps'), dict)
+            else state.get('steps', {})
+        )
         if not isinstance(steps_state, dict):
             steps_state = {}
 
@@ -4691,6 +4783,7 @@ class WorkflowExecutor:
             failure_message="Structured if/else join failed",
             selection_key="branch",
             selection_value=selected_branch,
+            scope=scope,
         )
         if not isinstance(artifacts, dict):
             return artifacts
@@ -4726,7 +4819,13 @@ class WorkflowExecutor:
             },
         }
 
-    def _execute_structured_match_join(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_structured_match_join(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """Materialize selected case outputs onto the lowered join node."""
         metadata = step.get('structured_match_join', {})
         cases = metadata.get('cases', {}) if isinstance(metadata, dict) else {}
@@ -4736,7 +4835,11 @@ class WorkflowExecutor:
                 {"reason": "missing_case_metadata"},
             )
 
-        steps_state = state.get('steps', {})
+        steps_state = (
+            scope.get('self_steps')
+            if isinstance(scope, dict) and isinstance(scope.get('self_steps'), dict)
+            else state.get('steps', {})
+        )
         if not isinstance(steps_state, dict):
             steps_state = {}
 
@@ -4784,6 +4887,7 @@ class WorkflowExecutor:
             failure_message="Structured match join failed",
             selection_key="case",
             selection_value=selected_case,
+            scope=scope,
         )
         if not isinstance(artifacts, dict):
             return artifacts

@@ -37,7 +37,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/env_literal.yaml` | `1.1` | _(unnamed)_ | Demonstrates literal `env` semantics, including loop variables that are not substituted inside `env`. |
 | `workflows/examples/finally_demo.yaml` | `2.3` | `finally-demo` | Demonstrates top-level `finally`, resume-safe cleanup bookkeeping, and workflow outputs deferred until cleanup succeeds. |
 | `workflows/examples/match_demo.yaml` | `2.6` | `match-demo` | Demonstrates top-level structured `match`, exhaustive enum case coverage, and case outputs materialized onto the statement node. |
-| `workflows/examples/repeat_until_demo.yaml` | `2.7` | `repeat-until-demo` | Demonstrates post-test `repeat_until`, loop-frame outputs, and resume-safe iteration/condition bookkeeping. |
+| `workflows/examples/repeat_until_demo.yaml` | `2.7` | `repeat-until-demo` | Demonstrates post-test `repeat_until` with loop-frame outputs, nested `call` + `match` body composition, and resume-safe iteration/condition bookkeeping. |
 | `workflows/examples/score_gate_demo.yaml` | `2.8` | `score-gate-demo` | Demonstrates the `score` predicate helper for benchmark thresholds plus score-band routing through top-level structured control. |
 | `workflows/examples/for_each_demo.yaml` | `1.1` | _(unnamed)_ | Demonstrates `for_each` with `items_from`, aliases, and JSON dot-path array selection. |
 | `workflows/examples/generic_task_plan_execute_review_loop.yaml` | `1.4` | `generic-task-plan-execute-review-loop` | Full task workflow with plan, execution, checks, review, fix, and bounded cycles. |

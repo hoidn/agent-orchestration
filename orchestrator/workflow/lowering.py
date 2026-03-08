@@ -19,18 +19,52 @@ from .statements import (
 )
 
 
-def lower_structured_steps(steps: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def lower_structured_steps(
+    steps: Iterable[Dict[str, Any]],
+    *,
+    local_step_prefix: str = "root.steps",
+    parent_step_prefix: str = "root.steps",
+) -> List[Dict[str, Any]]:
     """Lower top-level structured statements into flat executable steps."""
     lowered: List[Dict[str, Any]] = []
     for step in steps:
         if is_match_statement(step):
-            lowered.extend(_lower_match_statement(step))
+            lowered.extend(
+                _lower_match_statement(
+                    step,
+                    local_step_prefix=local_step_prefix,
+                    parent_step_prefix=parent_step_prefix,
+                )
+            )
             continue
         if not is_if_statement(step):
             lowered.append(step)
             continue
-        lowered.extend(_lower_if_statement(step))
+        lowered.extend(
+            _lower_if_statement(
+                step,
+                local_step_prefix=local_step_prefix,
+                parent_step_prefix=parent_step_prefix,
+            )
+        )
     return lowered
+
+
+def lower_repeat_until_bodies(steps: Iterable[Dict[str, Any]]) -> None:
+    """Lower structured statements inside repeat_until bodies into loop-local executable steps."""
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        repeat_until = step.get("repeat_until")
+        if not isinstance(repeat_until, dict):
+            continue
+        body_steps = repeat_until.get("steps")
+        if isinstance(body_steps, list):
+            repeat_until["steps"] = lower_structured_steps(
+                body_steps,
+                local_step_prefix="self.steps",
+                parent_step_prefix="parent.steps",
+            )
 
 
 def lower_finalization_block(finally_block: Dict[str, Any] | None) -> Dict[str, Any] | None:
@@ -56,7 +90,12 @@ def lower_finalization_block(finally_block: Dict[str, Any] | None) -> Dict[str, 
     }
 
 
-def _lower_if_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _lower_if_statement(
+    step: Dict[str, Any],
+    *,
+    local_step_prefix: str,
+    parent_step_prefix: str,
+) -> List[Dict[str, Any]]:
     statement_name = step["name"]
     statement_step_id = step["step_id"]
     condition = deepcopy(step["if"])
@@ -106,12 +145,22 @@ def _lower_if_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
             if isinstance(lowered_name, str):
                 branch_step["name"] = lowered_name
             branch_step["structured_if_guard"] = deepcopy(guard)
-            _rewrite_step_structured_refs(branch_step, local_name_map)
+            _rewrite_step_structured_refs(
+                branch_step,
+                local_name_map,
+                local_step_prefix=local_step_prefix,
+                parent_step_prefix=parent_step_prefix,
+            )
             branch_step_names.append(branch_step["name"])
             lowered.append(branch_step)
 
         outputs = deepcopy(branch.get("outputs") or {})
-        _rewrite_output_refs(outputs, local_name_map)
+        _rewrite_output_refs(
+            outputs,
+            local_name_map,
+            local_step_prefix=local_step_prefix,
+            parent_step_prefix=parent_step_prefix,
+        )
         branch_metadata[branch_name] = {
             "marker": marker_name,
             "step_id": branch_step_id,
@@ -132,7 +181,12 @@ def _lower_if_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
     return lowered
 
 
-def _lower_match_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _lower_match_statement(
+    step: Dict[str, Any],
+    *,
+    local_step_prefix: str,
+    parent_step_prefix: str,
+) -> List[Dict[str, Any]]:
     statement_name = step["name"]
     statement_step_id = step["step_id"]
     match = deepcopy(step.get("match", {}))
@@ -192,12 +246,22 @@ def _lower_match_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
             if isinstance(lowered_name, str):
                 case_step["name"] = lowered_name
             case_step["structured_if_guard"] = deepcopy(guard)
-            _rewrite_step_structured_refs(case_step, local_name_map)
+            _rewrite_step_structured_refs(
+                case_step,
+                local_name_map,
+                local_step_prefix=local_step_prefix,
+                parent_step_prefix=parent_step_prefix,
+            )
             case_step_names.append(case_step["name"])
             lowered.append(case_step)
 
         outputs = deepcopy(case.get("outputs") or {})
-        _rewrite_output_refs(outputs, local_name_map)
+        _rewrite_output_refs(
+            outputs,
+            local_name_map,
+            local_step_prefix=local_step_prefix,
+            parent_step_prefix=parent_step_prefix,
+        )
         case_metadata[str(case_name)] = {
             "marker": marker_name,
             "step_id": case_step_id,
@@ -219,22 +283,44 @@ def _lower_match_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
     return lowered
 
 
-def _rewrite_step_structured_refs(step: Dict[str, Any], local_name_map: Dict[str, str]) -> None:
+def _rewrite_step_structured_refs(
+    step: Dict[str, Any],
+    local_name_map: Dict[str, str],
+    *,
+    local_step_prefix: str,
+    parent_step_prefix: str,
+) -> None:
     """Rewrite branch-local structured refs on lowered executable steps."""
     for field_name in ("when", "assert"):
         if field_name in step:
-            step[field_name] = _rewrite_condition_structured_refs(step[field_name], local_name_map)
+            step[field_name] = _rewrite_condition_structured_refs(
+                step[field_name],
+                local_name_map,
+                local_step_prefix=local_step_prefix,
+                parent_step_prefix=parent_step_prefix,
+            )
     for field_name in ("command", "input_file", "output_file", "provider_params"):
         if field_name in step:
             step[field_name] = _rewrite_legacy_step_variables(step[field_name], local_name_map)
 
 
-def _rewrite_condition_structured_refs(node: Any, local_name_map: Dict[str, str]) -> Any:
+def _rewrite_condition_structured_refs(
+    node: Any,
+    local_name_map: Dict[str, str],
+    *,
+    local_step_prefix: str,
+    parent_step_prefix: str,
+) -> Any:
     if not isinstance(node, dict):
         return _rewrite_legacy_step_variables(node, local_name_map)
 
     if any(key in node for key in TYPED_PREDICATE_OPERATOR_KEYS):
-        return _rewrite_typed_predicate(node, local_name_map)
+        return _rewrite_typed_predicate(
+            node,
+            local_name_map,
+            local_step_prefix=local_step_prefix,
+            parent_step_prefix=parent_step_prefix,
+        )
 
     rewritten = deepcopy(node)
     if "equals" in rewritten and isinstance(rewritten["equals"], dict):
@@ -242,12 +328,23 @@ def _rewrite_condition_structured_refs(node: Any, local_name_map: Dict[str, str]
         for side in ("left", "right"):
             value = equals.get(side)
             if isinstance(value, dict):
-                equals[side] = _rewrite_typed_predicate(value, local_name_map)
+                equals[side] = _rewrite_typed_predicate(
+                    value,
+                    local_name_map,
+                    local_step_prefix=local_step_prefix,
+                    parent_step_prefix=parent_step_prefix,
+                )
         rewritten["equals"] = equals
     return _rewrite_legacy_step_variables(rewritten, local_name_map)
 
 
-def _rewrite_typed_predicate(node: Any, local_name_map: Dict[str, str]) -> Any:
+def _rewrite_typed_predicate(
+    node: Any,
+    local_name_map: Dict[str, str],
+    *,
+    local_step_prefix: str,
+    parent_step_prefix: str,
+) -> Any:
     if not isinstance(node, dict):
         return node
 
@@ -255,7 +352,12 @@ def _rewrite_typed_predicate(node: Any, local_name_map: Dict[str, str]) -> Any:
 
     if "artifact_bool" in rewritten and isinstance(rewritten["artifact_bool"], dict):
         ref = rewritten["artifact_bool"].get("ref")
-        rewritten["artifact_bool"]["ref"] = _rewrite_structured_ref(ref, local_name_map)
+        rewritten["artifact_bool"]["ref"] = _rewrite_structured_ref(
+            ref,
+            local_name_map,
+            local_step_prefix=local_step_prefix,
+            parent_step_prefix=parent_step_prefix,
+        )
         return rewritten
 
     if "compare" in rewritten and isinstance(rewritten["compare"], dict):
@@ -264,45 +366,84 @@ def _rewrite_typed_predicate(node: Any, local_name_map: Dict[str, str]) -> Any:
             operand = compare.get(side)
             if isinstance(operand, dict) and "ref" in operand:
                 compare[side] = {
-                    "ref": _rewrite_structured_ref(operand.get("ref"), local_name_map)
+                    "ref": _rewrite_structured_ref(
+                        operand.get("ref"),
+                        local_name_map,
+                        local_step_prefix=local_step_prefix,
+                        parent_step_prefix=parent_step_prefix,
+                    )
                 }
         rewritten["compare"] = compare
         return rewritten
 
     if "all_of" in rewritten and isinstance(rewritten["all_of"], list):
         rewritten["all_of"] = [
-            _rewrite_typed_predicate(item, local_name_map) for item in rewritten["all_of"]
+            _rewrite_typed_predicate(
+                item,
+                local_name_map,
+                local_step_prefix=local_step_prefix,
+                parent_step_prefix=parent_step_prefix,
+            )
+            for item in rewritten["all_of"]
         ]
         return rewritten
 
     if "any_of" in rewritten and isinstance(rewritten["any_of"], list):
         rewritten["any_of"] = [
-            _rewrite_typed_predicate(item, local_name_map) for item in rewritten["any_of"]
+            _rewrite_typed_predicate(
+                item,
+                local_name_map,
+                local_step_prefix=local_step_prefix,
+                parent_step_prefix=parent_step_prefix,
+            )
+            for item in rewritten["any_of"]
         ]
         return rewritten
 
     if "not" in rewritten:
-        rewritten["not"] = _rewrite_typed_predicate(rewritten["not"], local_name_map)
+        rewritten["not"] = _rewrite_typed_predicate(
+            rewritten["not"],
+            local_name_map,
+            local_step_prefix=local_step_prefix,
+            parent_step_prefix=parent_step_prefix,
+        )
         return rewritten
 
     return rewritten
 
 
-def _rewrite_output_refs(outputs: Dict[str, Any], local_name_map: Dict[str, str]) -> None:
+def _rewrite_output_refs(
+    outputs: Dict[str, Any],
+    local_name_map: Dict[str, str],
+    *,
+    local_step_prefix: str,
+    parent_step_prefix: str,
+) -> None:
     for spec in outputs.values():
         if not isinstance(spec, dict):
             continue
         binding = spec.get("from")
         if not isinstance(binding, dict) or "ref" not in binding:
             continue
-        binding["ref"] = _rewrite_structured_ref(binding.get("ref"), local_name_map)
+        binding["ref"] = _rewrite_structured_ref(
+            binding.get("ref"),
+            local_name_map,
+            local_step_prefix=local_step_prefix,
+            parent_step_prefix=parent_step_prefix,
+        )
 
 
-def _rewrite_structured_ref(ref: Any, local_name_map: Dict[str, str]) -> Any:
+def _rewrite_structured_ref(
+    ref: Any,
+    local_name_map: Dict[str, str],
+    *,
+    local_step_prefix: str,
+    parent_step_prefix: str,
+) -> Any:
     if not isinstance(ref, str):
         return ref
     if ref.startswith("parent.steps."):
-        return f"root.steps.{ref[len('parent.steps.'):]}"
+        return f"{parent_step_prefix}.{ref[len('parent.steps.'):]}"
     if not ref.startswith("self.steps."):
         return ref
 
@@ -312,7 +453,7 @@ def _rewrite_structured_ref(ref: Any, local_name_map: Dict[str, str]) -> Any:
         if not remainder.startswith(prefix):
             continue
         suffix = remainder[len(prefix):]
-        return f"root.steps.{local_name_map[original_name]}.{suffix}"
+        return f"{local_step_prefix}.{local_name_map[original_name]}.{suffix}"
     return ref
 
 

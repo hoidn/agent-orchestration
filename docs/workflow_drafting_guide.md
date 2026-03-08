@@ -184,7 +184,8 @@ For v2.7 structured loops:
 - declare the data the condition needs under `repeat_until.outputs`, then read it only through `self.outputs.<name>` inside `repeat_until.condition`
 - do not point `repeat_until.condition` at `self.steps.<Inner>...`; body steps are multi-visit and that bypasses the loop-frame anti-ambiguity boundary
 - give both the outer step and the repeat body an authored `id` when iteration lineage or resume stability matters across sibling insertion / body reshaping
-- keep the first tranche simple: no `goto`, nested structured control, nested `for_each`, or nested `call` inside the loop body
+- keep the first tranche bounded: no `goto`, nested `for_each`, or nested `repeat_until` inside the loop body
+- direct nested `call`, `match`, and `if/else` bodies are allowed; the loader lowers them into loop-local executable steps that still read body-local refs through `self.steps.*` and outer lexical refs through `parent.steps.*`
 
 For post-v2.0 workflows, separate display names from durable identity:
 - keep `name` optimized for readable reports

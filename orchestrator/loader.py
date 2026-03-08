@@ -10,7 +10,11 @@ from orchestrator.contracts.output_contract import OutputContractError, validate
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
-from orchestrator.workflow.lowering import lower_finalization_block, lower_structured_steps
+from orchestrator.workflow.lowering import (
+    lower_finalization_block,
+    lower_repeat_until_bodies,
+    lower_structured_steps,
+)
 from orchestrator.workflow.predicates import (
     SCORE_PREDICATE_BOUND_KEYS,
     TYPED_PREDICATE_OPERATOR_KEYS,
@@ -197,6 +201,7 @@ class WorkflowLoader:
                 self._validate_call_write_root_collisions(steps, workflow.get('finally'))
 
             assign_step_ids(workflow.get('steps', []))
+            lower_repeat_until_bodies(workflow.get('steps', []))
             if self._version_at_least(version, STRUCTURED_IF_VERSION):
                 workflow['steps'] = lower_structured_steps(workflow.get('steps', []))
             if normalized_finally is not None:
@@ -550,6 +555,7 @@ class WorkflowLoader:
         scope_non_step_results: Optional[Set[str]] = None,
         parent_non_step_results: Optional[Set[str]] = None,
         top_level: bool = True,
+        allow_nested_structured: bool = False,
     ):
         """Validate step definitions."""
         if not isinstance(steps, list):
@@ -625,6 +631,7 @@ class WorkflowLoader:
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
+                    allow_nested=allow_nested_structured,
                 )
                 continue
 
@@ -642,6 +649,7 @@ class WorkflowLoader:
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
+                    allow_nested=allow_nested_structured,
                 )
                 continue
 
@@ -1005,9 +1013,10 @@ class WorkflowLoader:
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
         top_level: bool,
+        allow_nested: bool = False,
     ) -> None:
         """Validate one top-level structured if/else statement."""
-        if not top_level:
+        if not top_level and not allow_nested:
             self._add_error(
                 f"Step '{step_name}': structured if/else is only supported on top-level steps in v{STRUCTURED_IF_VERSION}"
             )
@@ -1212,9 +1221,10 @@ class WorkflowLoader:
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
         top_level: bool,
+        allow_nested: bool = False,
     ) -> None:
         """Validate one top-level structured match statement."""
-        if not top_level:
+        if not top_level and not allow_nested:
             self._add_error(
                 f"Step '{step_name}': structured match is only supported on top-level steps in v{STRUCTURED_MATCH_VERSION}"
             )
@@ -1486,17 +1496,13 @@ class WorkflowLoader:
             nested_name = nested_step.get('name')
             if not isinstance(nested_name, str):
                 continue
-            if 'call' in nested_step:
-                self._add_error(
-                    f"Step '{step_name}': repeat_until body step '{nested_name}' does not support call in the first tranche"
-                )
             if 'for_each' in nested_step:
                 self._add_error(
                     f"Step '{step_name}': repeat_until body step '{nested_name}' does not support for_each in the first tranche"
                 )
-            if is_if_statement(nested_step) or is_match_statement(nested_step) or is_repeat_until_statement(nested_step):
+            if is_repeat_until_statement(nested_step):
                 self._add_error(
-                    f"Step '{step_name}': repeat_until body step '{nested_name}' does not support nested structured control in the first tranche"
+                    f"Step '{step_name}': repeat_until body step '{nested_name}' does not support nested repeat_until in the first tranche"
                 )
 
         body_scope_artifacts = self._build_scope_artifact_catalog(body_steps, artifacts_registry)
@@ -1514,6 +1520,7 @@ class WorkflowLoader:
             scope_non_step_results=body_scope_non_step_results,
             parent_non_step_results=scope_non_step_results,
             top_level=False,
+            allow_nested_structured=True,
         )
 
         outputs = block.get('outputs')

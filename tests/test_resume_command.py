@@ -469,6 +469,225 @@ def _build_call_resume_caller_workflow() -> dict:
     }
 
 
+def _build_repeat_until_call_resume_library_workflow() -> dict:
+    return {
+        "version": "2.7",
+        "name": "repeat-until-call-review-loop",
+        "inputs": {
+            "write_root": {
+                "kind": "relpath",
+                "type": "relpath",
+            }
+        },
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }
+        },
+        "outputs": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+                "from": {
+                    "ref": "root.steps.WriteDecision.artifacts.review_decision",
+                },
+            }
+        },
+        "steps": [
+            {
+                "name": "WriteBodyHistory",
+                "id": "write_body_history",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "mkdir -p \"${inputs.write_root}\"",
+                            "count=$(cat \"${inputs.write_root}/review_count.txt\" 2>/dev/null || printf '0')",
+                            "count=$((count + 1))",
+                            "printf '%s\\n' \"$count\" > \"${inputs.write_root}/review_count.txt\"",
+                            "printf 'body-%s\\n' \"$count\" >> \"${inputs.write_root}/history.log\"",
+                        ]
+                    ),
+                ],
+            },
+            {
+                "name": "ResumeGate",
+                "id": "resume_gate",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "mkdir -p \"${inputs.write_root}\"",
+                            "count=$(cat \"${inputs.write_root}/review_count.txt\")",
+                            "if [ \"$count\" -ge 2 ] && [ ! -f state/resume_ready.txt ]; then",
+                            "  printf 'gate-failed-%s\\n' \"$count\" >> \"${inputs.write_root}/history.log\"",
+                            "  exit 1",
+                            "fi",
+                            "printf 'gate-passed-%s\\n' \"$count\" >> \"${inputs.write_root}/history.log\"",
+                        ]
+                    ),
+                ],
+            },
+            {
+                "name": "WriteDecision",
+                "id": "write_decision",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "mkdir -p \"${inputs.write_root}\"",
+                            "count=$(cat \"${inputs.write_root}/review_count.txt\")",
+                            "if [ \"$count\" -ge 2 ]; then",
+                            "  printf 'APPROVE\\n' > \"${inputs.write_root}/review_decision.txt\"",
+                            "else",
+                            "  printf 'REVISE\\n' > \"${inputs.write_root}/review_decision.txt\"",
+                            "fi",
+                        ]
+                    ),
+                ],
+                "expected_outputs": [
+                    {
+                        "name": "review_decision",
+                        "path": "${inputs.write_root}/review_decision.txt",
+                        "type": "enum",
+                        "allowed": ["APPROVE", "REVISE"],
+                    }
+                ],
+            },
+        ],
+    }
+
+
+def _build_repeat_until_call_resume_workflow() -> dict:
+    return {
+        "version": "2.7",
+        "name": "repeat-until-call-resume-workflow",
+        "imports": {
+            "review_loop": "workflows/library/repeat_until_review_loop.yaml",
+        },
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }
+        },
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.RouteDecision.artifacts.review_decision",
+                            },
+                        }
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {
+                                "ref": "self.outputs.review_decision",
+                            },
+                            "op": "eq",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "max_iterations": 4,
+                    "steps": [
+                        {
+                            "name": "RunReviewLoop",
+                            "id": "run_review_loop",
+                            "call": "review_loop",
+                            "with": {
+                                "write_root": "state/review-loop",
+                            },
+                        },
+                        {
+                            "name": "RouteDecision",
+                            "id": "route_decision",
+                            "match": {
+                                "ref": "self.steps.RunReviewLoop.artifacts.review_decision",
+                                "cases": {
+                                    "APPROVE": {
+                                        "id": "approve_path",
+                                        "outputs": {
+                                            "review_decision": {
+                                                "kind": "scalar",
+                                                "type": "enum",
+                                                "allowed": ["APPROVE", "REVISE"],
+                                                "from": {
+                                                    "ref": "self.steps.WriteApproved.artifacts.review_decision",
+                                                },
+                                            }
+                                        },
+                                        "steps": [
+                                            {
+                                                "name": "WriteApproved",
+                                                "id": "write_approved",
+                                                "set_scalar": {
+                                                    "artifact": "review_decision",
+                                                    "value": "APPROVE",
+                                                },
+                                            }
+                                        ],
+                                    },
+                                    "REVISE": {
+                                        "id": "revise_path",
+                                        "outputs": {
+                                            "review_decision": {
+                                                "kind": "scalar",
+                                                "type": "enum",
+                                                "allowed": ["APPROVE", "REVISE"],
+                                                "from": {
+                                                    "ref": "self.steps.WriteRevision.artifacts.review_decision",
+                                                },
+                                            }
+                                        },
+                                        "steps": [
+                                            {
+                                                "name": "WriteRevision",
+                                                "id": "write_revision",
+                                                "set_scalar": {
+                                                    "artifact": "review_decision",
+                                                    "value": "REVISE",
+                                                },
+                                            }
+                                        ],
+                                    },
+                                },
+                            },
+                        },
+                    ],
+                },
+            },
+            {
+                "name": "VerifyApproval",
+                "id": "verify_approval",
+                "assert": {
+                    "compare": {
+                        "left": {
+                            "ref": "root.steps.ReviewLoop.artifacts.review_decision",
+                        },
+                        "op": "eq",
+                        "right": "APPROVE",
+                    }
+                },
+            },
+        ],
+    }
+
+
 def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "resume_loop.yaml"
     workflow_path.write_text(yaml.safe_dump(_build_resume_loop_workflow(), sort_keys=False))
@@ -520,6 +739,28 @@ def _seed_repeat_until_failure(workspace: Path, *, run_id: str) -> tuple[Path, S
 
     state_manager = StateManager(workspace=workspace, run_id=run_id)
     state_manager.initialize("repeat_until_resume.yaml")
+    workflow = WorkflowLoader(workspace).load(workflow_path)
+    state = WorkflowExecutor(workflow, workspace, state_manager).execute(on_error="stop")
+
+    assert state["status"] == "failed"
+    return workflow_path, state_manager
+
+
+def _seed_repeat_until_call_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
+    library_path = workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
+    library_path.parent.mkdir(parents=True, exist_ok=True)
+    library_path.write_text(
+        yaml.safe_dump(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = workspace / "repeat_until_call_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_repeat_until_call_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    state_manager = StateManager(workspace=workspace, run_id=run_id)
+    state_manager.initialize("repeat_until_call_resume.yaml")
     workflow = WorkflowLoader(workspace).load(workflow_path)
     state = WorkflowExecutor(workflow, workspace, state_manager).execute(on_error="stop")
 
@@ -825,6 +1066,59 @@ def test_repeat_until_resume_advances_past_already_evaluated_condition_without_r
         "review_decision": "APPROVE"
     }
     assert loaded_state.steps["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+
+
+def test_repeat_until_resume_preserves_nested_call_frames_and_lowered_match_progress(temp_workspace):
+    """Resume should continue a repeat_until call body without replaying finished child-call work."""
+    run_id = "repeat-until-call-resume-run"
+    _seed_repeat_until_call_failure(temp_workspace, run_id=run_id)
+
+    history_path = temp_workspace / "state" / "review-loop" / "history.log"
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "body-1",
+        "gate-passed-1",
+        "body-2",
+        "gate-failed-2",
+    ]
+
+    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert history_path.read_text(encoding="utf-8").splitlines() == [
+        "body-1",
+        "gate-passed-1",
+        "body-2",
+        "gate-failed-2",
+        "gate-passed-2",
+    ]
+
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["ReviewLoop[0].RunReviewLoop"]["artifacts"] == {"review_decision": "REVISE"}
+    assert loaded_state.steps["ReviewLoop[0].RouteDecision.REVISE.WriteRevision"]["status"] == "completed"
+    assert loaded_state.steps["ReviewLoop[1].RunReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert loaded_state.steps["ReviewLoop[1].RouteDecision.APPROVE.WriteApproved"]["status"] == "completed"
+    assert loaded_state.steps["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert len(loaded_state.call_frames) == 2
+    assert sorted(frame["call_step_id"] for frame in loaded_state.call_frames.values()) == [
+        "root.review_loop#0.iteration_body.run_review_loop",
+        "root.review_loop#1.iteration_body.run_review_loop",
+    ]
+    second_frame = next(
+        frame
+        for frame in loaded_state.call_frames.values()
+        if frame["call_step_id"] == "root.review_loop#1.iteration_body.run_review_loop"
+    )
+    assert second_frame["state"]["steps"]["WriteBodyHistory"]["status"] == "completed"
+    assert second_frame["state"]["steps"]["ResumeGate"]["status"] == "completed"
+    assert second_frame["state"]["steps"]["WriteDecision"]["status"] == "completed"
 
 
 def test_finally_smoke_resume_restarts_at_first_unfinished_cleanup_step(temp_workspace):

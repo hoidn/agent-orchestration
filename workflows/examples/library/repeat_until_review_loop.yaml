@@ -1,0 +1,44 @@
+version: "2.7"
+name: repeat-until-review-loop
+
+inputs:
+  write_root:
+    kind: relpath
+    type: relpath
+
+artifacts:
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: [APPROVE, REVISE]
+
+outputs:
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: [APPROVE, REVISE]
+    from:
+      ref: root.steps.WriteReviewDecision.artifacts.review_decision
+
+steps:
+  - name: WriteReviewDecision
+    id: write_review_decision
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p "${inputs.write_root}"
+        count=$(cat "${inputs.write_root}/repeat_count.txt" 2>/dev/null || printf '0')
+        count=$((count + 1))
+        printf '%s\n' "$count" > "${inputs.write_root}/repeat_count.txt"
+        if [ "$count" -ge 3 ]; then
+          printf 'APPROVE\n' > "${inputs.write_root}/review_decision.txt"
+        else
+          printf 'REVISE\n' > "${inputs.write_root}/review_decision.txt"
+        fi
+        printf 'iteration-%s\n' "$count" >> "${inputs.write_root}/history.log"
+    expected_outputs:
+      - name: review_decision
+        path: "${inputs.write_root}/review_decision.txt"
+        type: enum
+        allowed: [APPROVE, REVISE]

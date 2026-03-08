@@ -550,6 +550,214 @@ def _structured_repeat_until_workflow(*, include_inserted_sibling: bool = False)
     }
 
 
+def _write_repeat_until_call_library(workspace: Path) -> None:
+    library_path = workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
+    library_path.parent.mkdir(parents=True, exist_ok=True)
+    library_path.write_text(
+        yaml.safe_dump(
+        {
+            "version": "2.7",
+            "name": "repeat-until-review-loop",
+            "inputs": {
+                "write_root": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                }
+            },
+            "artifacts": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                }
+            },
+            "outputs": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                    "from": {
+                        "ref": "root.steps.WriteReviewDecision.artifacts.review_decision",
+                    },
+                }
+            },
+            "steps": [
+                {
+                    "name": "WriteReviewDecision",
+                    "id": "write_review_decision",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        "\n".join(
+                            [
+                                "mkdir -p \"${inputs.write_root}\"",
+                                "count=$(cat \"${inputs.write_root}/repeat_count.txt\" 2>/dev/null || printf '0')",
+                                "count=$((count + 1))",
+                                "printf '%s\\n' \"$count\" > \"${inputs.write_root}/repeat_count.txt\"",
+                                "if [ \"$count\" -ge 3 ]; then",
+                                "  printf 'APPROVE\\n' > \"${inputs.write_root}/review_decision.txt\"",
+                                "else",
+                                "  printf 'REVISE\\n' > \"${inputs.write_root}/review_decision.txt\"",
+                                "fi",
+                                "printf 'iteration-%s\\n' \"$count\" >> \"${inputs.write_root}/history.log\"",
+                            ]
+                        ),
+                    ],
+                    "expected_outputs": [
+                        {
+                            "name": "review_decision",
+                            "path": "${inputs.write_root}/review_decision.txt",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                        }
+                    ],
+                }
+            ],
+        },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+
+def _structured_repeat_until_with_call_and_match_workflow(
+    *,
+    include_inserted_sibling: bool = False,
+) -> dict:
+    steps = [
+        {
+            "name": "ReviewLoop",
+            "id": "review_loop",
+            "repeat_until": {
+                "id": "iteration_body",
+                "outputs": {
+                    "review_decision": {
+                        "kind": "scalar",
+                        "type": "enum",
+                        "allowed": ["APPROVE", "REVISE"],
+                        "from": {
+                            "ref": "self.steps.RouteDecision.artifacts.review_decision",
+                        },
+                    }
+                },
+                "condition": {
+                    "compare": {
+                        "left": {
+                            "ref": "self.outputs.review_decision",
+                        },
+                        "op": "eq",
+                        "right": "APPROVE",
+                    }
+                },
+                "max_iterations": 4,
+                "steps": [
+                    {
+                        "name": "RunReviewLoop",
+                        "id": "run_review_loop",
+                        "call": "review_loop",
+                        "with": {
+                            "write_root": "state/review-loop",
+                        },
+                    },
+                    {
+                        "name": "RouteDecision",
+                        "id": "route_decision",
+                        "match": {
+                            "ref": "self.steps.RunReviewLoop.artifacts.review_decision",
+                            "cases": {
+                                "APPROVE": {
+                                    "id": "approve_path",
+                                    "outputs": {
+                                        "review_decision": {
+                                            "kind": "scalar",
+                                            "type": "enum",
+                                            "allowed": ["APPROVE", "REVISE"],
+                                            "from": {
+                                                "ref": "self.steps.WriteApproved.artifacts.review_decision",
+                                            },
+                                        }
+                                    },
+                                    "steps": [
+                                        {
+                                            "name": "WriteApproved",
+                                            "id": "write_approved",
+                                            "set_scalar": {
+                                                "artifact": "review_decision",
+                                                "value": "APPROVE",
+                                            },
+                                        }
+                                    ],
+                                },
+                                "REVISE": {
+                                    "id": "revise_path",
+                                    "outputs": {
+                                        "review_decision": {
+                                            "kind": "scalar",
+                                            "type": "enum",
+                                            "allowed": ["APPROVE", "REVISE"],
+                                            "from": {
+                                                "ref": "self.steps.WriteRevision.artifacts.review_decision",
+                                            },
+                                        }
+                                    },
+                                    "steps": [
+                                        {
+                                            "name": "WriteRevision",
+                                            "id": "write_revision",
+                                            "set_scalar": {
+                                                "artifact": "review_decision",
+                                                "value": "REVISE",
+                                            },
+                                        }
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                ],
+            },
+        },
+        {
+            "name": "AssertApproved",
+            "id": "assert_approved",
+            "assert": {
+                "compare": {
+                    "left": {
+                        "ref": "root.steps.ReviewLoop.artifacts.review_decision",
+                    },
+                    "op": "eq",
+                    "right": "APPROVE",
+                }
+            },
+        },
+    ]
+    if include_inserted_sibling:
+        steps.insert(
+            0,
+            {
+                "name": "InsertedSibling",
+                "id": "inserted_sibling",
+                "command": ["bash", "-lc", "mkdir -p state && printf 'inserted\\n' >> state/history.log"],
+            },
+        )
+
+    return {
+        "version": "2.7",
+        "name": "structured-repeat-until-call-match",
+        "imports": {
+            "review_loop": "workflows/library/repeat_until_review_loop.yaml",
+        },
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }
+        },
+        "steps": steps,
+    }
+
+
 def _structured_finally_workflow(
     *,
     include_inserted_sibling: bool = False,
@@ -855,6 +1063,71 @@ def test_repeat_until_materializes_loop_frame_outputs_and_iteration_results(tmp_
     )
     assert state["steps"]["AssertApproved"]["status"] == "completed"
     assert (tmp_path / "state" / "history.log").read_text(encoding="utf-8").splitlines() == [
+        "iteration-1",
+        "iteration-2",
+        "iteration-3",
+    ]
+
+
+def test_repeat_until_nested_call_and_match_step_ids_stay_stable_when_siblings_shift(tmp_path: Path):
+    _write_repeat_until_call_library(tmp_path / "a")
+    _write_repeat_until_call_library(tmp_path / "b")
+    workflow_a = _structured_repeat_until_with_call_and_match_workflow()
+    workflow_b = _structured_repeat_until_with_call_and_match_workflow(include_inserted_sibling=True)
+
+    loaded_a = _load_workflow(tmp_path / "a", workflow_a)
+    loaded_b = _load_workflow(tmp_path / "b", workflow_b)
+
+    steps_a = {step["name"]: step for step in loaded_a["steps"]}
+    steps_b = {step["name"]: step for step in loaded_b["steps"]}
+
+    body_a = {
+        step["name"]: step["step_id"]
+        for step in steps_a["ReviewLoop"]["repeat_until"]["steps"]
+    }
+    body_b = {
+        step["name"]: step["step_id"]
+        for step in steps_b["ReviewLoop"]["repeat_until"]["steps"]
+    }
+
+    assert steps_a["ReviewLoop"]["step_id"] == "root.review_loop"
+    assert body_a["RunReviewLoop"] == "root.review_loop.iteration_body.run_review_loop"
+    assert body_a["RouteDecision.APPROVE"] == "root.review_loop.iteration_body.route_decision.approve_path"
+    assert (
+        body_a["RouteDecision.APPROVE.WriteApproved"]
+        == "root.review_loop.iteration_body.route_decision.approve_path.write_approved"
+    )
+    assert body_a["RouteDecision.REVISE"] == "root.review_loop.iteration_body.route_decision.revise_path"
+    assert body_a["RouteDecision"] == "root.review_loop.iteration_body.route_decision"
+    assert steps_b["ReviewLoop"]["step_id"] == steps_a["ReviewLoop"]["step_id"]
+    assert body_b == body_a
+
+
+def test_repeat_until_executes_nested_call_and_match_with_iteration_scoped_call_frames(tmp_path: Path):
+    _write_repeat_until_call_library(tmp_path)
+    state = _run_workflow(tmp_path, _structured_repeat_until_with_call_and_match_workflow())
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert state["steps"]["ReviewLoop[0].RunReviewLoop"]["artifacts"] == {"review_decision": "REVISE"}
+    assert state["steps"]["ReviewLoop[0].RouteDecision.REVISE.WriteRevision"]["status"] == "completed"
+    assert state["steps"]["ReviewLoop[0].RouteDecision.APPROVE.WriteApproved"]["status"] == "skipped"
+    assert state["steps"]["ReviewLoop[2].RunReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert state["steps"]["ReviewLoop[2].RouteDecision.APPROVE.WriteApproved"]["status"] == "completed"
+    assert state["steps"]["ReviewLoop[2].RouteDecision"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert state["steps"]["ReviewLoop[0].RunReviewLoop"]["step_id"] == (
+        "root.review_loop#0.iteration_body.run_review_loop"
+    )
+    assert state["steps"]["ReviewLoop[2].RouteDecision"]["step_id"] == (
+        "root.review_loop#2.iteration_body.route_decision"
+    )
+    assert len(state.get("call_frames", {})) == 3
+    assert sorted(frame["call_step_id"] for frame in state["call_frames"].values()) == [
+        "root.review_loop#0.iteration_body.run_review_loop",
+        "root.review_loop#1.iteration_body.run_review_loop",
+        "root.review_loop#2.iteration_body.run_review_loop",
+    ]
+    assert (tmp_path / "state" / "review-loop" / "history.log").read_text(encoding="utf-8").splitlines() == [
         "iteration-1",
         "iteration-2",
         "iteration-3",

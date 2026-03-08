@@ -1,18 +1,28 @@
 ## Completed In This Pass
 
-- Fixed the high-severity custom state-root resume defect from review.
-  - added `--state-dir` support to `orchestrate resume`
-  - taught `resume_workflow()` to resolve existing runs under an overridden runs root instead of hard-coding `.orchestrate/runs`
-  - carried the same override into the `--force-restart` branch so resumed runs restarted from custom roots stay in the same runs tree
-- Closed the verification hole that let the regression survive the previous sweep.
-  - added parser coverage for `resume --state-dir`
-  - added a resume regression test that reopens a run stored under a custom runs root
-  - refreshed two observability resume fixtures to use `StateManager.SCHEMA_VERSION` so the module exercises the intended resume behavior instead of failing on stale schema metadata
+- Closed the remaining Task 13 gap from review by turning `repeat_until` bodies into statement-layer execution surfaces instead of raw primitive-only nested steps.
+  - loader validation now accepts direct nested `call`, `match`, and `if/else` bodies inside `repeat_until`
+  - repeat-until bodies are lowered with loop-local structured-ref rewriting so body-local refs stay on `self.steps.*` and outer lexical refs stay on `parent.steps.*`
+  - the repeat-until executor now runs lowered branch/case markers, join nodes, and nested calls with iteration-scoped runtime ids
+  - nested call frames inside `repeat_until` now key off the iteration runtime step id, so repeated iterations persist distinct call frames and `resume` reuses the unfinished one instead of collapsing iterations together
+- Restored the shipped docs/example contract to the approved design boundary.
+  - updated the DSL and drafting docs to allow direct nested `call` / `match` / `if/else` in `repeat_until` while still rejecting `goto`, nested `for_each`, and nested `repeat_until`
+  - upgraded `workflows/examples/repeat_until_demo.yaml` to exercise nested `call` + `match`
+  - added `workflows/examples/library/repeat_until_review_loop.yaml` as the imported reusable loop-body workflow used by the demo
+- Added direct coverage for the previously-missed boundary.
+  - loader acceptance for nested `call` + `match`
+  - runtime coverage for stable lowered ids plus iteration-scoped call-frame lineage
+  - resume coverage for nested calls inside `repeat_until`
+  - updated example smoke coverage
 
 ## Completed Plan Tasks
 
-- No new execution-plan tranche was newly completed in this pass.
-- All approved plan tasks from Task 1 through Task 16 remain implemented from the prior pass; this pass addressed post-implementation review feedback against the Task 16 resume/recovery boundary.
+- Task 13: Add post-test `repeat_until` as its own loop tranche
+  - completed the approved structured-loop composition boundary by supporting statement-layer body execution with nested reusable `call` and structured `match`
+  - kept loop-frame outputs explicit on the authored `repeat_until` node and preserved the `self.outputs.*` condition boundary
+  - preserved stable authored-id ancestry across lowered loop-body nodes and iteration-qualified runtime identities
+  - verified resume-safe iteration bookkeeping and nested call-frame reuse for unfinished loop-body work
+  - refreshed the example/docs surfaces so the shipped contract matches the implemented tranche
 
 ## Remaining Required Plan Tasks
 
@@ -20,26 +30,22 @@
 
 ## Verification
 
-- `pytest --collect-only tests/test_cli_observability_config.py -q`
-  - collected `8` tests
-- `pytest --collect-only tests/test_resume_command.py -q`
-  - collected `23` tests
-- `pytest tests/test_cli_observability_config.py -k state_dir_on_run_and_resume -v`
-  - `1 passed`
-- `pytest tests/test_resume_command.py -k custom_state_dir_override -v`
-  - `1 passed`
-- `pytest tests/test_resume_command.py tests/test_cli_observability_config.py -v`
-  - `31 passed`
-- `pytest tests/test_cli_safety.py -k state_dir_override -v`
-  - `1 passed`
-- `pytest tests/test_state_manager.py -k custom_state_dir -v`
-  - `1 passed`
-- Custom-root CLI smoke via the public entrypoint:
-  - `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run resume_demo.yaml --state-dir <custom-runs-root>` returned `1` after the intended gate failure and created run `20260308T040712Z-wpbxz5`
-  - `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator resume 20260308T040712Z-wpbxz5 --state-dir <custom-runs-root>` returned `0`
-  - final run `state.json` status was `completed`
-  - workspace `state/history.log` was `["first", "blocked", "resumed"]`
+- `pytest --collect-only tests/test_loader_validation.py tests/test_structured_control_flow.py tests/test_resume_command.py tests/test_workflow_examples_v0.py -q`
+  - collected `148` tests
+- `pytest tests/test_loader_validation.py tests/test_structured_control_flow.py tests/test_resume_command.py -k repeat_until -v`
+  - `10 passed`, `118 deselected`
+- `pytest tests/test_workflow_examples_v0.py -k repeat_until -v`
+  - `1 passed`, `19 deselected`
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/repeat_until_demo.yaml --dry-run`
+  - loader/validation completed successfully
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/repeat_until_demo.yaml --state-dir /tmp/dsl-evolution-repeat-until-demo-clean`
+  - created run `20260308T043709Z-9cndcx`
+  - inspected `/tmp/dsl-evolution-repeat-until-demo-clean/20260308T043709Z-9cndcx/state.json`
+  - persisted run `status` was `completed`
+  - persisted `steps.ReviewLoop.artifacts` was `{"review_decision": "APPROVE"}`
 
 ## Residual Risks
 
-- The normal custom-root resume path is now covered directly. The mirrored `--force-restart --state-dir` branch does not yet have its own dedicated CLI regression test, although the same override is now threaded through that code path.
+- The first `repeat_until` composition tranche now supports direct nested `call`, `match`, and `if/else` bodies. Nested `for_each`, nested `repeat_until`, and `goto` inside loop bodies remain intentionally rejected.
+- Coverage now proves the direct composition boundary and nested-call resume path. It does not separately claim support for deeper second-level structured nesting inside a loop-body branch/case beyond that documented first-tranche surface.
+- The real CLI smoke was run from the repo root as required. Because the example writes into workspace-local `state/review-loop`, repeated local operator runs can reuse prior counters/history unless that workspace state is cleaned between runs; the durable proof point recorded above is the fresh run state under `/tmp/dsl-evolution-repeat-until-demo-clean`.

@@ -99,7 +99,8 @@
       - first tranche restrictions:
         - top-level only
         - `goto` / `_end` are rejected inside body steps
-        - nested `call`, `for_each`, and nested structured control are rejected inside the body
+        - nested `for_each` and nested `repeat_until` are rejected inside the body
+        - direct nested `call`, `match`, and `if/else` bodies are lowered into loop-local executable nodes; body-local structured refs stay on `self.steps.*` and outer lexical refs stay on `parent.steps.*`
   - Cycle guards:
     - `max_visits: integer` (v1.8+; optional; must be `> 0`)
     - First tranche is limited to top-level non-`for_each` steps.

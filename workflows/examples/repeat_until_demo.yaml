@@ -1,6 +1,15 @@
 version: "2.7"
 name: repeat-until-demo
 
+imports:
+  review_loop: library/repeat_until_review_loop.yaml
+
+artifacts:
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: [APPROVE, REVISE]
+
 steps:
   - name: ReviewLoop
     id: review_loop
@@ -12,7 +21,7 @@ steps:
           type: enum
           allowed: [APPROVE, REVISE]
           from:
-            ref: self.steps.WriteDecision.artifacts.review_decision
+            ref: self.steps.RouteDecision.artifacts.review_decision
       condition:
         compare:
           left:
@@ -21,27 +30,46 @@ steps:
           right: APPROVE
       max_iterations: 4
       steps:
-        - name: WriteDecision
-          id: write_decision
-          command:
-            - bash
-            - -lc
-            - |
-              mkdir -p state
-              count=$(cat state/repeat_count.txt 2>/dev/null || printf '0')
-              count=$((count + 1))
-              printf '%s\n' "$count" > state/repeat_count.txt
-              if [ "$count" -ge 3 ]; then
-                printf 'APPROVE\n' > state/review_decision.txt
-              else
-                printf 'REVISE\n' > state/review_decision.txt
-              fi
-              printf 'iteration-%s\n' "$count" >> state/history.log
-          expected_outputs:
-            - name: review_decision
-              path: state/review_decision.txt
-              type: enum
-              allowed: [APPROVE, REVISE]
+        - name: RunReviewLoop
+          id: run_review_loop
+          call: review_loop
+          with:
+            write_root: state/review-loop
+        - name: RouteDecision
+          id: route_decision
+          match:
+            ref: self.steps.RunReviewLoop.artifacts.review_decision
+            cases:
+              APPROVE:
+                id: approve_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: [APPROVE, REVISE]
+                    from:
+                      ref: self.steps.WriteApproved.artifacts.review_decision
+                steps:
+                  - name: WriteApproved
+                    id: write_approved
+                    set_scalar:
+                      artifact: review_decision
+                      value: APPROVE
+              REVISE:
+                id: revise_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: [APPROVE, REVISE]
+                    from:
+                      ref: self.steps.WriteRevision.artifacts.review_decision
+                steps:
+                  - name: WriteRevision
+                    id: write_revision
+                    set_scalar:
+                      artifact: review_decision
+                      value: REVISE
 
   - name: AssertApproved
     id: assert_approved

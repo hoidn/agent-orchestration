@@ -343,6 +343,186 @@ class TestLoaderValidation:
             for err in exc_info.value.errors
         )
 
+    def test_repeat_until_body_accepts_nested_call_and_match(self):
+        """repeat_until bodies may compose statement-layer call and match forms."""
+        library_path = self.workspace / "workflows" / "library" / "repeat_until_review_loop.yaml"
+        library_path.parent.mkdir(parents=True, exist_ok=True)
+        library_path.write_text(
+            yaml.safe_dump(
+                {
+                    "version": "2.7",
+                    "name": "repeat-until-review-loop",
+                    "inputs": {
+                        "write_root": {
+                            "kind": "relpath",
+                            "type": "relpath",
+                        }
+                    },
+                    "artifacts": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                        }
+                    },
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "root.steps.WriteReviewDecision.artifacts.review_decision",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteReviewDecision",
+                            "id": "write_review_decision",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p \"${inputs.write_root}\" && printf 'APPROVE\\n' > \"${inputs.write_root}/review_decision.txt\"",
+                            ],
+                            "expected_outputs": [
+                                {
+                                    "name": "review_decision",
+                                    "path": "${inputs.write_root}/review_decision.txt",
+                                    "type": "enum",
+                                    "allowed": ["APPROVE", "REVISE"],
+                                }
+                            ],
+                        }
+                    ],
+                },
+                sort_keys=False,
+            ),
+            encoding="utf-8",
+        )
+        workflow = {
+            "version": "2.7",
+            "name": "repeat-until-call-match",
+            "imports": {
+                "review_loop": "workflows/library/repeat_until_review_loop.yaml",
+            },
+            "artifacts": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                }
+            },
+            "steps": [
+                {
+                    "name": "ReviewLoop",
+                    "id": "review_loop",
+                    "repeat_until": {
+                        "id": "iteration_body",
+                        "outputs": {
+                            "review_decision": {
+                                "kind": "scalar",
+                                "type": "enum",
+                                "allowed": ["APPROVE", "REVISE"],
+                                "from": {
+                                    "ref": "self.steps.RouteDecision.artifacts.review_decision",
+                                },
+                            }
+                        },
+                        "condition": {
+                            "compare": {
+                                "left": {
+                                    "ref": "self.outputs.review_decision",
+                                },
+                                "op": "eq",
+                                "right": "APPROVE",
+                            }
+                        },
+                        "max_iterations": 2,
+                        "steps": [
+                            {
+                                "name": "RunReviewLoop",
+                                "id": "run_review_loop",
+                                "call": "review_loop",
+                                "with": {
+                                    "write_root": "state/review-loop",
+                                },
+                            },
+                            {
+                                "name": "RouteDecision",
+                                "id": "route_decision",
+                                "match": {
+                                    "ref": "self.steps.RunReviewLoop.artifacts.review_decision",
+                                    "cases": {
+                                        "APPROVE": {
+                                            "id": "approve_path",
+                                            "outputs": {
+                                                "review_decision": {
+                                                    "kind": "scalar",
+                                                    "type": "enum",
+                                                    "allowed": ["APPROVE", "REVISE"],
+                                                    "from": {
+                                                        "ref": "self.steps.WriteApproved.artifacts.review_decision",
+                                                    },
+                                                }
+                                            },
+                                            "steps": [
+                                                {
+                                                    "name": "WriteApproved",
+                                                    "id": "write_approved",
+                                                    "set_scalar": {
+                                                        "artifact": "review_decision",
+                                                        "value": "APPROVE",
+                                                    },
+                                                }
+                                            ],
+                                        },
+                                        "REVISE": {
+                                            "id": "revise_path",
+                                            "outputs": {
+                                                "review_decision": {
+                                                    "kind": "scalar",
+                                                    "type": "enum",
+                                                    "allowed": ["APPROVE", "REVISE"],
+                                                    "from": {
+                                                        "ref": "self.steps.WriteRevision.artifacts.review_decision",
+                                                    },
+                                                }
+                                            },
+                                            "steps": [
+                                                {
+                                                    "name": "WriteRevision",
+                                                    "id": "write_revision",
+                                                    "set_scalar": {
+                                                        "artifact": "review_decision",
+                                                        "value": "REVISE",
+                                                    },
+                                                }
+                                            ],
+                                        },
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                }
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+
+        body_steps = {
+            step["name"]: step["step_id"]
+            for step in loaded["steps"][0]["repeat_until"]["steps"]
+        }
+        assert body_steps["RunReviewLoop"] == "root.review_loop.iteration_body.run_review_loop"
+        assert body_steps["RouteDecision.APPROVE"] == "root.review_loop.iteration_body.route_decision.approve_path"
+        assert (
+            body_steps["RouteDecision.APPROVE.WriteApproved"]
+            == "root.review_loop.iteration_body.route_decision.approve_path.write_approved"
+        )
+        assert body_steps["RouteDecision"] == "root.review_loop.iteration_body.route_decision"
+
     def test_match_requires_enum_ref(self):
         """Structured match only accepts enum refs."""
         workflow = {

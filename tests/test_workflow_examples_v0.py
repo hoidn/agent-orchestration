@@ -246,6 +246,7 @@ def test_match_demo_runtime(tmp_path: Path):
 def test_repeat_until_demo_runtime(tmp_path: Path):
     """repeat_until demo exposes loop-frame outputs and persists per-iteration results."""
     workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "repeat_until_demo.yaml")
+    _copy_repo_file_to_workspace(workspace, "workflows/examples/library/repeat_until_review_loop.yaml")
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
@@ -256,10 +257,13 @@ def test_repeat_until_demo_runtime(tmp_path: Path):
 
     assert state["status"] == "completed"
     assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
-    assert state["steps"]["ReviewLoop[0].WriteDecision"]["artifacts"]["review_decision"] == "REVISE"
-    assert state["steps"]["ReviewLoop[1].WriteDecision"]["artifacts"]["review_decision"] == "REVISE"
-    assert state["steps"]["ReviewLoop[2].WriteDecision"]["artifacts"]["review_decision"] == "APPROVE"
-    assert (workspace / "state" / "history.log").read_text(encoding="utf-8").splitlines() == [
+    assert state["steps"]["ReviewLoop[0].RunReviewLoop"]["artifacts"]["review_decision"] == "REVISE"
+    assert state["steps"]["ReviewLoop[1].RunReviewLoop"]["artifacts"]["review_decision"] == "REVISE"
+    assert state["steps"]["ReviewLoop[2].RunReviewLoop"]["artifacts"]["review_decision"] == "APPROVE"
+    assert state["steps"]["ReviewLoop[0].RouteDecision.REVISE.WriteRevision"]["status"] == "completed"
+    assert state["steps"]["ReviewLoop[2].RouteDecision.APPROVE.WriteApproved"]["status"] == "completed"
+    assert len(state.get("call_frames", {})) == 3
+    assert (workspace / "state" / "review-loop" / "history.log").read_text(encoding="utf-8").splitlines() == [
         "iteration-1",
         "iteration-2",
         "iteration-3",
