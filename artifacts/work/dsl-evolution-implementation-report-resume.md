@@ -1,14 +1,12 @@
 ## Completed In This Pass
 
-- Completed the next required approved tranche from the review: Task 14 `score-aware gates`.
-  - added `version: "2.8"` loader support and a `score` typed-predicate helper for numeric threshold and band checks
-  - kept the feature as thin sugar over the existing predicate system so `score` works under `when`, `assert`, and structured control without adding a separate routing surface
-  - validated numeric refs, required at least one bound, rejected conflicting `gt`/`gte` and `lt`/`lte` declarations, and rejected empty score-band ranges
-- Added focused verification and example coverage for the new helper surface.
-  - created `tests/test_score_gates.py`
-  - added structured-control coverage for score-band routing
-  - added `workflows/examples/score_gate_demo.yaml`
-  - updated DSL/versioning/workflow-drafting/workflow-catalog docs for `v2.8`
+- Fixed the high-severity reusable-`call` lineage defect from review.
+  - routed `call` step results through the standard `_record_published_artifacts()` path so exported callee outputs can satisfy outer-step `publishes.from`
+  - added a direct regression test proving caller-visible `call` outputs publish into `artifact_versions`, preserve inner-step provenance metadata, and can be consumed by a downstream caller step
+- Completed the next required approved tranche: Task 15 `authoring-time linting and normalization`.
+  - added `orchestrator/workflow/linting.py` with initial advisory warnings for shell gates, stringly `when.equals`, raw `goto` diamonds, and colliding imported output names
+  - surfaced lint warnings in `orchestrate report` JSON/Markdown output and in `orchestrate run --dry-run`
+  - added focused lint/report tests and updated DSL/CLI/versioning/authoring docs for `v2.9`
 
 ## Completed Plan Tasks
 
@@ -26,24 +24,24 @@
 - Task 12: Add `match` as a separate structured-control tranche
 - Task 13: Add post-test `repeat_until` as its own loop tranche
 - Task 14: Add score-aware gates on top of the stable predicate system
+- Task 15: Add authoring-time linting and normalization after the new syntax exists
 
 ## Remaining Required Plan Tasks
 
-- Task 15: Add authoring-time linting and normalization after the new syntax exists
 - Task 16: Run the final compatibility and smoke sweep before merge
 
 ## Verification
 
-- `pytest --collect-only tests/test_score_gates.py -q`
-  - collected `6 tests`
-- `pytest tests/test_score_gates.py tests/test_structured_control_flow.py -v`
-  - `21 passed`
-- `pytest tests/test_workflow_examples_v0.py -k score_gate -v`
-  - `1 passed, 19 deselected`
-- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/score_gate_demo.yaml --dry-run`
+- `pytest tests/test_subworkflow_calls.py -v`
+  - `10 passed`
+- `pytest --collect-only tests/test_dsl_linting.py -q`
+  - collected `4 tests`
+- `pytest tests/test_dsl_linting.py tests/test_cli_report_command.py -v`
+  - `12 passed`
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/call_subworkflow_demo.yaml --dry-run`
   - workflow validation succeeded
 
 ## Residual Risks
 
-- The earlier medium review finding around direct `call` acceptance proof remains open. This pass prioritized the earliest required unfinished tranche and did not add the missing direct tests for caller-visible producer identity, preserved internal provenance, callee-private defaults isolation, or call-scoped freshness bookkeeping.
-- Task 15 linting/normalization and Task 16 compatibility/smoke verification remain unstarted in this pass.
+- Task 16's full compatibility and smoke sweep is still required before merge.
+- This pass closed the caller-visible `call` publish gap and added direct lineage/provenance proof, but it did not add fresh targeted tests for every remaining reusable-`call` acceptance item called out in review (notably callee-private defaults isolation and call-scoped freshness/finalization behavior).

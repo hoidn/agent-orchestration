@@ -2,8 +2,10 @@
 
 - Commands
   - `orchestrate run <workflow.yaml> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
+    - `--dry-run` validates the workflow and may emit advisory lint warnings; warnings do not change the exit code for an otherwise valid workflow.
   - `orchestrate resume <run_id>`
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
+    - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
   - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <file>`, `orchestrate watch <workflow.yaml>`
 
 - Debugging and recovery flags
@@ -40,6 +42,9 @@ orchestrate resume <run_id>
 
 # Render status report for latest run
 orchestrate report --format md
+
+# Validate and show advisory lint warnings without executing
+orchestrate run workflows/demo.yaml --dry-run
 
 # Execute single step (optional/post-MVP)
 orchestrate run-step <step_name> --workflow workflows/demo.yaml

@@ -81,6 +81,7 @@ Two practical upgrades now exist:
 - v2.6: prefer top-level structured `match` when a typed enum decision has three or more stable cases, or when you want the workflow shape to stay aligned with the decision artifact values instead of layering chained predicates.
 - v2.7: prefer top-level `repeat_until` for bounded post-test review/fix loops when the exit condition should read the latest iteration outputs instead of shell-managed counters or raw `goto` back-edges.
 - v2.8: prefer the `score` predicate helper for evaluator thresholds and score bands instead of repeating numeric `compare` / `all_of` chains around one score artifact.
+- v2.9 tooling: use `orchestrate run ... --dry-run` or `orchestrate report` to surface advisory migration warnings for shell gates, stringly `when.equals`, raw `goto` diamonds, and imported/exported output-name collisions before those patterns spread.
 - Task 10 reusable-call boundary: if a workflow is intended for later `call` reuse, keep bundled prompts/rubrics/schemas on the future workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep runtime reads/writes on the existing WORKSPACE-relative surfaces (`input_file`, `depends_on`, `output_file`, deterministic outputs).
 
 ## 5) Prompt Authoring Guidance

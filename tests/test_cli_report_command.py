@@ -8,20 +8,20 @@ from orchestrator.cli.commands.report import report_workflow
 from orchestrator.cli.main import create_parser
 
 
-def _write_run(runs_root: Path, run_id: str) -> Path:
+def _write_run(runs_root: Path, run_id: str, workflow_text: str | None = None) -> Path:
     run_dir = runs_root / run_id
     logs_dir = run_dir / "logs"
     logs_dir.mkdir(parents=True)
 
     workflow = run_dir.parent.parent.parent / "workflow.yaml"
     workflow.write_text(
-        """
+        (workflow_text or """
 version: "1.3"
 name: report-test
 steps:
   - name: StepA
     command: ["echo", "hello"]
-""".strip()
+""").strip()
         + "\n"
     )
 
@@ -178,3 +178,58 @@ steps:
     persisted = json.loads(state_file.read_text())
     assert persisted["status"] == "failed"
     assert persisted["context"]["status_reconciled_reason"] == "stale_running_without_current_step"
+
+
+def test_report_json_includes_advisory_lint_warnings(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000006Z-ffffff"
+    _write_run(
+        runs_root,
+        run_id,
+        workflow_text="""
+version: "1.4"
+name: lint-report
+steps:
+  - name: CheckReady
+    command: ["bash", "-lc", "test -f state/ready.txt"]
+""",
+    )
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="json",
+    )
+
+    assert result == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["lint"]["warnings"][0]["code"] == "shell-gate-to-assert"
+
+
+def test_report_markdown_appends_advisory_lint_section(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000007Z-gggggg"
+    _write_run(
+        runs_root,
+        run_id,
+        workflow_text="""
+version: "1.4"
+name: lint-report
+steps:
+  - name: CheckReady
+    command: ["bash", "-lc", "test -f state/ready.txt"]
+""",
+    )
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="md",
+    )
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "## Advisory Lint" in out
+    assert "CheckReady" in out

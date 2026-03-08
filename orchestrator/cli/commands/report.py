@@ -10,6 +10,7 @@ from typing import Optional
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.observability.report import build_status_snapshot, render_status_markdown
+from orchestrator.workflow.linting import lint_workflow, render_lint_markdown
 
 
 def _latest_run_dir(runs_root: Path) -> Optional[Path]:
@@ -69,7 +70,10 @@ def report_workflow(
         print(f"Error: failed to load workflow: {exc}", file=sys.stderr)
         return 1
 
+    lint_warnings = lint_workflow(workflow)
     snapshot = build_status_snapshot(workflow, state, run_dir)
+    if lint_warnings:
+        snapshot["lint"] = {"warnings": lint_warnings}
     run_snapshot = snapshot.get("run", {})
     original_status = state.get("status")
     derived_status = run_snapshot.get("status")
@@ -95,6 +99,8 @@ def report_workflow(
         rendered = json.dumps(snapshot, indent=2) + "\n"
     else:
         rendered = render_status_markdown(snapshot)
+        if lint_warnings:
+            rendered = f"{rendered.rstrip()}\n\n{render_lint_markdown(lint_warnings)}\n"
 
     if output:
         output_path = Path(output)

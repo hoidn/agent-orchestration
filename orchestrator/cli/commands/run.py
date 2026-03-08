@@ -14,6 +14,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.linting import lint_workflow
 from orchestrator.workflow.signatures import bind_workflow_inputs
 
 
@@ -307,8 +308,16 @@ def run_workflow(args: Namespace) -> int:
             raw_inputs,
             workspace=workspace,
         )
+        lint_warnings = lint_workflow(workflow)
 
         if args.dry_run:
+            for warning in lint_warnings:
+                logger.warning(
+                    "[LINT] %s (%s at %s)",
+                    warning.get("message"),
+                    warning.get("code"),
+                    warning.get("path"),
+                )
             logger.info("[DRY RUN] Workflow validation successful")
             return 0
 

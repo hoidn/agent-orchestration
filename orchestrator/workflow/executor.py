@@ -1084,6 +1084,9 @@ class WorkflowExecutor:
                         self._persist_step_result(state, step_name, step, result)
                     elif 'call' in step:
                         result = self._execute_call(step, state)
+                        publish_error = self._record_published_artifacts(step, step_name, result, state)
+                        if publish_error is not None:
+                            result = publish_error
                         self._persist_step_result(state, step_name, step, result)
                     elif 'provider' in step:
                         result = self._execute_provider(step, state)

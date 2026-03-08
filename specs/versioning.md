@@ -153,6 +153,11 @@
   - `score` remains predicate sugar over numeric typed refs; it does not add a separate routing or decision surface.
   - `score` requires a numeric structured ref, at least one bound, and rejects mixed `gt`+`gte` or `lt`+`lte` declarations.
 
+- v2.9 additions (authoring linting and normalization)
+  - CLI dry-run and report surfaces may emit advisory lint warnings without turning them into validation failures.
+  - Initial warnings cover shell gates that should become `assert`, stringly `when.equals` routing that should become typed predicates, raw `goto` diamonds that should become structured control, and imported/exported output-name collisions.
+  - Warning presence does not change runtime or workflow-load exit codes in the first pass.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -167,7 +172,7 @@
   - `v2.6`: D11 `match`
   - `v2.7`: D12 `repeat_until`
   - `v2.8`: D13 score-aware gates
-  - `v2.9` (planned): D14 authoring linting and normalization
+  - `v2.9`: D14 authoring linting and normalization
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -293,5 +298,6 @@ Planned acceptance:
 | 2.6 | Top-level structured `match` with exhaustive enum case coverage | Case-local work stays scoped to the selected case; downstream refs target statement outputs on the join node. |
 | 2.7 | Top-level post-test `repeat_until` with loop-frame outputs and resume-safe iteration bookkeeping | Loop conditions read only `self.outputs.*`; downstream refs target the loop frame outputs on the authored step. |
 | 2.8 | Score-aware predicate helper `score` for thresholds and score bands | Thin sugar over numeric typed predicates; keeps benchmark gating inside the existing `when` / `assert` / structured-control surfaces. |
+| 2.9 | Advisory authoring linting / normalization hints surfaced in CLI dry-run and report output | Warns about migration candidates without turning valid workflows into validation failures. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

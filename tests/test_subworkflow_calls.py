@@ -1,5 +1,6 @@
 """Loader and runtime coverage for reusable workflow imports and call boundaries."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -398,3 +399,75 @@ def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path:
     assert frame["export_status"] == "completed"
     assert frame["state"]["workflow_outputs"] == {"approved": True}
     assert frame["state"]["steps"]["SetApproved"]["artifacts"] == {"approved": True}
+
+
+def test_call_outputs_publish_into_caller_lineage_with_outer_producer(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _library_workflow(),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.5",
+            "name": "call-demo",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "artifacts": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "steps": [
+                {
+                    "name": "RunReviewLoop",
+                    "id": "run_review_loop",
+                    "call": "review_loop",
+                    "with": {
+                        "max_cycles": 3,
+                        "write_root": "state/review-loop",
+                    },
+                    "publishes": [{"artifact": "approved", "from": "approved"}],
+                },
+                {
+                    "name": "ReadApproved",
+                    "id": "read_approved",
+                    "consumes": [
+                        {
+                            "artifact": "approved",
+                            "producers": ["RunReviewLoop"],
+                            "policy": "latest_successful",
+                            "freshness": "any",
+                        }
+                    ],
+                    "consume_bundle": {"path": "state/approved_bundle.json"},
+                    "command": ["bash", "-lc", "cat state/approved_bundle.json"],
+                },
+            ],
+        },
+    )
+
+    workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="call-lineage")
+    state_manager.initialize("workflow.yaml", context=workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, tmp_path, state_manager)
+
+    state = executor.execute()
+    persisted = state_manager.load().to_dict()
+
+    assert state["status"] == "completed"
+    assert json.loads(state["steps"]["ReadApproved"]["output"]) == {"approved": True}
+
+    versions = persisted.get("artifact_versions", {}).get("approved", [])
+    assert len(versions) == 1
+    assert versions[0]["producer"] == "root.run_review_loop"
+    assert versions[0]["producer_name"] == "RunReviewLoop"
+    assert versions[0]["value"] is True
+    assert versions[0]["source_provenance"] == {
+        "source_ref": "root.steps.SetApproved.artifacts.approved",
+        "source_step_id": "root.set_approved",
+        "source_step_name": "SetApproved",
+    }
+
+    consumes = persisted.get("artifact_consumes", {}).get("root.read_approved", {})
+    assert consumes.get("approved") == 1
