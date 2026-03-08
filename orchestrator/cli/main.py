@@ -177,6 +177,11 @@ def create_parser() -> argparse.ArgumentParser:
         help='Backup state before each step'
     )
     resume_parser.add_argument(
+        '--state-dir',
+        type=str,
+        help='Override default state directory'
+    )
+    resume_parser.add_argument(
         '--summary-mode',
         choices=['async', 'sync'],
         help='Override summary mode for this resume run'

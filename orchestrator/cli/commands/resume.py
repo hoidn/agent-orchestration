@@ -57,6 +57,7 @@ def resume_workflow(
     run_id: str,
     repair: bool = False,
     force_restart: bool = False,
+    state_dir: Optional[str] = None,
     on_error: str = 'stop',
     max_retries: Optional[int] = None,
     retry_delay_ms: Optional[int] = None,
@@ -75,6 +76,7 @@ def resume_workflow(
         run_id: The run ID to resume
         repair: Attempt to recover from backup if state is corrupted
         force_restart: Ignore existing state and start new run
+        state_dir: Optional override for the runs root directory
         on_error: Error handling mode ('stop' or 'continue')
         max_retries: Maximum retry attempts
         retry_delay_ms: Delay between retries in milliseconds
@@ -99,15 +101,23 @@ def resume_workflow(
 
     # Determine workspace and state directory
     workspace_dir = Path.cwd()
-    state_dir = workspace_dir / '.orchestrate' / 'runs' / run_id
-    if not state_dir.exists():
-        logger.error(f"Run directory not found: {state_dir}")
+    state_dir_override = Path(state_dir).expanduser().resolve() if state_dir else None
+    runs_root = state_dir_override or (workspace_dir / '.orchestrate' / 'runs')
+    run_root = runs_root / run_id
+    if not run_root.exists():
+        logger.error(f"Run directory not found: {run_root}")
         print(f"Error: No run found with ID '{run_id}'", file=sys.stderr)
         return 1
 
     # Initialize state manager with existing run_id
     # AT-69: debug implies backup_enabled
-    state_manager = StateManager(workspace=workspace_dir, run_id=run_id, backup_enabled=backup_state, debug=debug)
+    state_manager = StateManager(
+        workspace=workspace_dir,
+        run_id=run_id,
+        backup_enabled=backup_state,
+        debug=debug,
+        state_dir=state_dir_override,
+    )
 
     try:
         # Load existing state
@@ -209,7 +219,8 @@ def resume_workflow(
             workspace=workspace_dir,
             run_id=new_run_id,
             backup_enabled=backup_state,
-            debug=debug
+            debug=debug,
+            state_dir=state_dir_override,
         )
         state_manager.initialize(
             workflow_file=str(workflow_path),

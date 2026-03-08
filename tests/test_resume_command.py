@@ -1600,6 +1600,70 @@ steps:
     assert result == 0
 
 
+def test_resume_uses_custom_state_dir_override(temp_workspace):
+    """Resume should locate and reopen runs stored under a custom runs root."""
+    workflow_path = temp_workspace / "custom_state_dir_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "1.1",
+                "name": "Custom State Dir Resume Workflow",
+                "steps": [
+                    {
+                        "name": "Step1",
+                        "command": ["bash", "-lc", "printf 'one\\n' >> state/history.log"],
+                    },
+                    {
+                        "name": "Step2",
+                        "command": ["bash", "-lc", "printf 'two\\n' >> state/history.log"],
+                    },
+                ],
+            },
+            sort_keys=False,
+        )
+    )
+
+    custom_runs_root = temp_workspace / "external-runs"
+    run_id = "custom-state-dir-run"
+    state_manager = StateManager(
+        workspace=temp_workspace,
+        run_id=run_id,
+        state_dir=custom_runs_root,
+    )
+    state_manager.initialize("custom_state_dir_resume.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.steps = {
+        "Step1": {"status": "completed", "exit_code": 0},
+        "Step2": {"status": "pending"},
+    }
+    state_manager._write_state()
+
+    with patch('orchestrator.cli.commands.resume.WorkflowExecutor') as MockExecutor:
+        mock_executor = MagicMock()
+        mock_executor.execute.return_value = {
+            'status': 'completed',
+            'steps': {
+                'Step1': {'status': 'completed', 'exit_code': 0},
+                'Step2': {'status': 'completed', 'exit_code': 0},
+            },
+        }
+        MockExecutor.return_value = mock_executor
+
+        with patch('os.getcwd', return_value=str(temp_workspace)):
+            result = resume_workflow(
+                run_id=run_id,
+                state_dir=str(custom_runs_root),
+            )
+
+        constructor_kwargs = MockExecutor.call_args.kwargs
+        resumed_state_manager = constructor_kwargs['state_manager']
+        assert resumed_state_manager.runs_root == custom_runs_root.resolve()
+        assert resumed_state_manager.run_root == custom_runs_root.resolve() / run_id
+
+    assert result == 0
+
+
 def test_resume_defaults_retry_settings_for_provider_steps(temp_workspace):
     """Resume normalizes retry defaults before constructing the executor."""
     workflow_path = temp_workspace / "provider_resume.yaml"

@@ -9,6 +9,7 @@ from unittest.mock import MagicMock, patch
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import build_observability_config, run_workflow
 from orchestrator.cli.main import create_parser
+from orchestrator.state import StateManager
 
 
 def _base_run_args(workflow_path: Path) -> Namespace:
@@ -84,6 +85,30 @@ def test_parser_accepts_stream_output_on_run_and_resume():
     assert run_args.stream_output is True
     assert resume_args.stream_output is True
     assert run_default_args.stream_output is False
+
+
+def test_parser_accepts_state_dir_on_run_and_resume():
+    parser = create_parser()
+
+    run_args = parser.parse_args(
+        [
+            'run',
+            'workflow.yaml',
+            '--state-dir',
+            '/tmp/custom-runs',
+        ]
+    )
+    resume_args = parser.parse_args(
+        [
+            'resume',
+            'run-123',
+            '--state-dir',
+            '/tmp/custom-runs',
+        ]
+    )
+
+    assert run_args.state_dir == '/tmp/custom-runs'
+    assert resume_args.state_dir == '/tmp/custom-runs'
 
 
 def test_build_observability_config_defaults_to_async_when_enabled():
@@ -162,7 +187,7 @@ def test_resume_uses_persisted_observability_and_applies_override(mock_loader, m
     run_dir.mkdir(parents=True)
 
     state = {
-        'schema_version': '1.1.1',
+        'schema_version': StateManager.SCHEMA_VERSION,
         'run_id': run_id,
         'workflow_file': str(workflow_path),
         'workflow_checksum': checksum,
@@ -223,11 +248,11 @@ def test_resume_workflow_passes_stream_output_to_executor(mock_loader, mock_exec
     run_dir.mkdir(parents=True)
     (run_dir / 'state.json').write_text(
         json.dumps(
-            {
-                'schema_version': '1.1.1',
-                'run_id': run_id,
-                'workflow_file': str(workflow_path),
-                'workflow_checksum': checksum,
+                {
+                    'schema_version': StateManager.SCHEMA_VERSION,
+                    'run_id': run_id,
+                    'workflow_file': str(workflow_path),
+                    'workflow_checksum': checksum,
                 'started_at': '2026-02-27T00:00:00+00:00',
                 'updated_at': '2026-02-27T00:00:01+00:00',
                 'status': 'running',
