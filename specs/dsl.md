@@ -281,7 +281,7 @@
   - `strict_flow: true`: any non-zero exit halts unless an applicable `on.failure.goto` exists.
   - `_end`: reserved goto target that terminates the run successfully.
   - Precedence: step `on.*` handlers are evaluated first; if none apply, `strict_flow` and CLI `--on-error` govern.
-  - `cycle_guard_exceeded` is recoverable only through an explicit step `on.failure.goto`; otherwise it stops the run even when CLI `--on-error continue` is set.
+  - `cycle_guard_exceeded` always stops routed step execution; step-level `on.failure.goto` cannot continue past a tripped guard, even when CLI `--on-error continue` is set.
   - Retry policy defaults: provider steps consider exit codes `1` and `124` retryable; raw `command` steps are not retried unless a per-step `retries` block is set. Step-level settings override CLI/global defaults.
 
 - Loop scoping and state

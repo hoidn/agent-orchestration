@@ -118,11 +118,44 @@ def test_back_edge_loops_consume_transition_budget_and_fail_pre_execution(tmp_pa
     state = executor.execute(on_error="continue")
 
     assert state["status"] == "failed"
-    assert state["transition_count"] == 6
-    assert state["steps"]["GuardLoop"]["error"]["type"] == "cycle_guard_exceeded"
-    assert state["steps"]["GuardLoop"]["outcome"] == {
+    assert state["transition_count"] == 5
+    assert state["steps"]["RunCheck"]["error"]["type"] == "cycle_guard_exceeded"
+    assert state["steps"]["RunCheck"]["outcome"] == {
         "status": "failed",
         "phase": "pre_execution",
         "class": "pre_execution_failed",
         "retryable": False,
     }
+
+
+def test_cycle_guard_trip_stops_even_when_failure_goto_is_present(tmp_path: Path):
+    workflow = {
+        "version": "1.8",
+        "name": "guard-stop-is-terminal",
+        "steps": [
+            {
+                "name": "LoopForever",
+                "max_visits": 1,
+                "command": ["bash", "-lc", "printf 'loop'"],
+                "on": {
+                    "success": {
+                        "goto": "LoopForever",
+                    },
+                    "failure": {
+                        "goto": "Recovered",
+                    },
+                },
+            },
+            {
+                "name": "Recovered",
+                "command": ["bash", "-lc", "printf 'recovered'"],
+            },
+        ],
+    }
+
+    executor = _load_executor(tmp_path, workflow, run_id="guard-stop-run")
+    state = executor.execute(on_error="continue")
+
+    assert state["status"] == "failed"
+    assert state["steps"]["LoopForever"]["error"]["type"] == "cycle_guard_exceeded"
+    assert "Recovered" not in state["steps"]

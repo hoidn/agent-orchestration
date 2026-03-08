@@ -458,7 +458,7 @@ def test_scalar_bookkeeping_demo_runtime(tmp_path: Path):
 
 
 def test_cycle_guard_demo_runtime(tmp_path: Path):
-    """Cycle guard demo recovers from a guard trip and records persisted counters."""
+    """Cycle guard demo fails closed once the visit budget is exhausted."""
     workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(tmp_path, "cycle_guard_demo.yaml")
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
@@ -468,10 +468,10 @@ def test_cycle_guard_demo_runtime(tmp_path: Path):
 
     state = executor.execute(on_error="continue")
 
-    assert state["status"] == "completed"
+    assert state["status"] == "failed"
     assert state["steps"]["GuardLoop"]["error"]["type"] == "cycle_guard_exceeded"
     assert state["step_visits"]["GuardLoop"] == 3
-    assert state["steps"]["RecordGuardTrip"]["status"] == "completed"
+    assert "RecordGuardTrip" not in state["steps"]
 
 
 def test_backlog_plan_execute_v1_3_json_bundles_runtime(tmp_path: Path):

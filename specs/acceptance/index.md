@@ -132,7 +132,7 @@
 122. v1.8 visit accounting: skipped steps do not consume visit budget and command/provider retries do not consume extra visits
 123. v1.8 transition accounting: routed back-edge loops increment `transition_count` and fail the target step pre-execution when `max_transitions` is exceeded
 124. v1.8 resume-safe counters: `transition_count` and `step_visits` persist in `state.json` and remain available on resume
-125. v1.8 guard recovery: `on.failure.goto` may recover from `cycle_guard_exceeded`; without that edge the run stops
+125. v1.8 guard terminality: `cycle_guard_exceeded` stops the run even when the guarded step declares `on.failure.goto`
 126. v2.0 loader gating: authored step `id` is rejected below `version: "2.0"`
 127. v2.0 scoped refs: `self.steps.*` and `parent.steps.*` are valid only at `version: "2.0"`+, while bare `steps.*` remains invalid in structured predicates
 128. v2.0 stable identity: authored ids preserve `step_id` values across sibling insertion; compiler-generated ids are not promised stable across checksum-changing edits

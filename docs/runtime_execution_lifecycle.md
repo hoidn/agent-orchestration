@@ -64,7 +64,7 @@ pending -> skipped
 Key notes:
 - `when` false produces `skipped` with `exit_code: 0`.
 - `assert` false produces `failed` with `exit_code: 3` and `error.type: "assert_failed"`.
-- `cycle_guard_exceeded` fails the target step before body execution; explicit `on.failure.goto` may recover, otherwise the run stops.
+- `cycle_guard_exceeded` fails the target step before body execution and stops further routed step execution; step-level recovery edges do not override it.
 - `contract_violation` failures are represented as failed steps (typically exit code `2`).
 - `call` executes an imported workflow inline with its own nested state, private providers/artifacts/context defaults, and caller-visible outputs exported only after the callee body and callee finalization succeed.
 - Non-zero exits route through failure handlers if defined; otherwise strict-flow/on-error policy applies.

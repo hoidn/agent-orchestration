@@ -2269,6 +2269,13 @@ class WorkflowExecutor:
         if step_result.get('skipped'):
             return None  # Continue to next step
 
+        if error_type == 'cycle_guard_exceeded':
+            logger.error(
+                "Step '%s' exceeded a cycle guard. Stopping execution.",
+                step_name,
+            )
+            return '_stop'
+
         # AT-58, AT-59: Check on.success/on.failure handlers first, then on.always (with precedence)
         if 'on' in step:
             handlers = step['on']
@@ -2290,13 +2297,6 @@ class WorkflowExecutor:
             # If we found a goto target, use it
             if goto_target:
                 return self._resolve_goto_target(goto_target)
-
-        if error_type == 'cycle_guard_exceeded':
-            logger.error(
-                "Step '%s' exceeded a cycle guard and has no recovery edge. Stopping execution.",
-                step_name,
-            )
-            return '_stop'
 
         # AT-56, AT-57: Apply strict_flow and on_error behavior
         # Only if no goto handler was found
@@ -3919,6 +3919,90 @@ class WorkflowExecutor:
 
         return bound_inputs, None
 
+    def _validate_call_write_root_bindings(
+        self,
+        *,
+        step_name: str,
+        frame_id: str,
+        imported_workflow: Dict[str, Any],
+        state: Dict[str, Any],
+        bound_inputs: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Reject repeated or aliased managed write roots across call frames."""
+        managed_inputs = imported_workflow.get('__managed_write_root_inputs', [])
+        if not isinstance(managed_inputs, list) or not managed_inputs:
+            return None
+
+        current_roots: Dict[str, str] = {}
+        for input_name in managed_inputs:
+            value = bound_inputs.get(input_name)
+            if not isinstance(value, str):
+                continue
+            prior_input = current_roots.get(value)
+            if prior_input is not None:
+                return self._contract_violation_result(
+                    "Call input binding failed",
+                    {
+                        "step": step_name,
+                        "reason": "colliding_write_root_binding",
+                        "input": input_name,
+                        "value": value,
+                        "collides_with": {
+                            "step": step_name,
+                            "input": prior_input,
+                        },
+                    },
+                )
+            current_roots[value] = input_name
+
+        call_frames = state.get('call_frames', {})
+        if not isinstance(call_frames, dict) or not current_roots:
+            return None
+
+        current_imports = self.workflow.get('__imports', {})
+        if not isinstance(current_imports, dict):
+            current_imports = {}
+
+        for prior_frame_id, prior_frame in call_frames.items():
+            if prior_frame_id == frame_id or not isinstance(prior_frame, dict):
+                continue
+
+            prior_alias = prior_frame.get('import_alias')
+            prior_workflow = current_imports.get(prior_alias) if isinstance(prior_alias, str) else None
+            if not isinstance(prior_workflow, dict):
+                continue
+
+            prior_managed_inputs = prior_workflow.get('__managed_write_root_inputs', [])
+            prior_bound_inputs = prior_frame.get('bound_inputs')
+            if not isinstance(prior_managed_inputs, list) or not isinstance(prior_bound_inputs, dict):
+                continue
+
+            for prior_input in prior_managed_inputs:
+                prior_value = prior_bound_inputs.get(prior_input)
+                if not isinstance(prior_value, str):
+                    continue
+
+                current_input = current_roots.get(prior_value)
+                if current_input is None:
+                    continue
+
+                return self._contract_violation_result(
+                    "Call input binding failed",
+                    {
+                        "step": step_name,
+                        "reason": "colliding_write_root_binding",
+                        "input": current_input,
+                        "value": prior_value,
+                        "collides_with": {
+                            "call_frame_id": prior_frame_id,
+                            "step": prior_frame.get('call_step_name'),
+                            "input": prior_input,
+                        },
+                    },
+                )
+
+        return None
+
     def _build_call_debug_payload(
         self,
         *,
@@ -4117,6 +4201,16 @@ class WorkflowExecutor:
         if not isinstance(call_frames, dict):
             call_frames = {}
             state['call_frames'] = call_frames
+
+        write_root_error = self._validate_call_write_root_bindings(
+            step_name=step_name,
+            frame_id=frame_id,
+            imported_workflow=imported_workflow,
+            state=state,
+            bound_inputs=bound_inputs,
+        )
+        if write_root_error is not None:
+            return write_root_error
 
         checksum_error = self._validate_call_resume_checksum(
             step_name=step_name,

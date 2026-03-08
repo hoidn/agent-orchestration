@@ -73,7 +73,7 @@
   - Workflow-level `max_transitions` bounds routed transfers between settled top-level steps.
   - Step-level `max_visits` bounds top-level non-skipped step entries after `when` evaluation.
   - Guard failures use `error.type: "cycle_guard_exceeded"` and fail the target step in pre-execution state.
-  - Step `on.failure.goto` may recover from a guard trip; without an explicit recovery edge, guard failures stop the run even when CLI `--on-error continue` is set.
+  - Guard failures stop the run even when the guarded step declares `on.failure.goto` and even when CLI `--on-error continue` is set.
   - `transition_count` and `step_visits` persist under state schema `1.1.1`; skipped steps do not consume visit budget and internal retries do not consume extra visits.
   - The first tranche rejects nested/`for_each` `max_visits` usage until stable internal IDs land.
 

@@ -559,6 +559,10 @@ def _write_repeat_until_call_library(workspace: Path) -> None:
             "version": "2.7",
             "name": "repeat-until-review-loop",
             "inputs": {
+                "iteration": {
+                    "kind": "scalar",
+                    "type": "integer",
+                },
                 "write_root": {
                     "kind": "relpath",
                     "type": "relpath",
@@ -591,15 +595,14 @@ def _write_repeat_until_call_library(workspace: Path) -> None:
                         "\n".join(
                             [
                                 "mkdir -p \"${inputs.write_root}\"",
-                                "count=$(cat \"${inputs.write_root}/repeat_count.txt\" 2>/dev/null || printf '0')",
-                                "count=$((count + 1))",
-                                "printf '%s\\n' \"$count\" > \"${inputs.write_root}/repeat_count.txt\"",
+                                "mkdir -p state/review-loop",
+                                "count=\"${inputs.iteration}\"",
                                 "if [ \"$count\" -ge 3 ]; then",
                                 "  printf 'APPROVE\\n' > \"${inputs.write_root}/review_decision.txt\"",
                                 "else",
                                 "  printf 'REVISE\\n' > \"${inputs.write_root}/review_decision.txt\"",
                                 "fi",
-                                "printf 'iteration-%s\\n' \"$count\" >> \"${inputs.write_root}/history.log\"",
+                                "printf 'iteration-%s\\n' \"$count\" >> state/review-loop/history.log",
                             ]
                         ),
                     ],
@@ -652,11 +655,46 @@ def _structured_repeat_until_with_call_and_match_workflow(
                 "max_iterations": 4,
                 "steps": [
                     {
+                        "name": "PrepareCallInputs",
+                        "id": "prepare_call_inputs",
+                        "command": [
+                            "bash",
+                            "-lc",
+                            "\n".join(
+                                [
+                                    "mkdir -p state/review-loop-inputs",
+                                    "iteration=$(( ${loop.index} + 1 ))",
+                                    "printf '{\"write_root\":\"state/review-loop/iterations/%s\",\"iteration\":%s}\\n' \"$iteration\" \"$iteration\" > state/review-loop-inputs/current.json",
+                                ]
+                            ),
+                        ],
+                        "output_bundle": {
+                            "path": "state/review-loop-inputs/current.json",
+                            "fields": [
+                                {
+                                    "name": "write_root",
+                                    "json_pointer": "/write_root",
+                                    "type": "relpath",
+                                },
+                                {
+                                    "name": "iteration",
+                                    "json_pointer": "/iteration",
+                                    "type": "integer",
+                                },
+                            ],
+                        },
+                    },
+                    {
                         "name": "RunReviewLoop",
                         "id": "run_review_loop",
                         "call": "review_loop",
                         "with": {
-                            "write_root": "state/review-loop",
+                            "iteration": {
+                                "ref": "self.steps.PrepareCallInputs.artifacts.iteration",
+                            },
+                            "write_root": {
+                                "ref": "self.steps.PrepareCallInputs.artifacts.write_root",
+                            },
                         },
                     },
                     {

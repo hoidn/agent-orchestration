@@ -2,6 +2,9 @@ version: "2.7"
 name: repeat-until-review-loop
 
 inputs:
+  iteration:
+    kind: scalar
+    type: integer
   write_root:
     kind: relpath
     type: relpath
@@ -28,15 +31,14 @@ steps:
       - -lc
       - |
         mkdir -p "${inputs.write_root}"
-        count=$(cat "${inputs.write_root}/repeat_count.txt" 2>/dev/null || printf '0')
-        count=$((count + 1))
-        printf '%s\n' "$count" > "${inputs.write_root}/repeat_count.txt"
+        mkdir -p state/review-loop
+        count="${inputs.iteration}"
         if [ "$count" -ge 3 ]; then
           printf 'APPROVE\n' > "${inputs.write_root}/review_decision.txt"
         else
           printf 'REVISE\n' > "${inputs.write_root}/review_decision.txt"
         fi
-        printf 'iteration-%s\n' "$count" >> "${inputs.write_root}/history.log"
+        printf 'iteration-%s\n' "$count" >> state/review-loop/history.log
     expected_outputs:
       - name: review_decision
         path: "${inputs.write_root}/review_decision.txt"

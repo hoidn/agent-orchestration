@@ -904,7 +904,7 @@ class WorkflowLoader:
                 self._validate_on_handlers(step['on'], name)
 
     def _collect_all_steps(self, steps: List[Any]) -> List[Dict[str, Any]]:
-        """Collect all step definitions from top-level and nested for_each blocks."""
+        """Collect all step definitions from top-level and nested control-flow blocks."""
         collected: List[Dict[str, Any]] = []
         if not isinstance(steps, list):
             return collected
@@ -933,8 +933,84 @@ class WorkflowLoader:
                 nested = for_each.get('steps')
                 if isinstance(nested, list):
                     collected.extend(self._collect_all_steps(nested))
+            repeat_until = step.get('repeat_until')
+            if isinstance(repeat_until, dict):
+                nested = repeat_until.get('steps')
+                if isinstance(nested, list):
+                    collected.extend(self._collect_all_steps(nested))
 
         return collected
+
+    def _iter_call_sites(
+        self,
+        steps: Any,
+        *,
+        multi_visit_context: Optional[str] = None,
+    ) -> List[tuple[Dict[str, Any], Optional[str]]]:
+        """Collect call steps plus whether they execute inside a multi-visit loop."""
+        call_sites: List[tuple[Dict[str, Any], Optional[str]]] = []
+        if not isinstance(steps, list):
+            return call_sites
+
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+
+            if 'call' in step:
+                call_sites.append((step, multi_visit_context))
+
+            if is_if_statement(step):
+                for branch_name in ('then', 'else'):
+                    branch = normalize_branch_block(step.get(branch_name), branch_name)
+                    nested = branch.get('steps') if isinstance(branch, dict) else None
+                    if isinstance(nested, list):
+                        call_sites.extend(
+                            self._iter_call_sites(nested, multi_visit_context=multi_visit_context)
+                        )
+
+            if is_match_statement(step):
+                match = step.get('match')
+                cases = match.get('cases') if isinstance(match, dict) else None
+                if isinstance(cases, dict):
+                    for case_name, authored_case in cases.items():
+                        case_block = normalize_match_case_block(authored_case, str(case_name))
+                        nested = case_block.get('steps') if isinstance(case_block, dict) else None
+                        if isinstance(nested, list):
+                            call_sites.extend(
+                                self._iter_call_sites(nested, multi_visit_context=multi_visit_context)
+                            )
+
+            for_each = step.get('for_each')
+            if isinstance(for_each, dict):
+                nested = for_each.get('steps')
+                if isinstance(nested, list):
+                    nested_context = multi_visit_context
+                    items = for_each.get('items')
+                    if nested_context is None and (
+                        'items_from' in for_each
+                        or not isinstance(items, list)
+                        or len(items) != 1
+                    ):
+                        nested_context = 'for_each'
+                    call_sites.extend(
+                        self._iter_call_sites(nested, multi_visit_context=nested_context)
+                    )
+
+            repeat_until = step.get('repeat_until')
+            if isinstance(repeat_until, dict):
+                nested = repeat_until.get('steps')
+                if isinstance(nested, list):
+                    nested_context = multi_visit_context
+                    max_iterations = repeat_until.get('max_iterations')
+                    if nested_context is None and not (
+                        isinstance(max_iterations, int) and max_iterations == 1
+                    ):
+                        nested_context = 'repeat_until'
+                    call_sites.extend(
+                        self._iter_call_sites(nested, multi_visit_context=nested_context)
+                    )
+
+        return call_sites
 
     def _validate_for_each(
         self,
@@ -1999,8 +2075,8 @@ class WorkflowLoader:
         if isinstance(finally_block, dict) and isinstance(finally_block.get('steps'), list):
             collected_steps.extend(finally_block.get('steps', []))
 
-        seen: Dict[tuple[str, Any], str] = {}
-        for step in self._collect_all_steps(collected_steps):
+        seen: Dict[Any, tuple[str, str]] = {}
+        for step, multi_visit_context in self._iter_call_sites(collected_steps):
             if not isinstance(step, dict) or 'call' not in step:
                 continue
 
@@ -2030,18 +2106,34 @@ class WorkflowLoader:
                     binding = input_spec['default']
 
                 collision_key = self._call_write_root_collision_key(binding)
+                if multi_visit_context is not None and self._loop_binding_is_invariant(binding):
+                    self._add_error(
+                        f"Step '{step_name}': call.with.{input_name} must vary per invocation inside "
+                        f"{multi_visit_context} when binding a managed write root"
+                    )
+                    continue
                 if collision_key is None:
                     continue
 
-                seen_key = (input_name, collision_key)
-                prior_step = seen.get(seen_key)
-                if prior_step is not None:
+                prior = seen.get(collision_key)
+                if prior is not None:
+                    prior_step, prior_input = prior
                     self._add_error(
                         f"Step '{step_name}': colliding write-root bindings with step '{prior_step}' "
-                        f"for input '{input_name}'"
+                        f"for inputs '{input_name}' and '{prior_input}'"
                     )
                 else:
-                    seen[seen_key] = step_name
+                    seen[collision_key] = (step_name, input_name)
+
+    def _loop_binding_is_invariant(self, binding: Any) -> bool:
+        """Return True when a managed write-root binding cannot vary across loop visits."""
+        if isinstance(binding, dict) and set(binding.keys()) == {'ref'}:
+            ref = binding.get('ref')
+            return isinstance(ref, str) and (
+                ref.startswith('root.')
+                or ref.startswith('inputs.')
+            )
+        return self._call_write_root_collision_key(binding) is not None
 
     def _call_write_root_collision_key(self, binding: Any) -> Optional[Any]:
         """Return a deterministic comparable key for a call write-root binding."""

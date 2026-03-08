@@ -67,6 +67,31 @@ def _caller_workflow(*, call_step: dict, imports: dict | None = None, version: s
     }
 
 
+def _managed_write_root_library(*, version: str = "2.5") -> dict:
+    return {
+        "version": version,
+        "name": "write-root-library",
+        "inputs": {
+            "max_cycles": {
+                "kind": "scalar",
+                "type": "integer",
+            },
+            "write_root": {
+                "kind": "relpath",
+                "type": "relpath",
+            },
+        },
+        "steps": [
+            {
+                "name": "WriteOutput",
+                "id": "write_output",
+                "command": ["bash", "-lc", "printf 'ok\\n'"],
+                "output_file": "${inputs.write_root}/result.txt",
+            }
+        ],
+    }
+
+
 def _run_workflow(
     tmp_path: Path,
     workflow: dict,
@@ -352,6 +377,140 @@ def test_call_rejects_colliding_write_root_bindings(tmp_path: Path):
         "colliding write-root bindings" in str(error.message)
         for error in exc_info.value.errors
     )
+
+
+def test_repeat_until_call_rejects_invariant_write_root_binding(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _managed_write_root_library(version="2.7"),
+    )
+    caller_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "looped-call-demo",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "artifacts": {
+                "done": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "steps": [
+                {
+                    "name": "ReviewLoop",
+                    "id": "review_loop",
+                    "repeat_until": {
+                        "id": "iteration_body",
+                        "outputs": {
+                            "done": {
+                                "kind": "scalar",
+                                "type": "bool",
+                                "from": {
+                                    "ref": "self.steps.MarkDone.artifacts.done",
+                                },
+                            }
+                        },
+                        "condition": {
+                            "artifact_bool": {
+                                "ref": "self.outputs.done",
+                            }
+                        },
+                        "max_iterations": 2,
+                        "steps": [
+                            {
+                                "name": "RunReviewLoop",
+                                "id": "run_review_loop",
+                                "call": "review_loop",
+                                "with": {
+                                    "max_cycles": 1,
+                                    "write_root": "state/review-loop",
+                                },
+                            },
+                            {
+                                "name": "MarkDone",
+                                "id": "mark_done",
+                                "set_scalar": {
+                                    "artifact": "done",
+                                    "value": True,
+                                },
+                            },
+                        ],
+                    },
+                }
+            ],
+        },
+    )
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        WorkflowLoader(tmp_path).load(caller_path)
+
+    assert any(
+        "must vary per invocation" in str(error.message)
+        for error in exc_info.value.errors
+    )
+
+
+def test_for_each_call_runtime_rejects_reused_write_root_from_loop_local_ref(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _managed_write_root_library(version="2.5"),
+    )
+    workflow = {
+        "version": "2.5",
+        "name": "for-each-call-collision",
+        "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+        "steps": [
+            {
+                "name": "ReviewItems",
+                "id": "review_items",
+                "for_each": {
+                    "items": ["a", "b"],
+                    "as": "item",
+                    "steps": [
+                        {
+                            "name": "ResolveWriteRoot",
+                            "id": "resolve_write_root",
+                            "command": ["bash", "-lc", "printf 'state/shared\\n'"],
+                            "output_file": "state/shared-write-root.txt",
+                            "expected_outputs": [
+                                {
+                                    "name": "write_root",
+                                    "path": "state/shared-write-root.txt",
+                                    "type": "relpath",
+                                }
+                            ],
+                        },
+                        {
+                            "name": "RunReviewLoop",
+                            "id": "run_review_loop",
+                            "call": "review_loop",
+                            "with": {
+                                "max_cycles": 1,
+                                "write_root": {
+                                    "ref": "self.steps.ResolveWriteRoot.artifacts.write_root",
+                                },
+                            },
+                        },
+                    ],
+                },
+            }
+        ],
+    }
+
+    final_state, persisted = _run_workflow(
+        tmp_path,
+        workflow,
+        run_id="for-each-call-collision-run",
+        on_error="continue",
+    )
+
+    assert final_state["steps"]["ReviewItems[1].RunReviewLoop"]["error"]["type"] == "contract_violation"
+    assert persisted["steps"]["ReviewItems[1].RunReviewLoop"]["error"]["type"] == "contract_violation"
+    assert persisted["steps"]["ReviewItems[1].RunReviewLoop"]["error"]["context"]["reason"] == (
+        "colliding_write_root_binding"
+    )
+    assert len(persisted.get("call_frames", {})) == 1
 
 
 def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path: Path):

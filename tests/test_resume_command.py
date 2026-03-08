@@ -474,6 +474,10 @@ def _build_repeat_until_call_resume_library_workflow() -> dict:
         "version": "2.7",
         "name": "repeat-until-call-review-loop",
         "inputs": {
+            "iteration": {
+                "kind": "scalar",
+                "type": "integer",
+            },
             "write_root": {
                 "kind": "relpath",
                 "type": "relpath",
@@ -506,10 +510,9 @@ def _build_repeat_until_call_resume_library_workflow() -> dict:
                     "\n".join(
                         [
                             "mkdir -p \"${inputs.write_root}\"",
-                            "count=$(cat \"${inputs.write_root}/review_count.txt\" 2>/dev/null || printf '0')",
-                            "count=$((count + 1))",
-                            "printf '%s\\n' \"$count\" > \"${inputs.write_root}/review_count.txt\"",
-                            "printf 'body-%s\\n' \"$count\" >> \"${inputs.write_root}/history.log\"",
+                            "mkdir -p state/review-loop",
+                            "count=\"${inputs.iteration}\"",
+                            "printf 'body-%s\\n' \"$count\" >> state/review-loop/history.log",
                         ]
                     ),
                 ],
@@ -522,13 +525,12 @@ def _build_repeat_until_call_resume_library_workflow() -> dict:
                     "-lc",
                     "\n".join(
                         [
-                            "mkdir -p \"${inputs.write_root}\"",
-                            "count=$(cat \"${inputs.write_root}/review_count.txt\")",
+                            "count=\"${inputs.iteration}\"",
                             "if [ \"$count\" -ge 2 ] && [ ! -f state/resume_ready.txt ]; then",
-                            "  printf 'gate-failed-%s\\n' \"$count\" >> \"${inputs.write_root}/history.log\"",
+                            "  printf 'gate-failed-%s\\n' \"$count\" >> state/review-loop/history.log",
                             "  exit 1",
                             "fi",
-                            "printf 'gate-passed-%s\\n' \"$count\" >> \"${inputs.write_root}/history.log\"",
+                            "printf 'gate-passed-%s\\n' \"$count\" >> state/review-loop/history.log",
                         ]
                     ),
                 ],
@@ -542,7 +544,7 @@ def _build_repeat_until_call_resume_library_workflow() -> dict:
                     "\n".join(
                         [
                             "mkdir -p \"${inputs.write_root}\"",
-                            "count=$(cat \"${inputs.write_root}/review_count.txt\")",
+                            "count=\"${inputs.iteration}\"",
                             "if [ \"$count\" -ge 2 ]; then",
                             "  printf 'APPROVE\\n' > \"${inputs.write_root}/review_decision.txt\"",
                             "else",
@@ -606,11 +608,46 @@ def _build_repeat_until_call_resume_workflow() -> dict:
                     "max_iterations": 4,
                     "steps": [
                         {
+                            "name": "PrepareCallInputs",
+                            "id": "prepare_call_inputs",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "\n".join(
+                                    [
+                                        "mkdir -p state/review-loop-inputs",
+                                        "iteration=$(( ${loop.index} + 1 ))",
+                                        "printf '{\"write_root\":\"state/review-loop/iterations/%s\",\"iteration\":%s}\\n' \"$iteration\" \"$iteration\" > state/review-loop-inputs/current.json",
+                                    ]
+                                ),
+                            ],
+                            "output_bundle": {
+                                "path": "state/review-loop-inputs/current.json",
+                                "fields": [
+                                    {
+                                        "name": "write_root",
+                                        "json_pointer": "/write_root",
+                                        "type": "relpath",
+                                    },
+                                    {
+                                        "name": "iteration",
+                                        "json_pointer": "/iteration",
+                                        "type": "integer",
+                                    },
+                                ],
+                            },
+                        },
+                        {
                             "name": "RunReviewLoop",
                             "id": "run_review_loop",
                             "call": "review_loop",
                             "with": {
-                                "write_root": "state/review-loop",
+                                "iteration": {
+                                    "ref": "self.steps.PrepareCallInputs.artifacts.iteration",
+                                },
+                                "write_root": {
+                                    "ref": "self.steps.PrepareCallInputs.artifacts.write_root",
+                                },
                             },
                         },
                         {
