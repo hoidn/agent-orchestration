@@ -151,6 +151,185 @@ class TestLoaderValidation:
         assert any("assert requires version '1.5'" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_match_requires_version_2_6(self):
+        """Structured match statements are gated to v2.6+."""
+        workflow = {
+            "version": "2.5",
+            "name": "match-gated",
+            "artifacts": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                }
+            },
+            "steps": [
+                {
+                    "name": "WriteDecision",
+                    "id": "write_decision",
+                    "set_scalar": {
+                        "artifact": "review_decision",
+                        "value": "APPROVE",
+                    },
+                },
+                {
+                    "name": "RouteDecision",
+                    "id": "route_decision",
+                    "match": {
+                        "ref": "root.steps.WriteDecision.artifacts.review_decision",
+                        "cases": {
+                            "APPROVE": [{"name": "Approve", "command": ["echo", "approve"]}],
+                            "REVISE": [{"name": "Revise", "command": ["echo", "revise"]}],
+                        },
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("match requires version '2.6'" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_match_requires_enum_ref(self):
+        """Structured match only accepts enum refs."""
+        workflow = {
+            "version": "2.6",
+            "name": "invalid-match",
+            "artifacts": {
+                "attempt_count": {
+                    "kind": "scalar",
+                    "type": "integer",
+                }
+            },
+            "steps": [
+                {
+                    "name": "WriteAttempts",
+                    "id": "write_attempts",
+                    "set_scalar": {
+                        "artifact": "attempt_count",
+                        "value": 1,
+                    },
+                },
+                {
+                    "name": "RouteDecision",
+                    "id": "route_decision",
+                    "match": {
+                        "ref": "root.steps.WriteAttempts.artifacts.attempt_count",
+                        "cases": {
+                            "1": [{"name": "HandleOne", "command": ["echo", "one"]}],
+                        },
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("match.ref must resolve to an enum artifact or input" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_match_rejects_duplicate_case_ids(self):
+        """Structured match case ids must stay unique within one statement."""
+        workflow = {
+            "version": "2.6",
+            "name": "duplicate-match-case-ids",
+            "artifacts": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                },
+                "route_action": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["SHIP", "FIX"],
+                },
+            },
+            "steps": [
+                {
+                    "name": "WriteDecision",
+                    "id": "write_decision",
+                    "set_scalar": {
+                        "artifact": "review_decision",
+                        "value": "APPROVE",
+                    },
+                },
+                {
+                    "name": "RouteDecision",
+                    "id": "route_decision",
+                    "match": {
+                        "ref": "root.steps.WriteDecision.artifacts.review_decision",
+                        "cases": {
+                            "APPROVE": {
+                                "id": "decision_path",
+                                "outputs": {
+                                    "route_action": {
+                                        "kind": "scalar",
+                                        "type": "enum",
+                                        "allowed": ["SHIP", "FIX"],
+                                        "from": {
+                                            "ref": "self.steps.WriteApproved.artifacts.route_action",
+                                        },
+                                    }
+                                },
+                                "steps": [
+                                    {
+                                        "name": "WriteApproved",
+                                        "id": "write_approved",
+                                        "set_scalar": {
+                                            "artifact": "route_action",
+                                            "value": "SHIP",
+                                        },
+                                    }
+                                ],
+                            },
+                            "REVISE": {
+                                "id": "decision_path",
+                                "outputs": {
+                                    "route_action": {
+                                        "kind": "scalar",
+                                        "type": "enum",
+                                        "allowed": ["SHIP", "FIX"],
+                                        "from": {
+                                            "ref": "self.steps.WriteRevision.artifacts.route_action",
+                                        },
+                                    }
+                                },
+                                "steps": [
+                                    {
+                                        "name": "WriteRevision",
+                                        "id": "write_revision",
+                                        "set_scalar": {
+                                            "artifact": "route_action",
+                                            "value": "FIX",
+                                        },
+                                    }
+                                ],
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("duplicate case id 'decision_path'" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_assert_is_exclusive_with_other_step_execution_fields(self):
         """Assert steps cannot also declare command/provider/wait_for/for_each."""
         workflow = {

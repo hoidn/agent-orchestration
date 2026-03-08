@@ -225,6 +225,141 @@ def _structured_if_else_with_nested_loop_parent_scope() -> dict:
     }
 
 
+def _route_review_match_statement() -> dict:
+    return {
+        "name": "RouteReviewDecision",
+        "id": "route_review_decision",
+        "match": {
+            "ref": "root.steps.WriteDecision.artifacts.review_decision",
+            "cases": {
+                "APPROVE": {
+                    "id": "approve_path",
+                    "outputs": {
+                        "route_action": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["SHIP", "FIX", "ESCALATE"],
+                            "from": {
+                                "ref": "self.steps.WriteApproved.artifacts.route_action",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteApproved",
+                            "id": "write_approved",
+                            "set_scalar": {
+                                "artifact": "route_action",
+                                "value": "SHIP",
+                            },
+                        }
+                    ],
+                },
+                "REVISE": {
+                    "id": "revise_path",
+                    "outputs": {
+                        "route_action": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["SHIP", "FIX", "ESCALATE"],
+                            "from": {
+                                "ref": "self.steps.WriteRevision.artifacts.route_action",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteRevision",
+                            "id": "write_revision",
+                            "set_scalar": {
+                                "artifact": "route_action",
+                                "value": "FIX",
+                            },
+                        }
+                    ],
+                },
+                "BLOCKED": {
+                    "id": "blocked_path",
+                    "outputs": {
+                        "route_action": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["SHIP", "FIX", "ESCALATE"],
+                            "from": {
+                                "ref": "self.steps.WriteBlocked.artifacts.route_action",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteBlocked",
+                            "id": "write_blocked",
+                            "set_scalar": {
+                                "artifact": "route_action",
+                                "value": "ESCALATE",
+                            },
+                        }
+                    ],
+                },
+            },
+        },
+    }
+
+
+def _structured_match_workflow(*, include_inserted_sibling: bool = False) -> dict:
+    steps = [
+        {
+            "name": "WriteDecision",
+            "id": "write_decision",
+            "set_scalar": {
+                "artifact": "review_decision",
+                "value": "REVISE",
+            },
+        },
+        _route_review_match_statement(),
+        {
+            "name": "CheckRouteAction",
+            "id": "check_route_action",
+            "assert": {
+                "compare": {
+                    "left": {
+                        "ref": "root.steps.RouteReviewDecision.artifacts.route_action",
+                    },
+                    "op": "eq",
+                    "right": "FIX",
+                }
+            },
+        },
+    ]
+    if include_inserted_sibling:
+        steps.insert(
+            1,
+            {
+                "name": "InsertedSibling",
+                "id": "inserted_sibling",
+                "command": ["bash", "-lc", "printf 'inserted\\n'"],
+            },
+        )
+
+    return {
+        "version": "2.6",
+        "name": "structured-match",
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE", "BLOCKED"],
+            },
+            "route_action": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["SHIP", "FIX", "ESCALATE"],
+            },
+        },
+        "steps": steps,
+    }
+
+
 def _structured_finally_workflow(
     *,
     include_inserted_sibling: bool = False,
@@ -431,6 +566,49 @@ def test_if_else_nested_for_each_parent_scope_resolves_branch_steps(tmp_path: Pa
     assert state["steps"]["Route.then.Loop[0].AssertBranchParent"]["status"] == "completed"
     assert state["steps"]["Route.then.Loop[0].AssertMirror"]["status"] == "completed"
 
+
+def test_match_lowered_step_ids_stay_stable_when_siblings_shift(tmp_path: Path):
+    workflow_a = _structured_match_workflow()
+    workflow_b = _structured_match_workflow(include_inserted_sibling=True)
+
+    loaded_a = _load_workflow(tmp_path / "a", workflow_a)
+    loaded_b = _load_workflow(tmp_path / "b", workflow_b)
+
+    steps_a = {step["name"]: step["step_id"] for step in loaded_a["steps"]}
+    steps_b = {step["name"]: step["step_id"] for step in loaded_b["steps"]}
+
+    assert steps_a["RouteReviewDecision.APPROVE.WriteApproved"] == (
+        "root.route_review_decision.approve_path.write_approved"
+    )
+    assert steps_a["RouteReviewDecision.REVISE.WriteRevision"] == (
+        "root.route_review_decision.revise_path.write_revision"
+    )
+    assert steps_a["RouteReviewDecision.BLOCKED.WriteBlocked"] == (
+        "root.route_review_decision.blocked_path.write_blocked"
+    )
+    assert steps_a["RouteReviewDecision"] == "root.route_review_decision"
+    assert steps_b["RouteReviewDecision.APPROVE.WriteApproved"] == (
+        steps_a["RouteReviewDecision.APPROVE.WriteApproved"]
+    )
+    assert steps_b["RouteReviewDecision.REVISE.WriteRevision"] == (
+        steps_a["RouteReviewDecision.REVISE.WriteRevision"]
+    )
+    assert steps_b["RouteReviewDecision.BLOCKED.WriteBlocked"] == (
+        steps_a["RouteReviewDecision.BLOCKED.WriteBlocked"]
+    )
+    assert steps_b["RouteReviewDecision"] == steps_a["RouteReviewDecision"]
+
+
+def test_match_case_outputs_materialize_on_statement_and_skip_non_selected_cases(tmp_path: Path):
+    state = _run_workflow(tmp_path, _structured_match_workflow())
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RouteReviewDecision.APPROVE.WriteApproved"]["status"] == "skipped"
+    assert state["steps"]["RouteReviewDecision.REVISE.WriteRevision"]["status"] == "completed"
+    assert state["steps"]["RouteReviewDecision.BLOCKED.WriteBlocked"]["status"] == "skipped"
+    assert state["steps"]["RouteReviewDecision"]["artifacts"]["route_action"] == "FIX"
+    assert state["steps"]["RouteReviewDecision"]["debug"]["structured_match"]["selected_case"] == "REVISE"
+    assert state["steps"]["CheckRouteAction"]["exit_code"] == 0
 
 def test_finally_step_ids_stay_stable_when_body_siblings_shift(tmp_path: Path):
     workflow_a = _structured_finally_workflow()

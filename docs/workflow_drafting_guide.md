@@ -78,6 +78,7 @@ Two practical upgrades now exist:
 - v2.0: when authoring new typed predicates in nested scopes, use explicit `self.steps.*`, `parent.steps.*`, and `root.steps.*` refs and add stable step `id` values anywhere later refactors should preserve lineage or resume identity.
 - v2.1: prefer typed workflow `inputs`/`outputs` over ad hoc `context` conventions when the value is part of the workflow boundary and should survive validation, resume, and later `call` reuse.
 - v2.2: prefer top-level structured `if/else` when the workflow intent is branch selection rather than a reusable raw `goto` diamond.
+- v2.6: prefer top-level structured `match` when a typed enum decision has three or more stable cases, or when you want the workflow shape to stay aligned with the decision artifact values instead of layering chained predicates.
 - Task 10 reusable-call boundary: if a workflow is intended for later `call` reuse, keep bundled prompts/rubrics/schemas on the future workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep runtime reads/writes on the existing WORKSPACE-relative surfaces (`input_file`, `depends_on`, `output_file`, deterministic outputs).
 
 ## 5) Prompt Authoring Guidance
@@ -168,6 +169,12 @@ For v2.2 structured branching:
 - keep branch-local work inside `then` / `else`; do not route downstream logic to branch-local step names
 - expose any downstream values through matching branch `outputs`, then read them from the statement node
 - keep the first tranche simple: top-level statements only, and do not embed raw `goto` / `_end` inside branch steps
+
+For v2.6 enum branching:
+- use `match` only with typed enum refs, and keep the cases exhaustive so the branch contract stays total for every allowed decision token
+- keep case-local work inside the selected case; downstream steps should read only `root.steps.<MatchStatement>.artifacts.*`
+- mirror the `if/else` block pattern: give the statement and any case that needs cross-edit identity stability an authored `id`, and expose any downstream data through matching case `outputs`
+- prefer `match` over chained `if/else` only when the workflow is routing on a published decision token such as `APPROVE|REVISE|BLOCKED`; do not use it as a generic pattern-matching surface
 
 For post-v2.0 workflows, separate display names from durable identity:
 - keep `name` optimized for readable reports

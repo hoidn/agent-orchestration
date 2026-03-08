@@ -133,6 +133,13 @@
   - State schema moves to `schema_version: "2.1"` with persisted `call_frames`, deferred export state, and preserved internal provenance for exported outputs.
   - Callee-private artifact lineage and freshness stay inside the call-frame-local nested state rather than the caller-global ledgers.
 
+- v2.6 additions (structured `match`)
+  - Top-level steps may use structured `match` over a typed enum ref.
+  - `match.cases` must cover every allowed enum value on the selected artifact or input.
+  - Cases reuse the same block/output pattern as v2.2 `if/else`: `Step[]` or `{ id?, steps, outputs }`.
+  - Case-local steps stay scoped to the selected case; downstream refs target the statement node outputs.
+  - This tranche remains on state schema `2.0`; lowered case markers/join metadata are additive `steps.*` payload fields.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -144,7 +151,7 @@
   - `v2.3`: D8 `finally`
   - `v2.4` (docs/contract boundary): D9 reusable-call contract
   - `v2.5`: D10 imports + `call`
-  - `v2.6` (planned): D11 `match`
+  - `v2.6`: D11 `match`
   - `v2.7` (planned): D12 `repeat_until`
   - `v2.8` (planned): D13 score-aware gates
   - `v2.9` (planned): D14 authoring linting and normalization
@@ -270,5 +277,6 @@ Planned acceptance:
 | 2.3 | Top-level `finally` with resume-safe cleanup progress and deferred workflow outputs | Cleanup runs once after body success/failure, keeps stable finalization ids, and suppresses workflow outputs on cleanup failure. |
 | 2.4 | Reusable-call contract boundary only (not executable by itself) | Locks path taxonomy, same-version rule, write-root parameterization, and accepted operational-risk language before runtime work lands. |
 | 2.5 | `imports` + inline `call` with typed `with:` binding | Uses `schema_version: "2.1"` for persisted call-frame lineage/export state. |
+| 2.6 | Top-level structured `match` with exhaustive enum case coverage | Case-local work stays scoped to the selected case; downstream refs target statement outputs on the join node. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

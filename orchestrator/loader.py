@@ -17,8 +17,12 @@ from orchestrator.workflow.signatures import WORKFLOW_SIGNATURE_VERSION
 from orchestrator.workflow.statements import (
     STRUCTURED_FINALLY_VERSION,
     STRUCTURED_IF_VERSION,
+    STRUCTURED_MATCH_VERSION,
     branch_token,
     is_if_statement,
+    is_match_statement,
+    match_case_token,
+    normalize_match_case_block,
     normalize_branch_block,
     normalize_finally_block,
 )
@@ -50,14 +54,14 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6",
     ]
 
     def __init__(self, workspace: Path):
@@ -587,8 +591,31 @@ class WorkflowLoader:
                 else:
                     authored_ids.add(authored_id)
 
+            if is_if_statement(step) and is_match_statement(step):
+                self._add_error(
+                    f"Step '{name}': structured if/else cannot be combined with structured match"
+                )
+                continue
+
             if is_if_statement(step):
                 self._validate_if_statement(
+                    step=step,
+                    step_name=name,
+                    version=version,
+                    artifacts_registry=artifacts_registry,
+                    root_catalog=root_catalog,
+                    scope_artifacts=scope_artifacts,
+                    scope_multi_visit=scope_multi_visit,
+                    parent_artifacts=parent_artifacts,
+                    parent_multi_visit=parent_multi_visit,
+                    scope_non_step_results=scope_non_step_results,
+                    parent_non_step_results=parent_non_step_results,
+                    top_level=top_level,
+                )
+                continue
+
+            if is_match_statement(step):
+                self._validate_match_statement(
                     step=step,
                     step_name=name,
                     version=version,
@@ -847,6 +874,21 @@ class WorkflowLoader:
             if not isinstance(step, dict):
                 continue
             collected.append(step)
+            if is_if_statement(step):
+                for branch_name in ('then', 'else'):
+                    branch = normalize_branch_block(step.get(branch_name), branch_name)
+                    nested = branch.get('steps') if isinstance(branch, dict) else None
+                    if isinstance(nested, list):
+                        collected.extend(self._collect_all_steps(nested))
+            if is_match_statement(step):
+                match = step.get('match')
+                cases = match.get('cases') if isinstance(match, dict) else None
+                if isinstance(cases, dict):
+                    for case_name, authored_case in cases.items():
+                        case_block = normalize_match_case_block(authored_case, str(case_name))
+                        nested = case_block.get('steps') if isinstance(case_block, dict) else None
+                        if isinstance(nested, list):
+                            collected.extend(self._collect_all_steps(nested))
             for_each = step.get('for_each')
             if isinstance(for_each, dict):
                 nested = for_each.get('steps')
@@ -1110,6 +1152,223 @@ class WorkflowLoader:
                 parent_scope_artifacts,
                 parent_scope_multi_visit,
                 branch_scope_non_step_results,
+                parent_scope_non_step_results,
+            )
+            declared_type = spec.get('type')
+            if ref_type == 'unknown' or not isinstance(declared_type, str):
+                continue
+            if declared_type == ref_type:
+                continue
+            if declared_type == 'float' and ref_type == 'integer':
+                continue
+            self._add_error(
+                f"{context}.from resolves to '{ref_type}' but output declares '{declared_type}'"
+            )
+
+        return outputs
+
+    def _validate_match_statement(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        version: str,
+        artifacts_registry: Optional[Any],
+        root_catalog: Dict[str, Any],
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+        top_level: bool,
+    ) -> None:
+        """Validate one top-level structured match statement."""
+        if not top_level:
+            self._add_error(
+                f"Step '{step_name}': structured match is only supported on top-level steps in v{STRUCTURED_MATCH_VERSION}"
+            )
+            return
+        if not self._version_at_least(version, STRUCTURED_MATCH_VERSION):
+            self._add_error(f"Step '{step_name}': match requires version '{STRUCTURED_MATCH_VERSION}'")
+            return
+
+        allowed_fields = {'name', 'id', 'match'}
+        for field_name in step.keys():
+            if field_name not in allowed_fields:
+                self._add_error(
+                    f"Step '{step_name}': structured match does not allow field '{field_name}'"
+                )
+
+        match_node = step.get('match')
+        if not isinstance(match_node, dict):
+            self._add_error(f"Step '{step_name}': match must be a dictionary")
+            return
+
+        ref_contract = self._resolve_structured_ref_contract(
+            match_node.get('ref'),
+            step_name,
+            version,
+            root_catalog,
+            scope_artifacts,
+            scope_multi_visit,
+            parent_artifacts,
+            parent_multi_visit,
+            scope_non_step_results,
+            parent_non_step_results,
+        )
+        allowed_values = ref_contract.get('allowed') if isinstance(ref_contract, dict) else None
+        if not isinstance(ref_contract, dict) or ref_contract.get('type') != 'enum' or not isinstance(allowed_values, list):
+            self._add_error(f"Step '{step_name}': match.ref must resolve to an enum artifact or input")
+
+        cases = match_node.get('cases')
+        if not isinstance(cases, dict) or not cases:
+            self._add_error(f"Step '{step_name}': match.cases must be a non-empty dictionary")
+            return
+
+        case_tokens: Dict[str, str] = {}
+        validated_case_names: List[str] = []
+        case_outputs: Dict[str, Dict[str, Dict[str, Any]]] = {}
+        for case_name, authored_case in cases.items():
+            if not isinstance(case_name, str) or not case_name:
+                self._add_error(f"Step '{step_name}': match case names must be non-empty strings")
+                continue
+            validated_case_names.append(case_name)
+            case_block = normalize_match_case_block(authored_case, case_name)
+            token = match_case_token(case_name, case_block or {})
+            if token in case_tokens:
+                self._add_error(f"Step '{step_name}': duplicate case id '{token}'")
+            else:
+                case_tokens[token] = case_name
+            outputs = self._validate_match_case(
+                statement_name=step_name,
+                case_name=case_name,
+                case_block=case_block,
+                version=version,
+                artifacts_registry=artifacts_registry,
+                root_catalog=root_catalog,
+                parent_scope_artifacts=scope_artifacts,
+                parent_scope_multi_visit=scope_multi_visit,
+                parent_scope_non_step_results=scope_non_step_results,
+            )
+            if outputs is not None:
+                case_outputs[case_name] = outputs
+
+        if isinstance(allowed_values, list):
+            extra_cases = sorted(set(validated_case_names) - set(allowed_values))
+            missing_cases = sorted(set(allowed_values) - set(validated_case_names))
+            if extra_cases:
+                self._add_error(
+                    f"Step '{step_name}': match.cases contains undeclared enum values {extra_cases}"
+                )
+            if missing_cases:
+                self._add_error(
+                    f"Step '{step_name}': match.cases must cover every allowed enum value; missing {missing_cases}"
+                )
+
+        if not case_outputs:
+            return
+
+        first_outputs = next(iter(case_outputs.values()))
+        for case_name, outputs in case_outputs.items():
+            if set(outputs.keys()) != set(first_outputs.keys()):
+                self._add_error(
+                    f"Step '{step_name}': all match cases must declare the same output names"
+                )
+                return
+            for output_name in first_outputs.keys():
+                left = {
+                    key: value
+                    for key, value in first_outputs[output_name].items()
+                    if key != 'from'
+                }
+                right = {
+                    key: value
+                    for key, value in outputs[output_name].items()
+                    if key != 'from'
+                }
+                if left != right:
+                    self._add_error(
+                        f"Step '{step_name}': case '{case_name}' output '{output_name}' must use matching contracts"
+                    )
+
+    def _validate_match_case(
+        self,
+        statement_name: str,
+        case_name: str,
+        case_block: Optional[Dict[str, Any]],
+        version: str,
+        artifacts_registry: Optional[Any],
+        root_catalog: Dict[str, Any],
+        parent_scope_artifacts: Dict[str, Any],
+        parent_scope_multi_visit: Set[str],
+        parent_scope_non_step_results: Set[str],
+    ) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Validate one case block of a structured match statement."""
+        if case_block is None:
+            self._add_error(
+                f"Step '{statement_name}': match.cases.{case_name} must be a list of steps or an object with steps"
+            )
+            return None
+
+        case_id = case_block.get('id')
+        if case_id is not None:
+            if not isinstance(case_id, str) or not STEP_ID_PATTERN.fullmatch(case_id):
+                self._add_error(
+                    f"Step '{statement_name}': match.cases.{case_name}.id must match {STEP_ID_PATTERN.pattern}"
+                )
+
+        case_steps = case_block.get('steps')
+        if not isinstance(case_steps, list) or not case_steps:
+            self._add_error(
+                f"Step '{statement_name}': match.cases.{case_name}.steps must be a non-empty list"
+            )
+            return None
+
+        if self._branch_contains_goto(case_steps):
+            self._add_error(
+                f"Step '{statement_name}': structured match cases do not permit goto/_end routing in the first tranche"
+            )
+
+        case_scope_artifacts = self._build_scope_artifact_catalog(case_steps, artifacts_registry)
+        case_scope_multi_visit = self._build_root_ref_catalog(case_steps, artifacts_registry).get('multi_visit', set())
+        case_scope_non_step_results = self._build_scope_non_step_result_targets(case_steps)
+        self._validate_steps(
+            case_steps,
+            version,
+            artifacts_registry,
+            root_catalog,
+            scope_artifacts=case_scope_artifacts,
+            parent_artifacts=parent_scope_artifacts,
+            scope_multi_visit=case_scope_multi_visit,
+            parent_multi_visit=parent_scope_multi_visit,
+            scope_non_step_results=case_scope_non_step_results,
+            parent_non_step_results=parent_scope_non_step_results,
+            top_level=False,
+        )
+
+        outputs = case_block.get('outputs', {})
+        if not isinstance(outputs, dict):
+            self._add_error(f"Step '{statement_name}': match.cases.{case_name}.outputs must be a dictionary")
+            return None
+
+        for output_name, spec in outputs.items():
+            context = f"Step '{statement_name}': match.cases.{case_name}.outputs.{output_name}"
+            self._validate_workflow_signature_contract(spec, context, allow_from=True)
+            if not isinstance(spec, dict):
+                continue
+
+            binding = spec.get('from')
+            ref = binding.get('ref') if isinstance(binding, dict) else None
+            ref_type = self._validate_structured_ref(
+                ref,
+                f"{statement_name}.match.cases.{case_name}.outputs.{output_name}",
+                version,
+                root_catalog,
+                case_scope_artifacts,
+                case_scope_multi_visit,
+                parent_scope_artifacts,
+                parent_scope_multi_visit,
+                case_scope_non_step_results,
                 parent_scope_non_step_results,
             )
             declared_type = spec.get('type')
@@ -1920,30 +2179,32 @@ class WorkflowLoader:
                 outputs = self._collect_if_statement_outputs(step)
                 artifact_map[name] = outputs
                 continue
+            if is_match_statement(step):
+                outputs = self._collect_match_statement_outputs(step)
+                artifact_map[name] = outputs
+                continue
 
             expected_outputs = step.get('expected_outputs')
             if isinstance(expected_outputs, list):
                 for spec in expected_outputs:
                     if isinstance(spec, dict):
                         artifact_name = spec.get('name')
-                        artifact_type = spec.get('type')
-                        if isinstance(artifact_name, str) and isinstance(artifact_type, str):
-                            outputs[artifact_name] = {
-                                'type': artifact_type,
-                                'persisted': step.get('persist_artifacts_in_state', True) is not False,
-                            }
+                        if isinstance(artifact_name, str):
+                            outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
+                                spec,
+                                persisted=step.get('persist_artifacts_in_state', True) is not False,
+                            )
 
             output_bundle = step.get('output_bundle')
             if isinstance(output_bundle, dict):
                 for spec in output_bundle.get('fields', []):
                     if isinstance(spec, dict):
                         artifact_name = spec.get('name')
-                        artifact_type = spec.get('type')
-                        if isinstance(artifact_name, str) and isinstance(artifact_type, str):
-                            outputs[artifact_name] = {
-                                'type': artifact_type,
-                                'persisted': step.get('persist_artifacts_in_state', True) is not False,
-                            }
+                        if isinstance(artifact_name, str):
+                            outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
+                                spec,
+                                persisted=step.get('persist_artifacts_in_state', True) is not False,
+                            )
 
             for field_name in ('set_scalar', 'increment_scalar'):
                 node = step.get(field_name)
@@ -1956,6 +2217,7 @@ class WorkflowLoader:
                     outputs[artifact_name] = {
                         'type': artifact_type,
                         'persisted': True,
+                        'allowed': deepcopy(artifact_spec.get('allowed')) if isinstance(artifact_spec.get('allowed'), list) else None,
                     }
 
             if 'call' in step:
@@ -1965,12 +2227,10 @@ class WorkflowLoader:
                     for artifact_name, output_spec in imported_outputs.items():
                         if not isinstance(artifact_name, str) or not isinstance(output_spec, dict):
                             continue
-                        artifact_type = output_spec.get('type')
-                        if isinstance(artifact_type, str):
-                            outputs[artifact_name] = {
-                                'type': artifact_type,
-                                'persisted': True,
-                            }
+                        outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
+                            output_spec,
+                            persisted=True,
+                        )
 
             artifact_map[name] = outputs
 
@@ -1990,13 +2250,44 @@ class WorkflowLoader:
         for output_name, spec in then_outputs.items():
             if not isinstance(output_name, str) or not isinstance(spec, dict):
                 continue
-            output_type = spec.get('type')
-            if isinstance(output_type, str):
-                outputs[output_name] = {
-                    'type': output_type,
-                    'persisted': True,
-                }
+            outputs[output_name] = self._normalize_output_contract_artifact_spec(spec, persisted=True)
         return outputs
+
+    def _collect_match_statement_outputs(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
+        """Collect block outputs exposed by a structured match statement."""
+        match = step.get('match')
+        cases = match.get('cases') if isinstance(match, dict) else None
+        if not isinstance(cases, dict):
+            return {}
+
+        for case_name, authored_case in cases.items():
+            case_block = normalize_match_case_block(authored_case, str(case_name))
+            if not isinstance(case_block, dict):
+                continue
+            outputs = case_block.get('outputs')
+            if not isinstance(outputs, dict):
+                continue
+            collected: Dict[str, Dict[str, Any]] = {}
+            for output_name, spec in outputs.items():
+                if not isinstance(output_name, str) or not isinstance(spec, dict):
+                    continue
+                collected[output_name] = self._normalize_output_contract_artifact_spec(spec, persisted=True)
+            return collected
+
+        return {}
+
+    def _normalize_output_contract_artifact_spec(
+        self,
+        spec: Dict[str, Any],
+        *,
+        persisted: bool,
+    ) -> Dict[str, Any]:
+        """Project one output contract into structured-ref metadata."""
+        return {
+            'type': spec.get('type'),
+            'persisted': persisted,
+            'allowed': deepcopy(spec.get('allowed')) if isinstance(spec.get('allowed'), list) else None,
+        }
 
     def _build_scope_non_step_result_targets(self, steps: List[Any]) -> Set[str]:
         non_step_results: Set[str] = set()
@@ -2255,77 +2546,109 @@ class WorkflowLoader:
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
     ) -> str:
+        contract = self._resolve_structured_ref_contract(
+            ref,
+            step_name,
+            version,
+            root_catalog,
+            scope_artifacts,
+            scope_multi_visit,
+            parent_artifacts,
+            parent_multi_visit,
+            scope_non_step_results,
+            parent_non_step_results,
+        )
+        if not isinstance(contract, dict):
+            return 'unknown'
+        return contract.get('type', 'unknown')
+
+    def _resolve_structured_ref_contract(
+        self,
+        ref: Any,
+        step_name: str,
+        version: str,
+        root_catalog: Dict[str, Any],
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+    ) -> Optional[Dict[str, Any]]:
         if not isinstance(ref, str) or not ref:
             self._add_error(f"Step '{step_name}': structured refs must be non-empty strings")
-            return 'unknown'
+            return None
         if ref.startswith('inputs.'):
             if not self._version_at_least(version, WORKFLOW_SIGNATURE_VERSION):
                 self._add_error(
                     f"Step '{step_name}': inputs refs are not available before workflow signatures land"
                 )
-                return 'unknown'
+                return None
             input_name = ref[len('inputs.'):]
             if not input_name:
                 self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
-                return 'unknown'
+                return None
             spec = self._workflow_input_specs.get(input_name)
             if not isinstance(spec, dict):
                 self._add_error(
                     f"Step '{step_name}': structured ref '{ref}' targets unknown input '{input_name}'"
                 )
-                return 'unknown'
-            return spec.get('type', 'unknown')
+                return None
+            return {
+                'type': spec.get('type', 'unknown'),
+                'allowed': deepcopy(spec.get('allowed')) if isinstance(spec.get('allowed'), list) else None,
+            }
         if ref.startswith('steps.'):
             self._add_error(
                 f"Step '{step_name}': bare 'steps.' refs are invalid in structured predicates"
             )
-            return 'unknown'
+            return None
         if ref.startswith('context.'):
             self._add_error(f"Step '{step_name}': structured refs cannot read untyped context values")
-            return 'unknown'
+            return None
 
         scope_name = ref.split('.', 1)[0]
         if self._version_at_least(version, "2.0"):
             if scope_name == 'root':
                 if not ref.startswith('root.steps.'):
                     self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
-                    return 'unknown'
+                    return None
                 artifacts_catalog = root_catalog.get('artifacts', {})
             elif scope_name == 'self':
                 if not ref.startswith('self.steps.'):
                     self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
-                    return 'unknown'
+                    return None
                 artifacts_catalog = scope_artifacts
             elif scope_name == 'parent':
                 if not ref.startswith('parent.steps.'):
                     self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
-                    return 'unknown'
+                    return None
                 if parent_artifacts is None:
                     self._add_error(f"Step '{step_name}': parent refs are unavailable in the root scope")
-                    return 'unknown'
+                    return None
                 artifacts_catalog = parent_artifacts
             else:
                 self._add_error(
                     f"Step '{step_name}': structured refs must start with root.steps., self.steps., or parent.steps."
                 )
-                return 'unknown'
+                return None
         else:
             if ref.startswith('self.') or ref.startswith('parent.'):
                 scope = ref.split('.', 1)[0]
                 self._add_error(
                     f"Step '{step_name}': {scope}. refs are not available before scoped refs land"
                 )
-                return 'unknown'
+                return None
             if not ref.startswith('root.steps.'):
                 self._add_error(f"Step '{step_name}': structured refs must start with 'root.steps.'")
-                return 'unknown'
+                return None
             artifacts_catalog = root_catalog.get('artifacts', {})
 
         try:
             parsed_ref = parse_structured_ref(ref, artifacts_catalog.keys())
         except ReferenceResolutionError:
             self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
-            return 'unknown'
+            return None
 
         target_step = parsed_ref.step_name
         if scope_name == 'root':
@@ -2342,22 +2665,22 @@ class WorkflowLoader:
             self._add_error(
                 f"Step '{step_name}': structured ref '{ref}' targets for_each summary step '{target_step}', which does not expose step-result fields"
             )
-            return 'unknown'
+            return None
 
         if target_step in multi_visit:
             self._add_error(
                 f"Step '{step_name}': structured ref '{ref}' targets multi-visit step '{target_step}'"
             )
-            return 'unknown'
+            return None
 
         if target_step not in artifacts_catalog:
             self._add_error(
                 f"Step '{step_name}': structured ref '{ref}' targets unknown step '{target_step}'"
             )
-            return 'unknown'
+            return None
 
         if parsed_ref.field == 'exit_code':
-            return 'integer'
+            return {'type': 'integer'}
         if parsed_ref.field == 'outcome':
             outcome_types = {
                 'status': 'string',
@@ -2370,24 +2693,24 @@ class WorkflowLoader:
                 self._add_error(
                     f"Step '{step_name}': structured ref '{ref}' targets invalid outcome field '{parsed_ref.member}'"
                 )
-                return 'unknown'
-            return outcome_type
+                return None
+            return {'type': outcome_type}
         if parsed_ref.field == 'artifacts':
             artifact_name = parsed_ref.member
             artifacts = artifacts_catalog.get(target_step, {})
             artifact_spec = artifacts.get(artifact_name)
             if artifact_spec is None:
                 self._add_error(f"Step '{step_name}': structured ref '{ref}' targets unknown artifact")
-                return 'unknown'
+                return None
             if not artifact_spec.get('persisted', True):
                 self._add_error(
                     f"Step '{step_name}': structured ref '{ref}' targets a non-persisted artifact"
                 )
-                return 'unknown'
-            return artifact_spec.get('type', 'unknown')
+                return None
+            return artifact_spec
 
         self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
-        return 'unknown'
+        return None
 
     def _validate_on_handlers(self, on: Any, step_name: str):
         """Validate on success/failure/always handlers."""

@@ -22,6 +22,10 @@ def _step_kind(step: Dict[str, Any]) -> str:
         return "structured_if_branch"
     if "structured_if_join" in step:
         return "structured_if_join"
+    if "structured_match_case" in step:
+        return "structured_match_case"
+    if "structured_match_join" in step:
+        return "structured_match_join"
     if "provider" in step:
         return "provider"
     if "command" in step:

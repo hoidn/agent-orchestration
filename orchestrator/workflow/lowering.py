@@ -11,6 +11,9 @@ from .statements import (
     branch_token,
     finally_block_token,
     is_if_statement,
+    is_match_statement,
+    match_case_token,
+    normalize_match_case_block,
     normalize_branch_block,
     normalize_finally_block,
 )
@@ -20,6 +23,9 @@ def lower_structured_steps(steps: Iterable[Dict[str, Any]]) -> List[Dict[str, An
     """Lower top-level structured statements into flat executable steps."""
     lowered: List[Dict[str, Any]] = []
     for step in steps:
+        if is_match_statement(step):
+            lowered.extend(_lower_match_statement(step))
+            continue
         if not is_if_statement(step):
             lowered.append(step)
             continue
@@ -120,6 +126,93 @@ def _lower_if_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
             "structured_if_join": {
                 "statement_name": statement_name,
                 "branches": branch_metadata,
+            },
+        }
+    )
+    return lowered
+
+
+def _lower_match_statement(step: Dict[str, Any]) -> List[Dict[str, Any]]:
+    statement_name = step["name"]
+    statement_step_id = step["step_id"]
+    match = deepcopy(step.get("match", {}))
+    selector_ref = match.get("ref")
+    cases = match.get("cases", {})
+
+    lowered: List[Dict[str, Any]] = []
+    case_metadata: Dict[str, Dict[str, Any]] = {}
+
+    if not isinstance(cases, dict):
+        cases = {}
+
+    for case_name, authored_case in cases.items():
+        case = normalize_match_case_block(authored_case, str(case_name))
+        if case is None:
+            continue
+
+        case_steps = deepcopy(case.get("steps") or [])
+        case_step_id = f"{statement_step_id}.{match_case_token(str(case_name), case)}"
+        assign_step_ids(case_steps, parent_step_id=case_step_id)
+        local_name_map = {
+            nested_step["name"]: f"{statement_name}.{case_name}.{nested_step['name']}"
+            for nested_step in case_steps
+            if isinstance(nested_step, dict) and isinstance(nested_step.get("name"), str)
+        }
+        marker_name = f"{statement_name}.{case_name}"
+        guard = {
+            "condition": {
+                "compare": {
+                    "left": {"ref": selector_ref},
+                    "op": "eq",
+                    "right": case_name,
+                }
+            },
+            "statement_name": statement_name,
+            "case_name": case_name,
+        }
+
+        lowered.append(
+            {
+                "name": marker_name,
+                "step_id": case_step_id,
+                "structured_match_case": {
+                    "statement_name": statement_name,
+                    "case_name": case_name,
+                },
+                "structured_if_guard": deepcopy(guard),
+            }
+        )
+
+        case_step_names: List[str] = []
+        for case_step in case_steps:
+            if not isinstance(case_step, dict):
+                continue
+            original_name = case_step.get("name")
+            lowered_name = local_name_map.get(original_name, original_name)
+            if isinstance(lowered_name, str):
+                case_step["name"] = lowered_name
+            case_step["structured_if_guard"] = deepcopy(guard)
+            _rewrite_step_structured_refs(case_step, local_name_map)
+            case_step_names.append(case_step["name"])
+            lowered.append(case_step)
+
+        outputs = deepcopy(case.get("outputs") or {})
+        _rewrite_output_refs(outputs, local_name_map)
+        case_metadata[str(case_name)] = {
+            "marker": marker_name,
+            "step_id": case_step_id,
+            "steps": case_step_names,
+            "outputs": outputs,
+        }
+
+    lowered.append(
+        {
+            "name": statement_name,
+            "step_id": statement_step_id,
+            "structured_match_join": {
+                "statement_name": statement_name,
+                "selector_ref": selector_ref,
+                "cases": case_metadata,
             },
         }
     )

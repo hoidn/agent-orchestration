@@ -1,0 +1,77 @@
+version: "2.6"
+name: match-demo
+artifacts:
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: [APPROVE, REVISE, BLOCKED]
+  route_action:
+    kind: scalar
+    type: enum
+    allowed: [SHIP, FIX, ESCALATE]
+steps:
+  - name: WriteDecision
+    id: write_decision
+    set_scalar:
+      artifact: review_decision
+      value: BLOCKED
+
+  - name: RouteDecision
+    id: route_decision
+    match:
+      ref: root.steps.WriteDecision.artifacts.review_decision
+      cases:
+        APPROVE:
+          id: approve_path
+          outputs:
+            route_action:
+              kind: scalar
+              type: enum
+              allowed: [SHIP, FIX, ESCALATE]
+              from:
+                ref: self.steps.WriteApprovedAction.artifacts.route_action
+          steps:
+            - name: WriteApprovedAction
+              id: write_approved_action
+              set_scalar:
+                artifact: route_action
+                value: SHIP
+        REVISE:
+          id: revise_path
+          outputs:
+            route_action:
+              kind: scalar
+              type: enum
+              allowed: [SHIP, FIX, ESCALATE]
+              from:
+                ref: self.steps.WriteRevisionAction.artifacts.route_action
+          steps:
+            - name: WriteRevisionAction
+              id: write_revision_action
+              set_scalar:
+                artifact: route_action
+                value: FIX
+        BLOCKED:
+          id: blocked_path
+          outputs:
+            route_action:
+              kind: scalar
+              type: enum
+              allowed: [SHIP, FIX, ESCALATE]
+              from:
+                ref: self.steps.WriteBlockedAction.artifacts.route_action
+          steps:
+            - name: WriteBlockedAction
+              id: write_blocked_action
+              set_scalar:
+                artifact: route_action
+                value: ESCALATE
+
+  - name: AssertEscalation
+    id: assert_escalation
+    assert:
+      compare:
+        left:
+          ref: root.steps.RouteDecision.artifacts.route_action
+        op: eq
+        right: ESCALATE

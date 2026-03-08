@@ -32,6 +32,9 @@
   - v2.2 structured-control additions:
     - lowered branch markers and lowered branch-body steps are recorded as ordinary top-level step entries under presentation keys such as `RouteReview.then` and `RouteReview.then.WriteApproved`
     - the lowered join node keeps the authored statement presentation key (for example `RouteReview`) and materializes branch outputs there
+  - v2.6 structured enum-branching additions:
+    - lowered case markers and lowered case-body steps are recorded as ordinary top-level step entries under presentation keys such as `RouteDecision.APPROVE` and `RouteDecision.APPROVE.WriteApprovedAction`
+    - the lowered join node keeps the authored statement presentation key (for example `RouteDecision`) and materializes case outputs there
   - v2.3 finalization additions:
     - lowered finalization steps are recorded as ordinary top-level step entries under presentation keys such as `finally.ReleaseLock`
     - `finalization.workflow_outputs_status` records whether workflow outputs are `pending`, `completed`, `failed`, `suppressed`, or `not_configured`
@@ -60,6 +63,7 @@
   - Resume from pre-v2.0 state is rejected unless a dedicated upgrader is introduced in a later tranche.
   - v2.1 workflow signatures append `bound_inputs` / `workflow_outputs`; the later v2.5 reusable-call tranche moves the top-level schema to `2.1`.
   - v2.2 structured `if/else` also reuses schema `2.0`; lowered branch markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
+  - v2.6 structured `match` also reuses schema `2.0`; lowered case markers/join metadata are additive `steps.*` payload fields rather than a new schema boundary.
   - v2.3 structured finalization also reuses schema `2.0`; finalization bookkeeping and lowered `finally.*` step entries are additive fields.
   - v2.5 reusable `call` is the schema boundary that moves state to `2.1`, because bare artifact-name ledgers cannot preserve callee-private lineage or freshness safely.
 

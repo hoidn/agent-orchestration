@@ -35,6 +35,7 @@ from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
 from .assets import AssetResolutionError, WorkflowAssetResolver
 from .identity import iteration_step_id, runtime_step_id
+from .predicates import PredicateEvaluationError, resolve_typed_operand
 from .references import ReferenceResolutionError, ReferenceResolver
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 
@@ -1030,6 +1031,12 @@ class WorkflowExecutor:
                     elif 'structured_if_join' in step:
                         result = self._execute_structured_if_join(step, state)
                         self._persist_step_result(state, step_name, step, result)
+                    elif 'structured_match_case' in step:
+                        result = self._execute_structured_match_case(step)
+                        self._persist_step_result(state, step_name, step, result)
+                    elif 'structured_match_join' in step:
+                        result = self._execute_structured_match_join(step, state)
+                        self._persist_step_result(state, step_name, step, result)
                     elif 'wait_for' in step:
                         state = self._execute_wait_for(step, state)
                     elif 'assert' in step:
@@ -1142,6 +1149,10 @@ class WorkflowExecutor:
             return 'structured_if_branch'
         if 'structured_if_join' in step:
             return 'structured_if_join'
+        if 'structured_match_case' in step:
+            return 'structured_match_case'
+        if 'structured_match_join' in step:
+            return 'structured_match_join'
         if 'provider' in step:
             return 'provider'
         if 'command' in step:
@@ -3804,6 +3815,59 @@ class WorkflowExecutor:
             },
         )
 
+    def _resolve_structured_output_artifacts(
+        self,
+        outputs: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        failure_message: str,
+        selection_key: str,
+        selection_value: str,
+    ) -> Dict[str, Any] | None:
+        """Resolve one structured statement's declared outputs into validated artifacts."""
+        artifacts: Dict[str, Any] = {}
+        for output_name, spec in outputs.items():
+            if not isinstance(spec, dict):
+                continue
+            binding = spec.get('from')
+            ref = binding.get('ref') if isinstance(binding, dict) else None
+            if not isinstance(ref, str) or not ref:
+                return self._contract_violation_result(
+                    failure_message,
+                    {
+                        "reason": "missing_output_ref",
+                        "output": output_name,
+                        selection_key: selection_value,
+                    },
+                )
+            try:
+                raw_value = resolve_typed_operand({"ref": ref}, state)
+            except PredicateEvaluationError as exc:
+                return self._contract_violation_result(
+                    failure_message,
+                    {
+                        "reason": "unresolved_output_ref",
+                        "output": output_name,
+                        selection_key: selection_value,
+                        "ref": ref,
+                        "error": str(exc),
+                    },
+                )
+            try:
+                artifacts[output_name] = validate_contract_value(raw_value, spec, workspace=self.workspace)
+            except OutputContractError as exc:
+                return self._contract_violation_result(
+                    failure_message,
+                    {
+                        "reason": "invalid_output_value",
+                        "output": output_name,
+                        selection_key: selection_value,
+                        "ref": ref,
+                        "violations": exc.violations,
+                    },
+                )
+        return artifacts
+
     def _execute_structured_if_branch(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Record one lowered branch marker for a structured if/else statement."""
         metadata = step.get('structured_if_branch', {})
@@ -3874,47 +3938,15 @@ class WorkflowExecutor:
         if not isinstance(outputs, dict):
             outputs = {}
 
-        artifacts: Dict[str, Any] = {}
-        for output_name, spec in outputs.items():
-            if not isinstance(spec, dict):
-                continue
-            binding = spec.get('from')
-            ref = binding.get('ref') if isinstance(binding, dict) else None
-            if not isinstance(ref, str) or not ref:
-                return self._contract_violation_result(
-                    "Structured if/else join failed",
-                    {
-                        "reason": "missing_output_ref",
-                        "output": output_name,
-                        "branch": selected_branch,
-                    },
-                )
-            try:
-                raw_value = self.reference_resolver.resolve(ref, state).value
-            except ReferenceResolutionError as exc:
-                return self._contract_violation_result(
-                    "Structured if/else join failed",
-                    {
-                        "reason": "unresolved_output_ref",
-                        "output": output_name,
-                        "branch": selected_branch,
-                        "ref": ref,
-                        "error": str(exc),
-                    },
-                )
-            try:
-                artifacts[output_name] = validate_contract_value(raw_value, spec, workspace=self.workspace)
-            except OutputContractError as exc:
-                return self._contract_violation_result(
-                    "Structured if/else join failed",
-                    {
-                        "reason": "invalid_output_value",
-                        "output": output_name,
-                        "branch": selected_branch,
-                        "ref": ref,
-                        "violations": exc.violations,
-                    },
-                )
+        artifacts = self._resolve_structured_output_artifacts(
+            outputs,
+            state,
+            failure_message="Structured if/else join failed",
+            selection_key="branch",
+            selection_value=selected_branch,
+        )
+        if not isinstance(artifacts, dict):
+            return artifacts
 
         return {
             'status': 'completed',
@@ -3925,6 +3957,100 @@ class WorkflowExecutor:
                 'structured_if': {
                     'selected_branch': selected_branch,
                     'branches': branch_statuses,
+                }
+            },
+        }
+
+    def _execute_structured_match_case(self, step: Dict[str, Any]) -> Dict[str, Any]:
+        """Record one lowered case marker for a structured match statement."""
+        metadata = step.get('structured_match_case', {})
+        case_name = metadata.get('case_name') if isinstance(metadata, dict) else None
+        statement_name = metadata.get('statement_name') if isinstance(metadata, dict) else None
+        return {
+            'status': 'completed',
+            'exit_code': 0,
+            'duration_ms': 0,
+            'debug': {
+                'structured_match': {
+                    'statement_name': statement_name,
+                    'selected_case': case_name,
+                    'case_marker': True,
+                }
+            },
+        }
+
+    def _execute_structured_match_join(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
+        """Materialize selected case outputs onto the lowered join node."""
+        metadata = step.get('structured_match_join', {})
+        cases = metadata.get('cases', {}) if isinstance(metadata, dict) else {}
+        if not isinstance(cases, dict) or not cases:
+            return self._contract_violation_result(
+                "Structured match join failed",
+                {"reason": "missing_case_metadata"},
+            )
+
+        steps_state = state.get('steps', {})
+        if not isinstance(steps_state, dict):
+            steps_state = {}
+
+        case_statuses: Dict[str, Any] = {}
+        selected_case: Optional[str] = None
+        for case_name, case in cases.items():
+            if not isinstance(case, dict):
+                continue
+            marker_name = case.get('marker')
+            marker_result = steps_state.get(marker_name) if isinstance(marker_name, str) else None
+            marker_status = marker_result.get('status') if isinstance(marker_result, dict) else 'pending'
+            case_statuses[case_name] = {
+                'status': marker_status,
+                'marker': marker_name,
+                'steps': list(case.get('steps', [])) if isinstance(case.get('steps'), list) else [],
+            }
+            if marker_status != 'skipped':
+                if selected_case is not None:
+                    return self._contract_violation_result(
+                        "Structured match join failed",
+                        {
+                            "reason": "multiple_selected_cases",
+                            "cases": case_statuses,
+                        },
+                    )
+                selected_case = case_name
+
+        if selected_case is None:
+            return self._contract_violation_result(
+                "Structured match join failed",
+                {
+                    "reason": "no_selected_case",
+                    "cases": case_statuses,
+                },
+            )
+
+        selected = cases.get(selected_case, {})
+        outputs = selected.get('outputs', {}) if isinstance(selected, dict) else {}
+        if not isinstance(outputs, dict):
+            outputs = {}
+
+        artifacts = self._resolve_structured_output_artifacts(
+            outputs,
+            state,
+            failure_message="Structured match join failed",
+            selection_key="case",
+            selection_value=selected_case,
+        )
+        if not isinstance(artifacts, dict):
+            return artifacts
+
+        return {
+            'status': 'completed',
+            'exit_code': 0,
+            'duration_ms': 0,
+            'artifacts': artifacts,
+            'debug': {
+                'structured_match': {
+                    'selected_case': selected_case,
+                    'cases': case_statuses,
+                    'selector_ref': metadata.get('selector_ref'),
                 }
             },
         }

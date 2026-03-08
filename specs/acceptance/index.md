@@ -166,6 +166,13 @@
 156. v2.5 call-scoped freshness: callee-internal `artifact_versions`, `artifact_consumes`, and `since_last_consume` freshness bookkeeping use call-frame-qualified identities rather than bare names
 157. v2.5 finalization-aware exports: caller-visible callee outputs materialize only after callee body and callee finalization both succeed, and stay suppressed when callee finalization fails
 158. v2.5 call-frame diagnostics/reporting: status and report surfaces expose call-frame identity/import/export state without leaking undeclared callee-private artifacts into caller-visible state
+159. v2.6 loader gating: structured `match` is rejected below `version: "2.6"`
+160. v2.6 enum boundary: `match.ref` must resolve to an enum artifact or input, and `match.cases` must cover every allowed enum value
+161. v2.6 case-local visibility: downstream refs may target only the statement node outputs, not case-local inner step names
+162. v2.6 lowering stability: authored statement/case ids preserve lowered `step_id` ancestry across sibling insertion
+163. v2.6 non-selected cases: lowered non-selected case nodes are recorded explicitly as skipped
+164. v2.6 statement outputs: selected case outputs materialize onto the statement node as `steps.<Statement>.artifacts`
+165. v2.6 conservative routing boundary: `goto` / `_end` is rejected inside structured `match` cases in the first tranche
 
 ## DSL Evolution Rollout Crosswalk
 
@@ -196,6 +203,7 @@
 | 158 | `tests/test_resume_command.py` and `tests/test_state_manager.py` coverage for call-frame identities, deferred export state, and operator-facing diagnostics, plus the `call_subworkflow_demo` run/resume commands |
 
 - Task 11 executable proof: `tests/test_subworkflow_calls.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_prompt_contract_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, `tests/test_secrets.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/call_subworkflow_demo.yaml`
+- Task 12 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/match_demo.yaml`
 
 ## Future Acceptance (v1.2)
 

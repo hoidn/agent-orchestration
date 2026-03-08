@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", or "2.5"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", or "2.6"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -64,7 +64,7 @@
     - `set_scalar: { artifact, value }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `increment_scalar: { artifact, by }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR
     - `wait_for: { ... }` (exclusive with provider/command/for_each)
-    - Planned reusable execution form (v2.5; contract fixed in v2.4 docs):
+    - Reusable execution form (v2.5; contract fixed in v2.4 docs):
       - `call: <import alias>`
       - `with: { <callee-input-name>: Literal|{ref} }`
       - first tranche requires an authored stable `id` on the outer call step so call-frame identities survive sibling insertion or import-alias reshaping
@@ -79,6 +79,16 @@
       - top-level only
       - `goto` / `_end` are rejected inside branch steps
       - branch outputs must use matching contracts across `then` and `else`
+    - v2.6 top-level `match:`
+      - `ref: StructuredRef` resolving to an enum artifact or input
+      - `cases: { <allowed-enum-value>: Step[] | { id?, steps: Step[], outputs: WorkflowOutputMap } }`
+      - case `id` uses the same pattern as step `id`
+      - case-local steps are visible only inside that case's local scope; downstream refs must target `root.steps.<Statement>.artifacts.<name>` from the statement outputs
+      - first tranche restrictions:
+        - top-level only
+        - `goto` / `_end` are rejected inside case steps
+        - `cases` must cover every allowed enum value on the selected ref
+        - case outputs must use matching contracts across every case
   - Cycle guards:
     - `max_visits: integer` (v1.8+; optional; must be `> 0`)
     - First tranche is limited to top-level non-`for_each` steps.
@@ -202,6 +212,8 @@
         - `inputs.<name>` addresses one bound workflow input
       - v2.2 structured branch outputs:
         - downstream refs target `root.steps.<IfStatement>.artifacts.<name>`
+      - v2.6 structured match outputs:
+        - downstream refs target `root.steps.<MatchStatement>.artifacts.<name>`
     - `assert`: gate object; any of
       - v1.5: legacy `equals|exists|not_exists`
       - v1.6+: legacy conditions or typed predicates
@@ -237,6 +249,7 @@
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.
   - top-level `finally` requires `version: "2.3"` or higher.
+  - structured `match` requires `version: "2.6"` or higher.
   - reusable-call contract boundary:
     - Task 10 reserves `imports`, `call`, `with`, `asset_file`, and `asset_depends_on` semantics before execution support lands.
     - When Task 11 lands, those fields require `version: "2.5"` or higher.
@@ -301,7 +314,7 @@ context: { [key: string]: any } # Optional key/value map available via ${context
 max_transitions: integer        # v1.8+ optional workflow-level cycle budget (> 0)
 inputs: { [name: string]: WorkflowInput }   # v2.1+ workflow-boundary typed inputs
 outputs: { [name: string]: WorkflowOutput } # v2.1+ workflow-boundary typed outputs
-imports: { [alias: string]: string }        # v2.5 planned; reusable workflow aliases (workflow-source-relative)
+imports: { [alias: string]: string }        # v2.5 reusable workflow aliases (workflow-source-relative)
 
 # v1.2+: canonical artifact contracts for publish/consume dataflow
 artifacts:                      # Optional

@@ -90,11 +90,20 @@ class TypedPredicateEvaluator:
         state: Dict[str, Any],
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Any:
-        if isinstance(operand, dict):
-            if set(operand.keys()) == {"ref"}:
-                try:
-                    return self.reference_resolver.resolve(operand["ref"], state, scope=scope).value
-                except ReferenceResolutionError as exc:
-                    raise PredicateEvaluationError(str(exc)) from exc
-            raise PredicateEvaluationError("Operand dictionaries must contain only 'ref'")
-        return operand
+        return resolve_typed_operand(operand, state, scope=scope)
+
+
+def resolve_typed_operand(
+    operand: Any,
+    state: Dict[str, Any],
+    scope: Optional[Dict[str, Dict[str, Any]]] = None,
+) -> Any:
+    """Resolve one typed-predicate operand or return a literal unchanged."""
+    if isinstance(operand, dict):
+        if set(operand.keys()) == {"ref"}:
+            try:
+                return ReferenceResolver().resolve(operand["ref"], state, scope=scope).value
+            except ReferenceResolutionError as exc:
+                raise PredicateEvaluationError(str(exc)) from exc
+        raise PredicateEvaluationError("Operand dictionaries must contain only 'ref'")
+    return operand
