@@ -1,0 +1,146 @@
+version: "2.7"
+name: "design-plan-impl-review-stack-v2-call"
+
+imports:
+  design_phase: ../library/tracked_design_phase.yaml
+  plan_phase: ../library/tracked_plan_phase.yaml
+  implementation_phase: ../library/design_plan_impl_implementation_phase.yaml
+
+inputs:
+  brief_path:
+    kind: relpath
+    type: relpath
+    under: workflows/examples/inputs
+    must_exist_target: true
+    default: workflows/examples/inputs/provider_session_resume_brief.md
+  design_target_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+    default: docs/plans/2026-03-09-provider-session-resume-design.md
+  design_review_report_target_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+    default: artifacts/review/provider-session-resume-design-review.json
+  plan_target_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+    default: docs/plans/2026-03-09-provider-session-resume-execution-plan.md
+  plan_review_report_target_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+    default: artifacts/review/provider-session-resume-plan-review.json
+  execution_report_target_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/work
+    default: artifacts/work/provider-session-resume-execution-report.md
+  implementation_review_report_target_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+    default: artifacts/review/provider-session-resume-implementation-review.md
+
+outputs:
+  design_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    from:
+      ref: root.steps.RunDesignPhase.artifacts.design_path
+  design_review_report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.RunDesignPhase.artifacts.design_review_report_path
+  design_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "BLOCK"]
+    from:
+      ref: root.steps.RunDesignPhase.artifacts.design_review_decision
+  plan_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    from:
+      ref: root.steps.RunPlanPhase.artifacts.plan_path
+  plan_review_report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.RunPlanPhase.artifacts.plan_review_report_path
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.RunPlanPhase.artifacts.plan_review_decision
+  execution_report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.execution_report_path
+  implementation_review_report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.implementation_review_report_path
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.implementation_review_decision
+
+steps:
+  - name: RunDesignPhase
+    id: run_design_phase
+    call: design_phase
+    with:
+      state_root: state/design-phase-stack
+      brief_path:
+        ref: inputs.brief_path
+      design_target_path:
+        ref: inputs.design_target_path
+      design_review_report_target_path:
+        ref: inputs.design_review_report_target_path
+
+  - name: RunPlanPhase
+    id: run_plan_phase
+    call: plan_phase
+    with:
+      state_root: state/plan-phase-stack
+      design_path:
+        ref: root.steps.RunDesignPhase.artifacts.design_path
+      plan_target_path:
+        ref: inputs.plan_target_path
+      plan_review_report_target_path:
+        ref: inputs.plan_review_report_target_path
+
+  - name: RunImplementationPhase
+    id: run_implementation_phase
+    call: implementation_phase
+    with:
+      state_root: state/implementation-phase-stack
+      design_path:
+        ref: root.steps.RunDesignPhase.artifacts.design_path
+      plan_path:
+        ref: root.steps.RunPlanPhase.artifacts.plan_path
+      execution_report_target_path:
+        ref: inputs.execution_report_target_path
+      implementation_review_report_target_path:
+        ref: inputs.implementation_review_report_target_path

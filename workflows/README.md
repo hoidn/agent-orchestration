@@ -26,6 +26,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/backlog_plan_execute_v1_3_json_bundles.yaml` | `1.3` | `backlog-plan-execute-v1-3-json-bundles` | Execute/review/fix loop using `output_bundle` and `consume_bundle` for strict JSON-gated routing. |
 | `workflows/examples/call_subworkflow_demo.yaml` | `2.5` | `call-subworkflow-demo` | Demonstrates inline reusable `call` execution, persisted call-frame state, and caller-visible outputs exported from a library workflow. |
 | `workflows/examples/cycle_guard_demo.yaml` | `1.8` | `cycle-guard-demo` | Demonstrates `max_visits`/`max_transitions` counters, a typed `assert.compare` loop gate, and terminal guard-stop behavior without shell counters. |
+| `workflows/examples/design_plan_impl_review_stack_v2_call.yaml` | `2.7` | `design-plan-impl-review-stack-v2-call` | Full stack example: tracked design/ADR loop, tracked plan loop, then implementation review/fix, composed from reusable `call`-based phase workflows. |
 | `workflows/examples/assert_gate_demo.yaml` | `1.5` | `assert-gate-demo` | Demonstrates first-class `assert` gates and `on.failure.goto` recovery without shell glue. |
 | `workflows/examples/bad_processed.yaml` | `1.1` | `bad_processed` | Negative fixture for path-safety validation of an invalid `processed_dir`. |
 | `workflows/examples/claude_basic.yaml` | `1.1` | `claude_basic_example` | Smallest Claude provider example using argv prompt delivery. |
@@ -65,6 +66,9 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | --- | --- | --- | --- |
 | `workflows/library/follow_on_plan_phase.yaml` | `2.7` | `follow-on-plan-phase` | Reusable plan-phase subworkflow for the modular follow-on example: draft plan, run structured plan review/revise loop, export the final plan contract. |
 | `workflows/library/follow_on_implementation_phase.yaml` | `2.7` | `follow-on-implementation-phase` | Reusable implementation-phase subworkflow for the modular follow-on example: execute plan work, run structured implementation review/fix loop, export final implementation outputs. |
+| `workflows/library/tracked_design_phase.yaml` | `2.7` | `tracked-design-phase` | Reusable tracked design/ADR phase: draft design, run tracked hard-nosed review/revise loop, allow explicit `BLOCK`, and export the approved design contract. |
+| `workflows/library/tracked_plan_phase.yaml` | `2.7` | `tracked-plan-phase` | Reusable tracked plan phase: draft plan from an approved design, reconcile carried findings across iterations, and export the approved plan contract. |
+| `workflows/library/design_plan_impl_implementation_phase.yaml` | `2.7` | `design-plan-impl-implementation-phase` | Reusable implementation phase for the full stack example: implement against design + plan, then review/fix until the implementation is approved. |
 | `workflows/library/review_fix_loop.yaml` | `2.5` | `review-fix-loop` | Minimal reusable call demo library used by `call_subworkflow_demo.yaml`. |
 
 ## Related Docs

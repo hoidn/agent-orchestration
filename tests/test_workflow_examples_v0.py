@@ -18,6 +18,7 @@ EXAMPLE_FILES = [
     "backlog_plan_execute_v1_3_json_bundles.yaml",
     "call_subworkflow_demo.yaml",
     "cycle_guard_demo.yaml",
+    "design_plan_impl_review_stack_v2_call.yaml",
     "dsl_follow_on_plan_impl_review_loop.yaml",
     "dsl_follow_on_plan_impl_review_loop_v2.yaml",
     "dsl_follow_on_plan_impl_review_loop_v2_call.yaml",
@@ -1032,6 +1033,278 @@ def test_dsl_follow_on_plan_impl_review_loop_v2_call_runtime(tmp_path: Path):
     }
     assert "PublishFinalOutputs" not in state["steps"]
     assert len(state.get("call_frames", {})) == 2
+
+
+def test_design_plan_impl_review_stack_v2_call_runtime(tmp_path: Path):
+    """Call-based stack runs tracked design, tracked plan, then implementation review/fix."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "design_plan_impl_review_stack_v2_call.yaml"
+    )
+    for repo_file in [
+        "workflows/library/tracked_design_phase.yaml",
+        "workflows/library/tracked_plan_phase.yaml",
+        "workflows/library/design_plan_impl_implementation_phase.yaml",
+        "prompts/workflows/design_plan_impl_stack_v2_call/draft_design.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/review_design.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/revise_design.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/draft_plan.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/review_plan.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/revise_plan.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/implement_plan.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/review_implementation.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/fix_implementation.md",
+        "workflows/examples/inputs/provider_session_resume_brief.md",
+    ]:
+        _copy_repo_file_to_workspace(workspace, repo_file)
+
+    design_review_calls = {"count": 0}
+    plan_review_calls = {"count": 0}
+    implementation_review_calls = {"count": 0}
+    call_index = {"value": 0}
+
+    def _write_design(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/design-phase-stack/design_path.txt",
+                "docs/plans/2026-03-09-provider-session-resume-design.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_design_review(ws: Path) -> None:
+        import json
+
+        design_review_calls["count"] += 1
+        report_relpath = (ws / "state" / "design-phase-stack" / "design_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if design_review_calls["count"] == 1:
+            payload = {
+                "decision": "REVISE",
+                "summary": "One blocking design issue remains.",
+                "unresolved_high_count": 1,
+                "unresolved_medium_count": 0,
+                "findings": [
+                    {
+                        "id": "DESIGN-H1",
+                        "status": "STILL_OPEN",
+                        "severity": "high",
+                        "scope_classification": "blocking_prerequisite",
+                        "title": "Session ownership is underspecified",
+                    }
+                ],
+            }
+        else:
+            payload = {
+                "decision": "APPROVE",
+                "summary": "Design is ready for planning.",
+                "unresolved_high_count": 0,
+                "unresolved_medium_count": 1,
+                "findings": [
+                    {
+                        "id": "DESIGN-H1",
+                        "status": "RESOLVED",
+                        "severity": "high",
+                        "scope_classification": "blocking_prerequisite",
+                        "title": "Session ownership is underspecified",
+                    }
+                ],
+            }
+        report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        (ws / "state" / "design-phase-stack" / "design_review_decision.txt").write_text(
+            f"{payload['decision']}\n", encoding="utf-8"
+        )
+        (ws / "state" / "design-phase-stack" / "unresolved_high_count.txt").write_text(
+            f"{payload['unresolved_high_count']}\n", encoding="utf-8"
+        )
+        (ws / "state" / "design-phase-stack" / "unresolved_medium_count.txt").write_text(
+            f"{payload['unresolved_medium_count']}\n", encoding="utf-8"
+        )
+
+    def _write_plan(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/plan-phase-stack/plan_path.txt",
+                "docs/plans/2026-03-09-provider-session-resume-execution-plan.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_plan_review(ws: Path) -> None:
+        import json
+
+        plan_review_calls["count"] += 1
+        report_relpath = (ws / "state" / "plan-phase-stack" / "plan_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if plan_review_calls["count"] == 1:
+            payload = {
+                "decision": "REVISE",
+                "summary": "Plan needs one tranche adjustment.",
+                "unresolved_high_count": 1,
+                "unresolved_medium_count": 0,
+                "findings": [
+                    {
+                        "id": "PLAN-H1",
+                        "status": "STILL_OPEN",
+                        "severity": "high",
+                        "title": "String support must precede session DSL work",
+                    }
+                ],
+            }
+        else:
+            payload = {
+                "decision": "APPROVE",
+                "summary": "Plan is ready to implement.",
+                "unresolved_high_count": 0,
+                "unresolved_medium_count": 0,
+                "findings": [
+                    {
+                        "id": "PLAN-H1",
+                        "status": "RESOLVED",
+                        "severity": "high",
+                        "title": "String support must precede session DSL work",
+                    }
+                ],
+            }
+        report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        (ws / "state" / "plan-phase-stack" / "plan_review_decision.txt").write_text(
+            f"{payload['decision']}\n", encoding="utf-8"
+        )
+        (ws / "state" / "plan-phase-stack" / "unresolved_high_count.txt").write_text(
+            f"{payload['unresolved_high_count']}\n", encoding="utf-8"
+        )
+        (ws / "state" / "plan-phase-stack" / "unresolved_medium_count.txt").write_text(
+            f"{payload['unresolved_medium_count']}\n", encoding="utf-8"
+        )
+
+    def _write_execution_report(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/implementation-phase-stack/execution_report_path.txt",
+                "artifacts/work/provider-session-resume-execution-report.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_implementation_review(ws: Path) -> None:
+        implementation_review_calls["count"] += 1
+        report_relpath = (
+            ws / "state" / "implementation-phase-stack" / "implementation_review_report_path.txt"
+        ).read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if implementation_review_calls["count"] == 1:
+            report_path.write_text("## High\n- One blocking runtime gap remains.\n", encoding="utf-8")
+            decision = "REVISE"
+        else:
+            report_path.write_text("## Medium\n- Remaining issues are non-blocking.\n", encoding="utf-8")
+            decision = "APPROVE"
+        (ws / "state" / "implementation-phase-stack" / "implementation_review_decision.txt").write_text(
+            f"{decision}\n", encoding="utf-8"
+        )
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_relpath,
+        workflow.get("context", {}),
+        bound_inputs={
+            "brief_path": "workflows/examples/inputs/provider_session_resume_brief.md",
+            "design_target_path": "docs/plans/2026-03-09-provider-session-resume-design.md",
+            "design_review_report_target_path": "artifacts/review/provider-session-resume-design-review.json",
+            "plan_target_path": "docs/plans/2026-03-09-provider-session-resume-execution-plan.md",
+            "plan_review_report_target_path": "artifacts/review/provider-session-resume-plan-review.json",
+            "execution_report_target_path": "artifacts/work/provider-session-resume-execution-report.md",
+            "implementation_review_report_target_path": "artifacts/review/provider-session-resume-implementation-review.md",
+        },
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    def _prepare_invocation(_self, *_args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **_kwargs):
+        index = call_index["value"]
+        call_index["value"] += 1
+        if index == 0:
+            _write_design("# Draft provider-session resume design\n")(workspace)
+        elif index == 1:
+            _write_design_review(workspace)
+        elif index == 2:
+            _write_design("# Revised provider-session resume design\n")(workspace)
+        elif index == 3:
+            _write_design_review(workspace)
+        elif index == 4:
+            _write_plan("# Draft provider-session resume plan\n")(workspace)
+        elif index == 5:
+            _write_plan_review(workspace)
+        elif index == 6:
+            _write_plan("# Revised provider-session resume plan\n")(workspace)
+        elif index == 7:
+            _write_plan_review(workspace)
+        elif index == 8:
+            _write_execution_report("Initial implementation report\n")(workspace)
+        elif index == 9:
+            _write_implementation_review(workspace)
+        elif index == 10:
+            _write_execution_report("Updated implementation report after fixes\n")(workspace)
+        elif index == 11:
+            _write_implementation_review(workspace)
+        else:
+            raise AssertionError(f"Unexpected provider invocation index {index}")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+    state["__provider_calls"] = call_index["value"]
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 12
+    assert state["workflow_outputs"] == {
+        "design_path": "docs/plans/2026-03-09-provider-session-resume-design.md",
+        "design_review_report_path": "artifacts/review/provider-session-resume-design-review.json",
+        "design_review_decision": "APPROVE",
+        "plan_path": "docs/plans/2026-03-09-provider-session-resume-execution-plan.md",
+        "plan_review_report_path": "artifacts/review/provider-session-resume-plan-review.json",
+        "plan_review_decision": "APPROVE",
+        "execution_report_path": "artifacts/work/provider-session-resume-execution-report.md",
+        "implementation_review_report_path": "artifacts/review/provider-session-resume-implementation-review.md",
+        "implementation_review_decision": "APPROVE",
+    }
+    assert state["steps"]["RunDesignPhase"]["artifacts"] == {
+        "design_path": "docs/plans/2026-03-09-provider-session-resume-design.md",
+        "design_review_report_path": "artifacts/review/provider-session-resume-design-review.json",
+        "design_review_decision": "APPROVE",
+    }
+    assert state["steps"]["RunPlanPhase"]["artifacts"] == {
+        "plan_path": "docs/plans/2026-03-09-provider-session-resume-execution-plan.md",
+        "plan_review_report_path": "artifacts/review/provider-session-resume-plan-review.json",
+        "plan_review_decision": "APPROVE",
+    }
+    assert state["steps"]["RunImplementationPhase"]["artifacts"] == {
+        "execution_report_path": "artifacts/work/provider-session-resume-execution-report.md",
+        "implementation_review_report_path": "artifacts/review/provider-session-resume-implementation-review.md",
+        "implementation_review_decision": "APPROVE",
+    }
+    assert len(state.get("call_frames", {})) == 3
 
 
 def test_dsl_tracked_plan_review_loop_runtime(tmp_path: Path):
