@@ -187,6 +187,10 @@ For v2.7 structured loops:
 - keep the first tranche bounded: no `goto`, nested `for_each`, or nested `repeat_until` inside the loop body
 - direct nested `call`, `match`, and `if/else` bodies are allowed; the loader lowers them into loop-local executable steps that still read body-local refs through `self.steps.*` and outer lexical refs through `parent.steps.*`
 
+Reference examples:
+- Use [`workflows/examples/dsl_follow_on_plan_impl_review_loop_v2.yaml`](../workflows/examples/dsl_follow_on_plan_impl_review_loop_v2.yaml) as the monolithic reference for typed workflow boundaries plus top-level `match` and `repeat_until`.
+- Use [`workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml`](../workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml) as the modular reference for a small parent workflow that `call`s reusable review loops implemented in [`workflows/library/follow_on_plan_phase.yaml`](../workflows/library/follow_on_plan_phase.yaml) and [`workflows/library/follow_on_implementation_phase.yaml`](../workflows/library/follow_on_implementation_phase.yaml).
+
 For post-v2.0 workflows, separate display names from durable identity:
 - keep `name` optimized for readable reports
 - use `id` when the step participates in lineage, scoped refs, or any flow you expect to survive sibling insertion / block reshaping
@@ -203,6 +207,11 @@ If you expect a workflow to be used through `call`:
 - Remember the caller-visible contract: exported callee outputs land on the outer call step (`steps.<CallStep>.artifacts.*`) only after the callee body and any callee `finally` work both succeed.
 - Assume imported `command` / `provider` steps still have accepted operational risk for undeclared filesystem effects. First-tranche `call` is reuse, not sandboxing.
 - Treat imported `providers`, `artifacts`, and `context` defaults as callee-private by default; do not design workflows that depend on implicit caller/callee namespace merging.
+
+Concrete extraction pattern:
+- Keep the parent workflow small and phase-oriented, then move each reusable review loop into a library workflow with typed `inputs`/`outputs`.
+- [`workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml`](../workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml) shows the parent shape.
+- [`workflows/library/follow_on_plan_phase.yaml`](../workflows/library/follow_on_plan_phase.yaml) and [`workflows/library/follow_on_implementation_phase.yaml`](../workflows/library/follow_on_implementation_phase.yaml) show the extracted callee shape.
 
 ### Plan-Time Strategy vs Runtime Check Plan
 
