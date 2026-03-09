@@ -41,6 +41,7 @@ from .resume_planner import ResumePlanner
 from .runtime_context import RuntimeContext
 from .runtime_types import NormalizedStepOutcome, RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
+from .step_runner import StepRunner
 
 logger = logging.getLogger(__name__)
 
@@ -361,6 +362,7 @@ class WorkflowExecutor:
             persist_state=self._persist_finalization_state,
             finalization_failure_error=self._finalization_failure_error,
         )
+        self.step_runner = StepRunner(self)
 
         # Retry configuration
         self.max_retries = max_retries
@@ -948,77 +950,12 @@ class WorkflowExecutor:
 
                 # Execute based on step type
                 with self._step_heartbeat(step_name):
-                    if 'for_each' in step:
-                        state = self._execute_for_each(step, state, resume=resume_current_step)
-                        # Persist the for_each summary array to state manager
-                        # The for_each method already updates individual iteration results,
-                        # but we also need to persist the summary array result
-                        if step_name in state['steps']:
-                            loop_results = state['steps'][step_name]
-                            # Update state manager with the loop results array
-                            # This ensures the array is persisted to disk and tests can access
-                            # state['steps']['ProcessFiles'] as expected
-                            if isinstance(loop_results, list):
-                                self.state_manager.update_loop_results(step_name, loop_results)
-                        self._emit_step_summary(
-                            step_name,
-                            step,
-                            state.get('steps', {}).get(step_name, {'status': 'completed'}),
-                        )
-                    elif 'repeat_until' in step:
-                        state = self._execute_repeat_until(step, state, resume=resume_current_step)
-                        self._emit_step_summary(
-                            step_name,
-                            step,
-                            state.get('steps', {}).get(step_name, {'status': 'completed'}),
-                        )
-                    elif 'structured_if_branch' in step:
-                        result = self._execute_structured_if_branch(step)
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'structured_if_join' in step:
-                        result = self._execute_structured_if_join(step, state)
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'structured_match_case' in step:
-                        result = self._execute_structured_match_case(step)
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'structured_match_join' in step:
-                        result = self._execute_structured_match_join(step, state)
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'wait_for' in step:
-                        state = self._execute_wait_for(step, state)
-                    elif 'assert' in step:
-                        result = self._execute_assert(step, state)
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'set_scalar' in step:
-                        result = self._execute_set_scalar(step)
-                        publish_error = self._record_published_artifacts(step, step_name, result, state)
-                        if publish_error is not None:
-                            result = publish_error
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'increment_scalar' in step:
-                        result = self._execute_increment_scalar(step, state)
-                        publish_error = self._record_published_artifacts(step, step_name, result, state)
-                        if publish_error is not None:
-                            result = publish_error
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'call' in step:
-                        result = self._execute_call(step, state)
-                        publish_error = self._record_published_artifacts(step, step_name, result, state)
-                        if publish_error is not None:
-                            result = publish_error
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'provider' in step:
-                        result = self._execute_provider(step, state)
-                        publish_error = self._record_published_artifacts(step, step_name, result, state)
-                        if publish_error is not None:
-                            result = publish_error
-                        self._persist_step_result(state, step_name, step, result)
-                    elif 'command' in step:
-                        result = self._execute_command(step, state)
-                        publish_error = self._record_published_artifacts(step, step_name, result, state)
-                        if publish_error is not None:
-                            result = publish_error
-                        self._persist_step_result(state, step_name, step, result)
+                    self.step_runner.run_top_level(
+                        step,
+                        state,
+                        step_name=step_name,
+                        resume_current_step=resume_current_step,
+                    )
 
                 # Handle control flow after step execution (AT-56, AT-57, AT-58)
                 next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
@@ -2108,45 +2045,39 @@ class WorkflowExecutor:
                             iteration_state,
                             parent_scope_steps,
                             runtime_step_id=nested_runtime_step_id,
+                            loop_name=step_name,
+                            iteration_index=current_iteration,
                         )
-                        publish_error = self._record_published_artifacts(
-                            nested_step,
-                            nested_name,
-                            result,
-                            state,
-                            runtime_step_id=nested_runtime_step_id,
-                        )
-                        if publish_error is not None:
-                            result = publish_error
 
-                    result.setdefault('name', nested_name)
-                    result.setdefault('step_id', nested_runtime_step_id)
-                    result = self._attach_outcome(nested_step, result)
-                    iteration_state[nested_name] = result
-                    self.state_manager.update_loop_step(
-                        step_name,
-                        current_iteration,
-                        nested_name,
-                        StepResult(
-                            status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
-                            name=result.get('name', nested_name),
-                            step_id=result.get('step_id'),
-                            exit_code=result.get('exit_code', 0),
-                            duration_ms=result.get('duration_ms', 0),
-                            output=result.get('output'),
-                            lines=result.get('lines'),
-                            json=result.get('json'),
-                            error=result.get('error'),
-                            truncated=result.get('truncated', False),
-                            artifacts=result.get('artifacts'),
-                            skipped=result.get('skipped', False),
-                            files=result.get('files'),
-                            wait_duration_ms=result.get('wait_duration_ms'),
-                            poll_count=result.get('poll_count'),
-                            timed_out=result.get('timed_out'),
-                            outcome=result.get('outcome'),
-                        ),
-                    )
+                    if consume_error is not None:
+                        result.setdefault('name', nested_name)
+                        result.setdefault('step_id', nested_runtime_step_id)
+                        result = self._attach_outcome(nested_step, result)
+                        iteration_state[nested_name] = result
+                        self.state_manager.update_loop_step(
+                            step_name,
+                            current_iteration,
+                            nested_name,
+                            StepResult(
+                                status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
+                                name=result.get('name', nested_name),
+                                step_id=result.get('step_id'),
+                                exit_code=result.get('exit_code', 0),
+                                duration_ms=result.get('duration_ms', 0),
+                                output=result.get('output'),
+                                lines=result.get('lines'),
+                                json=result.get('json'),
+                                error=result.get('error'),
+                                truncated=result.get('truncated', False),
+                                artifacts=result.get('artifacts'),
+                                skipped=result.get('skipped', False),
+                                files=result.get('files'),
+                                wait_duration_ms=result.get('wait_duration_ms'),
+                                poll_count=result.get('poll_count'),
+                                timed_out=result.get('timed_out'),
+                                outcome=result.get('outcome'),
+                            ),
+                        )
 
                     if result.get('exit_code', 0) != 0 and not result.get('skipped', False):
                         nested_outcome = result.get('outcome') if isinstance(result.get('outcome'), dict) else {}
@@ -2578,47 +2509,41 @@ class WorkflowExecutor:
                         iteration_state,
                         parent_scope_steps,
                         runtime_step_id=nested_runtime_step_id,
+                        loop_name=step_name,
+                        iteration_index=index,
                     )
-                    publish_error = self._record_published_artifacts(
-                        nested_step,
-                        nested_name,
-                        result,
-                        state,
-                        runtime_step_id=nested_runtime_step_id,
-                    )
-                    if publish_error is not None:
-                        result = publish_error
 
                 # Store in iteration state
-                result.setdefault('name', nested_name)
-                result.setdefault('step_id', nested_runtime_step_id)
-                result = self._attach_outcome(nested_step, result)
-                iteration_state[nested_name] = result
+                if consume_error is not None:
+                    result.setdefault('name', nested_name)
+                    result.setdefault('step_id', nested_runtime_step_id)
+                    result = self._attach_outcome(nested_step, result)
+                    iteration_state[nested_name] = result
 
-                self.state_manager.update_loop_step(
-                    step_name,
-                    index,
-                    nested_name,
-                    StepResult(
-                        status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
-                        name=result.get('name', nested_name),
-                        step_id=result.get('step_id'),
-                        exit_code=result.get('exit_code', 0),
-                        duration_ms=result.get('duration_ms', 0),
-                        output=result.get('output'),
-                        lines=result.get('lines'),
-                        json=result.get('json'),
-                        error=result.get('error'),
-                        truncated=result.get('truncated', False),
-                        artifacts=result.get('artifacts'),
-                        skipped=result.get('skipped', False),
-                        files=result.get('files'),
-                        wait_duration_ms=result.get('wait_duration_ms'),
-                        poll_count=result.get('poll_count'),
-                        timed_out=result.get('timed_out'),
-                        outcome=result.get('outcome'),
-                    ),
-                )
+                    self.state_manager.update_loop_step(
+                        step_name,
+                        index,
+                        nested_name,
+                        StepResult(
+                            status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
+                            name=result.get('name', nested_name),
+                            step_id=result.get('step_id'),
+                            exit_code=result.get('exit_code', 0),
+                            duration_ms=result.get('duration_ms', 0),
+                            output=result.get('output'),
+                            lines=result.get('lines'),
+                            json=result.get('json'),
+                            error=result.get('error'),
+                            truncated=result.get('truncated', False),
+                            artifacts=result.get('artifacts'),
+                            skipped=result.get('skipped', False),
+                            files=result.get('files'),
+                            wait_duration_ms=result.get('wait_duration_ms'),
+                            poll_count=result.get('poll_count'),
+                            timed_out=result.get('timed_out'),
+                            outcome=result.get('outcome'),
+                        ),
+                    )
 
             # Store iteration results in indexed format
             self._store_loop_iteration_result(loop_results, index, iteration_state)
@@ -2663,43 +2588,23 @@ class WorkflowExecutor:
         iteration_state: Dict[str, Any],
         parent_scope_steps: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
+        loop_name: Optional[str] = None,
+        iteration_index: Optional[int] = None,
     ) -> Dict[str, Any]:
-        scope = self._build_loop_scope(state, iteration_state, parent_scope_steps)
-        step_name_override = step.get('name')
-        if 'command' in step:
-            return self._execute_command_with_context(step, context, state)
-        if 'provider' in step:
-            return self._execute_provider_with_context(
-                step,
-                context,
-                state,
-                runtime_step_id=runtime_step_id,
-            )
-        if 'assert' in step:
-            return self._execute_assert(step, state, context=context, scope=scope)
-        if 'set_scalar' in step:
-            return self._execute_set_scalar(step)
-        if 'increment_scalar' in step:
-            return self._execute_increment_scalar(step, state)
-        if 'wait_for' in step:
-            return self._execute_wait_for_result(step)
-        if 'structured_if_branch' in step:
-            return self._execute_structured_if_branch(step)
-        if 'structured_if_join' in step:
-            return self._execute_structured_if_join(step, state, scope=scope)
-        if 'structured_match_case' in step:
-            return self._execute_structured_match_case(step)
-        if 'structured_match_join' in step:
-            return self._execute_structured_match_join(step, state, scope=scope)
-        if 'call' in step:
-            return self._execute_call(
-                step,
-                state,
-                scope=scope,
-                runtime_step_id=runtime_step_id,
-                step_name_override=step_name_override,
-            )
-        return {'status': 'skipped', 'exit_code': 0, 'skipped': True}
+        resolved_loop_name = loop_name or step.get('name', f'step_{self.current_step}')
+        resolved_iteration_index = 0 if iteration_index is None else iteration_index
+        nested_name = step.get('name', f'nested_{resolved_iteration_index}')
+        return self.step_runner.run_nested(
+            step,
+            context,
+            state,
+            iteration_state,
+            parent_scope_steps,
+            loop_name=resolved_loop_name,
+            iteration_index=resolved_iteration_index,
+            nested_name=nested_name,
+            runtime_step_id=runtime_step_id,
+        )
 
     def _build_loop_parent_scope_steps(
         self,
