@@ -1,1 +1,14 @@
 .worktrees/
+
+# Python caches and packaging byproducts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+orchestrator.egg-info/
+
+# Runtime-generated workflow state and outputs
+.orchestrate/
+artifacts/
+state/
+logs/
+tmp/
