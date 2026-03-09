@@ -1,0 +1,50 @@
+# Prompt Index
+
+This index catalogs the canonical prompt files worth reusing. It is intentionally curated rather than exhaustive.
+
+Selection rule:
+- include the new repo hygiene prompt
+- include prompt families used by workflows run in the last two days
+- collapse near-duplicate prompt families to the most recent and/or strongest prompt, and note the superseded variants
+
+## Canonical Prompts
+
+| Prompt | Purpose | Used By / Chosen For | Notes |
+| --- | --- | --- | --- |
+| [repo_hygiene_review.md](/home/ollie/Documents/agent-orchestration/prompts/repo_hygiene_review.md) | Simple repo hygiene review looking for oversized modules, generated-file drift, brittle tests, and duplicated patterns. | Manual maintenance prompt. | This is the prompt that would have surfaced the need to refactor `orchestrator/workflow/executor.py`. |
+| [review.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_review_fix_loop/review.md) | Fresh principal-engineer review of a single design/ADR draft. | [dsl_review_first_fix_loop.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/dsl_review_first_fix_loop.yaml) | Smallest canonical “review-first” prompt in recent use. |
+| [fix.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_review_fix_loop/fix.md) | Apply the latest review directly to the ADR under review. | [dsl_review_first_fix_loop.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/dsl_review_first_fix_loop.yaml) | Minimal fix-loop companion to `review.md`. |
+| [draft_design.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/draft_design.md) | Draft a design / ADR from a brief with explicit contracts, invariants, and sequencing constraints. | [tracked_design_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Canonical current design-drafting prompt. |
+| [review_design.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/review_design.md) | Structured design review with tracked findings and scope classification. | [tracked_design_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Chosen because it upgrades plain markdown review into tracked JSON findings with blocking-vs-followup scope. |
+| [revise_design.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/revise_design.md) | Revise a design against unresolved blocking or in-scope findings. | [tracked_design_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_design_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Canonical design-fix companion to the tracked design review prompt. |
+| [draft_plan.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/draft_plan.md) | Draft an execution plan from an approved design with tranche boundaries and verification. | [tracked_plan_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_plan_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Chosen over older follow-on plan drafts because it is the newest call-compatible version in active use. |
+| [review_plan.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/review_plan.md) | Fresh plan review reconciled against an open-findings ledger and emitted as JSON. | [tracked_plan_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_plan_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Canonical current plan-review prompt because it carries stable findings forward instead of churning prose. |
+| [revise_plan.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/revise_plan.md) | Revise a plan against unresolved in-scope findings while preserving tranche order and verification. | [tracked_plan_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/tracked_plan_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Chosen as the current plan-fix companion. |
+| [implement_plan.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/implement_plan.md) | Execute an approved plan in the current checkout and emit a bounded execution report. | [design_plan_impl_implementation_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/design_plan_impl_implementation_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Canonical current implementation prompt; it carries the no-worktree/current-checkout rule and structured execution-report contract. |
+| [review_implementation.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/review_implementation.md) | Review implementation against the full approved plan and prioritize unfinished required work over non-blocking cleanup. | [design_plan_impl_implementation_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/design_plan_impl_implementation_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Chosen because it has the strongest guidance around plan completion, blocking defects, and next coherent tranche selection. |
+| [fix_implementation.md](/home/ollie/Documents/agent-orchestration/prompts/workflows/design_plan_impl_stack_v2_call/fix_implementation.md) | Fix blocking defects and continue the next coherent required tranche by checking the plan directly, not trusting the review as complete. | [design_plan_impl_implementation_phase.yaml](/home/ollie/Documents/agent-orchestration/workflows/library/design_plan_impl_implementation_phase.yaml) via [design_plan_impl_review_stack_v2_call.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/design_plan_impl_review_stack_v2_call.yaml) | Canonical current implementation-fix prompt. |
+
+## Superseded Near-Duplicates
+
+These prompt families were used by workflows run in the last two days, but they are intentionally not indexed as separate canonical entries because the files above are newer and/or structurally stronger.
+
+- [dsl_follow_on_plan_impl_loop/](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_follow_on_plan_impl_loop)
+  Reason: older markdown-only follow-on plan/implementation loop prompts used by [dsl_follow_on_plan_impl_review_loop.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/dsl_follow_on_plan_impl_review_loop.yaml). Superseded by the call-stack family above for plan and implementation phases.
+- [dsl_follow_on_plan_impl_loop_v2/](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_follow_on_plan_impl_loop_v2)
+  Reason: structured-v2 rewrite, but still an intermediate step between the older monolith and the current call-based stack.
+- [dsl_follow_on_plan_impl_loop_v2_call/](/home/ollie/Documents/agent-orchestration/prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call)
+  Reason: call-oriented predecessor to the current stack prompts; retained on disk but superseded by the newer design/plan/implementation stack family.
+
+## Recent Promptless Workflow Runs
+
+These workflows were run in the last two days but do not contribute dedicated repo prompt files, so they are not represented in the canonical table:
+
+- [scalar_bookkeeping_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/scalar_bookkeeping_demo.yaml)
+- [cycle_guard_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/cycle_guard_demo.yaml)
+- [workflow_signature_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/workflow_signature_demo.yaml)
+- [finally_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/finally_demo.yaml)
+- [call_subworkflow_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/call_subworkflow_demo.yaml)
+- [repeat_until_demo.yaml](/home/ollie/Documents/agent-orchestration/workflows/examples/repeat_until_demo.yaml)
+
+Excluded as non-canonical scratch/test run:
+- `tmp/review_call_runtime/caller.yaml`
