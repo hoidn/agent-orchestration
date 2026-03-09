@@ -31,9 +31,11 @@ from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
 from .assets import WorkflowAssetResolver
+from .calls import CallExecutor
 from .dataflow import DataflowManager
 from .finalization import FinalizationController
 from .identity import iteration_step_id, runtime_step_id
+from .loops import LoopExecutor
 from .predicates import PredicateEvaluationError, resolve_typed_operand
 from .prompting import PromptComposer
 from .references import ReferenceResolutionError, ReferenceResolver
@@ -363,6 +365,8 @@ class WorkflowExecutor:
             finalization_failure_error=self._finalization_failure_error,
         )
         self.step_runner = StepRunner(self)
+        self.loop_executor = LoopExecutor(self)
+        self.call_executor = CallExecutor(self)
 
         # Retry configuration
         self.max_retries = max_retries
@@ -1319,28 +1323,7 @@ class WorkflowExecutor:
         index: int,
     ) -> Dict[str, Any]:
         """Rebuild one loop iteration from persisted presentation keys."""
-        steps_state = state.get('steps', {})
-        if not isinstance(steps_state, dict):
-            return {}
-
-        iteration_state: Dict[str, Any] = {}
-        loop_results = steps_state.get(loop_name)
-        if (
-            isinstance(loop_results, list)
-            and 0 <= index < len(loop_results)
-            and isinstance(loop_results[index], dict)
-        ):
-            iteration_state.update(loop_results[index])
-
-        prefix = f"{loop_name}[{index}]."
-        for persisted_key, persisted_value in steps_state.items():
-            if not isinstance(persisted_key, str) or not persisted_key.startswith(prefix):
-                continue
-            nested_name = persisted_key[len(prefix):]
-            if nested_name:
-                iteration_state[nested_name] = persisted_value
-
-        return iteration_state
+        return self.loop_executor.collect_persisted_iteration_state(state, loop_name, index)
 
     def _store_loop_iteration_result(
         self,
@@ -1349,9 +1332,7 @@ class WorkflowExecutor:
         iteration_state: Dict[str, Any],
     ) -> None:
         """Store an iteration result at its stable list position."""
-        while len(loop_results) <= index:
-            loop_results.append({})
-        loop_results[index] = iteration_state
+        self.loop_executor.store_loop_iteration_result(loop_results, index, iteration_state)
 
     def _persist_for_each_progress(
         self,
@@ -1363,25 +1344,13 @@ class WorkflowExecutor:
         loop_results: List[Dict[str, Any]],
     ) -> None:
         """Persist loop summary and bookkeeping for durable resume."""
-        state.setdefault('steps', {})
-        state.setdefault('for_each', {})
-
-        progress = {
-            'items': list(items),
-            'completed_indices': sorted(set(completed_indices)),
-            'current_index': current_index,
-        }
-        state['steps'][loop_name] = loop_results
-        state['for_each'][loop_name] = progress
-
-        self.state_manager.update_loop_results(loop_name, loop_results)
-        self.state_manager.update_for_each(
+        self.loop_executor.persist_for_each_progress(
+            state,
             loop_name,
-            ForEachState(
-                items=list(items),
-                completed_indices=progress['completed_indices'],
-                current_index=current_index,
-            ),
+            items,
+            completed_indices,
+            current_index,
+            loop_results,
         )
 
     def _persist_repeat_until_progress(
@@ -1392,11 +1361,7 @@ class WorkflowExecutor:
         frame_result: Dict[str, Any],
     ) -> None:
         """Persist repeat_until bookkeeping plus the current loop-frame snapshot."""
-        state.setdefault('steps', {})
-        state.setdefault('repeat_until', {})
-        state['steps'][loop_name] = frame_result
-        state['repeat_until'][loop_name] = progress
-        self.state_manager.update_repeat_until_state(loop_name, progress, frame_result)
+        self.loop_executor.persist_repeat_until_progress(state, loop_name, progress, frame_result)
 
     def _repeat_until_iteration_resume_state(
         self,
@@ -1406,20 +1371,12 @@ class WorkflowExecutor:
         body_steps: List[Dict[str, Any]],
     ) -> tuple[Dict[str, Any], int, bool]:
         """Return persisted iteration state plus the first unfinished nested step index."""
-        iteration_state = self._collect_persisted_iteration_state(state, loop_name, iteration)
-        start_nested_index = 0
-        for nested_index, nested_step in enumerate(body_steps):
-            nested_name = nested_step.get('name', f'nested_{nested_index}')
-            persisted = iteration_state.get(nested_name)
-            if self._resume_entry_is_terminal(persisted):
-                start_nested_index = nested_index + 1
-                continue
-            start_nested_index = nested_index
-            break
-        else:
-            start_nested_index = len(body_steps)
-
-        return iteration_state, start_nested_index, start_nested_index >= len(body_steps)
+        return self.loop_executor.repeat_until_iteration_resume_state(
+            state,
+            loop_name,
+            iteration,
+            body_steps,
+        )
 
     def _resume_for_each_state(
         self,
@@ -1429,59 +1386,12 @@ class WorkflowExecutor:
         items: List[Any],
     ) -> tuple[List[Dict[str, Any]], List[int], int]:
         """Load persisted loop progress and determine the restart index."""
-        steps_state = state.get('steps', {})
-        if not isinstance(steps_state, dict):
-            steps_state = {}
-
-        loop_results: List[Dict[str, Any]] = []
-        existing_results = steps_state.get(loop_name)
-        if isinstance(existing_results, list):
-            loop_results = list(existing_results)
-
-        progress = state.get('for_each', {}).get(loop_name)
-        completed_indices: List[int] = []
-        current_index: Optional[int] = None
-        if isinstance(progress, dict):
-            completed_indices = [
-                index
-                for index in progress.get('completed_indices', [])
-                if isinstance(index, int) and 0 <= index < len(items)
-            ]
-            candidate_index = progress.get('current_index')
-            if isinstance(candidate_index, int) and 0 <= candidate_index < len(items):
-                current_index = candidate_index
-
-        if not completed_indices and isinstance(existing_results, list):
-            for i, iteration_result in enumerate(existing_results):
-                if not isinstance(iteration_result, dict):
-                    break
-                all_steps_complete = True
-                for nested_step in loop_steps:
-                    nested_name = nested_step.get('name', f'step_{i}')
-                    iteration_key = f"{loop_name}[{i}].{nested_name}"
-                    nested_result = steps_state.get(iteration_key)
-                    if not isinstance(nested_result, dict):
-                        all_steps_complete = False
-                        break
-                    if nested_result.get('status') not in ['completed', 'failed', 'skipped']:
-                        all_steps_complete = False
-                        break
-                if not all_steps_complete:
-                    current_index = i
-                    break
-                completed_indices.append(i)
-
-        for index in completed_indices:
-            persisted_iteration = self._collect_persisted_iteration_state(state, loop_name, index)
-            if persisted_iteration:
-                self._store_loop_iteration_result(loop_results, index, persisted_iteration)
-
-        start_index = current_index if current_index is not None else 0
-        while start_index in completed_indices:
-            logger.info(f"Skipping completed iteration {start_index} of {loop_name}")
-            start_index += 1
-
-        return loop_results, sorted(set(completed_indices)), start_index
+        return self.loop_executor.resume_for_each_state(
+            state,
+            loop_name,
+            loop_steps,
+            items,
+        )
 
     def _record_published_artifacts(
         self,
@@ -1768,29 +1678,14 @@ class WorkflowExecutor:
         error: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Build the persisted loop-frame result for one repeat_until step."""
-        metadata = step.get('repeat_until', {})
-        result: Dict[str, Any] = {
-            'status': status,
-            'exit_code': exit_code,
-            'duration_ms': 0,
-            'name': step.get('name', f'step_{self.current_step}'),
-            'step_id': self._step_id(step),
-            'debug': {
-                'structured_repeat_until': {
-                    'body_id': metadata.get('id'),
-                    'max_iterations': metadata.get('max_iterations'),
-                    'current_iteration': progress.get('current_iteration'),
-                    'completed_iterations': list(progress.get('completed_iterations', [])),
-                    'condition_evaluated_for_iteration': progress.get('condition_evaluated_for_iteration'),
-                    'last_condition_result': progress.get('last_condition_result'),
-                }
-            },
-        }
-        if isinstance(artifacts, dict):
-            result['artifacts'] = artifacts
-        if isinstance(error, dict):
-            result['error'] = error
-        return result
+        return self.loop_executor.build_repeat_until_frame_result(
+            step,
+            status=status,
+            exit_code=exit_code,
+            artifacts=artifacts,
+            progress=progress,
+            error=error,
+        )
 
     def _execute_repeat_until(
         self,
@@ -1799,487 +1694,7 @@ class WorkflowExecutor:
         resume: bool = False,
     ) -> Dict[str, Any]:
         """Execute a post-test repeat_until loop with durable resume bookkeeping."""
-        step_name = step.get('name', f'step_{self.current_step}')
-        block = step.get('repeat_until', {})
-        body_steps = block.get('steps', []) if isinstance(block, dict) else []
-        outputs = block.get('outputs', {}) if isinstance(block, dict) else {}
-        condition = block.get('condition') if isinstance(block, dict) else None
-        max_iterations = block.get('max_iterations') if isinstance(block, dict) else None
-
-        if not isinstance(body_steps, list) or not isinstance(outputs, dict) or type(max_iterations) is not int:
-            state['steps'][step_name] = self._attach_outcome(
-                step,
-                self._build_repeat_until_frame_result(
-                    step,
-                    status='failed',
-                    exit_code=2,
-                    artifacts=None,
-                    progress={
-                        'current_iteration': 0,
-                        'completed_iterations': [],
-                        'condition_evaluated_for_iteration': None,
-                        'last_condition_result': None,
-                    },
-                    error={
-                        'type': 'contract_violation',
-                        'message': 'repeat_until configuration invalid at execution time',
-                    },
-                ),
-                phase_hint='pre_execution',
-                class_hint='contract_violation',
-                retryable_hint=False,
-            )
-            self.state_manager.update_repeat_until_state(
-                step_name,
-                {
-                    'current_iteration': 0,
-                    'completed_iterations': [],
-                    'condition_evaluated_for_iteration': None,
-                    'last_condition_result': None,
-                },
-                state['steps'][step_name],
-            )
-            return state
-
-        repeat_until_state = state.setdefault('repeat_until', {})
-        if not isinstance(repeat_until_state, dict):
-            repeat_until_state = {}
-            state['repeat_until'] = repeat_until_state
-
-        persisted_progress = repeat_until_state.get(step_name)
-        if not isinstance(persisted_progress, dict):
-            persisted_progress = {}
-
-        completed_iterations = sorted(
-            {
-                index
-                for index in persisted_progress.get('completed_iterations', [])
-                if isinstance(index, int) and index >= 0
-            }
-        )
-        current_iteration = persisted_progress.get('current_iteration')
-        if not isinstance(current_iteration, int) or current_iteration < 0:
-            current_iteration = 0
-        condition_evaluated_for_iteration = persisted_progress.get('condition_evaluated_for_iteration')
-        if not isinstance(condition_evaluated_for_iteration, int):
-            condition_evaluated_for_iteration = None
-        last_condition_result = persisted_progress.get('last_condition_result')
-        if not isinstance(last_condition_result, bool):
-            last_condition_result = None
-
-        frame_artifacts: Dict[str, Any] = {}
-        existing_frame = state.get('steps', {}).get(step_name)
-        if isinstance(existing_frame, dict) and isinstance(existing_frame.get('artifacts'), dict):
-            frame_artifacts = dict(existing_frame.get('artifacts', {}))
-
-        loop_step_id = self._step_id(step)
-        parent_scope_steps = self._build_loop_parent_scope_steps(step, state)
-
-        if resume and current_iteration not in completed_iterations:
-            _, _, body_complete = self._repeat_until_iteration_resume_state(
-                state,
-                step_name,
-                current_iteration,
-                body_steps,
-            )
-            if condition_evaluated_for_iteration == current_iteration:
-                if last_condition_result is True:
-                    completed_iterations = sorted(set(completed_iterations + [current_iteration]))
-                    progress = {
-                        'current_iteration': None,
-                        'completed_iterations': completed_iterations,
-                        'condition_evaluated_for_iteration': current_iteration,
-                        'last_condition_result': True,
-                    }
-                    final_result = self._attach_outcome(
-                        step,
-                        self._build_repeat_until_frame_result(
-                            step,
-                            status='completed',
-                            exit_code=0,
-                            artifacts=frame_artifacts,
-                            progress=progress,
-                        ),
-                    )
-                    self._persist_repeat_until_progress(state, step_name, progress, final_result)
-                    return state
-                if body_complete:
-                    completed_iterations = sorted(set(completed_iterations + [current_iteration]))
-                    current_iteration += 1
-                    condition_evaluated_for_iteration = None
-                    last_condition_result = None
-
-        while current_iteration < max_iterations:
-            progress = {
-                'current_iteration': current_iteration,
-                'completed_iterations': completed_iterations,
-                'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
-                'last_condition_result': last_condition_result,
-            }
-            running_frame = self._build_repeat_until_frame_result(
-                step,
-                status='running',
-                exit_code=0,
-                artifacts=frame_artifacts,
-                progress=progress,
-            )
-            self._persist_repeat_until_progress(state, step_name, progress, running_frame)
-
-            iteration_state, start_nested_index, body_complete = self._repeat_until_iteration_resume_state(
-                state,
-                step_name,
-                current_iteration,
-                body_steps,
-            )
-            loop_context = {
-                'loop': {
-                    'index': current_iteration,
-                    'total': max_iterations,
-                }
-            }
-
-            if not body_complete:
-                for nested_index in range(start_nested_index, len(body_steps)):
-                    nested_step = body_steps[nested_index]
-                    nested_name = nested_step.get('name', f'nested_{nested_index}')
-                    nested_runtime_step_id = iteration_step_id(
-                        loop_step_id,
-                        current_iteration,
-                        nested_step,
-                        nested_index,
-                    )
-
-                    loop_scope = self._build_loop_scope(state, iteration_state, parent_scope_steps)
-                    result = None
-                    guard = nested_step.get('structured_if_guard')
-                    if isinstance(guard, dict) and isinstance(guard.get('condition'), dict):
-                        result = self._evaluate_loop_body_condition(
-                            nested_step,
-                            guard['condition'],
-                            state,
-                            loop_context=loop_context,
-                            scope=loop_scope,
-                            runtime_step_id=nested_runtime_step_id,
-                            invert=bool(guard.get('invert')),
-                        )
-                    if result is None and isinstance(nested_step.get('when'), dict):
-                        result = self._evaluate_loop_body_condition(
-                            nested_step,
-                            nested_step['when'],
-                            state,
-                            loop_context=loop_context,
-                            scope=loop_scope,
-                            runtime_step_id=nested_runtime_step_id,
-                        )
-                    if result is not None:
-                        iteration_state[nested_name] = result
-                        self.state_manager.update_loop_step(
-                            step_name,
-                            current_iteration,
-                            nested_name,
-                            StepResult(
-                                status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
-                                name=result.get('name', nested_name),
-                                step_id=result.get('step_id'),
-                                exit_code=result.get('exit_code', 0),
-                                duration_ms=result.get('duration_ms', 0),
-                                error=result.get('error'),
-                                truncated=result.get('truncated', False),
-                                artifacts=result.get('artifacts'),
-                                skipped=result.get('skipped', False),
-                                outcome=result.get('outcome'),
-                            ),
-                        )
-                        if result.get('skipped', False):
-                            continue
-                        failure_progress = {
-                            'current_iteration': current_iteration,
-                            'completed_iterations': completed_iterations,
-                            'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
-                            'last_condition_result': last_condition_result,
-                        }
-                        failure = self._attach_outcome(
-                            step,
-                            self._build_repeat_until_frame_result(
-                                step,
-                                status='failed',
-                                exit_code=2,
-                                artifacts=frame_artifacts,
-                                progress=failure_progress,
-                                error={
-                                    'type': 'repeat_until_body_step_failed',
-                                    'message': 'repeat_until body step failed',
-                                    'context': {
-                                        'iteration': current_iteration,
-                                        'step': nested_name,
-                                        'error': result.get('error'),
-                                    },
-                                },
-                            ),
-                            phase_hint='pre_execution',
-                            class_hint='pre_execution_failed',
-                            retryable_hint=False,
-                        )
-                        self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
-                        return state
-
-                    nested_context = self._create_loop_context(nested_step, loop_context, iteration_state)
-
-                    if self.debug:
-                        backup_name = f"{step_name}[{current_iteration}].{nested_name}"
-                        self.state_manager.backup_state(backup_name)
-
-                    consume_error = self._enforce_consumes_contract(
-                        nested_step,
-                        nested_name,
-                        state,
-                        runtime_step_id=nested_runtime_step_id,
-                    )
-                    if consume_error is not None:
-                        result = consume_error
-                    else:
-                        result = self._execute_nested_loop_step(
-                            nested_step,
-                            nested_context,
-                            state,
-                            iteration_state,
-                            parent_scope_steps,
-                            runtime_step_id=nested_runtime_step_id,
-                            loop_name=step_name,
-                            iteration_index=current_iteration,
-                        )
-
-                    if consume_error is not None:
-                        result.setdefault('name', nested_name)
-                        result.setdefault('step_id', nested_runtime_step_id)
-                        result = self._attach_outcome(nested_step, result)
-                        iteration_state[nested_name] = result
-                        self.state_manager.update_loop_step(
-                            step_name,
-                            current_iteration,
-                            nested_name,
-                            StepResult(
-                                status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
-                                name=result.get('name', nested_name),
-                                step_id=result.get('step_id'),
-                                exit_code=result.get('exit_code', 0),
-                                duration_ms=result.get('duration_ms', 0),
-                                output=result.get('output'),
-                                lines=result.get('lines'),
-                                json=result.get('json'),
-                                error=result.get('error'),
-                                truncated=result.get('truncated', False),
-                                artifacts=result.get('artifacts'),
-                                skipped=result.get('skipped', False),
-                                files=result.get('files'),
-                                wait_duration_ms=result.get('wait_duration_ms'),
-                                poll_count=result.get('poll_count'),
-                                timed_out=result.get('timed_out'),
-                                outcome=result.get('outcome'),
-                            ),
-                        )
-
-                    if result.get('exit_code', 0) != 0 and not result.get('skipped', False):
-                        nested_outcome = result.get('outcome') if isinstance(result.get('outcome'), dict) else {}
-                        failure_progress = {
-                            'current_iteration': current_iteration,
-                            'completed_iterations': completed_iterations,
-                            'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
-                            'last_condition_result': last_condition_result,
-                        }
-                        failure = self._attach_outcome(
-                            step,
-                            self._build_repeat_until_frame_result(
-                                step,
-                                status='failed',
-                                exit_code=result.get('exit_code', 1),
-                                artifacts=frame_artifacts,
-                                progress=failure_progress,
-                                error={
-                                    'type': 'repeat_until_body_step_failed',
-                                    'message': 'repeat_until body step failed',
-                                    'context': {
-                                        'iteration': current_iteration,
-                                        'step': nested_name,
-                                        'error': result.get('error'),
-                                    },
-                                },
-                            ),
-                            phase_hint=nested_outcome.get('phase'),
-                            class_hint=nested_outcome.get('class'),
-                            retryable_hint=nested_outcome.get('retryable'),
-                        )
-                        self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
-                        return state
-
-            artifacts = self._resolve_structured_output_artifacts(
-                outputs,
-                state,
-                failure_message='repeat_until output resolution failed',
-                selection_key='iteration',
-                selection_value=str(current_iteration),
-                scope={
-                    'self_steps': iteration_state,
-                    'parent_steps': parent_scope_steps,
-                    'root_steps': state.get('steps', {}),
-                },
-            )
-            if not isinstance(artifacts, dict):
-                failure_progress = {
-                    'current_iteration': current_iteration,
-                    'completed_iterations': completed_iterations,
-                    'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
-                    'last_condition_result': last_condition_result,
-                }
-                failure = self._attach_outcome(
-                    step,
-                    self._build_repeat_until_frame_result(
-                        step,
-                        status='failed',
-                        exit_code=2,
-                        artifacts=frame_artifacts,
-                        progress=failure_progress,
-                        error=artifacts.get('error') if isinstance(artifacts, dict) else None,
-                    ),
-                    phase_hint='post_execution',
-                    class_hint='contract_violation',
-                    retryable_hint=False,
-                )
-                self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
-                return state
-
-            frame_artifacts = artifacts
-            progress = {
-                'current_iteration': current_iteration,
-                'completed_iterations': completed_iterations,
-                'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
-                'last_condition_result': last_condition_result,
-            }
-            self._persist_repeat_until_progress(
-                state,
-                step_name,
-                progress,
-                self._build_repeat_until_frame_result(
-                    step,
-                    status='running',
-                    exit_code=0,
-                    artifacts=frame_artifacts,
-                    progress=progress,
-                ),
-            )
-
-            if condition_evaluated_for_iteration != current_iteration:
-                runtime_context = self._runtime_context({}, state)
-                variables = runtime_context.build_variables(self.variable_substitutor, state)
-                try:
-                    should_stop = self.condition_evaluator.evaluate(condition, variables, state)
-                except Exception as exc:
-                    failure_progress = {
-                        'current_iteration': current_iteration,
-                        'completed_iterations': completed_iterations,
-                        'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
-                        'last_condition_result': last_condition_result,
-                    }
-                    failure = self._attach_outcome(
-                        step,
-                        self._build_repeat_until_frame_result(
-                            step,
-                            status='failed',
-                            exit_code=2,
-                            artifacts=frame_artifacts,
-                            progress=failure_progress,
-                            error={
-                                'type': 'predicate_evaluation_failed',
-                                'message': f"repeat_until condition evaluation failed: {exc}",
-                                'context': {'condition': condition, 'iteration': current_iteration},
-                            },
-                        ),
-                        phase_hint='post_execution',
-                        class_hint='contract_violation',
-                        retryable_hint=False,
-                    )
-                    self._persist_repeat_until_progress(state, step_name, failure_progress, failure)
-                    return state
-                condition_evaluated_for_iteration = current_iteration
-                last_condition_result = should_stop
-                progress = {
-                    'current_iteration': current_iteration,
-                    'completed_iterations': completed_iterations,
-                    'condition_evaluated_for_iteration': condition_evaluated_for_iteration,
-                    'last_condition_result': last_condition_result,
-                }
-                self._persist_repeat_until_progress(
-                    state,
-                    step_name,
-                    progress,
-                    self._build_repeat_until_frame_result(
-                        step,
-                        status='running',
-                        exit_code=0,
-                        artifacts=frame_artifacts,
-                        progress=progress,
-                    ),
-                )
-            else:
-                should_stop = bool(last_condition_result)
-
-            completed_iterations = sorted(set(completed_iterations + [current_iteration]))
-            if should_stop:
-                progress = {
-                    'current_iteration': None,
-                    'completed_iterations': completed_iterations,
-                    'condition_evaluated_for_iteration': current_iteration,
-                    'last_condition_result': True,
-                }
-                completed = self._attach_outcome(
-                    step,
-                    self._build_repeat_until_frame_result(
-                        step,
-                        status='completed',
-                        exit_code=0,
-                        artifacts=frame_artifacts,
-                        progress=progress,
-                    ),
-                )
-                self._persist_repeat_until_progress(state, step_name, progress, completed)
-                return state
-
-            if current_iteration + 1 >= max_iterations:
-                progress = {
-                    'current_iteration': None,
-                    'completed_iterations': completed_iterations,
-                    'condition_evaluated_for_iteration': current_iteration,
-                    'last_condition_result': False,
-                }
-                exhausted = self._attach_outcome(
-                    step,
-                    self._build_repeat_until_frame_result(
-                        step,
-                        status='failed',
-                        exit_code=3,
-                        artifacts=frame_artifacts,
-                        progress=progress,
-                        error={
-                            'type': 'repeat_until_iterations_exhausted',
-                            'message': 'repeat_until exhausted max_iterations before condition became true',
-                            'context': {
-                                'max_iterations': max_iterations,
-                                'last_iteration': current_iteration,
-                            },
-                        },
-                    ),
-                    phase_hint='post_execution',
-                    class_hint='assert_failed',
-                    retryable_hint=False,
-                )
-                self._persist_repeat_until_progress(state, step_name, progress, exhausted)
-                return state
-
-            current_iteration += 1
-            condition_evaluated_for_iteration = None
-            last_condition_result = None
-
-        return state
+        return self.loop_executor.execute_repeat_until(step, state, resume=resume)
 
     def _execute_for_each(self, step: Dict[str, Any], state: Dict[str, Any], resume: bool = False) -> Dict[str, Any]:
         """
@@ -2295,290 +1710,7 @@ class WorkflowExecutor:
         Returns:
             Updated state after loop execution
         """
-        step_name = step.get('name', f'step_{self.current_step}')
-        for_each = step['for_each']
-        persisted_progress = state.get('for_each', {}).get(step_name) if isinstance(state.get('for_each'), dict) else None
-
-        # Resolve items to iterate over
-        if (
-            resume
-            and isinstance(persisted_progress, dict)
-            and isinstance(persisted_progress.get('items'), list)
-        ):
-            items = list(persisted_progress.get('items', []))
-        elif 'items_from' in for_each:
-            # AT-3: Dynamic items from pointer
-            pointer_resolver = PointerResolver(state)
-            try:
-                items = pointer_resolver.resolve(for_each['items_from'])
-            except ValueError as e:
-                # Record error and fail
-                state = self._record_step_error(
-                    state, step_name,
-                    exit_code=2,
-                    error={
-                        'message': f"Failed to resolve items_from pointer: {e}",
-                        'context': {
-                            'pointer': for_each['items_from'],
-                            'error': str(e)
-                        }
-                    }
-                )
-                return state
-
-            # Verify resolved value is an array
-            if not isinstance(items, list):
-                state = self._record_step_error(
-                    state, step_name,
-                    exit_code=2,
-                    error={
-                        'message': f"items_from must resolve to an array, got {type(items).__name__}",
-                        'context': {
-                            'pointer': for_each['items_from'],
-                            'resolved_type': type(items).__name__
-                        }
-                    }
-                )
-                return state
-        else:
-            # Static items list
-            items = list(for_each.get('items', []))
-
-        # Get loop configuration
-        item_var = for_each.get('as', 'item')
-        loop_steps = for_each.get('steps', [])
-
-        # Initialize loop state
-        if 'steps' not in state:
-            state['steps'] = {}
-        state.setdefault('for_each', {})
-
-        # Prepare loop state storage (indexed by iteration)
-        # Format: steps.<LoopName>[i].<StepName>
-        loop_results: List[Dict[str, Any]] = []
-        completed_indices: List[int] = []
-
-        # Check for existing partial results (for resume)
-        start_index = 0
-        if resume:
-            loop_results, completed_indices, start_index = self._resume_for_each_state(
-                state,
-                step_name,
-                loop_steps,
-                items,
-            )
-
-        self._persist_for_each_progress(
-            state,
-            step_name,
-            items,
-            completed_indices,
-            start_index if start_index < len(items) else None,
-            loop_results,
-        )
-
-        # Execute loop iterations (starting from start_index for resume)
-        loop_step_id = self._step_id(step)
-        parent_scope_steps = self._build_loop_parent_scope_steps(step, state)
-        for index in range(start_index, len(items)):
-            item = items[index]
-            self._persist_for_each_progress(
-                state,
-                step_name,
-                items,
-                completed_indices,
-                index,
-                loop_results,
-            )
-
-            # Setup loop scope variables
-            loop_context = {
-                'item': item,  # Current item
-                item_var: item,  # Custom alias if specified
-                'loop': {
-                    'index': index,
-                    'total': len(items)
-                }
-            }
-
-            # Execute nested steps for this iteration
-            iteration_state: Dict[str, Any] = {}
-            for nested_index, nested_step in enumerate(loop_steps):
-                nested_name = nested_step.get('name', f'nested_{index}')
-                nested_runtime_step_id = iteration_step_id(loop_step_id, index, nested_step, nested_index)
-
-                # Check conditional execution within loop (AT-37, AT-46, AT-47)
-                if 'when' in nested_step:
-                    # Build variables for condition evaluation (including loop scope)
-                    nested_runtime_context = self._runtime_context(loop_context, state, parent_steps=parent_scope_steps)
-                    variables = nested_runtime_context.build_variables(self.variable_substitutor, state)
-
-                    # Evaluate condition
-                    try:
-                        should_execute = self.condition_evaluator.evaluate(
-                            nested_step['when'],
-                            variables,
-                            state,
-                            scope=nested_runtime_context.scope() | {"self_steps": iteration_state},
-                        )
-                    except Exception as e:
-                        # Condition evaluation error
-                        result = {
-                            'status': 'failed',
-                            'exit_code': 2,
-                            'error': {
-                                'type': 'predicate_evaluation_failed',
-                                'message': f"Condition evaluation failed: {e}",
-                                'context': {'condition': nested_step['when']}
-                            }
-                        }
-                        result.setdefault('name', nested_name)
-                        result.setdefault('step_id', nested_runtime_step_id)
-                        result = self._attach_outcome(nested_step, result)
-                        iteration_state[nested_name] = result
-                        self.state_manager.update_loop_step(
-                            step_name,
-                            index,
-                            nested_name,
-                            StepResult(
-                                status=result.get('status', 'failed'),
-                                name=result.get('name', nested_name),
-                                step_id=result.get('step_id'),
-                                exit_code=result.get('exit_code', 2),
-                                duration_ms=result.get('duration_ms', 0),
-                                error=result.get('error'),
-                                truncated=result.get('truncated', False),
-                                artifacts=result.get('artifacts'),
-                                skipped=result.get('skipped', False),
-                                outcome=result.get('outcome'),
-                            ),
-                        )
-                        continue
-
-                    if not should_execute:
-                        # Condition false -> step skipped
-                        result = {
-                            'status': 'skipped',
-                            'exit_code': 0,
-                            'skipped': True
-                        }
-                        result.setdefault('name', nested_name)
-                        result.setdefault('step_id', nested_runtime_step_id)
-                        result = self._attach_outcome(nested_step, result)
-                        iteration_state[nested_name] = result
-                        self.state_manager.update_loop_step(
-                            step_name,
-                            index,
-                            nested_name,
-                            StepResult(
-                                status=result.get('status', 'skipped'),
-                                name=result.get('name', nested_name),
-                                step_id=result.get('step_id'),
-                                exit_code=result.get('exit_code', 0),
-                                duration_ms=result.get('duration_ms', 0),
-                                truncated=result.get('truncated', False),
-                                artifacts=result.get('artifacts'),
-                                skipped=result.get('skipped', True),
-                                outcome=result.get('outcome'),
-                            ),
-                        )
-                        continue
-
-                # Create a modified context with loop variables
-                # AT-65: Pass iteration_state to ensure loop scoping of steps.* variables
-                nested_context = self._create_loop_context(nested_step, loop_context, iteration_state)
-
-                # AT-69: Create backup for loop steps if debug enabled
-                if self.debug:
-                    backup_name = f"{step_name}[{index}].{nested_name}"
-                    self.state_manager.backup_state(backup_name)
-
-                consume_error = self._enforce_consumes_contract(
-                    nested_step,
-                    nested_name,
-                    state,
-                    runtime_step_id=nested_runtime_step_id,
-                )
-                if consume_error is not None:
-                    result = consume_error
-                else:
-                    result = self._execute_nested_loop_step(
-                        nested_step,
-                        nested_context,
-                        state,
-                        iteration_state,
-                        parent_scope_steps,
-                        runtime_step_id=nested_runtime_step_id,
-                        loop_name=step_name,
-                        iteration_index=index,
-                    )
-
-                # Store in iteration state
-                if consume_error is not None:
-                    result.setdefault('name', nested_name)
-                    result.setdefault('step_id', nested_runtime_step_id)
-                    result = self._attach_outcome(nested_step, result)
-                    iteration_state[nested_name] = result
-
-                    self.state_manager.update_loop_step(
-                        step_name,
-                        index,
-                        nested_name,
-                        StepResult(
-                            status=result.get('status', 'completed' if result.get('exit_code', 0) == 0 else 'failed'),
-                            name=result.get('name', nested_name),
-                            step_id=result.get('step_id'),
-                            exit_code=result.get('exit_code', 0),
-                            duration_ms=result.get('duration_ms', 0),
-                            output=result.get('output'),
-                            lines=result.get('lines'),
-                            json=result.get('json'),
-                            error=result.get('error'),
-                            truncated=result.get('truncated', False),
-                            artifacts=result.get('artifacts'),
-                            skipped=result.get('skipped', False),
-                            files=result.get('files'),
-                            wait_duration_ms=result.get('wait_duration_ms'),
-                            poll_count=result.get('poll_count'),
-                            timed_out=result.get('timed_out'),
-                            outcome=result.get('outcome'),
-                        ),
-                    )
-
-            # Store iteration results in indexed format
-            self._store_loop_iteration_result(loop_results, index, iteration_state)
-            completed_indices.append(index)
-            next_index = index + 1 if index + 1 < len(items) else None
-            self._persist_for_each_progress(
-                state,
-                step_name,
-                items,
-                completed_indices,
-                next_index,
-                loop_results,
-            )
-
-        # Update state with loop results
-        # Store as steps.<LoopName> = [{iteration_0}, {iteration_1}, ...]
-        state['steps'][step_name] = loop_results
-
-        # Also store flattened format for compatibility
-        # steps.<LoopName>[i].<StepName> = result
-        for i, iteration in enumerate(loop_results):
-            for nested_name, result in iteration.items():
-                indexed_key = f"{step_name}[{i}].{nested_name}"
-                state['steps'][indexed_key] = result
-
-        self._persist_for_each_progress(
-            state,
-            step_name,
-            items,
-            completed_indices,
-            None,
-            loop_results,
-        )
-
-        return state
+        return self.loop_executor.execute_for_each(step, state, resume=resume)
 
     def _execute_nested_loop_step(
         self,
@@ -2612,47 +1744,7 @@ class WorkflowExecutor:
         state: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build the lexical parent scope for structured refs inside one loop body."""
-        steps_state = state.get('steps', {})
-        if not isinstance(steps_state, dict):
-            return {}
-
-        loop_step_id = self._step_id(loop_step)
-        if '.' in loop_step_id:
-            parent_step_id = loop_step_id.rsplit('.', 1)[0]
-        else:
-            parent_step_id = 'root'
-
-        loop_name = loop_step.get('name')
-        name_prefix = None
-        if isinstance(loop_name, str) and '.' in loop_name:
-            name_prefix = loop_name.rsplit('.', 1)[0]
-
-        parent_scope_steps: Dict[str, Any] = {}
-        for candidate in self.steps:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_name = candidate.get('name')
-            candidate_step_id = candidate.get('step_id')
-            if not isinstance(candidate_name, str) or not isinstance(candidate_step_id, str):
-                continue
-            if '.' in candidate_step_id:
-                candidate_parent_id = candidate_step_id.rsplit('.', 1)[0]
-            else:
-                candidate_parent_id = 'root'
-            if candidate_parent_id != parent_step_id:
-                continue
-
-            candidate_result = steps_state.get(candidate_name)
-            if not isinstance(candidate_result, dict):
-                continue
-
-            if name_prefix and candidate_name.startswith(f"{name_prefix}."):
-                local_name = candidate_name[len(name_prefix) + 1:]
-            else:
-                local_name = candidate_name
-            parent_scope_steps[local_name] = candidate_result
-
-        return parent_scope_steps
+        return self.loop_executor.build_loop_parent_scope_steps(loop_step, state)
 
     def _build_loop_scope(
         self,
@@ -2661,11 +1753,7 @@ class WorkflowExecutor:
         parent_scope_steps: Dict[str, Any],
     ) -> Dict[str, Dict[str, Any]]:
         """Build structured-ref scope maps for one nested loop step."""
-        return {
-            'self_steps': iteration_state,
-            'parent_steps': parent_scope_steps,
-            'root_steps': state.get('steps', {}),
-        }
+        return self.loop_executor.build_loop_scope(state, iteration_state, parent_scope_steps)
 
     def _evaluate_loop_body_condition(
         self,
@@ -2679,60 +1767,14 @@ class WorkflowExecutor:
         invert: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Evaluate one loop-body guard/when condition and return failure or skip results."""
-        runtime_context = RuntimeContext.from_mapping(
-            loop_context,
-            default_context=self.workflow.get("context", {}),
-            parent_steps=scope.get("parent_steps", {}),
-            root_steps=scope.get("root_steps", {}),
-        )
-        runtime_context = RuntimeContext(
-            values=runtime_context.values,
-            workflow_context=runtime_context.workflow_context,
-            self_steps=scope.get("self_steps", {}),
-            parent_steps=runtime_context.parent_steps,
-            root_steps=runtime_context.root_steps,
-        )
-        variables = runtime_context.build_variables(self.variable_substitutor, state)
-        try:
-            should_execute = self.condition_evaluator.evaluate(
-                condition,
-                variables,
-                state,
-                scope=runtime_context.scope(),
-            )
-            if invert:
-                should_execute = not should_execute
-        except Exception as exc:
-            return self._attach_outcome(
-                step,
-                {
-                    'status': 'failed',
-                    'exit_code': 2,
-                    'name': step.get('name', f'nested_{self.current_step}'),
-                    'step_id': runtime_step_id,
-                    'error': {
-                        'type': 'predicate_evaluation_failed',
-                        'message': f"Condition evaluation failed: {exc}",
-                        'context': {'condition': condition},
-                    },
-                },
-                phase_hint='pre_execution',
-                class_hint='pre_execution_failed',
-                retryable_hint=False,
-            )
-
-        if should_execute:
-            return None
-
-        return self._attach_outcome(
+        return self.loop_executor.evaluate_loop_body_condition(
             step,
-            {
-                'status': 'skipped',
-                'exit_code': 0,
-                'skipped': True,
-                'name': step.get('name', f'nested_{self.current_step}'),
-                'step_id': runtime_step_id,
-            },
+            condition,
+            state,
+            loop_context=loop_context,
+            scope=scope,
+            runtime_step_id=runtime_step_id,
+            invert=invert,
         )
 
     def _execute_command_with_context(
@@ -3129,7 +2171,7 @@ class WorkflowExecutor:
 
     def _call_frame_id(self, step: Dict[str, Any], state: Dict[str, Any]) -> str:
         """Derive a durable call-frame id from the authored call step and visit count."""
-        return self._call_frame_id_with_overrides(step, state)
+        return self.call_executor.frame_id(step, state)
 
     def _call_frame_id_with_overrides(
         self,
@@ -3140,24 +2182,12 @@ class WorkflowExecutor:
         step_id: Optional[str] = None,
     ) -> str:
         """Derive a durable call-frame id from an optional runtime-local step identity."""
-        if getattr(self, "resume_mode", False):
-            call_frames = state.get('call_frames', {})
-            effective_step_id = step_id or self._step_id(step)
-            if isinstance(call_frames, dict):
-                for frame_id, frame in call_frames.items():
-                    if not isinstance(frame, dict):
-                        continue
-                    if frame.get('call_step_id') != effective_step_id:
-                        continue
-                    if frame.get('status') == 'completed':
-                        continue
-                    return frame_id
-
-        effective_step_name = step_name or step.get('name', f'step_{self.current_step}')
-        step_visits = state.get('step_visits', {})
-        visit_count = step_visits.get(effective_step_name, 1) if isinstance(step_visits, dict) else 1
-        effective_step_id = step_id or self._step_id(step)
-        return f"{effective_step_id}::visit::{visit_count}"
+        return self.call_executor.frame_id_with_overrides(
+            step,
+            state,
+            step_name=step_name,
+            step_id=step_id,
+        )
 
     def _resolve_call_bound_inputs(
         self,
@@ -3169,76 +2199,13 @@ class WorkflowExecutor:
         step_name_override: Optional[str] = None,
     ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Resolve call-site literal and structured-ref bindings into typed callee inputs."""
-        bindings = step.get('with', {})
-        if bindings is None:
-            bindings = {}
-        if not isinstance(bindings, dict):
-            return None, self._contract_violation_result(
-                "Call input binding failed",
-                {
-                    "step": step.get('name', f'step_{self.current_step}'),
-                    "reason": "invalid_with_bindings",
-                },
-            )
-
-        input_specs = imported_workflow.get('inputs', {})
-        if not isinstance(input_specs, dict):
-            input_specs = {}
-
-        bound_inputs: Dict[str, Any] = {}
-        for input_name, input_spec in input_specs.items():
-            if not isinstance(input_spec, dict):
-                continue
-
-            if input_name in bindings:
-                raw_value = bindings[input_name]
-                if isinstance(raw_value, dict):
-                    ref = raw_value.get('ref')
-                    try:
-                        raw_value = self.reference_resolver.resolve(ref, state, scope=scope).value
-                    except ReferenceResolutionError as exc:
-                        return None, self._contract_violation_result(
-                            "Call input binding failed",
-                            {
-                                "step": step_name_override or step.get('name', f'step_{self.current_step}'),
-                                "input": input_name,
-                                "reason": "unresolved_ref",
-                                "ref": ref,
-                                "error": str(exc),
-                            },
-                        )
-                try:
-                    bound_inputs[input_name] = validate_contract_value(
-                        raw_value,
-                        input_spec,
-                        workspace=self.workspace,
-                    )
-                except OutputContractError as exc:
-                    return None, self._contract_violation_result(
-                        "Call input binding failed",
-                        {
-                            "step": step_name_override or step.get('name', f'step_{self.current_step}'),
-                            "input": input_name,
-                            "reason": "invalid_value",
-                            "violations": exc.violations,
-                        },
-                    )
-                continue
-
-            if 'default' in input_spec:
-                bound_inputs[input_name] = input_spec['default']
-                continue
-            if input_spec.get('required', True):
-                return None, self._contract_violation_result(
-                    "Call input binding failed",
-                    {
-                        "step": step_name_override or step.get('name', f'step_{self.current_step}'),
-                        "input": input_name,
-                        "reason": "missing_required_input",
-                    },
-                )
-
-        return bound_inputs, None
+        return self.call_executor.resolve_bound_inputs(
+            step,
+            imported_workflow,
+            state,
+            scope=scope,
+            step_name_override=step_name_override,
+        )
 
     def _validate_call_write_root_bindings(
         self,
@@ -3250,79 +2217,13 @@ class WorkflowExecutor:
         bound_inputs: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Reject repeated or aliased managed write roots across call frames."""
-        managed_inputs = imported_workflow.get('__managed_write_root_inputs', [])
-        if not isinstance(managed_inputs, list) or not managed_inputs:
-            return None
-
-        current_roots: Dict[str, str] = {}
-        for input_name in managed_inputs:
-            value = bound_inputs.get(input_name)
-            if not isinstance(value, str):
-                continue
-            prior_input = current_roots.get(value)
-            if prior_input is not None:
-                return self._contract_violation_result(
-                    "Call input binding failed",
-                    {
-                        "step": step_name,
-                        "reason": "colliding_write_root_binding",
-                        "input": input_name,
-                        "value": value,
-                        "collides_with": {
-                            "step": step_name,
-                            "input": prior_input,
-                        },
-                    },
-                )
-            current_roots[value] = input_name
-
-        call_frames = state.get('call_frames', {})
-        if not isinstance(call_frames, dict) or not current_roots:
-            return None
-
-        current_imports = self.workflow.get('__imports', {})
-        if not isinstance(current_imports, dict):
-            current_imports = {}
-
-        for prior_frame_id, prior_frame in call_frames.items():
-            if prior_frame_id == frame_id or not isinstance(prior_frame, dict):
-                continue
-
-            prior_alias = prior_frame.get('import_alias')
-            prior_workflow = current_imports.get(prior_alias) if isinstance(prior_alias, str) else None
-            if not isinstance(prior_workflow, dict):
-                continue
-
-            prior_managed_inputs = prior_workflow.get('__managed_write_root_inputs', [])
-            prior_bound_inputs = prior_frame.get('bound_inputs')
-            if not isinstance(prior_managed_inputs, list) or not isinstance(prior_bound_inputs, dict):
-                continue
-
-            for prior_input in prior_managed_inputs:
-                prior_value = prior_bound_inputs.get(prior_input)
-                if not isinstance(prior_value, str):
-                    continue
-
-                current_input = current_roots.get(prior_value)
-                if current_input is None:
-                    continue
-
-                return self._contract_violation_result(
-                    "Call input binding failed",
-                    {
-                        "step": step_name,
-                        "reason": "colliding_write_root_binding",
-                        "input": current_input,
-                        "value": prior_value,
-                        "collides_with": {
-                            "call_frame_id": prior_frame_id,
-                            "step": prior_frame.get('call_step_name'),
-                            "input": prior_input,
-                        },
-                    },
-                )
-
-        return None
+        return self.call_executor.validate_write_root_bindings(
+            step_name=step_name,
+            frame_id=frame_id,
+            imported_workflow=imported_workflow,
+            state=state,
+            bound_inputs=bound_inputs,
+        )
 
     def _build_call_debug_payload(
         self,
@@ -3333,46 +2234,12 @@ class WorkflowExecutor:
         child_state: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build observability metadata for one executed call frame."""
-        workflow_path = imported_workflow.get('__workflow_path')
-        workflow_file = (
-            _display_workflow_path(self.workspace, workflow_path)
-            if isinstance(workflow_path, str) and workflow_path
-            else None
+        return self.call_executor.build_debug_payload(
+            frame_id=frame_id,
+            step=step,
+            imported_workflow=imported_workflow,
+            child_state=child_state,
         )
-        call_frames = child_state.get('call_frames', {})
-        nested_frames = list(call_frames.keys()) if isinstance(call_frames, dict) else []
-        finalization = child_state.get('finalization', {})
-        exports: Dict[str, Any] = {}
-        output_specs = imported_workflow.get('outputs', {})
-        workflow_outputs = child_state.get('workflow_outputs', {})
-        if isinstance(output_specs, dict) and isinstance(workflow_outputs, dict):
-            child_steps = child_state.get('steps', {}) if isinstance(child_state.get('steps'), dict) else {}
-            for output_name, output_spec in output_specs.items():
-                if output_name not in workflow_outputs or not isinstance(output_spec, dict):
-                    continue
-                binding = output_spec.get('from')
-                ref = binding.get('ref') if isinstance(binding, dict) else None
-                export_entry: Dict[str, Any] = {"source_ref": ref}
-                if isinstance(ref, str) and ref.startswith("root.steps."):
-                    step_name = ref[len("root.steps."):].split(".", 1)[0]
-                    child_step = child_steps.get(step_name)
-                    if isinstance(child_step, dict):
-                        export_entry["source_step_name"] = step_name
-                        if isinstance(child_step.get("step_id"), str):
-                            export_entry["source_step_id"] = child_step.get("step_id")
-                exports[output_name] = export_entry
-
-        return {
-            'call_frame_id': frame_id,
-            'import_alias': step.get('call'),
-            'workflow_file': workflow_file,
-            'status': child_state.get('status'),
-            'finalization': finalization if isinstance(finalization, dict) else {},
-            'bound_inputs': child_state.get('bound_inputs', {}),
-            'workflow_outputs': workflow_outputs if isinstance(workflow_outputs, dict) else {},
-            'exports': exports,
-            'nested_call_frames': nested_frames,
-        }
 
     def _call_resume_checksum_mismatch_result(
         self,
@@ -3386,24 +2253,15 @@ class WorkflowExecutor:
         reason: str,
     ) -> Dict[str, Any]:
         """Build a deterministic failure when nested resume checksum validation fails."""
-        return {
-            'status': 'failed',
-            'exit_code': 2,
-            'duration_ms': 0,
-            'error': {
-                'type': 'call_resume_checksum_mismatch',
-                'message': 'Called workflow has been modified since the run started',
-                'context': {
-                    'step': step_name,
-                    'call': call_alias,
-                    'call_frame_id': frame_id,
-                    'workflow_file': workflow_file,
-                    'persisted_checksum': persisted_checksum,
-                    'current_checksum': current_checksum,
-                    'reason': reason,
-                },
-            },
-        }
+        return self.call_executor.resume_checksum_mismatch_result(
+            step_name=step_name,
+            call_alias=call_alias,
+            frame_id=frame_id,
+            workflow_file=workflow_file,
+            persisted_checksum=persisted_checksum,
+            current_checksum=current_checksum,
+            reason=reason,
+        )
 
     def _validate_call_resume_checksum(
         self,
@@ -3415,66 +2273,13 @@ class WorkflowExecutor:
         existing_frame: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """Reject resumed call frames when the imported workflow checksum changed."""
-        if not getattr(self, "resume_mode", False) or not isinstance(existing_frame, dict):
-            return None
-
-        workflow_path = imported_workflow.get('__workflow_path')
-        workflow_file = (
-            _display_workflow_path(self.workspace, workflow_path)
-            if isinstance(workflow_path, str) and workflow_path
-            else None
+        return self.call_executor.validate_resume_checksum(
+            step_name=step_name,
+            call_alias=call_alias,
+            frame_id=frame_id,
+            imported_workflow=imported_workflow,
+            existing_frame=existing_frame,
         )
-        persisted_state = existing_frame.get('state')
-        persisted_checksum = (
-            persisted_state.get('workflow_checksum')
-            if isinstance(persisted_state, dict)
-            else None
-        )
-        if not isinstance(persisted_checksum, str) or not persisted_checksum.startswith("sha256:"):
-            return self._call_resume_checksum_mismatch_result(
-                step_name=step_name,
-                call_alias=call_alias,
-                frame_id=frame_id,
-                workflow_file=workflow_file,
-                persisted_checksum=persisted_checksum if isinstance(persisted_checksum, str) else None,
-                current_checksum=None,
-                reason='missing_recorded_checksum',
-            )
-
-        if not isinstance(workflow_path, str) or not workflow_path:
-            return self._call_resume_checksum_mismatch_result(
-                step_name=step_name,
-                call_alias=call_alias,
-                frame_id=frame_id,
-                workflow_file=workflow_file,
-                persisted_checksum=persisted_checksum,
-                current_checksum=None,
-                reason='missing_workflow_path',
-            )
-
-        try:
-            current_checksum = self.state_manager.calculate_checksum(Path(workflow_path))
-        except FileNotFoundError:
-            return self._call_resume_checksum_mismatch_result(
-                step_name=step_name,
-                call_alias=call_alias,
-                frame_id=frame_id,
-                workflow_file=workflow_file,
-                persisted_checksum=persisted_checksum,
-                current_checksum=None,
-                reason='workflow_unavailable',
-            )
-        if current_checksum != persisted_checksum:
-            return self._call_resume_checksum_mismatch_result(
-                step_name=step_name,
-                call_alias=call_alias,
-                frame_id=frame_id,
-                workflow_file=workflow_file,
-                persisted_checksum=persisted_checksum,
-                current_checksum=current_checksum,
-                reason='workflow_modified',
-            )
-        return None
 
     def _execute_call(
         self,
@@ -3486,122 +2291,13 @@ class WorkflowExecutor:
         step_name_override: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute an imported workflow inline and persist call-frame state."""
-        call_alias = step.get('call')
-        imported_workflow = self.workflow.get('__imports', {}).get(call_alias)
-        step_name = step_name_override or step.get('name', f'step_{self.current_step}')
-        step_id = runtime_step_id or self._step_id(step)
-        if not isinstance(imported_workflow, dict):
-            return self._contract_violation_result(
-                "Call execution failed",
-                {
-                    "step": step_name,
-                    "reason": "unknown_import_alias",
-                    "call": call_alias,
-                },
-            )
-
-        bound_inputs, binding_error = self._resolve_call_bound_inputs(
+        return self.call_executor.execute_call(
             step,
-            imported_workflow,
             state,
             scope=scope,
-            step_name_override=step_name,
+            runtime_step_id=runtime_step_id,
+            step_name_override=step_name_override,
         )
-        if binding_error is not None:
-            return binding_error
-        assert bound_inputs is not None
-
-        frame_id = self._call_frame_id_with_overrides(
-            step,
-            state,
-            step_name=step_name,
-            step_id=step_id,
-        )
-        call_frames = state.setdefault('call_frames', {})
-        existing_frame = call_frames.get(frame_id) if isinstance(call_frames, dict) else None
-        if not isinstance(call_frames, dict):
-            call_frames = {}
-            state['call_frames'] = call_frames
-
-        write_root_error = self._validate_call_write_root_bindings(
-            step_name=step_name,
-            frame_id=frame_id,
-            imported_workflow=imported_workflow,
-            state=state,
-            bound_inputs=bound_inputs,
-        )
-        if write_root_error is not None:
-            return write_root_error
-
-        checksum_error = self._validate_call_resume_checksum(
-            step_name=step_name,
-            call_alias=call_alias,
-            frame_id=frame_id,
-            imported_workflow=imported_workflow,
-            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
-        )
-        if checksum_error is not None:
-            return checksum_error
-
-        child_state_manager = _CallFrameStateManager(
-            parent_manager=self.state_manager,
-            workflow=imported_workflow,
-            frame_id=frame_id,
-            call_step_name=step_name,
-            call_step_id=step_id,
-            import_alias=str(call_alias),
-            bound_inputs=bound_inputs,
-            existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
-            observability=self.observability,
-        )
-        child_executor = WorkflowExecutor(
-            workflow=imported_workflow,
-            workspace=self.workspace,
-            state_manager=child_state_manager,
-            debug=self.debug,
-            stream_output=self.stream_output,
-            max_retries=self.max_retries,
-            retry_delay_ms=self.retry_delay_ms,
-            observability=self.observability,
-            step_heartbeat_interval_sec=self.step_heartbeat_interval_sec,
-        )
-        child_state = child_executor.execute(resume=self.resume_mode)
-        call_frames[frame_id] = child_state_manager._snapshot()
-
-        debug_payload = self._build_call_debug_payload(
-            frame_id=frame_id,
-            step=step,
-            imported_workflow=imported_workflow,
-            child_state=child_state,
-        )
-        if child_state.get('status') != 'completed':
-            return {
-                'status': 'failed',
-                'exit_code': 2,
-                'duration_ms': 0,
-                'error': {
-                    'type': 'call_failed',
-                    'message': 'Called workflow failed',
-                    'context': {
-                        'call': call_alias,
-                        'call_frame_id': frame_id,
-                        'workflow_file': debug_payload.get('workflow_file'),
-                        'error': child_state.get('error'),
-                    },
-                },
-                'debug': {'call': debug_payload},
-            }
-
-        workflow_outputs = child_state.get('workflow_outputs', {})
-        if not isinstance(workflow_outputs, dict):
-            workflow_outputs = {}
-        return {
-            'status': 'completed',
-            'exit_code': 0,
-            'duration_ms': 0,
-            'artifacts': workflow_outputs,
-            'debug': {'call': debug_payload},
-        }
 
     def _execute_provider_invocation(self, invocation: Any) -> Any:
         """Execute provider invocation with backward-compatible call shape."""
@@ -3756,25 +2452,7 @@ class WorkflowExecutor:
         Returns:
             Combined context dictionary
         """
-        # Combine contexts (loop vars override globals)
-        # Get run metadata from current state
-        run_state = self.state_manager.load()
-        run_metadata = {
-            'id': run_state.run_id,
-            'root': run_state.run_root,  # Include run.root for AT-64
-            'timestamp_utc': run_state.started_at
-        }
-
-        workflow_context = run_state.context if isinstance(run_state.context, dict) else self.variables
-
-        # AT-65: Use iteration_state for steps.* variables to ensure loop scoping
-        context = {
-            'run': run_metadata,
-            'context': workflow_context,
-            'steps': iteration_state,  # Only current iteration's results
-            **loop_context  # Loop vars override
-        }
-        return context
+        return self.loop_executor.create_loop_context(step, loop_context, iteration_state)
 
     def _create_provider_context(
         self,
