@@ -32,10 +32,12 @@ from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
 from .assets import WorkflowAssetResolver
 from .dataflow import DataflowManager
+from .finalization import FinalizationController
 from .identity import iteration_step_id, runtime_step_id
 from .predicates import PredicateEvaluationError, resolve_typed_operand
 from .prompting import PromptComposer
 from .references import ReferenceResolutionError, ReferenceResolver
+from .resume_planner import ResumePlanner
 from .runtime_context import RuntimeContext
 from .runtime_types import NormalizedStepOutcome, RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
@@ -350,6 +352,15 @@ class WorkflowExecutor:
         self.steps = list(self.body_steps) + list(self.finalization_steps)
         self.variables = workflow.get('variables', {})
         self.global_secrets = workflow.get('secrets', [])
+        self.resume_planner = ResumePlanner()
+        self.finalization_controller = FinalizationController(
+            finalization=self.finalization,
+            finalization_steps=self.finalization_steps,
+            finalization_start_index=self.finalization_start_index,
+            has_workflow_outputs=bool(self.workflow.get("outputs")),
+            persist_state=self._persist_finalization_state,
+            finalization_failure_error=self._finalization_failure_error,
+        )
 
         # Retry configuration
         self.max_retries = max_retries
@@ -398,102 +409,19 @@ class WorkflowExecutor:
 
     def _resume_entry_is_terminal(self, entry: Any) -> bool:
         """Return True when persisted step state is fully completed/skipped for resume purposes."""
-        if isinstance(entry, dict):
-            status = entry.get("status")
-            if isinstance(status, str):
-                return status in ["completed", "skipped"]
-            if not entry:
-                return False
-            return all(self._resume_entry_is_terminal(value) for value in entry.values())
-        if isinstance(entry, list):
-            return all(self._resume_entry_is_terminal(value) for value in entry)
-        return False
+        return self.resume_planner.entry_is_terminal(entry)
 
     def _determine_resume_restart_index(self, state: Dict[str, Any]) -> Optional[int]:
         """Determine the top-level step index where resumed execution should restart."""
-        steps_state = state.get("steps", {})
-        if not isinstance(steps_state, dict):
-            steps_state = {}
-
-        current_step = state.get("current_step")
-        if isinstance(current_step, dict):
-            current_index = current_step.get("index")
-            current_status = current_step.get("status")
-            if isinstance(current_index, int) and current_status == "running":
-                if 0 <= current_index < len(self.steps):
-                    current_step_name = self.steps[current_index].get("name", f"step_{current_index}")
-                    if self._resume_for_each_has_pending_work(state, current_step_name):
-                        return current_index
-                    if self._resume_repeat_until_has_pending_work(state, current_step_name):
-                        return current_index
-                    current_result = steps_state.get(current_step_name)
-                    if not self._resume_entry_is_terminal(current_result):
-                        return current_index
-
-        for step_index, step in enumerate(self.steps):
-            step_name = step.get("name", f"step_{step_index}")
-            if self._resume_for_each_has_pending_work(state, step_name):
-                return step_index
-            if self._resume_repeat_until_has_pending_work(state, step_name):
-                return step_index
-            step_result = steps_state.get(step_name)
-            if step_result is None:
-                return step_index
-            if not self._resume_entry_is_terminal(step_result):
-                return step_index
-
-        return None
+        return self.resume_planner.determine_restart_index(state, self.steps)
 
     def _resume_for_each_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
         """Return True when persisted loop bookkeeping shows unfinished iterations."""
-        for_each_state = state.get("for_each", {})
-        if not isinstance(for_each_state, dict):
-            return False
-
-        progress = for_each_state.get(step_name)
-        if not isinstance(progress, dict):
-            return False
-
-        current_index = progress.get("current_index")
-        if isinstance(current_index, int):
-            return True
-
-        items = progress.get("items")
-        if not isinstance(items, list):
-            return False
-
-        completed_indices = {
-            index
-            for index in progress.get("completed_indices", [])
-            if isinstance(index, int) and 0 <= index < len(items)
-        }
-        if len(completed_indices) < len(items):
-            return True
-
-        steps_state = state.get("steps", {})
-        if isinstance(steps_state, dict):
-            loop_results = steps_state.get(step_name)
-            if isinstance(loop_results, list) and len(loop_results) < len(items):
-                return True
-
-        return False
+        return self.resume_planner.for_each_has_pending_work(state, step_name)
 
     def _resume_repeat_until_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
         """Return True when persisted repeat_until bookkeeping shows unfinished iterations."""
-        repeat_until_state = state.get("repeat_until", {})
-        if not isinstance(repeat_until_state, dict):
-            return False
-
-        progress = repeat_until_state.get(step_name)
-        if not isinstance(progress, dict):
-            return False
-
-        current_iteration = progress.get("current_iteration")
-        if isinstance(current_iteration, int):
-            return True
-
-        step_result = state.get("steps", {}).get(step_name)
-        return isinstance(step_result, dict) and not self._resume_entry_is_terminal(step_result)
+        return self.resume_planner.repeat_until_has_pending_work(state, step_name)
 
     def _uses_qualified_identities(self) -> bool:
         """Return True when this workflow uses the post-Task-6 state model."""
@@ -516,19 +444,7 @@ class WorkflowExecutor:
 
     def _initial_finalization_state(self) -> Optional[Dict[str, Any]]:
         """Return durable finalization bookkeeping for workflows with cleanup."""
-        if not self.finalization_steps:
-            return None
-        output_status = 'pending' if self.workflow.get('outputs') else 'not_configured'
-        block_token = self.finalization.get('token') if isinstance(self.finalization, dict) else None
-        return {
-            'block_id': block_token or 'finally',
-            'status': 'pending',
-            'body_status': None,
-            'current_index': None,
-            'completed_indices': [],
-            'step_names': [step.get('name') for step in self.finalization_steps if isinstance(step, dict)],
-            'workflow_outputs_status': output_status,
-        }
+        return self.finalization_controller.initial_state()
 
     def _persist_finalization_state(self, state: Dict[str, Any]) -> None:
         """Persist finalization bookkeeping when present."""
@@ -538,48 +454,15 @@ class WorkflowExecutor:
 
     def _ensure_finalization_state(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Ensure run state contains the finalization bookkeeping structure."""
-        if not self.finalization_steps:
-            return None
-        finalization = state.get('finalization')
-        if not isinstance(finalization, dict):
-            finalization = self._initial_finalization_state() or {}
-            state['finalization'] = finalization
-        finalization.setdefault(
-            'block_id',
-            self.finalization.get('token') if isinstance(self.finalization, dict) else 'finally',
-        )
-        finalization.setdefault('status', 'pending')
-        finalization.setdefault('body_status', None)
-        finalization.setdefault('current_index', None)
-        finalization.setdefault('completed_indices', [])
-        finalization.setdefault('step_names', [
-            step.get('name') for step in self.finalization_steps if isinstance(step, dict)
-        ])
-        if 'workflow_outputs_status' not in finalization:
-            finalization['workflow_outputs_status'] = (
-                'pending' if self.workflow.get('outputs') else 'not_configured'
-            )
-        return finalization
+        return self.finalization_controller.ensure_state(state)
 
     def _activate_finalization(self, state: Dict[str, Any], body_status: str) -> None:
         """Mark finalization as pending/running after the workflow body settles."""
-        finalization = self._ensure_finalization_state(state)
-        if finalization is None:
-            return
-        finalization['body_status'] = body_status
-        if finalization.get('status') == 'pending':
-            finalization['status'] = 'running'
-        self._persist_finalization_state(state)
+        self.finalization_controller.activate(state, body_status)
 
     def _record_finalization_step_start(self, state: Dict[str, Any], final_index: int, body_status: str) -> None:
         """Persist which cleanup step is currently running."""
-        finalization = self._ensure_finalization_state(state)
-        if finalization is None:
-            return
-        finalization['body_status'] = body_status
-        finalization['status'] = 'running'
-        finalization['current_index'] = final_index
-        self._persist_finalization_state(state)
+        self.finalization_controller.record_step_start(state, final_index, body_status)
 
     def _record_finalization_step_result(
         self,
@@ -591,29 +474,14 @@ class WorkflowExecutor:
         body_status: str,
     ) -> None:
         """Persist one cleanup step outcome for resume and reporting."""
-        finalization = self._ensure_finalization_state(state)
-        if finalization is None:
-            return
-        completed_indices = finalization.setdefault('completed_indices', [])
-        if not failed and final_index not in completed_indices:
-            completed_indices.append(final_index)
-            completed_indices.sort()
-        finalization['body_status'] = body_status
-        finalization['current_index'] = None if not failed else final_index
-        if failed:
-            finalization['status'] = 'failed'
-            error = result.get('error') if isinstance(result, dict) else None
-            finalization['failure'] = {
-                'step': step_name,
-                'step_id': result.get('step_id') if isinstance(result, dict) else None,
-                'error': error,
-            }
-        elif len(completed_indices) == len(self.finalization_steps):
-            finalization['status'] = 'completed'
-            finalization.pop('failure', None)
-        else:
-            finalization['status'] = 'running'
-        self._persist_finalization_state(state)
+        self.finalization_controller.record_step_result(
+            state,
+            final_index,
+            step_name,
+            failed,
+            result,
+            body_status,
+        )
 
     def _record_finalization_settled_result(
         self,
@@ -623,25 +491,7 @@ class WorkflowExecutor:
         body_status: str,
     ) -> None:
         """Project one settled cleanup result into finalization bookkeeping."""
-        if not self._is_finalization_step(step_index):
-            return
-        result = state.get('steps', {}).get(step_name)
-        failed = isinstance(result, dict) and result.get('status') == 'failed'
-        self._record_finalization_step_result(
-            state,
-            step_index - self.finalization_start_index,
-            step_name,
-            failed,
-            result,
-            body_status,
-        )
-        finalization = self._ensure_finalization_state(state)
-        if failed:
-            if body_status == 'completed' and isinstance(result, dict):
-                state['error'] = self._finalization_failure_error(result, step_name)
-            if isinstance(finalization, dict):
-                finalization['workflow_outputs_status'] = 'suppressed'
-                self._persist_finalization_state(state)
+        self.finalization_controller.record_settled_result(state, step_index, step_name, body_status)
 
     def _maybe_continue_into_finalization(
         self,
@@ -651,22 +501,16 @@ class WorkflowExecutor:
         state: Dict[str, Any],
     ) -> RoutingDecision:
         """Redirect body termination into finalization when configured."""
-        if next_step not in {'_end', '_stop'}:
-            return RoutingDecision(next_step_index=None, terminal_status=terminal_status, should_break=False)
-        if next_step == '_stop':
-            terminal_status = 'failed'
-        if self.finalization_steps and step_index < self.finalization_start_index:
-            self._activate_finalization(state, terminal_status)
-            return RoutingDecision(
-                next_step_index=self.finalization_start_index,
-                terminal_status=terminal_status,
-                should_break=False,
-            )
-        return RoutingDecision(next_step_index=None, terminal_status=terminal_status, should_break=True)
+        return self.finalization_controller.continue_into_finalization(
+            next_step,
+            step_index,
+            terminal_status,
+            state,
+        )
 
     def _is_finalization_step(self, step_index: int) -> bool:
         """Return True when the current step belongs to the appended finalization slice."""
-        return bool(self.finalization_steps) and step_index >= self.finalization_start_index
+        return self.finalization_controller.is_finalization_step(step_index)
 
     def _finalization_failure_error(self, result: Dict[str, Any], step_name: str) -> Dict[str, Any]:
         """Build a dedicated run-level error payload for cleanup failures after body success."""
