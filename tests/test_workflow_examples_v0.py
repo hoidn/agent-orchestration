@@ -17,6 +17,7 @@ EXAMPLE_FILES = [
     "call_subworkflow_demo.yaml",
     "cycle_guard_demo.yaml",
     "dsl_follow_on_plan_impl_review_loop.yaml",
+    "dsl_follow_on_plan_impl_review_loop_v2.yaml",
     "dsl_tracked_plan_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
     "finally_demo.yaml",
@@ -708,6 +709,174 @@ def test_dsl_follow_on_plan_impl_review_loop_runtime(tmp_path: Path):
         "implementation_review_report": 1,
         "plan": 2,
     }
+
+
+def test_dsl_follow_on_plan_impl_review_loop_v2_runtime(tmp_path: Path):
+    """V2 follow-on workflow uses typed inputs plus structured match/repeat_until loops."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "dsl_follow_on_plan_impl_review_loop_v2.yaml"
+    )
+    for prompt_file in [
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2/draft_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2/review_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2/revise_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2/implement_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2/review_implementation.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2/fix_implementation.md",
+        "workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json",
+        "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md",
+    ]:
+        _copy_repo_file_to_workspace(workspace, prompt_file)
+
+    plan_review_calls = {"count": 0}
+    implementation_review_calls = {"count": 0}
+
+    def _write_plan(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/plan_path.txt",
+                "docs/plans/2026-03-06-dsl-evolution-execution-plan-v2.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_plan_review(ws: Path) -> None:
+        plan_review_calls["count"] += 1
+        report_relpath = (ws / "state" / "plan_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if plan_review_calls["count"] == 1:
+            report_path.write_text("## High\n- Plan needs one blocking revision.\n")
+            decision = "REVISE"
+        else:
+            report_path.write_text("## Medium\n- Remaining plan edits are non-blocking.\n")
+            decision = "APPROVE"
+        (ws / "state" / "plan_review_decision.txt").write_text(f"{decision}\n")
+
+    def _write_execution_report(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/execution_report_path.txt",
+                "artifacts/work/dsl-evolution-implementation-report-v2.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_implementation_review(ws: Path) -> None:
+        implementation_review_calls["count"] += 1
+        report_relpath = (ws / "state" / "implementation_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if implementation_review_calls["count"] == 1:
+            report_path.write_text("## High\n- Implementation needs one blocking fix.\n")
+            decision = "REVISE"
+        else:
+            report_path.write_text("## Medium\n- Remaining implementation edits are non-blocking.\n")
+            decision = "APPROVE"
+        (ws / "state" / "implementation_review_decision.txt").write_text(f"{decision}\n")
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_relpath,
+        workflow.get("context", {}),
+        bound_inputs={
+            "upstream_state_path": "workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json",
+            "design_path": "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md",
+        },
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    provider_sequence = [
+        "DraftPlan",
+        "PlanReviewLoop[0].ReviewPlan",
+        "PlanReviewLoop[0].RoutePlanDecision.REVISE.RevisePlan",
+        "PlanReviewLoop[1].ReviewPlan",
+        "ExecuteImplementation",
+        "ImplementationReviewLoop[0].ReviewImplementation",
+        "ImplementationReviewLoop[0].RouteImplementationDecision.REVISE.FixImplementation",
+        "ImplementationReviewLoop[1].ReviewImplementation",
+    ]
+    call_index = {"value": 0}
+
+    def _prepare_invocation(*_args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_invocation, **_kwargs):
+        step_name = provider_sequence[call_index["value"]]
+        call_index["value"] += 1
+        if step_name == "DraftPlan":
+            _write_plan("# Draft v2 plan\n")(workspace)
+        elif step_name.endswith("ReviewPlan"):
+            _write_plan_review(workspace)
+        elif step_name.endswith("RevisePlan"):
+            _write_plan("# Revised v2 plan\n")(workspace)
+        elif step_name == "ExecuteImplementation":
+            _write_execution_report("Initial v2 implementation report\n")(workspace)
+        elif step_name.endswith("ReviewImplementation"):
+            _write_implementation_review(workspace)
+        elif step_name.endswith("FixImplementation"):
+            _write_execution_report("Updated v2 implementation report after fixes\n")(workspace)
+        else:
+            raise AssertionError(f"Unexpected provider step {step_name}")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+    state = executor.execute()
+    state["__provider_calls"] = call_index["value"]
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 8
+    assert state["workflow_outputs"] == {
+        "plan_path": "docs/plans/2026-03-06-dsl-evolution-execution-plan-v2.md",
+        "execution_report_path": "artifacts/work/dsl-evolution-implementation-report-v2.md",
+        "implementation_review_report_path": "artifacts/review/dsl-evolution-implementation-review.md",
+        "implementation_review_decision": "APPROVE",
+    }
+
+    assert state["steps"]["PlanReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert state["steps"]["ImplementationReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert state["steps"]["PlanReviewLoop[0].RoutePlanDecision.REVISE.RevisePlan"]["status"] == "completed"
+    assert state["steps"]["ImplementationReviewLoop[0].RouteImplementationDecision.REVISE.FixImplementation"][
+        "status"
+    ] == "completed"
+    assert state["steps"]["PlanReviewLoop[1].RoutePlanDecision.APPROVE"]["status"] == "completed"
+    assert state["steps"]["ImplementationReviewLoop[1].RouteImplementationDecision.APPROVE"]["status"] == "completed"
+    assert "PlanReviewGate" not in state["steps"]
+    assert "PlanCycleGate" not in state["steps"]
+    assert "ImplementationReviewGate" not in state["steps"]
+    assert "ImplementationCycleGate" not in state["steps"]
+
+    assert state["bound_inputs"] == {
+        "upstream_state_path": "workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json",
+        "design_path": "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md",
+    }
+
+    plan_versions = state.get("artifact_versions", {}).get("plan", [])
+    plan_producers = [entry["producer"] for entry in plan_versions]
+    assert len(plan_producers) == 2
+    assert plan_producers[0].endswith("draft_plan")
+    assert plan_producers[1].endswith("revise_plan")
+
+    execution_versions = state.get("artifact_versions", {}).get("execution_report", [])
+    execution_producers = [entry["producer"] for entry in execution_versions]
+    assert len(execution_producers) == 2
+    assert execution_producers[0].endswith("execute_implementation")
+    assert execution_producers[1].endswith("fix_implementation")
 
 
 def test_dsl_tracked_plan_review_loop_runtime(tmp_path: Path):
