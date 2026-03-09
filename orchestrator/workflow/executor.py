@@ -4537,10 +4537,12 @@ class WorkflowExecutor:
             'timestamp_utc': run_state.started_at
         }
 
+        workflow_context = run_state.context if isinstance(run_state.context, dict) else self.variables
+
         # AT-65: Use iteration_state for steps.* variables to ensure loop scoping
         context = {
             'run': run_metadata,
-            'context': self.variables,
+            'context': workflow_context,
             'steps': iteration_state,  # Only current iteration's results
             **loop_context  # Loop vars override
         }
@@ -4574,7 +4576,10 @@ class WorkflowExecutor:
                 'timestamp_utc': run_state.started_at,
                 'root': run_state.run_root or ''  # Use run_root from state
             },
-            'context': context.get('context', self.variables),
+            'context': context.get(
+                'context',
+                run_state.context if isinstance(run_state.context, dict) else self.variables,
+            ),
             'inputs': run_state.bound_inputs,
             'steps': steps_namespace,
         }

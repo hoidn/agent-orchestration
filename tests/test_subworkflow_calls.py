@@ -2,12 +2,15 @@
 
 import json
 from pathlib import Path
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import yaml
 
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
+from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -701,6 +704,153 @@ def test_call_keeps_callee_context_defaults_isolated_from_caller(tmp_path: Path)
     frame = next(iter(persisted["call_frames"].values()))
     assert frame["state"]["context"] == {"decision": "child"}
     assert frame["bound_inputs"] == {}
+
+
+def test_call_repeat_until_provider_defaults_use_callee_context(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_loop.yaml",
+        {
+            "version": "2.7",
+            "name": "review-loop",
+            "context": {
+                "workflow_model": "gpt-5.4",
+                "workflow_effort": "high",
+            },
+            "inputs": {
+                "state_root": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                }
+            },
+            "outputs": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                    "from": {
+                        "ref": "root.steps.ReviewLoop.artifacts.review_decision",
+                    },
+                }
+            },
+            "providers": {
+                "reviewer": {
+                    "command": [
+                        "fake-reviewer",
+                        "--model",
+                        "${model}",
+                        "--effort",
+                        "${effort}",
+                    ],
+                    "input_mode": "stdin",
+                    "defaults": {
+                        "model": "${context.workflow_model}",
+                        "effort": "${context.workflow_effort}",
+                    },
+                }
+            },
+            "steps": [
+                {
+                    "name": "Initialize",
+                    "id": "initialize",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        "mkdir -p \"${inputs.state_root}\"",
+                    ],
+                },
+                {
+                    "name": "ReviewLoop",
+                    "id": "review_loop",
+                    "repeat_until": {
+                        "id": "review_iteration",
+                        "max_iterations": 2,
+                        "outputs": {
+                            "review_decision": {
+                                "kind": "scalar",
+                                "type": "enum",
+                                "allowed": ["APPROVE", "REVISE"],
+                                "from": {
+                                    "ref": "self.steps.Review.artifacts.review_decision",
+                                },
+                            }
+                        },
+                        "condition": {
+                            "compare": {
+                                "left": {
+                                    "ref": "self.outputs.review_decision",
+                                },
+                                "op": "eq",
+                                "right": "APPROVE",
+                            }
+                        },
+                        "steps": [
+                            {
+                                "name": "Review",
+                                "id": "review",
+                                "provider": "reviewer",
+                                "expected_outputs": [
+                                    {
+                                        "name": "review_decision",
+                                        "path": "${inputs.state_root}/decision.txt",
+                                        "type": "enum",
+                                        "allowed": ["APPROVE", "REVISE"],
+                                    }
+                                ],
+                            }
+                        ],
+                    },
+                },
+            ],
+        },
+    )
+
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "call-repeat-until-provider-context",
+            "imports": {"review_loop": "workflows/library/review_loop.yaml"},
+            "steps": [
+                {
+                    "name": "RunReviewLoop",
+                    "id": "run_review_loop",
+                    "call": "review_loop",
+                    "with": {
+                        "state_root": "state/review-loop",
+                    },
+                }
+            ],
+        },
+    )
+
+    workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="call-repeat-until-provider-context")
+    state_manager.initialize("workflow.yaml", context=workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, tmp_path, state_manager)
+
+    captured_commands: list[list[str]] = []
+
+    def _execute(_self, invocation, **_kwargs):
+        captured_commands.append(list(invocation.command))
+        decision_path = tmp_path / "state" / "review-loop" / "decision.txt"
+        decision_path.parent.mkdir(parents=True, exist_ok=True)
+        decision_path.write_text("APPROVE\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    with patch.object(ProviderExecutor, "execute", _execute):
+        state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert captured_commands == [["fake-reviewer", "--model", "gpt-5.4", "--effort", "high"]]
 
 
 def test_call_frame_persists_internal_since_last_consume_bookkeeping(tmp_path: Path):
