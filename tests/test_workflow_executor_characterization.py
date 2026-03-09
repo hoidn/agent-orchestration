@@ -271,3 +271,96 @@ def test_executor_for_each_nested_provider_pre_execution_failures_normalize_outc
     }
     assert persisted["steps"]["ProcessItems"][0]["UseProvider"]["outcome"] == result["outcome"]
     assert not (tmp_path / "state" / "provider-ran.txt").exists()
+
+
+def test_executor_top_level_provider_step_persists_result_shape_and_clears_current_step(tmp_path: Path):
+    workflow = {
+        "version": "1.4",
+        "name": "top-level-provider-characterization",
+        "providers": {
+            "echoer": {
+                "command": ["bash", "-lc", "printf ok"],
+            }
+        },
+        "steps": [
+            {
+                "name": "AskProvider",
+                "provider": "echoer",
+            }
+        ],
+    }
+
+    loaded = _load_workflow(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="top-level-provider-characterization")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(loaded, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "top-level-provider-characterization")
+
+    assert state["status"] == "completed"
+    assert state.get("current_step") is None
+    assert state["steps"]["AskProvider"] == {
+        "status": "completed",
+        "name": "AskProvider",
+        "step_id": "root.askprovider",
+        "exit_code": 0,
+        "duration_ms": state["steps"]["AskProvider"]["duration_ms"],
+        "output": "ok",
+        "truncated": False,
+        "skipped": False,
+        "outcome": {
+            "status": "completed",
+            "phase": "execution",
+            "class": "completed",
+            "retryable": False,
+        },
+        "visit_count": 1,
+    }
+    assert persisted["status"] == "completed"
+    assert persisted.get("current_step") is None
+    assert persisted["steps"]["AskProvider"]["outcome"] == {
+        "status": "completed",
+        "phase": "execution",
+        "class": "completed",
+        "retryable": False,
+    }
+
+
+def test_executor_on_error_continue_routes_through_later_top_level_step_and_finishes_completed(tmp_path: Path):
+    workflow = {
+        "version": "1.4",
+        "name": "top-level-routing-characterization",
+        "steps": [
+            {
+                "name": "FailFirst",
+                "command": ["bash", "-lc", "exit 7"],
+            },
+            {
+                "name": "RunSecond",
+                "command": ["bash", "-lc", "mkdir -p state && printf ran > state/second.txt"],
+            },
+        ],
+    }
+
+    loaded = _load_workflow(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="top-level-routing-characterization")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(loaded, tmp_path, state_manager).execute(on_error="continue")
+    persisted = _persisted_state(tmp_path, "top-level-routing-characterization")
+
+    assert state["status"] == "completed"
+    assert state.get("current_step") is None
+    assert state["transition_count"] == 1
+    assert state["steps"]["FailFirst"]["status"] == "failed"
+    assert state["steps"]["FailFirst"]["outcome"] == {
+        "status": "failed",
+        "phase": "execution",
+        "class": "command_failed",
+        "retryable": False,
+    }
+    assert state["steps"]["RunSecond"]["status"] == "completed"
+    assert (tmp_path / "state" / "second.txt").read_text(encoding="utf-8") == "ran"
+    assert persisted["status"] == "completed"
+    assert persisted.get("current_step") is None
+    assert persisted["step_visits"] == {"FailFirst": 1, "RunSecond": 1}
