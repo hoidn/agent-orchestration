@@ -1,0 +1,278 @@
+version: "2.7"
+name: "follow-on-plan-phase"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  state_root:
+    kind: relpath
+    type: relpath
+    under: state
+  design_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  plan_target_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+  plan_review_report_target_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+
+outputs:
+  plan_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizePlanPhaseOutputs.artifacts.plan_path
+  plan_review_report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizePlanPhaseOutputs.artifacts.plan_review_report_path
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.FinalizePlanPhaseOutputs.artifacts.plan_review_decision
+
+providers:
+  codex:
+    command: ["codex", "exec", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+
+artifacts:
+  design:
+    pointer: ${inputs.state_root}/design_path.txt
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  plan:
+    pointer: ${inputs.state_root}/plan_path.txt
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  plan_review_report:
+    pointer: ${inputs.state_root}/plan_review_report_path.txt
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+
+steps:
+  - name: InitializePlanPhasePaths
+    id: initialize_plan_phase_paths
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p "${inputs.state_root}" docs/plans artifacts/review
+        printf '%s\n' "${inputs.plan_target_path}" > "${inputs.state_root}/plan_path.txt"
+        printf '%s\n' "${inputs.plan_review_report_target_path}" > "${inputs.state_root}/plan_review_report_path.txt"
+    expected_outputs:
+      - name: plan_path
+        path: ${inputs.state_root}/plan_path.txt
+        type: relpath
+        under: docs/plans
+      - name: plan_review_report_path
+        path: ${inputs.state_root}/plan_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+
+  - name: PublishDesignInput
+    id: publish_design_input
+    command:
+      - bash
+      - -lc
+      - |
+        design="${inputs.design_path}"
+        if [ ! -f "$design" ]; then
+          echo "Missing design file: $design" >&2
+          exit 1
+        fi
+        mkdir -p "${inputs.state_root}"
+        printf '%s\n' "$design" > "${inputs.state_root}/design_path.txt"
+    expected_outputs:
+      - name: design_path
+        path: ${inputs.state_root}/design_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+    publishes:
+      - artifact: design
+        from: design_path
+
+  - name: DraftPlan
+    id: draft_plan
+    provider: codex
+    input_file: prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/draft_plan.md
+    timeout_sec: 3600
+    consumes:
+      - artifact: design
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["design"]
+    expected_outputs:
+      - name: plan_path
+        path: ${inputs.state_root}/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+    publishes:
+      - artifact: plan
+        from: plan_path
+
+  - name: PlanReviewLoop
+    id: plan_review_loop
+    repeat_until:
+      id: plan_review_iteration
+      max_iterations: 20
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: ["APPROVE", "REVISE"]
+          from:
+            ref: self.steps.RoutePlanDecision.artifacts.review_decision
+      condition:
+        compare:
+          left:
+            ref: self.outputs.review_decision
+          op: eq
+          right: APPROVE
+      steps:
+        - name: ReviewPlan
+          id: review_plan
+          provider: codex
+          input_file: prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/review_plan.md
+          timeout_sec: 1800
+          consumes:
+            - artifact: design
+              policy: latest_successful
+              freshness: any
+            - artifact: plan
+              policy: latest_successful
+              freshness: any
+          prompt_consumes: ["design", "plan"]
+          expected_outputs:
+            - name: plan_review_report_path
+              path: ${inputs.state_root}/plan_review_report_path.txt
+              type: relpath
+              under: artifacts/review
+              must_exist_target: true
+            - name: plan_review_decision
+              path: ${inputs.state_root}/plan_review_decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE"]
+          publishes:
+            - artifact: plan_review_report
+              from: plan_review_report_path
+            - artifact: plan_review_decision
+              from: plan_review_decision
+
+        - name: RoutePlanDecision
+          id: route_plan_decision
+          match:
+            ref: self.steps.ReviewPlan.artifacts.plan_review_decision
+            cases:
+              APPROVE:
+                id: approve_plan_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE"]
+                    from:
+                      ref: self.steps.WriteApprovedPlanDecision.artifacts.review_decision
+                steps:
+                  - name: WriteApprovedPlanDecision
+                    id: write_approved_plan_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: APPROVE
+              REVISE:
+                id: revise_plan_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE"]
+                    from:
+                      ref: self.steps.WriteRevisedPlanDecision.artifacts.review_decision
+                steps:
+                  - name: RevisePlan
+                    id: revise_plan
+                    provider: codex
+                    input_file: prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/revise_plan.md
+                    timeout_sec: 3600
+                    consumes:
+                      - artifact: design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: plan
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: plan_review_report
+                        policy: latest_successful
+                        freshness: since_last_consume
+                    prompt_consumes: ["design", "plan", "plan_review_report"]
+                    expected_outputs:
+                      - name: plan_path
+                        path: ${inputs.state_root}/plan_path.txt
+                        type: relpath
+                        under: docs/plans
+                        must_exist_target: true
+                    publishes:
+                      - artifact: plan
+                        from: plan_path
+                  - name: WriteRevisedPlanDecision
+                    id: write_revised_plan_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: REVISE
+
+  - name: FinalizePlanPhaseOutputs
+    id: finalize_plan_phase_outputs
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p "${inputs.state_root}"
+        cat "${inputs.state_root}/plan_path.txt" > "${inputs.state_root}/final_plan_path.txt"
+        cat "${inputs.state_root}/plan_review_report_path.txt" > "${inputs.state_root}/final_plan_review_report_path.txt"
+        cat "${inputs.state_root}/plan_review_decision.txt" > "${inputs.state_root}/final_plan_review_decision.txt"
+    expected_outputs:
+      - name: plan_path
+        path: ${inputs.state_root}/final_plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+      - name: plan_review_report_path
+        path: ${inputs.state_root}/final_plan_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: plan_review_decision
+        path: ${inputs.state_root}/final_plan_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]

@@ -1,0 +1,135 @@
+version: "2.7"
+name: "dsl-follow-on-plan-impl-review-loop-v2-call"
+
+imports:
+  plan_phase: ../library/follow_on_plan_phase.yaml
+  implementation_phase: ../library/follow_on_implementation_phase.yaml
+
+inputs:
+  upstream_state_path:
+    kind: relpath
+    type: relpath
+    must_exist_target: true
+  design_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    default: docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md
+
+outputs:
+  plan_path:
+    kind: relpath
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    from:
+      ref: root.steps.RunPlanPhase.artifacts.plan_path
+  execution_report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.execution_report_path
+  implementation_review_report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.implementation_review_report_path
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.implementation_review_decision
+
+steps:
+  - name: WaitForUpstreamStateFile
+    id: wait_for_upstream_state_file
+    command:
+      - bash
+      - -lc
+      - |
+        python - <<'PY'
+        import pathlib
+        import sys
+        import time
+
+        state_path = pathlib.Path("${inputs.upstream_state_path}")
+        deadline = time.time() + 86400
+
+        while time.time() < deadline:
+            if state_path.exists():
+                raise SystemExit(0)
+            time.sleep(1)
+
+        print(f"Timed out waiting for upstream state file: {state_path}", file=sys.stderr)
+        raise SystemExit(124)
+        PY
+    timeout_sec: 86400
+
+  - name: WaitForUpstreamCompletion
+    id: wait_for_upstream_completion
+    command:
+      - bash
+      - -lc
+      - |
+        python - <<'PY'
+        import json
+        import pathlib
+        import sys
+        import time
+
+        state_path = pathlib.Path("${inputs.upstream_state_path}")
+        if not state_path.exists():
+            print(f"Missing upstream state file: {state_path}", file=sys.stderr)
+            raise SystemExit(1)
+
+        while True:
+            payload = json.loads(state_path.read_text(encoding="utf-8"))
+            status = payload.get("status")
+            if status != "running":
+                break
+            time.sleep(5)
+
+        pathlib.Path("state").mkdir(parents=True, exist_ok=True)
+        pathlib.Path("state/upstream_run_status.txt").write_text(f"{status}\n", encoding="utf-8")
+
+        if status != "completed":
+            print(
+                f"Upstream run state at {state_path} finished with status {status!r}; expected 'completed'.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1)
+        PY
+    timeout_sec: 86400
+    expected_outputs:
+      - name: upstream_run_status
+        path: state/upstream_run_status.txt
+        type: enum
+        allowed: ["completed"]
+
+  - name: RunPlanPhase
+    id: run_plan_phase
+    call: plan_phase
+    with:
+      state_root: state/follow-on-plan-phase
+      design_path:
+        ref: inputs.design_path
+      plan_target_path: docs/plans/2026-03-06-dsl-evolution-execution-plan-v2-call.md
+      plan_review_report_target_path: artifacts/review/dsl-evolution-plan-review-v2-call.md
+
+  - name: RunImplementationPhase
+    id: run_implementation_phase
+    call: implementation_phase
+    with:
+      state_root: state/follow-on-implementation-phase
+      design_path:
+        ref: inputs.design_path
+      plan_path:
+        ref: root.steps.RunPlanPhase.artifacts.plan_path
+      execution_report_target_path: artifacts/work/dsl-evolution-implementation-report-v2-call.md
+      implementation_review_report_target_path: artifacts/review/dsl-evolution-implementation-review-v2-call.md

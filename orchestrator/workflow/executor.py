@@ -169,6 +169,17 @@ class _CallFrameStateManager:
         self.state.for_each[loop_name] = state
         self._persist()
 
+    def update_repeat_until_state(
+        self,
+        loop_name: str,
+        progress: Dict[str, Any],
+        frame_result: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        self.state.repeat_until[loop_name] = progress
+        if frame_result is not None:
+            self.state.steps[loop_name] = frame_result
+        self._persist()
+
     def update_dataflow_state(
         self,
         artifact_versions: Dict[str, List[Dict[str, Any]]],

@@ -13,6 +13,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 ## Directory Map
 
 - `workflows/examples/`: runnable example workflows and validation fixtures
+- `workflows/library/`: reusable imported subworkflows used by `call`-based examples
 - `workflows/examples/prompts/`: prompt files used only by example workflows stored under `workflows/examples/`
 - `prompts/workflows/`: shared prompt trees used by larger example workflows
 
@@ -33,6 +34,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/conditional_demo.yaml` | `1.1` | `Conditional Execution Demo` | Demonstrates `when.equals`, `when.exists`, and `when.not_exists`. |
 | `workflows/examples/dsl_follow_on_plan_impl_review_loop.yaml` | `1.4` | `dsl-follow-on-plan-impl-review-loop` | Waits for the active DSL ADR review loop to finish, drafts an implementation plan from the ADR, then runs bounded plan and implementation review/fix loops. |
 | `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2.yaml` | `2.7` | `dsl-follow-on-plan-impl-review-loop-v2` | Structured rewrite of the follow-on workflow using typed `inputs`/`outputs`, stable step `id`s, `match`, and `repeat_until`, while leaving the `1.4` version in place for comparison. |
+| `workflows/examples/dsl_follow_on_plan_impl_review_loop_v2_call.yaml` | `2.7` | `dsl-follow-on-plan-impl-review-loop-v2-call` | Modular follow-on rewrite: a small parent workflow waits for upstream completion, then `call`s reusable plan and implementation phase subworkflows and exports their declared outputs directly. |
 | `workflows/examples/dsl_tracked_plan_review_loop.yaml` | `1.4` | `dsl-tracked-plan-review-loop` | Plan-only example showing stable finding tracking: fresh review plus open-findings reconciliation, targeted revision, and cycle-specific JSON review artifacts. |
 | `workflows/examples/dsl_review_first_fix_loop.yaml` | `1.4` | `dsl-review-first-fix-loop` | Review-first Codex loop: review the DSL ADR, fix against consumed review feedback, repeat until no `## High` section remains. |
 | `workflows/examples/env_literal.yaml` | `1.1` | _(unnamed)_ | Demonstrates literal `env` semantics, including loop variables that are not substituted inside `env`. |
@@ -56,6 +58,14 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/unit_of_work_plus_test_fix_v0.yaml` | `1.1.1` | `unit-of-work-plus-test-fix-v0` | Unit-of-work execution followed by a bounded post-work test/fix loop. |
 | `workflows/examples/workflow_signature_demo.yaml` | `2.1` | `workflow-signature-demo` | Demonstrates typed workflow `inputs`/`outputs`, `${inputs.*}` substitution, `ref: inputs.*` gating, and validated workflow output export. |
 | `workflows/examples/wait_for_example.yaml` | `1.1` | `wait-for-example` | Minimal `wait_for` example for task-file arrival polling. |
+
+## Reusable Library Workflows
+
+| Path | DSL | Workflow Name | Purpose |
+| --- | --- | --- | --- |
+| `workflows/library/follow_on_plan_phase.yaml` | `2.7` | `follow-on-plan-phase` | Reusable plan-phase subworkflow for the modular follow-on example: draft plan, run structured plan review/revise loop, export the final plan contract. |
+| `workflows/library/follow_on_implementation_phase.yaml` | `2.7` | `follow-on-implementation-phase` | Reusable implementation-phase subworkflow for the modular follow-on example: execute plan work, run structured implementation review/fix loop, export final implementation outputs. |
+| `workflows/library/review_fix_loop.yaml` | `2.5` | `review-fix-loop` | Minimal reusable call demo library used by `call_subworkflow_demo.yaml`. |
 
 ## Related Docs
 

@@ -3,8 +3,10 @@
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
+from unittest.mock import patch
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 
@@ -18,6 +20,7 @@ EXAMPLE_FILES = [
     "cycle_guard_demo.yaml",
     "dsl_follow_on_plan_impl_review_loop.yaml",
     "dsl_follow_on_plan_impl_review_loop_v2.yaml",
+    "dsl_follow_on_plan_impl_review_loop_v2_call.yaml",
     "dsl_tracked_plan_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
     "finally_demo.yaml",
@@ -80,14 +83,14 @@ def _run_with_mocked_providers(
 
     call_index = {"value": 0}
 
-    def _prepare_invocation(*args, **kwargs):
+    def _prepare_invocation(_self, *args, **kwargs):
         if captured_prompts is not None:
             prompt = kwargs.get("prompt_content", "") or ""
             step_name = provider_sequence[call_index["value"]] if call_index["value"] < len(provider_sequence) else ""
             captured_prompts.append({"step": step_name, "prompt": prompt})
         return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
 
-    def _execute(_invocation, **_kwargs):
+    def _execute(_self, _invocation, **_kwargs):
         step_name = provider_sequence[call_index["value"]]
         call_index["value"] += 1
         provider_writers[step_name](workspace)
@@ -107,9 +110,10 @@ def _run_with_mocked_providers(
             invalid_prompt_placeholder=False,
         )
 
-    executor.provider_executor.prepare_invocation = _prepare_invocation
-    executor.provider_executor.execute = _execute
-    state = executor.execute()
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
     state["__provider_calls"] = call_index["value"]
     return state
 
@@ -804,10 +808,10 @@ def test_dsl_follow_on_plan_impl_review_loop_v2_runtime(tmp_path: Path):
     ]
     call_index = {"value": 0}
 
-    def _prepare_invocation(*_args, **kwargs):
+    def _prepare_invocation(_self, *_args, **kwargs):
         return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
 
-    def _execute(_invocation, **_kwargs):
+    def _execute(_self, _invocation, **_kwargs):
         step_name = provider_sequence[call_index["value"]]
         call_index["value"] += 1
         if step_name == "DraftPlan":
@@ -834,9 +838,10 @@ def test_dsl_follow_on_plan_impl_review_loop_v2_runtime(tmp_path: Path):
             invalid_prompt_placeholder=False,
         )
 
-    executor.provider_executor.prepare_invocation = _prepare_invocation
-    executor.provider_executor.execute = _execute
-    state = executor.execute()
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
     state["__provider_calls"] = call_index["value"]
 
     assert state["status"] == "completed"
@@ -877,6 +882,156 @@ def test_dsl_follow_on_plan_impl_review_loop_v2_runtime(tmp_path: Path):
     assert len(execution_producers) == 2
     assert execution_producers[0].endswith("execute_implementation")
     assert execution_producers[1].endswith("fix_implementation")
+
+
+def test_dsl_follow_on_plan_impl_review_loop_v2_call_runtime(tmp_path: Path):
+    """Modular v2 parent delegates plan and implementation phases through reusable call steps."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "dsl_follow_on_plan_impl_review_loop_v2_call.yaml"
+    )
+    for repo_file in [
+        "workflows/library/follow_on_plan_phase.yaml",
+        "workflows/library/follow_on_implementation_phase.yaml",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/draft_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/review_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/revise_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/implement_plan.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/review_implementation.md",
+        "prompts/workflows/dsl_follow_on_plan_impl_loop_v2_call/fix_implementation.md",
+        "workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json",
+        "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md",
+    ]:
+        _copy_repo_file_to_workspace(workspace, repo_file)
+
+    plan_review_calls = {"count": 0}
+    implementation_review_calls = {"count": 0}
+    call_index = {"value": 0}
+
+    def _write_plan(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/follow-on-plan-phase/plan_path.txt",
+                "docs/plans/2026-03-06-dsl-evolution-execution-plan-v2-call.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_plan_review(ws: Path) -> None:
+        plan_review_calls["count"] += 1
+        report_relpath = (ws / "state" / "follow-on-plan-phase" / "plan_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if plan_review_calls["count"] == 1:
+            report_path.write_text("## High\n- Plan needs one blocking revision.\n")
+            decision = "REVISE"
+        else:
+            report_path.write_text("## Medium\n- Remaining plan edits are non-blocking.\n")
+            decision = "APPROVE"
+        (ws / "state" / "follow-on-plan-phase" / "plan_review_decision.txt").write_text(f"{decision}\n")
+
+    def _write_execution_report(content: str) -> Callable[[Path], None]:
+        def _writer(ws: Path) -> None:
+            _write_relpath_artifact(
+                ws,
+                "state/follow-on-implementation-phase/execution_report_path.txt",
+                "artifacts/work/dsl-evolution-implementation-report-v2-call.md",
+                content,
+            )
+
+        return _writer
+
+    def _write_implementation_review(ws: Path) -> None:
+        implementation_review_calls["count"] += 1
+        report_relpath = (
+            ws / "state" / "follow-on-implementation-phase" / "implementation_review_report_path.txt"
+        ).read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        if implementation_review_calls["count"] == 1:
+            report_path.write_text("## High\n- Implementation needs one blocking fix.\n")
+            decision = "REVISE"
+        else:
+            report_path.write_text("## Medium\n- Remaining implementation edits are non-blocking.\n")
+            decision = "APPROVE"
+        (ws / "state" / "follow-on-implementation-phase" / "implementation_review_decision.txt").write_text(
+            f"{decision}\n"
+        )
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_relpath,
+        workflow.get("context", {}),
+        bound_inputs={
+            "upstream_state_path": "workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json",
+            "design_path": "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md",
+        },
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    def _prepare_invocation(_self, *_args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **_kwargs):
+        index = call_index["value"]
+        call_index["value"] += 1
+        if index == 0:
+            _write_plan("# Draft call-based v2 plan\n")(workspace)
+        elif index == 1:
+            _write_plan_review(workspace)
+        elif index == 2:
+            _write_plan("# Revised call-based v2 plan\n")(workspace)
+        elif index == 3:
+            _write_plan_review(workspace)
+        elif index == 4:
+            _write_execution_report("Initial call-based implementation report\n")(workspace)
+        elif index == 5:
+            _write_implementation_review(workspace)
+        elif index == 6:
+            _write_execution_report("Updated call-based implementation report after fixes\n")(workspace)
+        elif index == 7:
+            _write_implementation_review(workspace)
+        else:
+            raise AssertionError(f"Unexpected provider invocation index {index}")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+    state["__provider_calls"] = call_index["value"]
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 8
+    assert state["workflow_outputs"] == {
+        "plan_path": "docs/plans/2026-03-06-dsl-evolution-execution-plan-v2-call.md",
+        "execution_report_path": "artifacts/work/dsl-evolution-implementation-report-v2-call.md",
+        "implementation_review_report_path": "artifacts/review/dsl-evolution-implementation-review-v2-call.md",
+        "implementation_review_decision": "APPROVE",
+    }
+    assert state["steps"]["RunPlanPhase"]["artifacts"] == {
+        "plan_path": "docs/plans/2026-03-06-dsl-evolution-execution-plan-v2-call.md",
+        "plan_review_report_path": "artifacts/review/dsl-evolution-plan-review-v2-call.md",
+        "plan_review_decision": "APPROVE",
+    }
+    assert state["steps"]["RunImplementationPhase"]["artifacts"] == {
+        "execution_report_path": "artifacts/work/dsl-evolution-implementation-report-v2-call.md",
+        "implementation_review_report_path": "artifacts/review/dsl-evolution-implementation-review-v2-call.md",
+        "implementation_review_decision": "APPROVE",
+    }
+    assert "PublishFinalOutputs" not in state["steps"]
+    assert len(state.get("call_frames", {})) == 2
 
 
 def test_dsl_tracked_plan_review_loop_runtime(tmp_path: Path):
