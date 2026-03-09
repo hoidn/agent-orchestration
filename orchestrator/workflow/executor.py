@@ -38,6 +38,8 @@ from .assets import AssetResolutionError, WorkflowAssetResolver
 from .identity import iteration_step_id, runtime_step_id
 from .predicates import PredicateEvaluationError, resolve_typed_operand
 from .references import ReferenceResolutionError, ReferenceResolver
+from .runtime_context import RuntimeContext
+from .runtime_types import NormalizedStepOutcome, RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 
 logger = logging.getLogger(__name__)
@@ -344,6 +346,42 @@ class WorkflowExecutor:
         """Return the durable identity for a top-level step."""
         return runtime_step_id(step, self.current_step if fallback_index is None else fallback_index)
 
+    def _step_identity(
+        self,
+        step: Dict[str, Any],
+        *,
+        step_index: Optional[int] = None,
+        step_name: Optional[str] = None,
+        step_id: Optional[str] = None,
+        visit_count: Optional[int] = None,
+    ) -> StepExecutionIdentity:
+        """Build typed identity metadata for one step execution."""
+        resolved_index = self.current_step if step_index is None else step_index
+        resolved_name = step_name or step.get("name", f"step_{resolved_index}")
+        resolved_step_id = step_id or self._step_id(step, resolved_index)
+        return StepExecutionIdentity(
+            name=resolved_name,
+            step_id=resolved_step_id,
+            step_index=resolved_index,
+            visit_count=visit_count,
+        )
+
+    def _runtime_context(
+        self,
+        context: Optional[Dict[str, Any]],
+        state: Dict[str, Any],
+        *,
+        default_context: Optional[Dict[str, Any]] = None,
+        parent_steps: Optional[Dict[str, Any]] = None,
+    ) -> RuntimeContext:
+        """Normalize the loose execution context bundle used by step helpers."""
+        return RuntimeContext.from_mapping(
+            context,
+            default_context=default_context or self.workflow.get("context", {}),
+            parent_steps=parent_steps,
+            root_steps=state.get("steps", {}),
+        )
+
     def _resume_entry_is_terminal(self, entry: Any) -> bool:
         """Return True when persisted step state is fully completed/skipped for resume purposes."""
         if isinstance(entry, dict):
@@ -597,16 +635,20 @@ class WorkflowExecutor:
         step_index: int,
         terminal_status: str,
         state: Dict[str, Any],
-    ) -> tuple[Optional[int], str, bool]:
+    ) -> RoutingDecision:
         """Redirect body termination into finalization when configured."""
         if next_step not in {'_end', '_stop'}:
-            return None, terminal_status, False
+            return RoutingDecision(next_step_index=None, terminal_status=terminal_status, should_break=False)
         if next_step == '_stop':
             terminal_status = 'failed'
         if self.finalization_steps and step_index < self.finalization_start_index:
             self._activate_finalization(state, terminal_status)
-            return self.finalization_start_index, terminal_status, False
-        return None, terminal_status, True
+            return RoutingDecision(
+                next_step_index=self.finalization_start_index,
+                terminal_status=terminal_status,
+                should_break=False,
+            )
+        return RoutingDecision(next_step_index=None, terminal_status=terminal_status, should_break=True)
 
     def _is_finalization_step(self, step_index: int) -> bool:
         """Return True when the current step belongs to the appended finalization slice."""
@@ -696,8 +738,9 @@ class WorkflowExecutor:
                 self.current_step = step_index
 
                 # Check if step should be executed
-                step_name = step.get('name', f'step_{step_index}')
-                step_id = self._step_id(step, step_index)
+                identity = self._step_identity(step, step_index=step_index)
+                step_name = identity.name
+                step_id = identity.step_id
                 resume_current_step = False
                 if resume_restart_index is not None:
                     if step_index < resume_restart_index:
@@ -740,16 +783,17 @@ class WorkflowExecutor:
                         finalization_body_status,
                     )
                     next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                    finalization_decision = self._maybe_continue_into_finalization(
                         next_step,
                         step_index,
                         terminal_status,
                         state,
                     )
-                    if finalization_target is not None:
-                        step_index = finalization_target
+                    terminal_status = finalization_decision.terminal_status
+                    if finalization_decision.next_step_index is not None:
+                        step_index = finalization_decision.next_step_index
                         continue
-                    if should_break:
+                    if finalization_decision.should_break:
                         break
 
                     target_index = self._resolve_next_step_index(step_index, next_step)
@@ -762,10 +806,8 @@ class WorkflowExecutor:
 
                 # Check structured branch guards before the step's own when clause.
                 if 'structured_if_guard' in step:
-                    variables = self.variable_substitutor.build_variables(
-                        run_state=state,
-                        context=self.workflow.get('context', {})
-                    )
+                    runtime_context = self._runtime_context({}, state)
+                    variables = runtime_context.build_variables(self.variable_substitutor, state)
                     guard = step.get('structured_if_guard', {})
                     condition = guard.get('condition') if isinstance(guard, dict) else None
                     invert = bool(guard.get('invert')) if isinstance(guard, dict) else False
@@ -800,16 +842,17 @@ class WorkflowExecutor:
                             finalization_body_status,
                         )
                         next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                        finalization_decision = self._maybe_continue_into_finalization(
                             next_step,
                             step_index,
                             terminal_status,
                             state,
                         )
-                        if finalization_target is not None:
-                            step_index = finalization_target
+                        terminal_status = finalization_decision.terminal_status
+                        if finalization_decision.next_step_index is not None:
+                            step_index = finalization_decision.next_step_index
                             continue
-                        if should_break:
+                        if finalization_decision.should_break:
                             break
 
                         target_index = self._resolve_next_step_index(step_index, next_step)
@@ -834,16 +877,17 @@ class WorkflowExecutor:
                             finalization_body_status,
                         )
                         next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                        finalization_decision = self._maybe_continue_into_finalization(
                             next_step,
                             step_index,
                             terminal_status,
                             state,
                         )
-                        if finalization_target is not None:
-                            step_index = finalization_target
+                        terminal_status = finalization_decision.terminal_status
+                        if finalization_decision.next_step_index is not None:
+                            step_index = finalization_decision.next_step_index
                             continue
-                        if should_break:
+                        if finalization_decision.should_break:
                             break
 
                         target_index = self._resolve_next_step_index(step_index, next_step)
@@ -857,10 +901,8 @@ class WorkflowExecutor:
                 # Check conditional execution (AT-37, AT-46, AT-47)
                 if 'when' in step:
                     # Build variables for condition evaluation
-                    variables = self.variable_substitutor.build_variables(
-                        run_state=state,
-                        context=self.workflow.get('context', {})
-                    )
+                    runtime_context = self._runtime_context({}, state)
+                    variables = runtime_context.build_variables(self.variable_substitutor, state)
 
                     # Evaluate condition
                     try:
@@ -893,16 +935,17 @@ class WorkflowExecutor:
                             finalization_body_status,
                         )
                         next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                        finalization_decision = self._maybe_continue_into_finalization(
                             next_step,
                             step_index,
                             terminal_status,
                             state,
                         )
-                        if finalization_target is not None:
-                            step_index = finalization_target
+                        terminal_status = finalization_decision.terminal_status
+                        if finalization_decision.next_step_index is not None:
+                            step_index = finalization_decision.next_step_index
                             continue
-                        if should_break:
+                        if finalization_decision.should_break:
                             break
 
                         target_index = self._resolve_next_step_index(step_index, next_step)
@@ -928,16 +971,17 @@ class WorkflowExecutor:
                             finalization_body_status,
                         )
                         next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                        finalization_decision = self._maybe_continue_into_finalization(
                             next_step,
                             step_index,
                             terminal_status,
                             state,
                         )
-                        if finalization_target is not None:
-                            step_index = finalization_target
+                        terminal_status = finalization_decision.terminal_status
+                        if finalization_decision.next_step_index is not None:
+                            step_index = finalization_decision.next_step_index
                             continue
-                        if should_break:
+                        if finalization_decision.should_break:
                             break
 
                         target_index = self._resolve_next_step_index(step_index, next_step)
@@ -977,16 +1021,17 @@ class WorkflowExecutor:
                         finalization_body_status,
                     )
                     next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                    finalization_decision = self._maybe_continue_into_finalization(
                         next_step,
                         step_index,
                         terminal_status,
                         state,
                     )
-                    if finalization_target is not None:
-                        step_index = finalization_target
+                    terminal_status = finalization_decision.terminal_status
+                    if finalization_decision.next_step_index is not None:
+                        step_index = finalization_decision.next_step_index
                         continue
-                    if should_break:
+                    if finalization_decision.should_break:
                         break
 
                     target_index = self._resolve_next_step_index(step_index, next_step)
@@ -1015,16 +1060,17 @@ class WorkflowExecutor:
                     )
 
                     next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                    finalization_decision = self._maybe_continue_into_finalization(
                         next_step,
                         step_index,
                         terminal_status,
                         state,
                     )
-                    if finalization_target is not None:
-                        step_index = finalization_target
+                    terminal_status = finalization_decision.terminal_status
+                    if finalization_decision.next_step_index is not None:
+                        step_index = finalization_decision.next_step_index
                         continue
-                    if should_break:
+                    if finalization_decision.should_break:
                         break
                     target_index = self._resolve_next_step_index(step_index, next_step)
                     if target_index is None:
@@ -1035,10 +1081,10 @@ class WorkflowExecutor:
                     continue
 
                 self.state_manager.start_step(
-                    step_name,
-                    step_index,
+                    identity.name,
+                    identity.step_index if identity.step_index is not None else step_index,
                     self._resolve_step_type(step),
-                    step_id=step_id,
+                    step_id=identity.step_id,
                     visit_count=visit_count,
                 )
 
@@ -1130,16 +1176,17 @@ class WorkflowExecutor:
                         if next_step is None:
                             next_step = '_stop'
 
-                finalization_target, terminal_status, should_break = self._maybe_continue_into_finalization(
+                finalization_decision = self._maybe_continue_into_finalization(
                     next_step,
                     step_index,
                     terminal_status,
                     state,
                 )
-                if finalization_target is not None:
-                    step_index = finalization_target
+                terminal_status = finalization_decision.terminal_status
+                if finalization_decision.next_step_index is not None:
+                    step_index = finalization_decision.next_step_index
                     continue
-                if should_break:
+                if finalization_decision.should_break:
                     break
                 target_index = self._resolve_next_step_index(step_index, next_step)
                 if target_index is not None:
@@ -1989,10 +2036,12 @@ class WorkflowExecutor:
     ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Resolve runtime path templates against workflow context and bound inputs."""
         raw_context = state.get('context', {})
-        variables = self.variable_substitutor.build_variables(
-            run_state=state,
-            context=raw_context if isinstance(raw_context, dict) else {},
+        runtime_context = RuntimeContext.from_mapping(
+            {"context": raw_context if isinstance(raw_context, dict) else {}},
+            default_context=self.workflow.get("context", {}),
+            root_steps=state.get("steps", {}),
         )
+        variables = runtime_context.build_variables(self.variable_substitutor, state)
         try:
             substituted = self.variable_substitutor.substitute(path_value, variables)
         except ValueError:
@@ -2770,10 +2819,8 @@ class WorkflowExecutor:
             )
 
             if condition_evaluated_for_iteration != current_iteration:
-                variables = self.variable_substitutor.build_variables(
-                    run_state=state,
-                    context=self.workflow.get('context', {}),
-                )
+                runtime_context = self._runtime_context({}, state)
+                variables = runtime_context.build_variables(self.variable_substitutor, state)
                 try:
                     should_stop = self.condition_evaluator.evaluate(condition, variables, state)
                 except Exception as exc:
@@ -3013,12 +3060,8 @@ class WorkflowExecutor:
                 # Check conditional execution within loop (AT-37, AT-46, AT-47)
                 if 'when' in nested_step:
                     # Build variables for condition evaluation (including loop scope)
-                    variables = self.variable_substitutor.build_variables(
-                        run_state=state,
-                        context=self.workflow.get('context', {}),
-                        loop_vars=loop_context.get('loop', {}),
-                        item=item
-                    )
+                    nested_runtime_context = self._runtime_context(loop_context, state, parent_steps=parent_scope_steps)
+                    variables = nested_runtime_context.build_variables(self.variable_substitutor, state)
 
                     # Evaluate condition
                     try:
@@ -3026,11 +3069,7 @@ class WorkflowExecutor:
                             nested_step['when'],
                             variables,
                             state,
-                            scope={
-                                'self_steps': iteration_state,
-                                'parent_steps': parent_scope_steps,
-                                'root_steps': state.get('steps', {}),
-                            },
+                            scope=nested_runtime_context.scope() | {"self_steps": iteration_state},
                         )
                     except Exception as e:
                         # Condition evaluation error
@@ -3316,17 +3355,26 @@ class WorkflowExecutor:
         invert: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Evaluate one loop-body guard/when condition and return failure or skip results."""
-        variables = self.variable_substitutor.build_variables(
-            run_state=state,
-            context=self.workflow.get('context', {}),
-            loop_vars=loop_context.get('loop', {}),
+        runtime_context = RuntimeContext.from_mapping(
+            loop_context,
+            default_context=self.workflow.get("context", {}),
+            parent_steps=scope.get("parent_steps", {}),
+            root_steps=scope.get("root_steps", {}),
         )
+        runtime_context = RuntimeContext(
+            values=runtime_context.values,
+            workflow_context=runtime_context.workflow_context,
+            self_steps=scope.get("self_steps", {}),
+            parent_steps=runtime_context.parent_steps,
+            root_steps=runtime_context.root_steps,
+        )
+        variables = runtime_context.build_variables(self.variable_substitutor, state)
         try:
             should_execute = self.condition_evaluator.evaluate(
                 condition,
                 variables,
                 state,
-                scope=scope,
+                scope=runtime_context.scope(),
             )
             if invert:
                 should_execute = not should_execute
@@ -3384,27 +3432,8 @@ class WorkflowExecutor:
         """
         # Substitute variables in command
         command = step['command']
-
-        # Build variables from all sources
-        # AT-65: Use context's steps for loop scoping (contains only current iteration)
-        scoped_state = state.copy()
-        if 'steps' in context:
-            # Inside loop: use scoped steps from context (current iteration only)
-            scoped_state['steps'] = context['steps']
-
-        variables = self.variable_substitutor.build_variables(
-            run_state=scoped_state,
-            context=context.get('context', {}),
-            loop_vars=context.get('loop'),
-            item=context.get('item')
-        )
-
-        # Add any custom loop variables (e.g., from for_each with "as: filename")
-        # These come directly in the context, not under any namespace
-        for key, value in context.items():
-            if key not in ['run', 'context', 'steps', 'loop', 'item']:
-                # This is likely a custom loop variable
-                variables[key] = value
+        runtime_context = self._runtime_context(context, state)
+        variables = runtime_context.build_variables(self.variable_substitutor, state)
 
         # Apply variable substitution with error tracking (AT-63)
         try:
@@ -3540,6 +3569,8 @@ class WorkflowExecutor:
         """
         # Initialize debug info dict for injection metadata
         debug_info = {}
+        runtime_context = self._runtime_context(context, state)
+        variables = runtime_context.build_variables(self.variable_substitutor, state)
 
         # Initialize prompt variable from either input_file or asset_file.
         prompt, prompt_error = self._read_prompt_source(step)
@@ -3577,26 +3608,6 @@ class WorkflowExecutor:
             # Get all resolved files in deterministic order
             all_files = resolution.files
 
-            # Apply variable substitution to prompt
-            # Build variables for substitution
-            # AT-65: Use context's steps for loop scoping (contains only current iteration)
-            scoped_state = state.copy()
-            if 'steps' in context:
-                # Inside loop: use scoped steps from context (current iteration only)
-                scoped_state['steps'] = context['steps']
-
-            variables = self.variable_substitutor.build_variables(
-                run_state=scoped_state,
-                context=context.get('context', {}),
-                loop_vars=context.get('loop'),
-                item=context.get('item')
-            )
-
-            # Add any custom loop variables
-            for key, value in context.items():
-                if key not in ['run', 'context', 'steps', 'loop', 'item']:
-                    variables[key] = value
-
             # AT-73: Do NOT substitute variables in prompt text (input_file contents are literal)
             # The spec states: "input_file: read literal contents; no substitution inside file contents"
             # prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
@@ -3619,31 +3630,6 @@ class WorkflowExecutor:
                 # Record truncation details if present (AT-35)
                 if injection_result.was_truncated and injection_result.truncation_details:
                     debug_info['injection'] = injection_result.truncation_details
-
-        else:
-            # Apply variable substitution to prompt
-            # Build variables for substitution
-            # AT-65: Use context's steps for loop scoping (contains only current iteration)
-            scoped_state = state.copy()
-            if 'steps' in context:
-                # Inside loop: use scoped steps from context (current iteration only)
-                scoped_state['steps'] = context['steps']
-
-            variables = self.variable_substitutor.build_variables(
-                run_state=scoped_state,
-                context=context.get('context', {}),
-                loop_vars=context.get('loop'),
-                item=context.get('item')
-            )
-
-            # Add any custom loop variables
-            for key, value in context.items():
-                if key not in ['run', 'context', 'steps', 'loop', 'item']:
-                    variables[key] = value
-
-            # AT-73: Do NOT substitute variables in prompt text (input_file contents are literal)
-            # The spec states: "input_file: read literal contents; no substitution inside file contents"
-            # prompt = self.variable_substitutor.substitute(prompt, variables, track_undefined=False)
 
         prompt, asset_error = self._apply_asset_depends_on_prompt_injection(step, prompt)
         if asset_error is not None:
@@ -4602,39 +4588,8 @@ class WorkflowExecutor:
         Returns:
             Flattened dict of variable name to value for substitution
         """
-        # Flatten the context structure for substitution
-        variables = {}
-
-        # Add run namespace
-        if 'run' in context:
-            for key, value in context['run'].items():
-                variables[f'run.{key}'] = str(value)
-
-        # Add context namespace
-        if 'context' in context:
-            for key, value in context['context'].items():
-                variables[f'context.{key}'] = str(value)
-
-        # Add workflow inputs namespace
-        if 'inputs' in context:
-            for key, value in context['inputs'].items():
-                variables[f'inputs.{key}'] = str(value)
-        else:
-            bound_inputs = state.get('bound_inputs', {})
-            if isinstance(bound_inputs, dict):
-                for key, value in bound_inputs.items():
-                    variables[f'inputs.{key}'] = str(value)
-
-        # Add loop namespace if present
-        if 'loop' in context:
-            for key, value in context['loop'].items():
-                variables[f'loop.{key}'] = str(value)
-
-        # Add item if present
-        if 'item' in context:
-            variables['item'] = str(context['item'])
-
-        return variables
+        runtime_context = self._runtime_context(context, state)
+        return runtime_context.build_dependency_variables(state)
 
 
     def _record_step_error(
@@ -4676,19 +4631,10 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         if context is None:
             context = {}
-        scoped_state = state.copy()
-        steps_namespace = context.get('steps')
-        if isinstance(steps_namespace, dict):
-            scoped_state['steps'] = steps_namespace
-        variables = self.variable_substitutor.build_variables(
-            run_state=scoped_state,
-            context=context.get('context', self.workflow.get('context', {})),
-            loop_vars=context.get('loop'),
-            item=context.get('item'),
-        )
-        for key, value in context.items():
-            if key not in {'run', 'context', 'steps', 'loop', 'item'}:
-                variables[key] = value
+        runtime_context = self._runtime_context(context, state)
+        variables = runtime_context.build_variables(self.variable_substitutor, state)
+        if scope is None:
+            scope = runtime_context.scope()
         try:
             passed = self.condition_evaluator.evaluate(step.get('assert'), variables, state, scope=scope)
         except Exception as exc:
@@ -5196,21 +5142,21 @@ class WorkflowExecutor:
             finalized['status'] = status
 
         if status == 'skipped':
-            finalized['outcome'] = {
-                'status': 'skipped',
-                'phase': 'pre_execution',
-                'class': 'skipped',
-                'retryable': False,
-            }
+            finalized['outcome'] = NormalizedStepOutcome(
+                status='skipped',
+                phase='pre_execution',
+                outcome_class='skipped',
+                retryable=False,
+            ).to_dict()
             return finalized
 
         if status == 'completed':
-            finalized['outcome'] = {
-                'status': 'completed',
-                'phase': 'execution',
-                'class': 'completed',
-                'retryable': False,
-            }
+            finalized['outcome'] = NormalizedStepOutcome(
+                status='completed',
+                phase='execution',
+                outcome_class='completed',
+                retryable=False,
+            ).to_dict()
             return finalized
 
         error = finalized.get('error')
@@ -5255,12 +5201,12 @@ class WorkflowExecutor:
         if retryable is None:
             retryable = normalized_class == 'provider_failed'
 
-        finalized['outcome'] = {
-            'status': 'failed',
-            'phase': normalized_phase,
-            'class': normalized_class,
-            'retryable': retryable,
-        }
+        finalized['outcome'] = NormalizedStepOutcome(
+            status='failed',
+            phase=normalized_phase,
+            outcome_class=normalized_class,
+            retryable=retryable,
+        ).to_dict()
         return finalized
 
     # Stub implementations for other step types

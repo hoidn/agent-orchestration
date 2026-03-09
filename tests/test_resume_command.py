@@ -197,6 +197,75 @@ def _build_structured_if_else_resume_workflow() -> dict:
     }
 
 
+def _build_structured_finally_resume_workflow() -> dict:
+    return {
+        "version": "2.3",
+        "name": "Resume Structured Finally Workflow",
+        "artifacts": {
+            "decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }
+        },
+        "outputs": {
+            "final_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+                "from": {
+                    "ref": "root.steps.WriteDecision.artifacts.decision",
+                },
+            }
+        },
+        "steps": [
+            {
+                "name": "WriteDecision",
+                "id": "write_decision",
+                "set_scalar": {
+                    "artifact": "decision",
+                    "value": "APPROVE",
+                },
+            }
+        ],
+        "finally": {
+            "id": "cleanup",
+            "steps": [
+                {
+                    "name": "ObserveOutputsPending",
+                    "id": "observe_outputs_pending",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        "\n".join(
+                            [
+                                "python - <<'PY'",
+                                "import json",
+                                "from pathlib import Path",
+                                "state = json.loads(Path('${run.root}/state.json').read_text(encoding='utf-8'))",
+                                "assert state.get('workflow_outputs', {}) == {}, state.get('workflow_outputs')",
+                                "Path('state').mkdir(exist_ok=True)",
+                                "with Path('state/finalization.log').open('a', encoding='utf-8') as handle:",
+                                "    handle.write('outputs-pending\\n')",
+                                "PY",
+                            ]
+                        ),
+                    ],
+                },
+                {
+                    "name": "WriteCleanupMarker",
+                    "id": "write_cleanup_marker",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        "mkdir -p state && printf 'cleanup-complete\\n' >> state/finalization.log",
+                    ],
+                },
+            ],
+        },
+    }
+
+
 def _build_repeat_until_resume_workflow() -> dict:
     return {
         "version": "2.7",
@@ -1898,6 +1967,79 @@ def test_resume_ignores_stale_running_current_step_for_completed_side_effecting_
 
     assert result == 0
     assert (state_dir / "history.log").read_text() == "fix\nnext\n"
+
+
+def test_resume_continues_partial_finalization_without_rerunning_completed_cleanup(temp_workspace):
+    workflow_path = temp_workspace / "structured_finally_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_structured_finally_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    state_dir = temp_workspace / "state"
+    state_dir.mkdir(exist_ok=True)
+    (state_dir / "finalization.log").write_text("outputs-pending\n", encoding="utf-8")
+
+    run_id = "structured-finally-resume-run"
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize("structured_finally_resume.yaml")
+    assert state_manager.state is not None
+    state_manager.state.status = "failed"
+    state_manager.state.steps = {
+        "WriteDecision": {
+            "status": "completed",
+            "exit_code": 0,
+            "artifacts": {"decision": "APPROVE"},
+        },
+        "finally.ObserveOutputsPending": {
+            "status": "completed",
+            "exit_code": 0,
+        },
+        "finally.WriteCleanupMarker": {"status": "pending"},
+    }
+    state_manager.state.current_step = {
+        "name": "finally.ObserveOutputsPending",
+        "index": 1,
+        "type": "command",
+        "status": "running",
+        "started_at": "2024-01-01T00:00:10Z",
+        "last_heartbeat_at": "2024-01-01T00:00:11Z",
+    }
+    state_manager.state.finalization = {
+        "block_id": "cleanup",
+        "status": "running",
+        "body_status": "completed",
+        "current_index": None,
+        "completed_indices": [0],
+        "step_names": [
+            "finally.ObserveOutputsPending",
+            "finally.WriteCleanupMarker",
+        ],
+        "workflow_outputs_status": "pending",
+    }
+    state_manager.state.workflow_outputs = {}
+    state_manager._write_state()
+
+    with patch("os.getcwd", return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    payload = json.loads(
+        (temp_workspace / ".orchestrate" / "runs" / run_id / "state.json").read_text()
+    )
+    assert payload["status"] == "completed"
+    assert payload["workflow_outputs"] == {"final_decision": "APPROVE"}
+    assert payload["finalization"]["completed_indices"] == [0, 1]
+    assert payload["finalization"]["workflow_outputs_status"] == "completed"
+    assert payload.get("current_step") is None
+    assert (state_dir / "finalization.log").read_text(encoding="utf-8").splitlines() == [
+        "outputs-pending",
+        "cleanup-complete",
+    ]
 
 
 def test_at4_resume_with_retry_parameters(temp_workspace, partial_run_state):
