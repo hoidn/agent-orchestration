@@ -1574,6 +1574,66 @@ def test_at4_resume_force_restart(temp_workspace, partial_run_state):
     assert result == 0
 
 
+@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
+def test_resume_force_restart_revalidates_persisted_bound_inputs(
+    mock_executor,
+    temp_workspace,
+    capsys,
+):
+    """Force restart must rebind persisted inputs against the current workflow contracts."""
+    workflow_path = temp_workspace / "typed_input_workflow.yaml"
+    workflow_path.write_text(
+        """
+version: "2.1"
+name: Force Restart Input Validation
+inputs:
+  max_cycles:
+    kind: scalar
+    type: integer
+steps:
+  - name: Finish
+    command: ["bash", "-lc", "printf 'done\\n'"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    checksum = f"sha256:{hashlib.sha256(workflow_path.read_bytes()).hexdigest()}"
+
+    run_id = "force-restart-invalid-inputs"
+    run_root = temp_workspace / ".orchestrate" / "runs" / run_id
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "schema_version": StateManager.SCHEMA_VERSION,
+                "run_id": run_id,
+                "workflow_file": str(workflow_path),
+                "workflow_checksum": checksum,
+                "started_at": "2024-01-01T00:00:00Z",
+                "updated_at": "2024-01-01T00:01:00Z",
+                "status": "failed",
+                "context": {},
+                "bound_inputs": {"max_cycles": "not-an-integer"},
+                "steps": {},
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=True,
+        )
+
+    assert result == 2
+    assert mock_executor.called is False
+    assert "Workflow input binding failed" in capsys.readouterr().err
+    assert sorted(path.name for path in (temp_workspace / ".orchestrate" / "runs").iterdir()) == [run_id]
+
+
 def test_at4_resume_corrupted_state_with_repair(temp_workspace, sample_workflow):
     """Test repairing from backup when state is corrupted."""
     workflow_path, checksum = sample_workflow

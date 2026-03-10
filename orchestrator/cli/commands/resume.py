@@ -9,7 +9,8 @@ import sys
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.loaded_bundle import workflow_context
+from orchestrator.workflow.loaded_bundle import workflow_context, workflow_input_contracts
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.exceptions import WorkflowValidationError
 
 
@@ -226,6 +227,17 @@ def resume_workflow(
             return 1
 
     if force_restart:
+        try:
+            bound_inputs = bind_workflow_inputs(
+                workflow_input_contracts(workflow_bundle),
+                getattr(state, 'bound_inputs', {}),
+                workspace=workspace_dir,
+            )
+        except ValueError as exc:
+            logger.error(f"Validation error: {exc}")
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+
         # AT-68: Start a NEW run with a NEW run_id (ignore existing state)
         import uuid
         new_run_id = uuid.uuid4().hex
@@ -243,7 +255,7 @@ def resume_workflow(
         state_manager.initialize(
             workflow_file=str(workflow_path),
             context=dict(workflow_context(workflow_bundle)),
-            bound_inputs=getattr(state, 'bound_inputs', {}),
+            bound_inputs=bound_inputs,
             observability=observability,
         )
     else:
