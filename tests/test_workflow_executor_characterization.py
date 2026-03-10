@@ -1121,3 +1121,78 @@ def test_executor_uses_typed_match_nodes_when_legacy_helper_keys_are_removed(tmp
     assert state["steps"]["RouteDecision.REVISE.WriteFix"]["status"] == "completed"
     assert state["steps"]["RouteDecision"]["artifacts"] == {"route_action": "FIX"}
     assert persisted["steps"]["RouteDecision"]["artifacts"] == {"route_action": "FIX"}
+
+
+def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_top_level_dispatch(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "typed-top-level-dispatch",
+        "steps": [
+            {
+                "name": "RunCommand",
+                "id": "run_command",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'ok\\n' > state/top-level.txt",
+                ],
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="typed-top-level-dispatch")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor.steps[0]["structured_if_join"] = {"branches": {}}
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunCommand"]["status"] == "completed"
+    assert (tmp_path / "state" / "top-level.txt").read_text(encoding="utf-8") == "ok\n"
+
+
+def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_nested_dispatch(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "typed-nested-dispatch",
+        "steps": [
+            {
+                "name": "ProcessItems",
+                "id": "process_items",
+                "for_each": {
+                    "items": ["alpha", "beta"],
+                    "steps": [
+                        {
+                            "name": "WriteItem",
+                            "id": "write_item",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf '%s\\n' '${item}' >> state/items.txt",
+                            ],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="typed-nested-dispatch")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor.steps[0]["for_each"]["steps"][0]["structured_match_join"] = {"cases": {}}
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ProcessItems"][0]["WriteItem"]["status"] == "completed"
+    assert state["steps"]["ProcessItems"][1]["WriteItem"]["status"] == "completed"
+    assert (tmp_path / "state" / "items.txt").read_text(encoding="utf-8").splitlines() == [
+        "alpha",
+        "beta",
+    ]

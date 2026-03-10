@@ -2929,7 +2929,9 @@ class WorkflowExecutor:
         """Execute one top-level step and persist its result when applicable."""
         execution_kind = self._execution_kind_for_step(step)
 
-        if execution_kind is ExecutableNodeKind.FOR_EACH or "for_each" in step:
+        if execution_kind is ExecutableNodeKind.FOR_EACH or (
+            execution_kind is None and "for_each" in step
+        ):
             self._execute_for_each(step, state, resume=resume_current_step)
             if step_name in state["steps"]:
                 loop_results = state["steps"][step_name]
@@ -2939,29 +2941,41 @@ class WorkflowExecutor:
             self._emit_step_summary(step_name, step, result)
             return result
 
-        if execution_kind is ExecutableNodeKind.REPEAT_UNTIL_FRAME or "repeat_until" in step:
+        if execution_kind is ExecutableNodeKind.REPEAT_UNTIL_FRAME or (
+            execution_kind is None and "repeat_until" in step
+        ):
             self._execute_repeat_until(step, state, resume=resume_current_step)
             result = state.get("steps", {}).get(step_name, {"status": "completed"})
             self._emit_step_summary(step_name, step, result)
             return result
 
-        if execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER or "structured_if_branch" in step:
+        if execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER or (
+            execution_kind is None and "structured_if_branch" in step
+        ):
             result = self._execute_structured_if_branch(step)
             return self._persist_step_result(state, step_name, step, result)
 
-        if execution_kind is ExecutableNodeKind.IF_JOIN or "structured_if_join" in step:
+        if execution_kind is ExecutableNodeKind.IF_JOIN or (
+            execution_kind is None and "structured_if_join" in step
+        ):
             result = self._execute_structured_if_join(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
-        if execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER or "structured_match_case" in step:
+        if execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER or (
+            execution_kind is None and "structured_match_case" in step
+        ):
             result = self._execute_structured_match_case(step)
             return self._persist_step_result(state, step_name, step, result)
 
-        if execution_kind is ExecutableNodeKind.MATCH_JOIN or "structured_match_join" in step:
+        if execution_kind is ExecutableNodeKind.MATCH_JOIN or (
+            execution_kind is None and "structured_match_join" in step
+        ):
             result = self._execute_structured_match_join(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
-        if execution_kind is ExecutableNodeKind.WAIT_FOR or "wait_for" in step:
+        if execution_kind is ExecutableNodeKind.WAIT_FOR or (
+            execution_kind is None and "wait_for" in step
+        ):
             result = self._execute_wait_for_result(step)
             phase_hint = None
             class_hint = None
@@ -2981,11 +2995,15 @@ class WorkflowExecutor:
                 retryable_hint=False if class_hint == "pre_execution_failed" else None,
             )
 
-        if execution_kind is ExecutableNodeKind.ASSERT or "assert" in step:
+        if execution_kind is ExecutableNodeKind.ASSERT or (
+            execution_kind is None and "assert" in step
+        ):
             result = self._execute_assert(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
-        if execution_kind is ExecutableNodeKind.SET_SCALAR or "set_scalar" in step:
+        if execution_kind is ExecutableNodeKind.SET_SCALAR or (
+            execution_kind is None and "set_scalar" in step
+        ):
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -2993,7 +3011,9 @@ class WorkflowExecutor:
                 self._execute_set_scalar(step),
             )
 
-        if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR or "increment_scalar" in step:
+        if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR or (
+            execution_kind is None and "increment_scalar" in step
+        ):
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -3001,7 +3021,9 @@ class WorkflowExecutor:
                 self._execute_increment_scalar(step, state),
             )
 
-        if execution_kind is ExecutableNodeKind.CALL_BOUNDARY or "call" in step:
+        if execution_kind is ExecutableNodeKind.CALL_BOUNDARY or (
+            execution_kind is None and "call" in step
+        ):
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -3009,7 +3031,9 @@ class WorkflowExecutor:
                 self._execute_call(step, state),
             )
 
-        if execution_kind is ExecutableNodeKind.PROVIDER or "provider" in step:
+        if execution_kind is ExecutableNodeKind.PROVIDER or (
+            execution_kind is None and "provider" in step
+        ):
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -3017,7 +3041,9 @@ class WorkflowExecutor:
                 self._execute_provider(step, state),
             )
 
-        if execution_kind is ExecutableNodeKind.COMMAND or "command" in step:
+        if execution_kind is ExecutableNodeKind.COMMAND or (
+            execution_kind is None and "command" in step
+        ):
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -3054,32 +3080,54 @@ class WorkflowExecutor:
         step_name_override = step.get("name")
         execution_kind = self._execution_kind_for_step(step)
 
-        if execution_kind is ExecutableNodeKind.COMMAND or "command" in step:
+        if execution_kind is ExecutableNodeKind.COMMAND or (
+            execution_kind is None and "command" in step
+        ):
             result = self._execute_command_with_context(step, context, state)
-        elif execution_kind is ExecutableNodeKind.PROVIDER or "provider" in step:
+        elif execution_kind is ExecutableNodeKind.PROVIDER or (
+            execution_kind is None and "provider" in step
+        ):
             result = self._execute_provider_with_context(
                 step,
                 context,
                 state,
                 runtime_step_id=runtime_step_id,
             )
-        elif execution_kind is ExecutableNodeKind.ASSERT or "assert" in step:
+        elif execution_kind is ExecutableNodeKind.ASSERT or (
+            execution_kind is None and "assert" in step
+        ):
             result = self._execute_assert(step, state, context=context, scope=scope)
-        elif execution_kind is ExecutableNodeKind.SET_SCALAR or "set_scalar" in step:
+        elif execution_kind is ExecutableNodeKind.SET_SCALAR or (
+            execution_kind is None and "set_scalar" in step
+        ):
             result = self._execute_set_scalar(step)
-        elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR or "increment_scalar" in step:
+        elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR or (
+            execution_kind is None and "increment_scalar" in step
+        ):
             result = self._execute_increment_scalar(step, state)
-        elif execution_kind is ExecutableNodeKind.WAIT_FOR or "wait_for" in step:
+        elif execution_kind is ExecutableNodeKind.WAIT_FOR or (
+            execution_kind is None and "wait_for" in step
+        ):
             result = self._execute_wait_for_result(step)
-        elif execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER or "structured_if_branch" in step:
+        elif execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER or (
+            execution_kind is None and "structured_if_branch" in step
+        ):
             result = self._execute_structured_if_branch(step)
-        elif execution_kind is ExecutableNodeKind.IF_JOIN or "structured_if_join" in step:
+        elif execution_kind is ExecutableNodeKind.IF_JOIN or (
+            execution_kind is None and "structured_if_join" in step
+        ):
             result = self._execute_structured_if_join(step, state, scope=scope)
-        elif execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER or "structured_match_case" in step:
+        elif execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER or (
+            execution_kind is None and "structured_match_case" in step
+        ):
             result = self._execute_structured_match_case(step)
-        elif execution_kind is ExecutableNodeKind.MATCH_JOIN or "structured_match_join" in step:
+        elif execution_kind is ExecutableNodeKind.MATCH_JOIN or (
+            execution_kind is None and "structured_match_join" in step
+        ):
             result = self._execute_structured_match_join(step, state, scope=scope)
-        elif execution_kind is ExecutableNodeKind.CALL_BOUNDARY or "call" in step:
+        elif execution_kind is ExecutableNodeKind.CALL_BOUNDARY or (
+            execution_kind is None and "call" in step
+        ):
             result = self._execute_call(
                 step,
                 state,
