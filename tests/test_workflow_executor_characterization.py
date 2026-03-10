@@ -543,6 +543,53 @@ def test_executor_resolves_goto_against_projection_when_legacy_target_name_drift
     assert persisted["step_visits"] == {"Start": 1, "Final": 1}
 
 
+def test_executor_uses_projection_names_for_finalization_bookkeeping_when_legacy_names_drift(
+    tmp_path: Path,
+):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-finalization-names",
+        "steps": [
+            {
+                "name": "Start",
+                "id": "start",
+                "command": ["bash", "-lc", "mkdir -p state && printf 'start\\n' > state/run.log"],
+            }
+        ],
+        "finally": {
+            "id": "cleanup",
+            "steps": [
+                {
+                    "name": "WriteCleanupMarker",
+                    "id": "write_cleanup_marker",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        "mkdir -p state && printf 'cleanup\\n' >> state/run.log",
+                    ],
+                }
+            ],
+        },
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    bundle.legacy_workflow["finally"]["steps"][0]["name"] = "LegacyCleanup"
+
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-finalization-names")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-finalization-names")
+    cleanup_node_id = bundle.ir.finalization_region[0]
+    cleanup_name = bundle.projection.presentation_key_by_node_id[cleanup_node_id]
+
+    assert state["status"] == "completed"
+    assert cleanup_name in state["steps"]
+    assert "LegacyCleanup" not in state["steps"]
+    assert state["finalization"]["step_names"] == [cleanup_name]
+    assert persisted["finalization"]["step_names"] == [cleanup_name]
+
+
 def test_executor_bound_address_resolution_fails_closed_without_projection_owned_lookup(
     tmp_path: Path,
 ):

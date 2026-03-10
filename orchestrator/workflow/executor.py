@@ -396,6 +396,19 @@ class WorkflowExecutor:
         self.body_steps, self.finalization_steps, self._step_node_ids = self._ordered_top_level_steps()
         self.finalization_start_index = len(self.body_steps)
         self.steps = list(self.body_steps) + list(self.finalization_steps)
+        self._use_ir_topology = (
+            self.loaded_bundle is not None and self.executable_ir is not None and self.projection is not None
+        )
+        self._step_by_node_id = {
+            node_id: step
+            for node_id, step in zip(self._step_node_ids, self.steps)
+            if isinstance(node_id, str) and isinstance(step, dict)
+        }
+        self._execution_index_by_node_id = {
+            node_id: index
+            for index, node_id in enumerate(self._step_node_ids)
+            if isinstance(node_id, str)
+        }
         self._projection_index_by_presentation_name = self._build_projection_index_by_presentation_name()
         self.variables = self.workflow.get('variables', {})
         self.global_secrets = self.workflow.get('secrets', [])
@@ -404,6 +417,11 @@ class WorkflowExecutor:
             finalization=self.finalization,
             finalization_steps=self.finalization_steps,
             finalization_start_index=self.finalization_start_index,
+            finalization_node_ids=list(self.executable_ir.finalization_region) if self.executable_ir is not None else [],
+            finalization_entry_node_id=(
+                self.executable_ir.finalization_entry_node_id if self.executable_ir is not None else None
+            ),
+            projection=self.projection,
             has_workflow_outputs=bool(
                 self.executable_ir.outputs if self.executable_ir is not None else self.workflow.get("outputs")
             ),
@@ -514,6 +532,50 @@ class WorkflowExecutor:
                 )
             ordered_steps.append(step)
         return ordered_steps
+
+    def _first_execution_node_id(self) -> Optional[str]:
+        """Return the first top-level executable node id when bundle-backed IR is available."""
+        if not self._use_ir_topology or self.projection is None:
+            return None
+        ordered_node_ids = self.projection.ordered_execution_node_ids()
+        return ordered_node_ids[0] if ordered_node_ids else None
+
+    def _step_for_node_id(self, node_id: str) -> Dict[str, Any]:
+        """Return the legacy adapter step for one executable node id."""
+        step = self._step_by_node_id.get(node_id)
+        if step is None:
+            raise ValueError(f"Legacy workflow adapter is missing top-level step for typed node '{node_id}'")
+        return step
+
+    def _execution_index_for_node_id(self, node_id: str) -> int:
+        """Return the combined execution index for one top-level executable node id."""
+        index = self._execution_index_by_node_id.get(node_id)
+        if isinstance(index, int):
+            return index
+        if self.projection is not None:
+            entry = self.projection.entries_by_node_id.get(node_id)
+            if entry is not None:
+                if isinstance(entry.compatibility_index, int):
+                    return entry.compatibility_index
+                if isinstance(entry.finalization_index, int):
+                    return len(self.body_steps) + entry.finalization_index
+        raise ValueError(f"Typed node '{node_id}' does not map to a top-level execution index")
+
+    def _node_id_for_execution_index(self, step_index: int) -> Optional[str]:
+        """Return the executable node id for one top-level execution index."""
+        if self.projection is not None:
+            return self.projection.node_id_for_execution_index(step_index)
+        if 0 <= step_index < len(self._step_node_ids):
+            node_id = self._step_node_ids[step_index]
+            return node_id if isinstance(node_id, str) else None
+        return None
+
+    def _fallthrough_node_id(self, current_node_id: str) -> Optional[str]:
+        """Return the next IR fallthrough target for one executable node id."""
+        if self.executable_ir is None:
+            return None
+        node = self.executable_ir.nodes.get(current_node_id)
+        return node.fallthrough_node_id if node is not None else None
 
     def _projection_entry_for_step(
         self,
@@ -958,6 +1020,14 @@ class WorkflowExecutor:
             projection=self.projection,
         )
 
+    def _determine_resume_restart_node_id(self, state: Dict[str, Any]) -> Optional[str]:
+        """Determine the top-level executable node id where resumed execution should restart."""
+        return self.resume_planner.determine_restart_node_id(
+            state,
+            self.steps,
+            projection=self.projection,
+        )
+
     def _fail_resume_state_integrity(
         self,
         error_type: str,
@@ -1196,19 +1266,29 @@ class WorkflowExecutor:
     def _record_finalization_settled_result(
         self,
         state: Dict[str, Any],
-        step_index: int,
+        step_index: Optional[int],
         step_name: str,
         body_status: str,
+        *,
+        step_node_id: Optional[str] = None,
     ) -> None:
         """Project one settled cleanup result into finalization bookkeeping."""
-        self.finalization_controller.record_settled_result(state, step_index, step_name, body_status)
+        self.finalization_controller.record_settled_result(
+            state,
+            step_index,
+            step_name,
+            body_status,
+            step_node_id=step_node_id,
+        )
 
     def _maybe_continue_into_finalization(
         self,
         next_step: Optional[str],
-        step_index: int,
+        step_index: Optional[int],
         terminal_status: str,
         state: Dict[str, Any],
+        *,
+        step_node_id: Optional[str] = None,
     ) -> RoutingDecision:
         """Redirect body termination into finalization when configured."""
         return self.finalization_controller.continue_into_finalization(
@@ -1216,11 +1296,20 @@ class WorkflowExecutor:
             step_index,
             terminal_status,
             state,
+            step_node_id=step_node_id,
         )
 
-    def _is_finalization_step(self, step_index: int) -> bool:
+    def _is_finalization_step(
+        self,
+        step_index: Optional[int] = None,
+        *,
+        step_node_id: Optional[str] = None,
+    ) -> bool:
         """Return True when the current step belongs to the appended finalization slice."""
-        return self.finalization_controller.is_finalization_step(step_index)
+        return self.finalization_controller.is_finalization_step(
+            step_index=step_index,
+            step_node_id=step_node_id,
+        )
 
     def _finalization_failure_error(self, result: Dict[str, Any], step_name: str) -> Dict[str, Any]:
         """Build a dedicated run-level error payload for cleanup failures after body success."""
@@ -1325,7 +1414,12 @@ class WorkflowExecutor:
         try:
             # Execute steps with control flow support
             try:
-                resume_restart_index = self._determine_resume_restart_index(state) if resume else None
+                if self._use_ir_topology:
+                    resume_restart_node_id = self._determine_resume_restart_node_id(state) if resume else None
+                    resume_restart_index = None
+                else:
+                    resume_restart_index = self._determine_resume_restart_index(state) if resume else None
+                    resume_restart_node_id = None
             except ResumeStateIntegrityError as exc:
                 return self._fail_resume_state_integrity(
                     "resume_state_integrity_error",
@@ -1333,8 +1427,20 @@ class WorkflowExecutor:
                     dict(exc.context),
                 )
             step_index = 0
-            while step_index < len(self.steps):
-                step = self.steps[step_index]
+            current_node_id = resume_restart_node_id
+            if self._use_ir_topology and current_node_id is None:
+                current_node_id = self._first_execution_node_id()
+            while True:
+                if self._use_ir_topology:
+                    if current_node_id is None:
+                        break
+                    step_index = self._execution_index_for_node_id(current_node_id)
+                    step = self._step_for_node_id(current_node_id)
+                else:
+                    if step_index >= len(self.steps):
+                        break
+                    step = self.steps[step_index]
+                    current_node_id = self._node_id_for_execution_index(step_index)
                 self.current_step = step_index
 
                 # Check if step should be executed
@@ -1351,7 +1457,10 @@ class WorkflowExecutor:
                         resume_current_step = True
                         resume_restart_index = None
 
-                is_finalization_step = self._is_finalization_step(step_index)
+                is_finalization_step = self._is_finalization_step(
+                    step_index,
+                    step_node_id=current_node_id,
+                )
                 finalization_body_status = terminal_status
                 if is_finalization_step:
                     finalization = self._ensure_finalization_state(state)
@@ -1381,27 +1490,32 @@ class WorkflowExecutor:
                         step_index,
                         step_name,
                         finalization_body_status,
+                        step_node_id=current_node_id,
                     )
-                    next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    finalization_decision = self._maybe_continue_into_finalization(
-                        next_step,
-                        step_index,
-                        terminal_status,
+                    next_step = self._handle_control_flow(
+                        step,
                         state,
+                        step_name,
+                        step_index,
+                        on_error,
+                        current_node_id=current_node_id,
                     )
-                    terminal_status = finalization_decision.terminal_status
-                    if finalization_decision.next_step_index is not None:
-                        step_index = finalization_decision.next_step_index
-                        continue
-                    if finalization_decision.should_break:
+                    next_step_index, next_node_id, terminal_status, should_break = (
+                        self._advance_after_top_level_route(
+                            current_index=step_index,
+                            current_node_id=current_node_id,
+                            next_step=next_step,
+                            terminal_status=terminal_status,
+                            state=state,
+                        )
+                    )
+                    if should_break:
                         break
-
-                    target_index = self._resolve_next_step_index(step_index, next_step)
-                    if target_index is None:
-                        step_index += 1
+                    if self._use_ir_topology:
+                        current_node_id = next_node_id
                     else:
-                        self._increment_transition_count(state)
-                        step_index = target_index
+                        assert next_step_index is not None
+                        step_index = next_step_index
                     continue
 
                 # Check structured branch guards before the step's own when clause.
@@ -1442,27 +1556,32 @@ class WorkflowExecutor:
                             step_index,
                             step_name,
                             finalization_body_status,
+                            step_node_id=current_node_id,
                         )
-                        next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        finalization_decision = self._maybe_continue_into_finalization(
-                            next_step,
-                            step_index,
-                            terminal_status,
+                        next_step = self._handle_control_flow(
+                            step,
                             state,
+                            step_name,
+                            step_index,
+                            on_error,
+                            current_node_id=current_node_id,
                         )
-                        terminal_status = finalization_decision.terminal_status
-                        if finalization_decision.next_step_index is not None:
-                            step_index = finalization_decision.next_step_index
-                            continue
-                        if finalization_decision.should_break:
+                        next_step_index, next_node_id, terminal_status, should_break = (
+                            self._advance_after_top_level_route(
+                                current_index=step_index,
+                                current_node_id=current_node_id,
+                                next_step=next_step,
+                                terminal_status=terminal_status,
+                                state=state,
+                            )
+                        )
+                        if should_break:
                             break
-
-                        target_index = self._resolve_next_step_index(step_index, next_step)
-                        if target_index is None:
-                            step_index += 1
+                        if self._use_ir_topology:
+                            current_node_id = next_node_id
                         else:
-                            self._increment_transition_count(state)
-                            step_index = target_index
+                            assert next_step_index is not None
+                            step_index = next_step_index
                         continue
 
                     if not should_execute:
@@ -1477,27 +1596,32 @@ class WorkflowExecutor:
                             step_index,
                             step_name,
                             finalization_body_status,
+                            step_node_id=current_node_id,
                         )
-                        next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        finalization_decision = self._maybe_continue_into_finalization(
-                            next_step,
-                            step_index,
-                            terminal_status,
+                        next_step = self._handle_control_flow(
+                            step,
                             state,
+                            step_name,
+                            step_index,
+                            on_error,
+                            current_node_id=current_node_id,
                         )
-                        terminal_status = finalization_decision.terminal_status
-                        if finalization_decision.next_step_index is not None:
-                            step_index = finalization_decision.next_step_index
-                            continue
-                        if finalization_decision.should_break:
+                        next_step_index, next_node_id, terminal_status, should_break = (
+                            self._advance_after_top_level_route(
+                                current_index=step_index,
+                                current_node_id=current_node_id,
+                                next_step=next_step,
+                                terminal_status=terminal_status,
+                                state=state,
+                            )
+                        )
+                        if should_break:
                             break
-
-                        target_index = self._resolve_next_step_index(step_index, next_step)
-                        if target_index is None:
-                            step_index += 1
+                        if self._use_ir_topology:
+                            current_node_id = next_node_id
                         else:
-                            self._increment_transition_count(state)
-                            step_index = target_index
+                            assert next_step_index is not None
+                            step_index = next_step_index
                         continue
 
                 # Check conditional execution (AT-37, AT-46, AT-47)
@@ -1540,27 +1664,32 @@ class WorkflowExecutor:
                             step_index,
                             step_name,
                             finalization_body_status,
+                            step_node_id=current_node_id,
                         )
-                        next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        finalization_decision = self._maybe_continue_into_finalization(
-                            next_step,
-                            step_index,
-                            terminal_status,
+                        next_step = self._handle_control_flow(
+                            step,
                             state,
+                            step_name,
+                            step_index,
+                            on_error,
+                            current_node_id=current_node_id,
                         )
-                        terminal_status = finalization_decision.terminal_status
-                        if finalization_decision.next_step_index is not None:
-                            step_index = finalization_decision.next_step_index
-                            continue
-                        if finalization_decision.should_break:
+                        next_step_index, next_node_id, terminal_status, should_break = (
+                            self._advance_after_top_level_route(
+                                current_index=step_index,
+                                current_node_id=current_node_id,
+                                next_step=next_step,
+                                terminal_status=terminal_status,
+                                state=state,
+                            )
+                        )
+                        if should_break:
                             break
-
-                        target_index = self._resolve_next_step_index(step_index, next_step)
-                        if target_index is None:
-                            step_index += 1
+                        if self._use_ir_topology:
+                            current_node_id = next_node_id
                         else:
-                            self._increment_transition_count(state)
-                            step_index = target_index
+                            assert next_step_index is not None
+                            step_index = next_step_index
                         continue
 
                     if not should_execute:
@@ -1576,27 +1705,32 @@ class WorkflowExecutor:
                             step_index,
                             step_name,
                             finalization_body_status,
+                            step_node_id=current_node_id,
                         )
-                        next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                        finalization_decision = self._maybe_continue_into_finalization(
-                            next_step,
-                            step_index,
-                            terminal_status,
+                        next_step = self._handle_control_flow(
+                            step,
                             state,
+                            step_name,
+                            step_index,
+                            on_error,
+                            current_node_id=current_node_id,
                         )
-                        terminal_status = finalization_decision.terminal_status
-                        if finalization_decision.next_step_index is not None:
-                            step_index = finalization_decision.next_step_index
-                            continue
-                        if finalization_decision.should_break:
+                        next_step_index, next_node_id, terminal_status, should_break = (
+                            self._advance_after_top_level_route(
+                                current_index=step_index,
+                                current_node_id=current_node_id,
+                                next_step=next_step,
+                                terminal_status=terminal_status,
+                                state=state,
+                            )
+                        )
+                        if should_break:
                             break
-
-                        target_index = self._resolve_next_step_index(step_index, next_step)
-                        if target_index is None:
-                            step_index += 1
+                        if self._use_ir_topology:
+                            current_node_id = next_node_id
                         else:
-                            self._increment_transition_count(state)
-                            step_index = target_index
+                            assert next_step_index is not None
+                            step_index = next_step_index
                         continue
 
                 # AT-69: Create backup before step execution if debug enabled
@@ -1626,27 +1760,32 @@ class WorkflowExecutor:
                         step_index,
                         step_name,
                         finalization_body_status,
+                        step_node_id=current_node_id,
                     )
-                    next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    finalization_decision = self._maybe_continue_into_finalization(
-                        next_step,
-                        step_index,
-                        terminal_status,
+                    next_step = self._handle_control_flow(
+                        step,
                         state,
+                        step_name,
+                        step_index,
+                        on_error,
+                        current_node_id=current_node_id,
                     )
-                    terminal_status = finalization_decision.terminal_status
-                    if finalization_decision.next_step_index is not None:
-                        step_index = finalization_decision.next_step_index
-                        continue
-                    if finalization_decision.should_break:
+                    next_step_index, next_node_id, terminal_status, should_break = (
+                        self._advance_after_top_level_route(
+                            current_index=step_index,
+                            current_node_id=current_node_id,
+                            next_step=next_step,
+                            terminal_status=terminal_status,
+                            state=state,
+                        )
+                    )
+                    if should_break:
                         break
-
-                    target_index = self._resolve_next_step_index(step_index, next_step)
-                    if target_index is None:
-                        step_index += 1
+                    if self._use_ir_topology:
+                        current_node_id = next_node_id
                     else:
-                        self._increment_transition_count(state)
-                        step_index = target_index
+                        assert next_step_index is not None
+                        step_index = next_step_index
                     continue
 
                 if consume_error is not None:
@@ -1664,27 +1803,33 @@ class WorkflowExecutor:
                         step_index,
                         step_name,
                         finalization_body_status,
+                        step_node_id=current_node_id,
                     )
 
-                    next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
-                    finalization_decision = self._maybe_continue_into_finalization(
-                        next_step,
-                        step_index,
-                        terminal_status,
+                    next_step = self._handle_control_flow(
+                        step,
                         state,
+                        step_name,
+                        step_index,
+                        on_error,
+                        current_node_id=current_node_id,
                     )
-                    terminal_status = finalization_decision.terminal_status
-                    if finalization_decision.next_step_index is not None:
-                        step_index = finalization_decision.next_step_index
-                        continue
-                    if finalization_decision.should_break:
+                    next_step_index, next_node_id, terminal_status, should_break = (
+                        self._advance_after_top_level_route(
+                            current_index=step_index,
+                            current_node_id=current_node_id,
+                            next_step=next_step,
+                            terminal_status=terminal_status,
+                            state=state,
+                        )
+                    )
+                    if should_break:
                         break
-                    target_index = self._resolve_next_step_index(step_index, next_step)
-                    if target_index is None:
-                        step_index += 1
+                    if self._use_ir_topology:
+                        current_node_id = next_node_id
                     else:
-                        self._increment_transition_count(state)
-                        step_index = target_index
+                        assert next_step_index is not None
+                        step_index = next_step_index
                     continue
 
                 if isinstance(visit_count, int):
@@ -1713,38 +1858,43 @@ class WorkflowExecutor:
                     )
 
                 # Handle control flow after step execution (AT-56, AT-57, AT-58)
-                next_step = self._handle_control_flow(step, state, step_name, step_index, on_error)
+                next_step = self._handle_control_flow(
+                    step,
+                    state,
+                    step_name,
+                    step_index,
+                    on_error,
+                    current_node_id=current_node_id,
+                )
                 if is_finalization_step:
                     self._record_finalization_settled_result(
                         state,
                         step_index,
                         step_name,
                         finalization_body_status,
+                        step_node_id=current_node_id,
                     )
                     finalization_result = state.get('steps', {}).get(step_name)
                     if isinstance(finalization_result, dict) and finalization_result.get('status') == 'failed':
                         if next_step is None:
                             next_step = '_stop'
 
-                finalization_decision = self._maybe_continue_into_finalization(
-                    next_step,
-                    step_index,
-                    terminal_status,
-                    state,
+                next_step_index, next_node_id, terminal_status, should_break = (
+                    self._advance_after_top_level_route(
+                        current_index=step_index,
+                        current_node_id=current_node_id,
+                        next_step=next_step,
+                        terminal_status=terminal_status,
+                        state=state,
+                    )
                 )
-                terminal_status = finalization_decision.terminal_status
-                if finalization_decision.next_step_index is not None:
-                    step_index = finalization_decision.next_step_index
-                    continue
-                if finalization_decision.should_break:
+                if should_break:
                     break
-                target_index = self._resolve_next_step_index(step_index, next_step)
-                if target_index is not None:
-                    self._increment_transition_count(state)
-                    step_index = target_index
+                if self._use_ir_topology:
+                    current_node_id = next_node_id
                 else:
-                    # Continue to next step
-                    step_index += 1
+                    assert next_step_index is not None
+                    step_index = next_step_index
         except Exception:
             terminal_status = 'failed'
             self.state_manager.update_status(terminal_status)
@@ -2090,6 +2240,48 @@ class WorkflowExecutor:
             },
         }
 
+    def _advance_after_top_level_route(
+        self,
+        *,
+        current_index: int,
+        current_node_id: Optional[str],
+        next_step: Any,
+        terminal_status: str,
+        state: Dict[str, Any],
+    ) -> tuple[Optional[int], Optional[str], str, bool]:
+        """Advance top-level execution through legacy indices or typed node ids."""
+        finalization_decision = self._maybe_continue_into_finalization(
+            next_step,
+            current_index,
+            terminal_status,
+            state,
+            step_node_id=current_node_id,
+        )
+        terminal_status = finalization_decision.terminal_status
+        if finalization_decision.next_node_id is not None:
+            return None, finalization_decision.next_node_id, terminal_status, False
+        if finalization_decision.next_step_index is not None:
+            return finalization_decision.next_step_index, None, terminal_status, False
+        if finalization_decision.should_break:
+            return None, None, terminal_status, True
+
+        if self._use_ir_topology and isinstance(current_node_id, str):
+            if isinstance(next_step, str) and next_step not in {"_end", "_stop"}:
+                next_node_id = next_step
+            elif isinstance(next_step, int):
+                next_node_id = self._node_id_for_execution_index(next_step)
+            else:
+                next_node_id = self._fallthrough_node_id(current_node_id)
+            if next_node_id is not None:
+                self._increment_transition_count(state)
+            return None, next_node_id, terminal_status, False
+
+        target_index = self._resolve_next_step_index(current_index, next_step)
+        if target_index is None:
+            return current_index + 1, None, terminal_status, False
+        self._increment_transition_count(state)
+        return target_index, None, terminal_status, False
+
     def _resolve_next_step_index(self, current_index: int, next_step: Any) -> Optional[int]:
         """Resolve the concrete next step index for transition accounting."""
         if isinstance(next_step, int):
@@ -2309,8 +2501,16 @@ class WorkflowExecutor:
             if self.debug:
                 print(f"Warning: Could not write prompt audit for {step_name}: {e}")
 
-    def _handle_control_flow(self, step: Dict[str, Any], state: Dict[str, Any],
-                            step_name: str, current_index: int, on_error: str) -> Any:
+    def _handle_control_flow(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        step_name: str,
+        current_index: int,
+        on_error: str,
+        *,
+        current_node_id: Optional[str] = None,
+    ) -> Any:
         """
         Handle control flow after step execution.
 
@@ -2374,7 +2574,7 @@ class WorkflowExecutor:
 
             # If we found a goto target, use it
             if goto_target:
-                return self._resolve_goto_target(goto_target)
+                return self._resolve_goto_target(goto_target, current_node_id=current_node_id)
 
         # AT-56, AT-57: Apply strict_flow and on_error behavior
         # Only if no goto handler was found
@@ -2395,7 +2595,7 @@ class WorkflowExecutor:
         # Default: continue to next step
         return None
 
-    def _resolve_goto_target(self, target: str) -> Any:
+    def _resolve_goto_target(self, target: str, *, current_node_id: Optional[str] = None) -> Any:
         """
         Resolve a goto target to a step index or special value.
 
@@ -2409,6 +2609,12 @@ class WorkflowExecutor:
         """
         if target == '_end':
             return '_end'
+
+        if self._use_ir_topology and isinstance(current_node_id, str) and self.executable_ir is not None:
+            node = self.executable_ir.nodes.get(current_node_id)
+            transfer = node.routed_transfers.get("goto") if node is not None else None
+            if transfer is not None:
+                return transfer.target_node_id
 
         projected_index = self._projection_index_by_presentation_name.get(target)
         if isinstance(projected_index, int):

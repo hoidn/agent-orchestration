@@ -1,37 +1,35 @@
 # Completed In This Pass
 
-- Removed the bundle-backed bound-address scan fallback in `WorkflowExecutor` so typed node-id resolution now succeeds only through projection-owned keys or explicit loop-scope node indexes.
-- Switched bundle-backed helper dispatch and helper metadata reads onto typed executable IR for structured `if`/`match` markers and joins, so those nodes no longer depend on legacy helper keys being present in adapter dicts.
-- Changed reusable-call write-root collision checks to use typed imported-bundle provenance instead of imported legacy magic metadata.
-- Added regression coverage for fail-closed bound-address lookup, typed helper dispatch under adapter drift, and runtime write-root collision detection without imported legacy metadata.
+- Switched bundle-backed top-level execution advancement onto typed executable node ids, using IR fallthrough and routed goto targets while still persisting compatibility `current_step.index` surfaces.
+- Made resume planning projection-driven for typed workflows, so restart selection now scans projection-ordered node ids instead of drift-prone legacy adapter names.
+- Moved workflow finalization bookkeeping onto projection/IR metadata for typed runs, including finalization entry routing by node id and projected `step_names` surfaces.
+- Added regression coverage for projection-ordered resume selection under legacy-name drift and for projected finalization bookkeeping under legacy finalization-name drift.
 
 # Completed Plan Tasks
 
-- Tranche 4 runtime slice: bundle-backed execution now uses typed helper-node kinds and typed helper metadata for structured control markers/joins instead of legacy helper-key dispatch.
-- Tranche 4 runtime slice: bound references no longer resolve by scanning persisted compatibility entries and rewriting step ids.
-- Tranche 4 call/runtime slice: managed write-root collision validation now reads typed import metadata from loaded bundles, not imported legacy dict magic.
+- Tranche 4 runtime slice: top-level typed-bundle execution now advances through IR node ids instead of using legacy adapter list order as execution truth.
+- Tranche 4 runtime slice: resume planning now uses projection-owned execution ordering and `step_id -> node_id` mapping for typed workflows.
+- Tranche 4 runtime slice: finalization entry and bookkeeping now consume projection/IR metadata rather than drift-prone legacy finalization step names.
 
 # Remaining Required Plan Tasks
 
-- Tranche 4: migrate top-level and nested execution advancement fully onto IR node ids plus routed transfers instead of ordered compatibility step lists.
-- Tranche 4: move resume planning and finalization sequencing fully onto IR regions/projection state instead of the appended finalization-slice model.
-- Tranche 5: replace the legacy adapter’s second lowering pipeline, remove steady-state legacy magic metadata, and update maintainer docs to the `parse -> elaborate -> lower -> execute` model.
+- Tranche 4: migrate the remaining runtime helpers that still consult legacy lowered dict metadata or compatibility step lists as fallback dispatch inputs.
+- Tranche 4: finish moving finalization/resume/reporting consumers onto IR regions/projection-only lookups so typed execution no longer depends on the legacy adapter outside the narrow leaf-step bridge.
+- Tranche 5: remove the second lowering path and steady-state legacy magic metadata, then update maintainer docs to the `parse -> elaborate -> lower -> execute` model.
 
 # Verification
 
-- `pytest --collect-only -q tests/test_workflow_executor_characterization.py tests/test_subworkflow_calls.py`
-  - `30 tests collected`
-- `pytest tests/test_workflow_executor_characterization.py::test_executor_bound_address_resolution_fails_closed_without_projection_owned_lookup tests/test_workflow_executor_characterization.py::test_executor_uses_typed_if_nodes_when_legacy_helper_keys_are_removed -v`
+- `pytest --collect-only -q tests/test_workflow_state_projection.py tests/test_workflow_executor_characterization.py`
+  - `19 tests collected`
+- `pytest tests/test_workflow_state_projection.py::test_resume_planner_uses_projection_ordering_when_legacy_step_names_drift tests/test_workflow_executor_characterization.py::test_executor_uses_projection_names_for_finalization_bookkeeping_when_legacy_names_drift -q`
   - `2 passed`
-- `pytest tests/test_subworkflow_calls.py::test_call_rejects_colliding_write_root_bindings_without_imported_legacy_magic -v`
-  - `1 passed`
-- `pytest tests/test_workflow_executor_characterization.py tests/test_workflow_state_projection.py tests/test_subworkflow_calls.py -v`
-  - `37 passed`
-- `pytest tests/test_resume_command.py::test_resume_fails_closed_on_projection_current_step_integrity_mismatch -v`
-  - `1 passed`
+- `pytest tests/test_workflow_executor_characterization.py tests/test_for_each_execution.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_resume_command.py tests/test_observability_report.py tests/test_cli_report_command.py tests/test_subworkflow_calls.py tests/test_workflow_state_projection.py -k "current_step or transition_count or repeat_until or finalization or call or report or projection" -q`
+  - `72 passed, 80 deselected`
+- `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/design_plan_impl_review_stack_v2_call.yaml --dry-run`
+  - `[DRY RUN] Workflow validation successful`
 
 # Residual Risks
 
-- The executor still builds its top-level execution catalog from the compatibility adapter plus projection ordering, so IR routed transfers are not yet the sole execution truth.
-- Structured branch body leaf steps still rely on lowered guard metadata for skip behavior until the broader IR-driven routing tranche lands.
-- The legacy adapter still re-thaws and re-lowers surface data, so Tranche 5 cleanup remains necessary to eliminate the parallel lowering path entirely.
+- The executor still relies on the legacy adapter as the leaf-step payload source, so Tranche 5 adapter removal is still required.
+- Some runtime/reporting paths still retain compatibility fallbacks for legacy dict metadata, which means typed IR is not yet the sole steady-state authority everywhere.
+- This pass did not remove the legacy adapter renderer or imported-metadata shims, so raw dict cleanup and doc updates remain outstanding.

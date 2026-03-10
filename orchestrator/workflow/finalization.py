@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Callable, Dict, List, Optional
 
 from .runtime_types import RoutingDecision
+from .state_projection import WorkflowStateProjection
 
 
 class FinalizationController:
@@ -16,6 +17,9 @@ class FinalizationController:
         finalization: Optional[Dict[str, Any]],
         finalization_steps: List[Dict[str, Any]],
         finalization_start_index: int,
+        finalization_node_ids: Optional[List[str]] = None,
+        finalization_entry_node_id: Optional[str] = None,
+        projection: Optional[WorkflowStateProjection] = None,
         has_workflow_outputs: bool,
         persist_state: Callable[[Dict[str, Any]], None],
         finalization_failure_error: Callable[[Dict[str, Any], str], Dict[str, Any]],
@@ -23,9 +27,42 @@ class FinalizationController:
         self.finalization = finalization
         self.finalization_steps = finalization_steps
         self.finalization_start_index = finalization_start_index
+        self.finalization_node_ids = tuple(
+            node_id for node_id in (finalization_node_ids or []) if isinstance(node_id, str)
+        )
+        self.finalization_node_id_set = set(self.finalization_node_ids)
+        self.finalization_entry_node_id = finalization_entry_node_id
+        self.projection = projection
         self.has_workflow_outputs = has_workflow_outputs
         self.persist_state = persist_state
         self.finalization_failure_error = finalization_failure_error
+
+    def _configured_step_names(self) -> List[str]:
+        """Return projected finalization presentation keys when available."""
+        if self.projection is not None and self.finalization_node_ids:
+            names = [
+                self.projection.presentation_key_by_node_id.get(node_id)
+                for node_id in self.finalization_node_ids
+            ]
+            return [name for name in names if isinstance(name, str)]
+        return [step.get("name") for step in self.finalization_steps if isinstance(step, dict)]
+
+    def _finalization_index_for(
+        self,
+        *,
+        step_index: Optional[int] = None,
+        step_node_id: Optional[str] = None,
+    ) -> Optional[int]:
+        """Return the local finalization index for one execution position."""
+        if (
+            isinstance(step_node_id, str)
+            and self.projection is not None
+            and step_node_id in self.projection.finalization_index_by_node_id
+        ):
+            return self.projection.finalization_index_by_node_id[step_node_id]
+        if isinstance(step_index, int) and self.is_finalization_step(step_index=step_index):
+            return step_index - self.finalization_start_index
+        return None
 
     def initial_state(self) -> Optional[Dict[str, Any]]:
         """Return durable finalization bookkeeping for workflows with cleanup."""
@@ -39,7 +76,7 @@ class FinalizationController:
             "body_status": None,
             "current_index": None,
             "completed_indices": [],
-            "step_names": [step.get("name") for step in self.finalization_steps if isinstance(step, dict)],
+            "step_names": self._configured_step_names(),
             "workflow_outputs_status": output_status,
         }
 
@@ -61,7 +98,7 @@ class FinalizationController:
         finalization.setdefault("completed_indices", [])
         finalization.setdefault(
             "step_names",
-            [step.get("name") for step in self.finalization_steps if isinstance(step, dict)],
+            self._configured_step_names(),
         )
         if "workflow_outputs_status" not in finalization:
             finalization["workflow_outputs_status"] = (
@@ -126,18 +163,21 @@ class FinalizationController:
     def record_settled_result(
         self,
         state: Dict[str, Any],
-        step_index: int,
+        step_index: Optional[int],
         step_name: str,
         body_status: str,
+        *,
+        step_node_id: Optional[str] = None,
     ) -> None:
         """Project one settled cleanup result into finalization bookkeeping."""
-        if not self.is_finalization_step(step_index):
+        final_index = self._finalization_index_for(step_index=step_index, step_node_id=step_node_id)
+        if final_index is None:
             return
         result = state.get("steps", {}).get(step_name)
         failed = isinstance(result, dict) and result.get("status") == "failed"
         self.record_step_result(
             state,
-            step_index - self.finalization_start_index,
+            final_index,
             step_name,
             failed,
             result,
@@ -154,24 +194,46 @@ class FinalizationController:
     def continue_into_finalization(
         self,
         next_step: Optional[str],
-        step_index: int,
+        step_index: Optional[int],
         terminal_status: str,
         state: Dict[str, Any],
+        *,
+        step_node_id: Optional[str] = None,
     ) -> RoutingDecision:
         """Redirect body termination into finalization when configured."""
         if next_step not in {"_end", "_stop"}:
-            return RoutingDecision(next_step_index=None, terminal_status=terminal_status, should_break=False)
+            return RoutingDecision(terminal_status=terminal_status, should_break=False)
         if next_step == "_stop":
             terminal_status = "failed"
-        if self.finalization_steps and step_index < self.finalization_start_index:
+        if self.finalization_steps and not self.is_finalization_step(
+            step_index=step_index,
+            step_node_id=step_node_id,
+        ):
             self.activate(state, terminal_status)
+            if isinstance(self.finalization_entry_node_id, str) and self.finalization_entry_node_id:
+                return RoutingDecision(
+                    next_node_id=self.finalization_entry_node_id,
+                    terminal_status=terminal_status,
+                    should_break=False,
+                )
             return RoutingDecision(
                 next_step_index=self.finalization_start_index,
                 terminal_status=terminal_status,
                 should_break=False,
             )
-        return RoutingDecision(next_step_index=None, terminal_status=terminal_status, should_break=True)
+        return RoutingDecision(terminal_status=terminal_status, should_break=True)
 
-    def is_finalization_step(self, step_index: int) -> bool:
+    def is_finalization_step(
+        self,
+        *,
+        step_index: Optional[int] = None,
+        step_node_id: Optional[str] = None,
+    ) -> bool:
         """Return True when the current step belongs to the appended finalization slice."""
-        return bool(self.finalization_steps) and step_index >= self.finalization_start_index
+        if isinstance(step_node_id, str) and self.finalization_node_id_set:
+            return step_node_id in self.finalization_node_id_set
+        return (
+            bool(self.finalization_steps)
+            and isinstance(step_index, int)
+            and step_index >= self.finalization_start_index
+        )

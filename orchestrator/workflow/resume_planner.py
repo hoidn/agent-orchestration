@@ -48,6 +48,28 @@ class ResumePlanner:
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[int]:
         """Determine the top-level step index where resumed execution should restart."""
+        if projection is not None:
+            restart_node_id = self.determine_restart_node_id(state, steps, projection=projection)
+            if not isinstance(restart_node_id, str):
+                return None
+            entry = projection.entries_by_node_id.get(restart_node_id)
+            if entry is None:
+                return None
+            if isinstance(entry.compatibility_index, int):
+                return entry.compatibility_index
+            if isinstance(entry.finalization_index, int):
+                return len(projection.node_id_by_compatibility_index) + entry.finalization_index
+            return None
+
+        return self._determine_restart_index_legacy(state, steps)
+
+    def determine_restart_node_id(
+        self,
+        state: Dict[str, Any],
+        steps: List[Dict[str, Any]],
+        projection: Optional[WorkflowStateProjection] = None,
+    ) -> Optional[str]:
+        """Determine the top-level executable node id where resumed execution should restart."""
         steps_state = state.get("steps", {})
         if not isinstance(steps_state, dict):
             steps_state = {}
@@ -58,7 +80,58 @@ class ResumePlanner:
             if projected_current_step is not None:
                 current_result = steps_state.get(projected_current_step.presentation_key)
                 if not self.entry_is_terminal(current_result):
-                    return projected_current_step.execution_index
+                    return projected_current_step.node_id
+            if projection is not None:
+                current_index = current_step.get("index")
+                current_status = current_step.get("status")
+                if isinstance(current_index, int) and current_status == "running":
+                    node_id = projection.node_id_for_execution_index(current_index)
+                    if isinstance(node_id, str):
+                        entry = projection.entries_by_node_id.get(node_id)
+                        if entry is not None:
+                            current_result = steps_state.get(entry.presentation_key)
+                            if not self.entry_is_terminal(current_result):
+                                return node_id
+
+        if projection is not None:
+            for node_id in projection.ordered_execution_node_ids():
+                entry = projection.entries_by_node_id.get(node_id)
+                if entry is None:
+                    continue
+                step_name = entry.presentation_key
+                if self.for_each_has_pending_work(state, step_name):
+                    return node_id
+                if self.repeat_until_has_pending_work(state, step_name):
+                    return node_id
+                step_result = steps_state.get(step_name)
+                if step_result is None:
+                    return node_id
+                if not self.entry_is_terminal(step_result):
+                    return node_id
+            return None
+
+        restart_index = self._determine_restart_index_legacy(state, steps)
+        if not isinstance(restart_index, int):
+            return None
+        if 0 <= restart_index < len(steps):
+            step = steps[restart_index]
+            step_id = step.get("step_id")
+            if isinstance(step_id, str) and step_id:
+                return step_id
+        return None
+
+    def _determine_restart_index_legacy(
+        self,
+        state: Dict[str, Any],
+        steps: List[Dict[str, Any]],
+    ) -> Optional[int]:
+        """Determine the top-level step index where resumed execution should restart via legacy scans."""
+        steps_state = state.get("steps", {})
+        if not isinstance(steps_state, dict):
+            steps_state = {}
+
+        current_step = state.get("current_step")
+        if isinstance(current_step, dict):
             current_index = current_step.get("index")
             current_status = current_step.get("status")
             if isinstance(current_index, int) and current_status == "running":

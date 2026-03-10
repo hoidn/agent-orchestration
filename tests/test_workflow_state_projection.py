@@ -384,6 +384,30 @@ def test_resume_planner_maps_finalization_current_step_step_ids_to_execution_ord
     assert restart_index == len(bundle.legacy_workflow["steps"])
 
 
+def test_resume_planner_uses_projection_ordering_when_legacy_step_names_drift(tmp_path: Path):
+    workflow_path = _write_projection_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle.legacy_workflow["steps"][0]["name"] = "LegacySetReady"
+    bundle.legacy_workflow["steps"][1]["name"] = "LegacyRouteReady"
+    planner = ResumePlanner()
+
+    restart_index = planner.determine_restart_index(
+        {
+            "steps": {
+                "SetReady": {"status": "completed"},
+                "RouteReady": {"status": "pending"},
+            },
+        },
+        bundle.legacy_workflow["steps"],
+        projection=bundle.projection,
+    )
+
+    assert restart_index == bundle.projection.compatibility_index_by_node_id[
+        "root.route_ready.approve_path"
+    ]
+
+
 @pytest.mark.parametrize(
     ("field", "value"),
     [

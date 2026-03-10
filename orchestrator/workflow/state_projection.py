@@ -91,6 +91,28 @@ class WorkflowStateProjection:
     for_each_nodes: Mapping[str, IterationStepKeyProjection] = field(default_factory=empty_frozen_mapping)
     call_boundaries: Mapping[str, CallBoundaryProjection] = field(default_factory=empty_frozen_mapping)
 
+    def ordered_execution_node_ids(self) -> tuple[str, ...]:
+        """Return top-level executable node ids in deterministic execution order."""
+        body_node_ids = tuple(
+            self.node_id_by_compatibility_index[index]
+            for index in sorted(self.node_id_by_compatibility_index)
+        )
+        finalization_node_ids = tuple(
+            self.finalization_node_id_by_index[index]
+            for index in sorted(self.finalization_node_id_by_index)
+        )
+        return body_node_ids + finalization_node_ids
+
+    def node_id_for_execution_index(self, index: int) -> Optional[str]:
+        """Return the executable node id for one combined body/finalization execution index."""
+        if index < 0:
+            return None
+        node_id = self.node_id_by_compatibility_index.get(index)
+        if node_id is not None:
+            return node_id
+        body_count = len(self.node_id_by_compatibility_index)
+        return self.finalization_node_id_by_index.get(index - body_count)
+
     def node_id_for_step_id(self, step_id: str) -> Optional[str]:
         """Return the executable node id for a persisted step id."""
         return self.node_id_by_step_id.get(step_id)

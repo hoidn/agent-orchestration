@@ -38,6 +38,7 @@ class NormalizedStepOutcome:
 class RoutingDecision:
     """Coordinator decision after step routing/finalization handling."""
 
-    next_step_index: Optional[int]
-    terminal_status: str
-    should_break: bool
+    next_step_index: Optional[int] = None
+    next_node_id: Optional[str] = None
+    terminal_status: str = "completed"
+    should_break: bool = False
