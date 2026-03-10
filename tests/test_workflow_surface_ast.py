@@ -192,6 +192,40 @@ def _write_surface_workflow(workspace: Path) -> Path:
     )
 
 
+def _write_leaf_payload_workflow(workspace: Path) -> Path:
+    return _write_yaml(
+        workspace / "leaf_payload_workflow.yaml",
+        {
+            "version": "1.1.1",
+            "providers": {
+                "audit_provider": {
+                    "command": ["echo", "${PROMPT}"],
+                    "input_mode": "argv",
+                    "defaults": {
+                        "model": "test-model",
+                    },
+                }
+            },
+            "steps": [
+                {
+                    "name": "RunShell",
+                    "command": 'echo "hello ${context.name}"',
+                },
+                {
+                    "name": "RenderPrompt",
+                    "provider": "audit_provider",
+                    "input_file": "prompt.txt",
+                    "depends_on": {
+                        "required": ["data.txt"],
+                        "inject": True,
+                    },
+                    "output_capture": "text",
+                },
+            ],
+        },
+    )
+
+
 @dataclass
 class _RecordingValidationBackend:
     calls: list[str] = field(default_factory=list)
@@ -346,6 +380,20 @@ def test_surface_workflow_exposes_typed_root_metadata_without_raw_fallbacks(tmp_
     )
 
     assert dict(workflow_context(rawless_bundle)) == {"project": "typed-pipeline"}
+
+
+def test_surface_ast_preserves_scalar_commands_and_provider_dependency_mappings(tmp_path: Path):
+    """Typed elaboration must not coerce legacy-valid scalar or mapping payloads away."""
+    workflow_path = _write_leaf_payload_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    command_step, provider_step = bundle.surface.steps
+
+    assert command_step.kind is SurfaceStepKind.COMMAND
+    assert command_step.command == 'echo "hello ${context.name}"'
+    assert provider_step.kind is SurfaceStepKind.PROVIDER
+    assert provider_step.depends_on["required"] == ("data.txt",)
+    assert provider_step.depends_on["inject"] is True
 
 
 def test_elaboration_orchestrates_authored_shape_validation_before_ast_build(tmp_path: Path):

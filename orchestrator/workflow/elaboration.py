@@ -407,12 +407,12 @@ def _elaborate_step(
         when_predicate=when_predicate,
         assert_predicate=assert_predicate,
         references=tuple(references),
-        command=_frozen_sequence(step.get("command")) if kind is SurfaceStepKind.COMMAND else (),
+        command=_frozen_command(step.get("command")) if kind is SurfaceStepKind.COMMAND else (),
         provider=step.get("provider") if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("provider"), str) else None,
         provider_params=freeze_value(step["provider_params"]) if kind is SurfaceStepKind.PROVIDER and "provider_params" in step else None,
         input_file=freeze_value(step["input_file"]) if kind is SurfaceStepKind.PROVIDER and "input_file" in step else None,
         asset_file=freeze_value(step["asset_file"]) if kind is SurfaceStepKind.PROVIDER and "asset_file" in step else None,
-        depends_on=_frozen_sequence(step.get("depends_on")) if kind is SurfaceStepKind.PROVIDER else (),
+        depends_on=freeze_mapping(step.get("depends_on")) if kind is SurfaceStepKind.PROVIDER else freeze_mapping(None),
         asset_depends_on=_frozen_sequence(step.get("asset_depends_on")) if kind is SurfaceStepKind.PROVIDER else (),
         inject_output_contract=(
             step.get("inject_output_contract")
@@ -652,6 +652,14 @@ def _frozen_sequence(value: Any) -> tuple[Any, ...]:
     if not isinstance(value, (list, tuple)):
         return ()
     return tuple(freeze_value(item) for item in value)
+
+
+def _frozen_command(value: Any) -> Any:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        return tuple(freeze_value(item) for item in value)
+    return ()
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

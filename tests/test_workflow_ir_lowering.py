@@ -10,14 +10,17 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import (
     CallStepConfig,
     CallOutputAddress,
+    CommandStepConfig,
     ExecutableNodeKind,
     ForEachStepConfig,
     LoopOutputAddress,
     MatchJoinNode,
+    ProviderStepConfig,
     NodeResultAddress,
     RepeatUntilFrameNode,
     RepeatUntilStepConfig,
     SetScalarStepConfig,
+    materialize_execution_config,
 )
 from orchestrator.workflow import lowering
 from orchestrator.workflow.surface_ast import freeze_mapping
@@ -354,6 +357,40 @@ def _write_goto_workflow(workspace: Path) -> Path:
     )
 
 
+def _write_leaf_payload_ir_workflow(workspace: Path) -> Path:
+    return _write_yaml(
+        workspace / "leaf_payload_workflow.yaml",
+        {
+            "version": "1.1.1",
+            "providers": {
+                "audit_provider": {
+                    "command": ["echo", "${PROMPT}"],
+                    "input_mode": "argv",
+                    "defaults": {
+                        "model": "test-model",
+                    },
+                }
+            },
+            "steps": [
+                {
+                    "name": "RunShell",
+                    "command": 'echo "hello ${context.name}"',
+                },
+                {
+                    "name": "RenderPrompt",
+                    "provider": "audit_provider",
+                    "input_file": "prompt.txt",
+                    "depends_on": {
+                        "required": ["data.txt"],
+                        "inject": True,
+                    },
+                    "output_capture": "text",
+                },
+            ],
+        },
+    )
+
+
 def test_loader_bundle_exposes_executable_ir_topology_and_node_kinds(tmp_path: Path):
     workflow_path = _write_ir_workflow(tmp_path)
 
@@ -478,6 +515,37 @@ def test_ir_lowering_uses_typed_surface_goto_when_legacy_step_raw_drifts(tmp_pat
     assert goto_node.execution_config is not None
     assert goto_node.execution_config.common.on["success"]["goto"] == "Done"
     assert goto_node.routed_transfers["on_success_goto"].target_node_id == "root.done"
+
+
+def test_ir_lowering_preserves_scalar_commands_and_provider_dependency_mappings(tmp_path: Path):
+    workflow_path = _write_leaf_payload_ir_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    run_shell_step, render_prompt_step = bundle.surface.steps
+    run_shell = bundle.ir.nodes[run_shell_step.step_id]
+    render_prompt = bundle.ir.nodes[render_prompt_step.step_id]
+
+    assert isinstance(run_shell.execution_config, CommandStepConfig)
+    assert run_shell.execution_config.command == 'echo "hello ${context.name}"'
+    materialized_command = materialize_execution_config(
+        run_shell.execution_config,
+        step_name="RunShell",
+        step_id=run_shell_step.step_id,
+    )
+    assert materialized_command["command"] == 'echo "hello ${context.name}"'
+
+    assert isinstance(render_prompt.execution_config, ProviderStepConfig)
+    assert render_prompt.execution_config.depends_on["required"] == ("data.txt",)
+    assert render_prompt.execution_config.depends_on["inject"] is True
+    materialized_provider = materialize_execution_config(
+        render_prompt.execution_config,
+        step_name="RenderPrompt",
+        step_id=render_prompt_step.step_id,
+    )
+    assert materialized_provider["depends_on"] == {
+        "required": ["data.txt"],
+        "inject": True,
+    }
 
 
 def test_ir_lowering_patches_for_each_body_fallthrough_and_iteration_owned_call_boundaries(

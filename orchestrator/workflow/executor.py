@@ -1132,69 +1132,37 @@ class WorkflowExecutor:
     def _structured_if_branches(self, step: Dict[str, Any]) -> Mapping[str, Any]:
         """Return structured-if branch metadata sourced from typed IR when available."""
         node = self._executable_node_for_step(step)
-        if isinstance(node, IfJoinNode) and self.executable_ir is not None and self.projection is not None:
-            branches: Dict[str, Any] = {}
-            markers = [
-                candidate
-                for candidate in self.executable_ir.nodes.values()
-                if isinstance(candidate, IfBranchMarkerNode)
-                and candidate.statement_name == node.statement_name
-                and candidate.region == node.region
-            ]
-            for marker in markers:
-                branch_steps = [
-                    candidate.presentation_name
-                    for candidate in self.executable_ir.nodes.values()
-                    if candidate.region == marker.region
-                    and candidate.node_id.startswith(f"{marker.node_id}.")
-                ]
-                branch_steps.sort(
-                    key=lambda name: self._projection_index_by_presentation_name.get(
-                        name,
-                        self._top_level_step_count,
-                    )
-                )
-                branches[marker.branch_name] = {
-                    "marker": marker.presentation_name,
-                    "step_id": marker.step_id,
-                    "steps": branch_steps,
-                    "outputs": node.branch_outputs.get(marker.branch_name, {}),
+        if isinstance(node, IfJoinNode) and self.projection is not None:
+            branches = self.projection.structured_if_branches.get(node.node_id)
+            if branches is None:
+                return {}
+            return {
+                branch_name: {
+                    "marker": branch.marker_presentation_key,
+                    "step_id": branch.marker_step_id,
+                    "steps": list(branch.step_presentation_keys),
+                    "outputs": node.branch_outputs.get(branch_name, {}),
                 }
-            return branches
+                for branch_name, branch in branches.items()
+            }
         return {}
 
     def _structured_match_cases(self, step: Dict[str, Any]) -> Mapping[str, Any]:
         """Return structured-match case metadata sourced from typed IR when available."""
         node = self._executable_node_for_step(step)
-        if isinstance(node, MatchJoinNode) and self.executable_ir is not None and self.projection is not None:
-            cases: Dict[str, Any] = {}
-            markers = [
-                candidate
-                for candidate in self.executable_ir.nodes.values()
-                if isinstance(candidate, MatchCaseMarkerNode)
-                and candidate.statement_name == node.statement_name
-                and candidate.region == node.region
-            ]
-            for marker in markers:
-                case_steps = [
-                    candidate.presentation_name
-                    for candidate in self.executable_ir.nodes.values()
-                    if candidate.region == marker.region
-                    and candidate.node_id.startswith(f"{marker.node_id}.")
-                ]
-                case_steps.sort(
-                    key=lambda name: self._projection_index_by_presentation_name.get(
-                        name,
-                        self._top_level_step_count,
-                    )
-                )
-                cases[marker.case_name] = {
-                    "marker": marker.presentation_name,
-                    "step_id": marker.step_id,
-                    "steps": case_steps,
-                    "outputs": node.case_outputs.get(marker.case_name, {}),
+        if isinstance(node, MatchJoinNode) and self.projection is not None:
+            cases = self.projection.structured_match_cases.get(node.node_id)
+            if cases is None:
+                return {}
+            return {
+                case_name: {
+                    "marker": case.marker_presentation_key,
+                    "step_id": case.marker_step_id,
+                    "steps": list(case.step_presentation_keys),
+                    "outputs": node.case_outputs.get(case_name, {}),
                 }
-            return cases
+                for case_name, case in cases.items()
+            }
         return {}
 
     def _structured_guard_condition(self, step: Dict[str, Any]) -> tuple[Any, bool]:

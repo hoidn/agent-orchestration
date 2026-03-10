@@ -172,7 +172,7 @@ class ProviderStepConfig:
     provider_params: Any = None
     input_file: Any = None
     asset_file: Any = None
-    depends_on: tuple[Any, ...] = ()
+    depends_on: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     asset_depends_on: tuple[Any, ...] = ()
     inject_output_contract: Optional[bool] = None
     inject_consumes: Optional[bool] = None

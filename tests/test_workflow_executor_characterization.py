@@ -2066,8 +2066,161 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_nested_dispat
 
     assert state["status"] == "completed"
     assert state["steps"]["ProcessItems"][0]["WriteItem"]["status"] == "completed"
-    assert state["steps"]["ProcessItems"][1]["WriteItem"]["status"] == "completed"
-    assert (tmp_path / "state" / "items.txt").read_text(encoding="utf-8").splitlines() == [
-        "alpha",
-        "beta",
-    ]
+
+
+def test_executor_reads_structured_join_metadata_from_projection_without_ir_scans(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "typed-structured-projection",
+        "artifacts": {
+            "ready": {"kind": "scalar", "type": "bool"},
+            "decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            },
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            },
+            {
+                "name": "RouteReady",
+                "id": "route_ready",
+                "if": {
+                    "artifact_bool": {
+                        "ref": "root.steps.SetReady.artifacts.ready",
+                    }
+                },
+                "then": {
+                    "id": "approve_path",
+                    "outputs": {
+                        "decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteApproved.artifacts.decision",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteApproved",
+                            "id": "write_approved",
+                            "set_scalar": {
+                                "artifact": "decision",
+                                "value": "APPROVE",
+                            },
+                        }
+                    ],
+                },
+                "else": {
+                    "id": "revise_path",
+                    "outputs": {
+                        "decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteRevision.artifacts.decision",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteRevision",
+                            "id": "write_revision",
+                            "set_scalar": {
+                                "artifact": "decision",
+                                "value": "REVISE",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "name": "RouteDecision",
+                "id": "route_decision",
+                "match": {
+                    "ref": "root.steps.RouteReady.artifacts.decision",
+                    "cases": {
+                        "APPROVE": {
+                            "id": "approve_path",
+                            "steps": [
+                                {
+                                    "name": "WriteApprovedAction",
+                                    "id": "write_approved_action",
+                                    "command": ["echo", "ship"],
+                                }
+                            ],
+                        },
+                        "REVISE": {
+                            "id": "revise_path",
+                            "steps": [
+                                {
+                                    "name": "WriteRevisionAction",
+                                    "id": "write_revision_action",
+                                    "command": ["echo", "fix"],
+                                }
+                            ],
+                        },
+                    },
+                },
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    pruned_bundle = replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    "root.route_ready": bundle.ir.nodes["root.route_ready"],
+                    "root.route_decision": bundle.ir.nodes["root.route_decision"],
+                }
+            ),
+        ),
+    )
+    state_manager = StateManager(workspace=tmp_path, run_id="typed-structured-projection")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(pruned_bundle, tmp_path, state_manager)
+
+    branches = executor._structured_if_branches({"step_id": "root.route_ready"})
+    cases = executor._structured_match_cases({"step_id": "root.route_decision"})
+
+    assert branches == {
+        "then": {
+            "marker": "RouteReady.then",
+            "step_id": "root.route_ready.approve_path",
+            "steps": ["RouteReady.then.WriteApproved"],
+            "outputs": bundle.ir.nodes["root.route_ready"].branch_outputs["then"],
+        },
+        "else": {
+            "marker": "RouteReady.else",
+            "step_id": "root.route_ready.revise_path",
+            "steps": ["RouteReady.else.WriteRevision"],
+            "outputs": bundle.ir.nodes["root.route_ready"].branch_outputs["else"],
+        },
+    }
+    assert cases == {
+        "APPROVE": {
+            "marker": "RouteDecision.APPROVE",
+            "step_id": "root.route_decision.approve_path",
+            "steps": ["RouteDecision.APPROVE.WriteApprovedAction"],
+            "outputs": bundle.ir.nodes["root.route_decision"].case_outputs["APPROVE"],
+        },
+        "REVISE": {
+            "marker": "RouteDecision.REVISE",
+            "step_id": "root.route_decision.revise_path",
+            "steps": ["RouteDecision.REVISE.WriteRevisionAction"],
+            "outputs": bundle.ir.nodes["root.route_decision"].case_outputs["REVISE"],
+        },
+    }

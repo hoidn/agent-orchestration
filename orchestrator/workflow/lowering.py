@@ -45,6 +45,7 @@ from .state_projection import (
     CompatibilityStepDefinition,
     CompatibilityNodeProjection,
     IterationStepKeyProjection,
+    StructuredSelectionProjection,
     WorkflowStateProjection,
 )
 from .statements import branch_token, match_case_token
@@ -83,6 +84,8 @@ class _ProjectionBuilder:
         self.repeat_until_nodes: Dict[str, IterationStepKeyProjection] = {}
         self.for_each_nodes: Dict[str, IterationStepKeyProjection] = {}
         self.call_boundaries: Dict[str, CallBoundaryProjection] = {}
+        self.structured_if_branches: Dict[str, Mapping[str, StructuredSelectionProjection]] = {}
+        self.structured_match_cases: Dict[str, Mapping[str, StructuredSelectionProjection]] = {}
 
     def register_node(
         self,
@@ -167,6 +170,20 @@ class _ProjectionBuilder:
             iteration_step_id_suffix=iteration_step_id_suffix,
         )
 
+    def register_structured_if(
+        self,
+        node_id: str,
+        branches: Mapping[str, StructuredSelectionProjection],
+    ) -> None:
+        self.structured_if_branches[node_id] = MappingProxyType(dict(branches))
+
+    def register_structured_match(
+        self,
+        node_id: str,
+        cases: Mapping[str, StructuredSelectionProjection],
+    ) -> None:
+        self.structured_match_cases[node_id] = MappingProxyType(dict(cases))
+
     def build(self) -> WorkflowStateProjection:
         return WorkflowStateProjection(
             entries_by_node_id=MappingProxyType(dict(self.entries_by_node_id)),
@@ -179,6 +196,8 @@ class _ProjectionBuilder:
             repeat_until_nodes=MappingProxyType(dict(self.repeat_until_nodes)),
             for_each_nodes=MappingProxyType(dict(self.for_each_nodes)),
             call_boundaries=MappingProxyType(dict(self.call_boundaries)),
+            structured_if_branches=MappingProxyType(dict(self.structured_if_branches)),
+            structured_match_cases=MappingProxyType(dict(self.structured_match_cases)),
         )
 
 
@@ -569,6 +588,7 @@ class _IRBuilder:
                 None
             )
         branch_outputs: Dict[str, Mapping[str, ExecutableContract]] = {}
+        branch_projection: Dict[str, StructuredSelectionProjection] = {}
 
         for branch_name, block, invert_guard in branch_specs:
             if block is None:
@@ -591,6 +611,14 @@ class _IRBuilder:
             )
             self._patch_linear_fallthrough(branch_node_ids, final_target=join_node_id)
             branch_outputs[branch_name] = _bind_contracts(block.outputs, branch_context)
+            branch_projection[branch_name] = StructuredSelectionProjection(
+                marker_step_id=block.step_id,
+                marker_presentation_key=marker_presentation,
+                step_presentation_keys=tuple(
+                    self.nodes[node_id].presentation_name
+                    for node_id in branch_node_ids
+                ),
+            )
             marker = IfBranchMarkerNode(
                 node_id=block.step_id,
                 step_id=block.step_id,
@@ -634,6 +662,7 @@ class _IRBuilder:
             branch_outputs=MappingProxyType(dict(branch_outputs)),
         )
         self._register_node(node=join, region=region, top_level_region=top_level_region)
+        self.projection.register_structured_if(step.step_id, branch_projection)
         ordered.append(join.node_id)
         return ordered
 
@@ -651,6 +680,7 @@ class _IRBuilder:
         selector_address = _bind_surface_ref(step.match_ref, context)
         case_names = list(step.match_cases.keys())
         case_outputs: Dict[str, Mapping[str, ExecutableContract]] = {}
+        case_projection: Dict[str, StructuredSelectionProjection] = {}
 
         for index, case_name in enumerate(case_names):
             block = step.match_cases[case_name]
@@ -673,6 +703,14 @@ class _IRBuilder:
             )
             self._patch_linear_fallthrough(case_node_ids, final_target=join_node_id)
             case_outputs[case_name] = _bind_contracts(block.outputs, case_context)
+            case_projection[case_name] = StructuredSelectionProjection(
+                marker_step_id=block.step_id,
+                marker_presentation_key=marker_presentation,
+                step_presentation_keys=tuple(
+                    self.nodes[node_id].presentation_name
+                    for node_id in case_node_ids
+                ),
+            )
             marker = MatchCaseMarkerNode(
                 node_id=block.step_id,
                 step_id=block.step_id,
@@ -716,6 +754,7 @@ class _IRBuilder:
             case_outputs=MappingProxyType(dict(case_outputs)),
         )
         self._register_node(node=join, region=region, top_level_region=top_level_region)
+        self.projection.register_structured_match(step.step_id, case_projection)
         ordered.append(join.node_id)
         return ordered
 

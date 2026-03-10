@@ -94,6 +94,15 @@ class CallBoundaryProjection:
 
 
 @dataclass(frozen=True)
+class StructuredSelectionProjection:
+    """Compatibility metadata for one structured branch or case path."""
+
+    marker_step_id: str
+    marker_presentation_key: str
+    step_presentation_keys: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
 class WorkflowStateProjection:
     """Projection between executable node ids and persisted/reporting compatibility surfaces."""
 
@@ -107,6 +116,12 @@ class WorkflowStateProjection:
     repeat_until_nodes: Mapping[str, IterationStepKeyProjection] = field(default_factory=empty_frozen_mapping)
     for_each_nodes: Mapping[str, IterationStepKeyProjection] = field(default_factory=empty_frozen_mapping)
     call_boundaries: Mapping[str, CallBoundaryProjection] = field(default_factory=empty_frozen_mapping)
+    structured_if_branches: Mapping[str, Mapping[str, StructuredSelectionProjection]] = field(
+        default_factory=empty_frozen_mapping
+    )
+    structured_match_cases: Mapping[str, Mapping[str, StructuredSelectionProjection]] = field(
+        default_factory=empty_frozen_mapping
+    )
 
     def ordered_execution_node_ids(self) -> tuple[str, ...]:
         """Return top-level executable node ids in deterministic execution order."""
