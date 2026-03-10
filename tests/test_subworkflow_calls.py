@@ -413,6 +413,82 @@ def test_call_rejects_colliding_write_root_bindings(tmp_path: Path):
     )
 
 
+def test_call_rejects_colliding_write_root_bindings_without_imported_legacy_magic(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _managed_write_root_library(version="2.7"),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "for-each-call-collision-typed-imports",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "steps": [
+                {
+                    "name": "ReviewItems",
+                    "id": "review_items",
+                    "for_each": {
+                        "items": ["a", "b"],
+                        "as": "item",
+                        "steps": [
+                            {
+                                "name": "ResolveWriteRoot",
+                                "id": "resolve_write_root",
+                                "command": ["bash", "-lc", "printf 'state/shared\\n'"],
+                                "output_file": "state/shared-write-root.txt",
+                                "expected_outputs": [
+                                    {
+                                        "name": "write_root",
+                                        "path": "state/shared-write-root.txt",
+                                        "type": "relpath",
+                                    }
+                                ],
+                            },
+                            {
+                                "name": "RunReviewLoop",
+                                "id": "run_review_loop",
+                                "call": "review_loop",
+                                "with": {
+                                    "max_cycles": 1,
+                                    "write_root": {
+                                        "ref": "self.steps.ResolveWriteRoot.artifacts.write_root",
+                                    },
+                                },
+                            },
+                        ],
+                    },
+                },
+            ],
+        },
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    for imported in bundle.imports.values():
+        for key in (
+            "__typed_bundle",
+            "__typed_provenance",
+            "__workflow_path",
+            "__source_root",
+            "__managed_write_root_inputs",
+        ):
+            imported.legacy_workflow.pop(key, None)
+
+    state_manager = StateManager(tmp_path, run_id="for-each-call-collision-typed-imports")
+    state_manager.initialize("workflow.yaml", context=bundle.legacy_workflow.get("context", {}))
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+    persisted = state_manager.load().to_dict()
+
+    assert state["steps"]["ReviewItems[1].RunReviewLoop"]["error"]["type"] == "contract_violation"
+    assert state["steps"]["ReviewItems[1].RunReviewLoop"]["error"]["context"]["reason"] == (
+        "colliding_write_root_binding"
+    )
+    assert persisted["steps"]["ReviewItems[1].RunReviewLoop"]["error"]["type"] == "contract_violation"
+    assert persisted["steps"]["ReviewItems[1].RunReviewLoop"]["error"]["context"]["reason"] == (
+        "colliding_write_root_binding"
+    )
+
+
 def test_repeat_until_call_rejects_invariant_write_root_binding(tmp_path: Path):
     _write_yaml(
         tmp_path / "workflows" / "library" / "review_fix_loop.yaml",

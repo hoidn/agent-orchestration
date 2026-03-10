@@ -138,7 +138,7 @@ class CallExecutor:
         *,
         step_name: str,
         frame_id: str,
-        imported_workflow: Dict[str, Any],
+        imported_workflow: Any,
         state: Dict[str, Any],
         bound_inputs: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
@@ -183,11 +183,10 @@ class CallExecutor:
                 if isinstance(prior_alias, str)
                 else None
             )
-            prior_workflow = workflow_legacy_dict(prior_bundle)
-            if prior_workflow is None:
+            if prior_bundle is None:
                 continue
 
-            prior_managed_inputs = workflow_managed_write_root_inputs(prior_workflow)
+            prior_managed_inputs = workflow_managed_write_root_inputs(prior_bundle)
             prior_bound_inputs = prior_frame.get("bound_inputs")
             if not prior_managed_inputs or not isinstance(prior_bound_inputs, dict):
                 continue
@@ -391,6 +390,7 @@ class CallExecutor:
         call_alias = step.get("call")
         imported_bundle = workflow_import_bundle(self.executor.loaded_bundle or self.executor.workflow, call_alias)
         imported_workflow = workflow_legacy_dict(imported_bundle)
+        imported_target = imported_bundle or imported_workflow
         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
         step_id = runtime_step_id or self.executor._step_id(step)
         if imported_workflow is None:
@@ -429,7 +429,7 @@ class CallExecutor:
         write_root_error = self.validate_write_root_bindings(
             step_name=step_name,
             frame_id=frame_id,
-            imported_workflow=imported_workflow,
+            imported_workflow=imported_target,
             state=state,
             bound_inputs=bound_inputs,
         )

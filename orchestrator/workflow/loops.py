@@ -308,6 +308,7 @@ class LoopExecutor:
 
         loop_step_id = self.executor._step_id(step)
         parent_scope_steps = self.build_loop_parent_scope_steps(step, state)
+        parent_scope_node_results = self.build_loop_parent_scope_node_results(step, state)
 
         if resume and current_iteration not in completed_iterations:
             _, _, body_complete = self.repeat_until_iteration_resume_state(
@@ -383,7 +384,13 @@ class LoopExecutor:
                         nested_index,
                     )
 
-                    loop_scope = self.build_loop_scope(state, iteration_state, parent_scope_steps)
+                    loop_scope = self.build_loop_scope(
+                        state,
+                        iteration_state,
+                        parent_scope_steps,
+                        loop_step=step,
+                        parent_scope_node_results=parent_scope_node_results,
+                    )
                     result = None
                     guard_condition, invert = self.executor._structured_guard_condition(nested_step)
                     if guard_condition is not None:
@@ -479,6 +486,8 @@ class LoopExecutor:
                             state,
                             iteration_state,
                             parent_scope_steps,
+                            loop_step=step,
+                            parent_scope_node_results=parent_scope_node_results,
                             runtime_step_id=nested_runtime_step_id,
                             loop_name=step_name,
                             iteration_index=current_iteration,
@@ -804,6 +813,7 @@ class LoopExecutor:
 
         loop_step_id = self.executor._step_id(step)
         parent_scope_steps = self.build_loop_parent_scope_steps(step, state)
+        parent_scope_node_results = self.build_loop_parent_scope_node_results(step, state)
         for index in range(start_index, len(items)):
             item = items[index]
             self.persist_for_each_progress(
@@ -829,18 +839,33 @@ class LoopExecutor:
                 nested_name = nested_step.get("name", f"nested_{index}")
                 nested_runtime_step_id = iteration_step_id(loop_step_id, index, nested_step, nested_index)
 
+                loop_scope = self.build_loop_scope(
+                    state,
+                    iteration_state,
+                    parent_scope_steps,
+                    loop_step=step,
+                    parent_scope_node_results=parent_scope_node_results,
+                )
+                guard_condition, invert = self.executor._structured_guard_condition(nested_step)
                 when_condition = self.executor._when_condition(nested_step)
-                if when_condition is not None:
-                    nested_runtime_context = self.executor._runtime_context(loop_context, state, parent_steps=parent_scope_steps)
+                if guard_condition is not None or when_condition is not None:
+                    nested_runtime_context = self.executor._runtime_context(
+                        loop_context,
+                        state,
+                        parent_steps=parent_scope_steps,
+                    )
                     variables = nested_runtime_context.build_variables(self.executor.variable_substitutor, state)
 
                     try:
+                        condition = guard_condition if guard_condition is not None else when_condition
                         should_execute = self.executor._evaluate_condition_expression(
-                            when_condition,
+                            condition,
                             variables,
                             state,
-                            scope=nested_runtime_context.scope() | {"self_steps": iteration_state},
+                            scope=loop_scope,
                         )
+                        if guard_condition is not None and invert:
+                            should_execute = not should_execute
                     except Exception as exc:
                         result = {
                             "status": "failed",
@@ -850,7 +875,7 @@ class LoopExecutor:
                                 "message": f"Condition evaluation failed: {exc}",
                                 "context": {
                                     "condition": self.executor._json_safe_runtime_value(
-                                        when_condition
+                                        condition
                                     ),
                                 },
                             },
@@ -927,6 +952,8 @@ class LoopExecutor:
                         state,
                         iteration_state,
                         parent_scope_steps,
+                        loop_step=step,
+                        parent_scope_node_results=parent_scope_node_results,
                         runtime_step_id=nested_runtime_step_id,
                         loop_name=step_name,
                         iteration_index=index,
@@ -1041,18 +1068,88 @@ class LoopExecutor:
 
         return parent_scope_steps
 
+    def build_loop_parent_scope_node_results(
+        self,
+        loop_step: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build a deterministic node-id index for one loop body's lexical parent scope."""
+        steps_state = state.get("steps", {})
+        if not isinstance(steps_state, dict):
+            return {}
+
+        loop_step_id = self.executor._step_id(loop_step)
+        if "." in loop_step_id:
+            parent_step_id = loop_step_id.rsplit(".", 1)[0]
+        else:
+            parent_step_id = "root"
+
+        parent_scope_nodes: Dict[str, Any] = {}
+        for candidate in self.executor.steps:
+            if not isinstance(candidate, dict):
+                continue
+            candidate_step_id = candidate.get("step_id")
+            candidate_name = candidate.get("name")
+            if not isinstance(candidate_step_id, str) or not isinstance(candidate_name, str):
+                continue
+            if "." in candidate_step_id:
+                candidate_parent_id = candidate_step_id.rsplit(".", 1)[0]
+            else:
+                candidate_parent_id = "root"
+            if candidate_parent_id != parent_step_id:
+                continue
+
+            candidate_result = steps_state.get(candidate_name)
+            if isinstance(candidate_result, dict):
+                parent_scope_nodes[candidate_step_id] = candidate_result
+
+        return parent_scope_nodes
+
+    def build_loop_self_node_results(
+        self,
+        loop_step: Dict[str, Any],
+        iteration_state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Build a deterministic node-id index for one active loop iteration."""
+        projection = getattr(self.executor, "projection", None)
+        if projection is None or not isinstance(iteration_state, dict):
+            return {}
+
+        loop_node_id = self.executor._step_id(loop_step)
+        loop_projection = projection.repeat_until_nodes.get(loop_node_id)
+        if loop_projection is None:
+            loop_projection = projection.for_each_nodes.get(loop_node_id)
+        if loop_projection is None:
+            return {}
+
+        return {
+            node_id: iteration_state[presentation_key]
+            for node_id, presentation_key in loop_projection.nested_presentation_keys.items()
+            if presentation_key in iteration_state and isinstance(iteration_state[presentation_key], dict)
+        }
+
     def build_loop_scope(
         self,
         state: Dict[str, Any],
         iteration_state: Dict[str, Any],
         parent_scope_steps: Dict[str, Any],
+        *,
+        loop_step: Optional[Dict[str, Any]] = None,
+        parent_scope_node_results: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Build structured-ref scope maps for one nested loop step."""
-        return {
+        scope: Dict[str, Dict[str, Any]] = {
             "self_steps": iteration_state,
             "parent_steps": parent_scope_steps,
             "root_steps": state.get("steps", {}),
         }
+        if isinstance(parent_scope_node_results, dict) and parent_scope_node_results:
+            scope["parent_node_results"] = parent_scope_node_results
+        if isinstance(loop_step, dict):
+            self_node_results = self.build_loop_self_node_results(loop_step, iteration_state)
+            if self_node_results:
+                scope["self_node_results"] = self_node_results
+        return scope
 
     def evaluate_loop_body_condition(
         self,

@@ -3,11 +3,14 @@
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
+from orchestrator.workflow.executable_ir import NodeResultAddress
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.references import ReferenceResolutionError
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -538,3 +541,151 @@ def test_executor_resolves_goto_against_projection_when_legacy_target_name_drift
     assert "LegacyFinal" not in state["steps"]
     assert "Skipped" not in state["steps"]
     assert persisted["step_visits"] == {"Start": 1, "Final": 1}
+
+
+def test_executor_bound_address_resolution_fails_closed_without_projection_owned_lookup(
+    tmp_path: Path,
+):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-bound-addresses",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-bound-addresses")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    with pytest.raises(ReferenceResolutionError, match="unavailable"):
+        executor._resolve_runtime_value(
+            NodeResultAddress(
+                node_id="root.set_ready",
+                field="artifacts",
+                member="ready",
+            ),
+            {
+                "steps": {
+                    "AliasKey": {
+                        "status": "completed",
+                        "step_id": "root.set_ready",
+                        "artifacts": {"ready": True},
+                    }
+                }
+            },
+        )
+
+
+def test_executor_uses_typed_if_nodes_when_legacy_helper_keys_are_removed(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-if-helpers",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            },
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            },
+            {
+                "name": "RouteReady",
+                "id": "route_ready",
+                "if": {
+                    "artifact_bool": {
+                        "ref": "root.steps.SetReady.artifacts.ready",
+                    }
+                },
+                "then": {
+                    "id": "approve_path",
+                    "steps": [
+                        {
+                            "name": "WriteApproved",
+                            "id": "write_approved",
+                            "set_scalar": {
+                                "artifact": "review_decision",
+                                "value": "APPROVE",
+                            },
+                        }
+                    ],
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteApproved.artifacts.review_decision",
+                            },
+                        }
+                    },
+                },
+                "else": {
+                    "id": "revise_path",
+                    "steps": [
+                        {
+                            "name": "WriteRevision",
+                            "id": "write_revision",
+                            "set_scalar": {
+                                "artifact": "review_decision",
+                                "value": "REVISE",
+                            },
+                        }
+                    ],
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteRevision.artifacts.review_decision",
+                            },
+                        }
+                    },
+                },
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    for step in bundle.legacy_workflow["steps"]:
+        if step.get("step_id") in {"root.route_ready.approve_path", "root.route_ready.revise_path"}:
+            step.pop("structured_if_branch", None)
+        if step.get("step_id") == "root.route_ready":
+            step.pop("structured_if_join", None)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-if-helpers")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-if-helpers")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RouteReady"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert persisted["steps"]["RouteReady"]["artifacts"] == {"review_decision": "APPROVE"}

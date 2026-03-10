@@ -39,6 +39,8 @@ from .executable_ir import (
     BlockOutputAddress,
     CallBoundaryNode,
     CallOutputAddress,
+    ExecutableNodeKind,
+    FinalizationStepNode,
     ExecutableContract,
     IfBranchMarkerNode,
     IfJoinNode,
@@ -552,15 +554,24 @@ class WorkflowExecutor:
             return None
         return self.executable_ir.nodes.get(step_id)
 
+    def _execution_kind_for_step(self, step: Dict[str, Any]) -> Optional[ExecutableNodeKind]:
+        """Return the typed execution kind for one step when bundle-backed IR is available."""
+        node = self._executable_node_for_step(step)
+        if isinstance(node, FinalizationStepNode):
+            return node.execution_kind
+        if node is None:
+            return None
+        return node.kind
+
     @staticmethod
-    def _static_step_id(step_id: str) -> str:
-        """Strip loop-iteration qualifiers from one runtime step id."""
-        if "#" not in step_id:
-            return step_id
-        loop_prefix, remainder = step_id.split("#", 1)
-        if "." not in remainder:
-            return loop_prefix
-        return f"{loop_prefix}.{remainder.split('.', 1)[1]}"
+    def _scoped_node_results(
+        scope: Optional[Dict[str, Dict[str, Any]]],
+        key: str,
+    ) -> Optional[Mapping[str, Dict[str, Any]]]:
+        if not isinstance(scope, dict):
+            return None
+        results = scope.get(key)
+        return results if isinstance(results, Mapping) else None
 
     def _result_for_node_id(
         self,
@@ -570,6 +581,14 @@ class WorkflowExecutor:
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Resolve one node id to the visible runtime result payload."""
+        for scope_key in ("self_node_results", "parent_node_results", "root_node_results"):
+            indexed_results = self._scoped_node_results(scope, scope_key)
+            if indexed_results is None:
+                continue
+            candidate = indexed_results.get(node_id)
+            if isinstance(candidate, dict):
+                return candidate
+
         presentation_key = (
             self.projection.presentation_key_by_node_id.get(node_id)
             if self.projection is not None
@@ -589,17 +608,6 @@ class WorkflowExecutor:
             if isinstance(presentation_key, str):
                 candidate = mapping.get(presentation_key)
                 if isinstance(candidate, dict):
-                    candidate_step_id = candidate.get("step_id")
-                    if (
-                        not isinstance(candidate_step_id, str)
-                        or self._static_step_id(candidate_step_id) == node_id
-                    ):
-                        return candidate
-            for candidate in mapping.values():
-                if not isinstance(candidate, dict):
-                    continue
-                candidate_step_id = candidate.get("step_id")
-                if isinstance(candidate_step_id, str) and self._static_step_id(candidate_step_id) == node_id:
                     return candidate
 
         raise ReferenceResolutionError(f"Bound address target step '{node_id}' is unavailable")
@@ -765,6 +773,72 @@ class WorkflowExecutor:
         ):
             return self._evaluate_bound_predicate(condition, state, scope=scope)
         return self.condition_evaluator.evaluate(condition, variables, state, scope=scope)
+
+    def _structured_if_branches(self, step: Dict[str, Any]) -> Mapping[str, Any]:
+        """Return typed structured-if branch metadata with legacy fallback."""
+        node = self._executable_node_for_step(step)
+        if isinstance(node, IfJoinNode) and self.executable_ir is not None and self.projection is not None:
+            branches: Dict[str, Any] = {}
+            markers = [
+                candidate
+                for candidate in self.executable_ir.nodes.values()
+                if isinstance(candidate, IfBranchMarkerNode)
+                and candidate.statement_name == node.statement_name
+                and candidate.region == node.region
+            ]
+            for marker in markers:
+                branch_steps = [
+                    candidate.presentation_name
+                    for candidate in self.executable_ir.nodes.values()
+                    if candidate.region == marker.region
+                    and candidate.node_id.startswith(f"{marker.node_id}.")
+                ]
+                branch_steps.sort(
+                    key=lambda name: self._projection_index_by_presentation_name.get(name, len(self.steps))
+                )
+                branches[marker.branch_name] = {
+                    "marker": marker.presentation_name,
+                    "step_id": marker.step_id,
+                    "steps": branch_steps,
+                    "outputs": node.branch_outputs.get(marker.branch_name, {}),
+                }
+            return branches
+        metadata = step.get("structured_if_join", {})
+        branches = metadata.get("branches") if isinstance(metadata, dict) else {}
+        return branches if isinstance(branches, Mapping) else {}
+
+    def _structured_match_cases(self, step: Dict[str, Any]) -> Mapping[str, Any]:
+        """Return typed structured-match case metadata with legacy fallback."""
+        node = self._executable_node_for_step(step)
+        if isinstance(node, MatchJoinNode) and self.executable_ir is not None and self.projection is not None:
+            cases: Dict[str, Any] = {}
+            markers = [
+                candidate
+                for candidate in self.executable_ir.nodes.values()
+                if isinstance(candidate, MatchCaseMarkerNode)
+                and candidate.statement_name == node.statement_name
+                and candidate.region == node.region
+            ]
+            for marker in markers:
+                case_steps = [
+                    candidate.presentation_name
+                    for candidate in self.executable_ir.nodes.values()
+                    if candidate.region == marker.region
+                    and candidate.node_id.startswith(f"{marker.node_id}.")
+                ]
+                case_steps.sort(
+                    key=lambda name: self._projection_index_by_presentation_name.get(name, len(self.steps))
+                )
+                cases[marker.case_name] = {
+                    "marker": marker.presentation_name,
+                    "step_id": marker.step_id,
+                    "steps": case_steps,
+                    "outputs": node.case_outputs.get(marker.case_name, {}),
+                }
+            return cases
+        metadata = step.get("structured_match_join", {})
+        cases = metadata.get("cases") if isinstance(metadata, dict) else {}
+        return cases if isinstance(cases, Mapping) else {}
 
     def _structured_guard_condition(self, step: Dict[str, Any]) -> tuple[Any, bool]:
         """Return one structured guard condition, preferring the typed IR node."""
@@ -1331,13 +1405,13 @@ class WorkflowExecutor:
                     continue
 
                 # Check structured branch guards before the step's own when clause.
-                if 'structured_if_guard' in step:
+                guard_condition, invert = self._structured_guard_condition(step)
+                if guard_condition is not None:
                     runtime_context = self._runtime_context({}, state)
                     variables = runtime_context.build_variables(self.variable_substitutor, state)
-                    condition, invert = self._structured_guard_condition(step)
                     try:
                         should_execute = self._evaluate_condition_expression(
-                            condition,
+                            guard_condition,
                             variables,
                             state,
                         )
@@ -1347,7 +1421,7 @@ class WorkflowExecutor:
                         error_info = {
                             'type': 'predicate_evaluation_failed',
                             'message': f"Condition evaluation failed: {e}",
-                            'context': {'condition': self._json_safe_runtime_value(condition)}
+                            'context': {'condition': self._json_safe_runtime_value(guard_condition)}
                         }
                         result = {
                             'status': 'failed',
@@ -1720,6 +1794,33 @@ class WorkflowExecutor:
 
     def _resolve_step_type(self, step: Dict[str, Any]) -> str:
         """Return canonical step type label for runtime lifecycle state."""
+        execution_kind = self._execution_kind_for_step(step)
+        if execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER:
+            return 'structured_if_branch'
+        if execution_kind is ExecutableNodeKind.IF_JOIN:
+            return 'structured_if_join'
+        if execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER:
+            return 'structured_match_case'
+        if execution_kind is ExecutableNodeKind.MATCH_JOIN:
+            return 'structured_match_join'
+        if execution_kind is ExecutableNodeKind.PROVIDER:
+            return 'provider'
+        if execution_kind is ExecutableNodeKind.COMMAND:
+            return 'command'
+        if execution_kind is ExecutableNodeKind.WAIT_FOR:
+            return 'wait_for'
+        if execution_kind is ExecutableNodeKind.ASSERT:
+            return 'assert'
+        if execution_kind is ExecutableNodeKind.SET_SCALAR:
+            return 'set_scalar'
+        if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
+            return 'increment_scalar'
+        if execution_kind is ExecutableNodeKind.CALL_BOUNDARY:
+            return 'call'
+        if execution_kind is ExecutableNodeKind.FOR_EACH:
+            return 'for_each'
+        if execution_kind is ExecutableNodeKind.REPEAT_UNTIL_FRAME:
+            return 'repeat_until'
         if 'structured_if_branch' in step:
             return 'structured_if_branch'
         if 'structured_if_join' in step:
@@ -2376,7 +2477,9 @@ class WorkflowExecutor:
         resume_current_step: bool = False,
     ) -> Optional[Dict[str, Any]]:
         """Execute one top-level step and persist its result when applicable."""
-        if "for_each" in step:
+        execution_kind = self._execution_kind_for_step(step)
+
+        if execution_kind is ExecutableNodeKind.FOR_EACH or "for_each" in step:
             self._execute_for_each(step, state, resume=resume_current_step)
             if step_name in state["steps"]:
                 loop_results = state["steps"][step_name]
@@ -2386,29 +2489,29 @@ class WorkflowExecutor:
             self._emit_step_summary(step_name, step, result)
             return result
 
-        if "repeat_until" in step:
+        if execution_kind is ExecutableNodeKind.REPEAT_UNTIL_FRAME or "repeat_until" in step:
             self._execute_repeat_until(step, state, resume=resume_current_step)
             result = state.get("steps", {}).get(step_name, {"status": "completed"})
             self._emit_step_summary(step_name, step, result)
             return result
 
-        if "structured_if_branch" in step:
+        if execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER or "structured_if_branch" in step:
             result = self._execute_structured_if_branch(step)
             return self._persist_step_result(state, step_name, step, result)
 
-        if "structured_if_join" in step:
+        if execution_kind is ExecutableNodeKind.IF_JOIN or "structured_if_join" in step:
             result = self._execute_structured_if_join(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
-        if "structured_match_case" in step:
+        if execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER or "structured_match_case" in step:
             result = self._execute_structured_match_case(step)
             return self._persist_step_result(state, step_name, step, result)
 
-        if "structured_match_join" in step:
+        if execution_kind is ExecutableNodeKind.MATCH_JOIN or "structured_match_join" in step:
             result = self._execute_structured_match_join(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
-        if "wait_for" in step:
+        if execution_kind is ExecutableNodeKind.WAIT_FOR or "wait_for" in step:
             result = self._execute_wait_for_result(step)
             phase_hint = None
             class_hint = None
@@ -2428,11 +2531,11 @@ class WorkflowExecutor:
                 retryable_hint=False if class_hint == "pre_execution_failed" else None,
             )
 
-        if "assert" in step:
+        if execution_kind is ExecutableNodeKind.ASSERT or "assert" in step:
             result = self._execute_assert(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
-        if "set_scalar" in step:
+        if execution_kind is ExecutableNodeKind.SET_SCALAR or "set_scalar" in step:
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -2440,7 +2543,7 @@ class WorkflowExecutor:
                 self._execute_set_scalar(step),
             )
 
-        if "increment_scalar" in step:
+        if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR or "increment_scalar" in step:
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -2448,7 +2551,7 @@ class WorkflowExecutor:
                 self._execute_increment_scalar(step, state),
             )
 
-        if "call" in step:
+        if execution_kind is ExecutableNodeKind.CALL_BOUNDARY or "call" in step:
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -2456,7 +2559,7 @@ class WorkflowExecutor:
                 self._execute_call(step, state),
             )
 
-        if "provider" in step:
+        if execution_kind is ExecutableNodeKind.PROVIDER or "provider" in step:
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -2464,7 +2567,7 @@ class WorkflowExecutor:
                 self._execute_provider(step, state),
             )
 
-        if "command" in step:
+        if execution_kind is ExecutableNodeKind.COMMAND or "command" in step:
             return self._execute_top_level_publish_and_persist(
                 step,
                 step_name,
@@ -2481,6 +2584,9 @@ class WorkflowExecutor:
         state: Dict[str, Any],
         iteration_state: Dict[str, Any],
         parent_scope_steps: Dict[str, Any],
+        *,
+        loop_step: Optional[Dict[str, Any]] = None,
+        parent_scope_node_results: Optional[Dict[str, Any]] = None,
         runtime_step_id: Optional[str] = None,
         loop_name: Optional[str] = None,
         iteration_index: Optional[int] = None,
@@ -2488,35 +2594,42 @@ class WorkflowExecutor:
         resolved_loop_name = loop_name or step.get('name', f'step_{self.current_step}')
         resolved_iteration_index = 0 if iteration_index is None else iteration_index
         nested_name = step.get('name', f'nested_{resolved_iteration_index}')
-        scope = self._build_loop_scope(state, iteration_state, parent_scope_steps)
+        scope = self._build_loop_scope(
+            state,
+            iteration_state,
+            parent_scope_steps,
+            loop_step=loop_step,
+            parent_scope_node_results=parent_scope_node_results,
+        )
         step_name_override = step.get("name")
+        execution_kind = self._execution_kind_for_step(step)
 
-        if "command" in step:
+        if execution_kind is ExecutableNodeKind.COMMAND or "command" in step:
             result = self._execute_command_with_context(step, context, state)
-        elif "provider" in step:
+        elif execution_kind is ExecutableNodeKind.PROVIDER or "provider" in step:
             result = self._execute_provider_with_context(
                 step,
                 context,
                 state,
                 runtime_step_id=runtime_step_id,
             )
-        elif "assert" in step:
+        elif execution_kind is ExecutableNodeKind.ASSERT or "assert" in step:
             result = self._execute_assert(step, state, context=context, scope=scope)
-        elif "set_scalar" in step:
+        elif execution_kind is ExecutableNodeKind.SET_SCALAR or "set_scalar" in step:
             result = self._execute_set_scalar(step)
-        elif "increment_scalar" in step:
+        elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR or "increment_scalar" in step:
             result = self._execute_increment_scalar(step, state)
-        elif "wait_for" in step:
+        elif execution_kind is ExecutableNodeKind.WAIT_FOR or "wait_for" in step:
             result = self._execute_wait_for_result(step)
-        elif "structured_if_branch" in step:
+        elif execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER or "structured_if_branch" in step:
             result = self._execute_structured_if_branch(step)
-        elif "structured_if_join" in step:
+        elif execution_kind is ExecutableNodeKind.IF_JOIN or "structured_if_join" in step:
             result = self._execute_structured_if_join(step, state, scope=scope)
-        elif "structured_match_case" in step:
+        elif execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER or "structured_match_case" in step:
             result = self._execute_structured_match_case(step)
-        elif "structured_match_join" in step:
+        elif execution_kind is ExecutableNodeKind.MATCH_JOIN or "structured_match_join" in step:
             result = self._execute_structured_match_join(step, state, scope=scope)
-        elif "call" in step:
+        elif execution_kind is ExecutableNodeKind.CALL_BOUNDARY or "call" in step:
             result = self._execute_call(
                 step,
                 state,
@@ -2698,9 +2811,18 @@ class WorkflowExecutor:
         state: Dict[str, Any],
         iteration_state: Dict[str, Any],
         parent_scope_steps: Dict[str, Any],
+        *,
+        loop_step: Optional[Dict[str, Any]] = None,
+        parent_scope_node_results: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Dict[str, Any]]:
         """Build structured-ref scope maps for one nested loop step."""
-        return self.loop_executor.build_loop_scope(state, iteration_state, parent_scope_steps)
+        return self.loop_executor.build_loop_scope(
+            state,
+            iteration_state,
+            parent_scope_steps,
+            loop_step=loop_step,
+            parent_scope_node_results=parent_scope_node_results,
+        )
 
     def _evaluate_loop_body_condition(
         self,
@@ -3767,9 +3889,14 @@ class WorkflowExecutor:
 
     def _execute_structured_if_branch(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Record one lowered branch marker for a structured if/else statement."""
-        metadata = step.get('structured_if_branch', {})
-        branch_name = metadata.get('branch_name') if isinstance(metadata, dict) else None
-        statement_name = metadata.get('statement_name') if isinstance(metadata, dict) else None
+        node = self._executable_node_for_step(step)
+        if isinstance(node, IfBranchMarkerNode):
+            branch_name = node.branch_name
+            statement_name = node.statement_name
+        else:
+            metadata = step.get('structured_if_branch', {})
+            branch_name = metadata.get('branch_name') if isinstance(metadata, dict) else None
+            statement_name = metadata.get('statement_name') if isinstance(metadata, dict) else None
         return {
             'status': 'completed',
             'exit_code': 0,
@@ -3791,8 +3918,7 @@ class WorkflowExecutor:
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Materialize selected branch outputs onto the lowered join node."""
-        metadata = step.get('structured_if_join', {})
-        branches = metadata.get('branches', {}) if isinstance(metadata, dict) else {}
+        branches = self._structured_if_branches(step)
         if not isinstance(branches, dict) or not branches:
             return self._contract_violation_result(
                 "Structured if/else join failed",
@@ -3868,9 +3994,14 @@ class WorkflowExecutor:
 
     def _execute_structured_match_case(self, step: Dict[str, Any]) -> Dict[str, Any]:
         """Record one lowered case marker for a structured match statement."""
-        metadata = step.get('structured_match_case', {})
-        case_name = metadata.get('case_name') if isinstance(metadata, dict) else None
-        statement_name = metadata.get('statement_name') if isinstance(metadata, dict) else None
+        node = self._executable_node_for_step(step)
+        if isinstance(node, MatchCaseMarkerNode):
+            case_name = node.case_name
+            statement_name = node.statement_name
+        else:
+            metadata = step.get('structured_match_case', {})
+            case_name = metadata.get('case_name') if isinstance(metadata, dict) else None
+            statement_name = metadata.get('statement_name') if isinstance(metadata, dict) else None
         return {
             'status': 'completed',
             'exit_code': 0,
@@ -3892,8 +4023,8 @@ class WorkflowExecutor:
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Materialize selected case outputs onto the lowered join node."""
-        metadata = step.get('structured_match_join', {})
-        cases = metadata.get('cases', {}) if isinstance(metadata, dict) else {}
+        node = self._executable_node_for_step(step)
+        cases = self._structured_match_cases(step)
         if not isinstance(cases, dict) or not cases:
             return self._contract_violation_result(
                 "Structured match join failed",
@@ -3963,7 +4094,9 @@ class WorkflowExecutor:
                 'structured_match': {
                     'selected_case': selected_case,
                     'cases': case_statuses,
-                    'selector_ref': metadata.get('selector_ref'),
+                    'selector_ref': self._json_safe_runtime_value(
+                        node.selector_address if isinstance(node, MatchJoinNode) else None
+                    ),
                 }
             },
         }
