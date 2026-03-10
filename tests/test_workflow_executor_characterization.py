@@ -874,5 +874,111 @@ def test_executor_uses_typed_if_nodes_when_legacy_helper_keys_are_removed(tmp_pa
     persisted = _persisted_state(tmp_path, "projection-if-helpers")
 
     assert state["status"] == "completed"
+    assert state["steps"]["RouteReady.then.WriteApproved"]["status"] == "completed"
+    assert state["steps"]["RouteReady.else.WriteRevision"]["status"] == "skipped"
     assert state["steps"]["RouteReady"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert persisted["steps"]["RouteReady.else.WriteRevision"]["status"] == "skipped"
     assert persisted["steps"]["RouteReady"]["artifacts"] == {"review_decision": "APPROVE"}
+
+
+def test_executor_uses_typed_match_nodes_when_legacy_helper_keys_are_removed(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-match-helpers",
+        "artifacts": {
+            "decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            },
+            "route_action": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["DONE", "FIX"],
+            },
+        },
+        "steps": [
+            {
+                "name": "SetDecision",
+                "id": "set_decision",
+                "set_scalar": {
+                    "artifact": "decision",
+                    "value": "REVISE",
+                },
+            },
+            {
+                "name": "RouteDecision",
+                "id": "route_decision",
+                "match": {
+                    "ref": "root.steps.SetDecision.artifacts.decision",
+                    "cases": {
+                        "APPROVE": {
+                            "id": "approve_path",
+                            "steps": [
+                                {
+                                    "name": "WriteDone",
+                                    "id": "write_done",
+                                    "set_scalar": {
+                                        "artifact": "route_action",
+                                        "value": "DONE",
+                                    },
+                                }
+                            ],
+                            "outputs": {
+                                "route_action": {
+                                    "kind": "scalar",
+                                    "type": "enum",
+                                    "allowed": ["DONE", "FIX"],
+                                    "from": {
+                                        "ref": "self.steps.WriteDone.artifacts.route_action",
+                                    },
+                                }
+                            },
+                        },
+                        "REVISE": {
+                            "id": "revise_path",
+                            "steps": [
+                                {
+                                    "name": "WriteFix",
+                                    "id": "write_fix",
+                                    "set_scalar": {
+                                        "artifact": "route_action",
+                                        "value": "FIX",
+                                    },
+                                }
+                            ],
+                            "outputs": {
+                                "route_action": {
+                                    "kind": "scalar",
+                                    "type": "enum",
+                                    "allowed": ["DONE", "FIX"],
+                                    "from": {
+                                        "ref": "self.steps.WriteFix.artifacts.route_action",
+                                    },
+                                }
+                            },
+                        },
+                    },
+                },
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    for step in bundle.legacy_workflow["steps"]:
+        if step.get("step_id") in {"root.route_decision.approve_path", "root.route_decision.revise_path"}:
+            step.pop("structured_match_case", None)
+        if step.get("step_id") == "root.route_decision":
+            step.pop("structured_match_join", None)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-match-helpers")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-match-helpers")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RouteDecision.APPROVE.WriteDone"]["status"] == "skipped"
+    assert state["steps"]["RouteDecision.REVISE.WriteFix"]["status"] == "completed"
+    assert state["steps"]["RouteDecision"]["artifacts"] == {"route_action": "FIX"}
+    assert persisted["steps"]["RouteDecision"]["artifacts"] == {"route_action": "FIX"}

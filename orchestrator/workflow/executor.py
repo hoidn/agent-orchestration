@@ -39,6 +39,7 @@ from .executable_ir import (
     BlockOutputAddress,
     CallBoundaryNode,
     CallOutputAddress,
+    ExecutableTransfer,
     ExecutableNodeKind,
     FinalizationStepNode,
     ExecutableContract,
@@ -556,7 +557,16 @@ class WorkflowExecutor:
                 continue
             if not isinstance(node.raw, Mapping):
                 raise ValueError(f"Executable IR is missing {region_name} raw payload for node '{node_id}'")
-            ordered_steps.append(_thaw_workflow_mapping(node.raw))
+            materialized_step = _thaw_workflow_mapping(node.raw)
+            if not isinstance(materialized_step.get("step_id"), str) or not materialized_step["step_id"]:
+                materialized_step["step_id"] = node.step_id
+            if not isinstance(materialized_step.get("name"), str) or not materialized_step["name"]:
+                materialized_step["name"] = (
+                    self.projection.presentation_key_by_node_id.get(node_id, node.presentation_name)
+                    if self.projection is not None
+                    else node.presentation_name
+                )
+            ordered_steps.append(materialized_step)
         return ordered_steps
 
     def _first_execution_node_id(self) -> Optional[str]:
@@ -603,22 +613,39 @@ class WorkflowExecutor:
         node = self.executable_ir.nodes.get(current_node_id)
         return node.fallthrough_node_id if node is not None else None
 
-    def _non_counting_implicit_transfer_target(self, current_node_id: str) -> Optional[str]:
-        """Return the implicit typed route target when fallthrough represents a non-counting transfer."""
+    def _step_result_was_skipped(self, current_node_id: str, state: Dict[str, Any]) -> bool:
+        """Return whether the persisted result for one typed node was recorded as skipped."""
+        if self.projection is None:
+            return False
+        step_name = self.projection.presentation_key_by_node_id.get(current_node_id)
+        if not isinstance(step_name, str) or not step_name:
+            return False
+        steps_state = state.get("steps")
+        if not isinstance(steps_state, Mapping):
+            return False
+        step_result = steps_state.get(step_name)
+        return isinstance(step_result, Mapping) and bool(step_result.get("skipped"))
+
+    def _implicit_typed_transfer(
+        self,
+        current_node_id: str,
+        state: Dict[str, Any],
+    ) -> Optional[ExecutableTransfer]:
+        """Return the implicit typed transfer selected by the current node result."""
         if self.executable_ir is None:
             return None
         node = self.executable_ir.nodes.get(current_node_id)
         if node is None:
             return None
-        fallthrough_node_id = node.fallthrough_node_id
-        if not isinstance(fallthrough_node_id, str) or not fallthrough_node_id:
-            return None
-        for reason in ("call_return",):
-            transfer = node.routed_transfers.get(reason)
-            if transfer is None:
-                continue
-            if transfer.target_node_id == fallthrough_node_id and transfer.counts_as_transition is False:
-                return fallthrough_node_id
+        if isinstance(node, IfBranchMarkerNode):
+            reason = "branch_skipped" if self._step_result_was_skipped(current_node_id, state) else "branch_taken"
+            return node.routed_transfers.get(reason)
+        if isinstance(node, MatchCaseMarkerNode):
+            reason = "case_skipped" if self._step_result_was_skipped(current_node_id, state) else "case_selected"
+            return node.routed_transfers.get(reason)
+        transfer = node.routed_transfers.get("call_return")
+        if transfer is not None and transfer.target_node_id == node.fallthrough_node_id:
+            return transfer
         return None
 
     def _counts_as_transition_for_typed_target(
@@ -627,6 +654,7 @@ class WorkflowExecutor:
         target_node_id: Optional[str],
         *,
         implicit: bool,
+        state: Dict[str, Any],
     ) -> bool:
         """Return whether one typed top-level move should increment transition_count."""
         if not isinstance(target_node_id, str) or not target_node_id:
@@ -638,7 +666,10 @@ class WorkflowExecutor:
             return True
 
         if implicit:
-            return self._non_counting_implicit_transfer_target(current_node_id) != target_node_id
+            implicit_transfer = self._implicit_typed_transfer(current_node_id, state)
+            if implicit_transfer is not None and implicit_transfer.target_node_id == target_node_id:
+                return implicit_transfer.counts_as_transition
+            return True
 
         for transfer in node.routed_transfers.values():
             if transfer.target_node_id == target_node_id:
@@ -646,6 +677,41 @@ class WorkflowExecutor:
         if node.fallthrough_node_id == target_node_id:
             return True
         return True
+
+    def _persist_skipped_structured_descendants(
+        self,
+        state: Dict[str, Any],
+        current_node_id: Optional[str],
+    ) -> None:
+        """Persist skipped result surfaces for descendants under one skipped branch/case marker."""
+        if (
+            not isinstance(current_node_id, str)
+            or self.executable_ir is None
+            or self.projection is None
+        ):
+            return
+        node = self.executable_ir.nodes.get(current_node_id)
+        if not isinstance(node, (IfBranchMarkerNode, MatchCaseMarkerNode)):
+            return
+
+        descendant_prefix = f"{current_node_id}."
+        ordered_node_ids = [node_id for node_id in self._step_node_ids if isinstance(node_id, str)]
+        for node_id in ordered_node_ids:
+            if not node_id.startswith(descendant_prefix):
+                continue
+            step_name = self.projection.presentation_key_by_node_id.get(node_id)
+            if not isinstance(step_name, str) or not step_name:
+                continue
+            steps_state = state.get("steps")
+            if isinstance(steps_state, Mapping) and step_name in steps_state:
+                continue
+            skipped_step = self._step_for_node_id(node_id)
+            self._persist_step_result(
+                state,
+                step_name,
+                skipped_step,
+                {"status": "skipped", "exit_code": 0, "skipped": True},
+            )
 
     def _projection_entry_for_step(
         self,
@@ -1661,6 +1727,7 @@ class WorkflowExecutor:
                             'skipped': True
                         }
                         self._persist_step_result(state, step_name, step, result)
+                        self._persist_skipped_structured_descendants(state, current_node_id)
                         self._record_finalization_settled_result(
                             state,
                             step_index,
@@ -2337,19 +2404,24 @@ class WorkflowExecutor:
 
         if self._use_ir_topology and isinstance(current_node_id, str):
             implicit_target = next_step is None
+            implicit_transfer = (
+                self._implicit_typed_transfer(current_node_id, state)
+                if implicit_target
+                else None
+            )
             if isinstance(next_step, str) and next_step not in {"_end", "_stop"}:
                 next_node_id = next_step
             elif isinstance(next_step, int):
                 next_node_id = self._node_id_for_execution_index(next_step)
+            elif implicit_transfer is not None and isinstance(implicit_transfer.target_node_id, str):
+                next_node_id = implicit_transfer.target_node_id
             else:
-                next_node_id = (
-                    self._non_counting_implicit_transfer_target(current_node_id)
-                    or self._fallthrough_node_id(current_node_id)
-                )
+                next_node_id = self._fallthrough_node_id(current_node_id)
             if self._counts_as_transition_for_typed_target(
                 current_node_id,
                 next_node_id,
                 implicit=implicit_target,
+                state=state,
             ):
                 self._increment_transition_count(state)
             return None, next_node_id, terminal_status, False
