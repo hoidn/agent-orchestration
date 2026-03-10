@@ -315,6 +315,94 @@ def test_snapshot_recognizes_repeat_until_steps(tmp_path: Path):
     assert snapshot["steps"][0]["output"]["artifacts"] == {"review_decision": "APPROVE"}
 
 
+def test_snapshot_exposes_repeat_until_debug_progress_and_markdown(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "repeat-progress-run"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow = {
+        "version": "2.7",
+        "name": "obs-repeat-progress",
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "review_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                            },
+                        }
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {"ref": "self.outputs.review_decision"},
+                            "op": "eq",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "max_iterations": 4,
+                    "steps": [
+                        {
+                            "name": "WriteDecision",
+                            "command": ["bash", "-lc", "echo REVISE"],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+    state = {
+        "run_id": "repeat-progress-run",
+        "status": "running",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "workflow_file": "workflows/test.yaml",
+        "current_step": {
+            "name": "ReviewLoop",
+            "status": "running",
+            "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        },
+        "steps": {
+            "ReviewLoop": {
+                "status": "running",
+                "step_id": "root.review_loop",
+                "artifacts": {"review_decision": "REVISE"},
+                "debug": {
+                    "structured_repeat_until": {
+                        "body_id": "iteration_body",
+                        "max_iterations": 4,
+                        "completed_iterations": [0],
+                        "current_iteration": 1,
+                        "condition_evaluated_for_iteration": None,
+                        "last_condition_result": None,
+                    }
+                },
+            }
+        },
+    }
+
+    snapshot = build_status_snapshot(workflow, state, run_root)
+    review_loop = snapshot["steps"][0]
+    markdown = render_status_markdown(snapshot)
+
+    assert review_loop["output"]["debug"]["structured_repeat_until"] == {
+        "body_id": "iteration_body",
+        "max_iterations": 4,
+        "completed_iterations": [0],
+        "current_iteration": 1,
+        "condition_evaluated_for_iteration": None,
+        "last_condition_result": None,
+    }
+    assert "structured_repeat_until" in markdown
+    assert "current_iteration" in markdown
+    assert "completed_iterations" in markdown
+
+
 def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "stale-run"
     (run_root / "logs").mkdir(parents=True)

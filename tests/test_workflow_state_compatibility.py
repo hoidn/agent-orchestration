@@ -444,6 +444,170 @@ def _build_finalization_resume_workflow() -> dict:
     }
 
 
+def _build_structured_current_step_index_workflow() -> dict:
+    return {
+        "version": "2.6",
+        "name": "structured-current-step-index",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+            "decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            },
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            },
+            {
+                "name": "RouteReady",
+                "id": "route_ready",
+                "if": {
+                    "artifact_bool": {
+                        "ref": "root.steps.SetReady.artifacts.ready",
+                    }
+                },
+                "then": {
+                    "id": "approve_path",
+                    "outputs": {
+                        "decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteApproved.artifacts.decision",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteApproved",
+                            "id": "write_approved",
+                            "set_scalar": {
+                                "artifact": "decision",
+                                "value": "APPROVE",
+                            },
+                        }
+                    ],
+                },
+                "else": {
+                    "id": "revise_path",
+                    "outputs": {
+                        "decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.WriteRevision.artifacts.decision",
+                            },
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteRevision",
+                            "id": "write_revision",
+                            "set_scalar": {
+                                "artifact": "decision",
+                                "value": "REVISE",
+                            },
+                        }
+                    ],
+                },
+            },
+            {
+                "name": "RouteDecision",
+                "id": "route_decision",
+                "match": {
+                    "ref": "root.steps.RouteReady.artifacts.decision",
+                    "cases": {
+                        "APPROVE": {
+                            "id": "approve_path",
+                            "steps": [
+                                {
+                                    "name": "EchoApproved",
+                                    "id": "echo_approved",
+                                    "command": ["bash", "-lc", "printf 'approved\\n'"],
+                                }
+                            ],
+                        },
+                        "REVISE": {
+                            "id": "revise_path",
+                            "steps": [
+                                {
+                                    "name": "EchoRevision",
+                                    "id": "echo_revision",
+                                    "command": ["bash", "-lc", "printf 'revise\\n'"],
+                                }
+                            ],
+                        },
+                    },
+                },
+            },
+        ],
+    }
+
+
+def test_structured_helper_steps_persist_current_step_indices_from_lowered_order(tmp_path: Path):
+    workflow_path = _write_yaml(
+        tmp_path / "structured_current_step_index.yaml",
+        _build_structured_current_step_index_workflow(),
+    )
+    workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    expected_indices = {
+        step["name"]: index
+        for index, step in enumerate(workflow["steps"])
+    }
+
+    recorded_current_steps = []
+
+    class RecordingStateManager(StateManager):
+        def start_step(
+            self,
+            step_name: str,
+            step_index: int,
+            step_type: str,
+            step_id: str | None = None,
+            visit_count: int | None = None,
+        ):
+            super().start_step(
+                step_name,
+                step_index,
+                step_type,
+                step_id=step_id,
+                visit_count=visit_count,
+            )
+            assert self.state is not None
+            recorded_current_steps.append(dict(self.state.current_step or {}))
+
+    state_manager = RecordingStateManager(workspace=tmp_path, run_id="structured-current-step-index")
+    state_manager.initialize("structured_current_step_index.yaml")
+
+    state = WorkflowExecutor(workflow, tmp_path, state_manager).execute(on_error="stop")
+
+    assert state["status"] == "completed"
+
+    recorded_by_name = {entry["name"]: entry for entry in recorded_current_steps}
+    assert recorded_by_name["RouteReady.then"]["index"] == expected_indices["RouteReady.then"]
+    assert recorded_by_name["RouteReady.then.WriteApproved"]["index"] == (
+        expected_indices["RouteReady.then.WriteApproved"]
+    )
+    assert recorded_by_name["RouteReady"]["index"] == expected_indices["RouteReady"]
+    assert recorded_by_name["RouteDecision.APPROVE"]["index"] == expected_indices["RouteDecision.APPROVE"]
+    assert recorded_by_name["RouteDecision.APPROVE.EchoApproved"]["index"] == (
+        expected_indices["RouteDecision.APPROVE.EchoApproved"]
+    )
+    assert recorded_by_name["RouteDecision"]["index"] == expected_indices["RouteDecision"]
+
+
 def test_repeat_until_failure_persists_loop_frame_current_step_and_transition_surfaces(tmp_path: Path):
     workflow_path = _write_yaml(tmp_path / "repeat_until_resume.yaml", _build_repeat_until_resume_workflow())
     workflow = WorkflowLoader(tmp_path).load(workflow_path)

@@ -203,6 +203,8 @@ def build_status_snapshot(
                 "outcome": result.get("outcome"),
             }
             debug_payload = result.get("debug")
+            if isinstance(debug_payload, dict) and debug_payload:
+                entry["output"]["debug"] = debug_payload
             if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
                 entry["output"]["call"] = debug_payload.get("call")
             if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
@@ -382,6 +384,9 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
             artifacts = output_payload.get("artifacts")
             if artifacts:
                 lines.append(f"  - artifacts: `{artifacts}`")
+            debug_payload = output_payload.get("debug")
+            if debug_payload:
+                lines.append(f"  - debug: `{debug_payload}`")
             provider_session = output_payload.get("provider_session")
             if provider_session:
                 lines.append(f"  - provider_session: `{provider_session}`")
