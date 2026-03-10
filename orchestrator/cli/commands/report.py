@@ -65,7 +65,7 @@ def report_workflow(
         return 1
 
     try:
-        workflow = WorkflowLoader(Path.cwd()).load(workflow_path)
+        workflow = WorkflowLoader(Path.cwd()).load_bundle(workflow_path)
     except Exception as exc:
         print(f"Error: failed to load workflow: {exc}", file=sys.stderr)
         return 1

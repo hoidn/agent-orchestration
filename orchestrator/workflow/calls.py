@@ -6,7 +6,12 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..contracts.output_contract import OutputContractError, validate_contract_value
-from .loaded_bundle import workflow_managed_write_root_inputs, workflow_provenance
+from .loaded_bundle import (
+    workflow_import_bundle,
+    workflow_legacy_dict,
+    workflow_managed_write_root_inputs,
+    workflow_provenance,
+)
 from .references import ReferenceResolutionError
 
 
@@ -169,17 +174,18 @@ class CallExecutor:
         if not isinstance(call_frames, dict) or not current_roots:
             return None
 
-        current_imports = self.executor.workflow.get("__imports", {})
-        if not isinstance(current_imports, dict):
-            current_imports = {}
-
         for prior_frame_id, prior_frame in call_frames.items():
             if prior_frame_id == frame_id or not isinstance(prior_frame, dict):
                 continue
 
             prior_alias = prior_frame.get("import_alias")
-            prior_workflow = current_imports.get(prior_alias) if isinstance(prior_alias, str) else None
-            if not isinstance(prior_workflow, dict):
+            prior_bundle = (
+                workflow_import_bundle(self.executor.loaded_bundle or self.executor.workflow, prior_alias)
+                if isinstance(prior_alias, str)
+                else None
+            )
+            prior_workflow = workflow_legacy_dict(prior_bundle)
+            if prior_workflow is None:
                 continue
 
             prior_managed_inputs = workflow_managed_write_root_inputs(prior_workflow)
@@ -384,10 +390,11 @@ class CallExecutor:
         from .executor import WorkflowExecutor, _CallFrameStateManager
 
         call_alias = step.get("call")
-        imported_workflow = self.executor.workflow.get("__imports", {}).get(call_alias)
+        imported_bundle = workflow_import_bundle(self.executor.loaded_bundle or self.executor.workflow, call_alias)
+        imported_workflow = workflow_legacy_dict(imported_bundle)
         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
         step_id = runtime_step_id or self.executor._step_id(step)
-        if not isinstance(imported_workflow, dict):
+        if imported_workflow is None:
             return self.executor._contract_violation_result(
                 "Call execution failed",
                 {
@@ -452,7 +459,7 @@ class CallExecutor:
             observability=self.executor.observability,
         )
         child_executor = WorkflowExecutor(
-            workflow=imported_workflow,
+            workflow=imported_bundle or imported_workflow,
             workspace=self.executor.workspace,
             state_manager=child_state_manager,
             debug=self.executor.debug,

@@ -225,6 +225,7 @@ class ExecutableWorkflow:
     provenance: WorkflowProvenance
     body_region: tuple[str, ...]
     finalization_region: tuple[str, ...]
+    finalization_entry_node_id: Optional[str]
     nodes: Mapping[str, ExecutableNode]
     artifacts: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
     inputs: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)

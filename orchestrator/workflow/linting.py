@@ -5,6 +5,8 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List
 
+from .loaded_bundle import workflow_bundle, workflow_legacy_dict
+
 
 _STRINGLY_STEP_REF = re.compile(r"\$\{steps\.[^}]+\}")
 _SHELL_GATE_PREFIXES = ("test ", "[ ", "[[ ")
@@ -16,11 +18,14 @@ _SHELL_WRAPPERS = {
 }
 
 
-def lint_workflow(workflow: Dict[str, Any]) -> List[Dict[str, Any]]:
+def lint_workflow(workflow: Any) -> List[Dict[str, Any]]:
     """Return advisory lint warnings for one already-loaded workflow."""
     warnings: List[Dict[str, Any]] = []
+    workflow_dict = workflow_legacy_dict(workflow)
+    if workflow_dict is None:
+        return warnings
 
-    steps = workflow.get("steps")
+    steps = workflow_dict.get("steps")
     if isinstance(steps, list):
         _lint_steps(steps, warnings, "steps")
 
@@ -194,13 +199,13 @@ def _looks_like_goto_diamond(step: Dict[str, Any]) -> bool:
     )
 
 
-def _lint_import_output_collisions(workflow: Dict[str, Any]) -> List[Dict[str, Any]]:
+def _lint_import_output_collisions(workflow: Any) -> List[Dict[str, Any]]:
     owners: Dict[str, List[str]] = {}
-
-    imports = workflow.get("__imports", {})
-    if isinstance(imports, dict):
-        for alias, imported in imports.items():
-            if not isinstance(alias, str) or not isinstance(imported, dict):
+    bundle = workflow_bundle(workflow)
+    if bundle is not None:
+        for alias, imported_bundle in bundle.imports.items():
+            imported = workflow_legacy_dict(imported_bundle)
+            if not isinstance(alias, str) or imported is None:
                 continue
             output_specs = imported.get("outputs")
             if not isinstance(output_specs, dict):
@@ -208,6 +213,19 @@ def _lint_import_output_collisions(workflow: Dict[str, Any]) -> List[Dict[str, A
             for output_name in output_specs:
                 if isinstance(output_name, str):
                     owners.setdefault(output_name, []).append(f"import:{alias}")
+    else:
+        workflow_dict = workflow_legacy_dict(workflow)
+        imports = workflow_dict.get("__imports", {}) if isinstance(workflow_dict, dict) else {}
+        if isinstance(imports, dict):
+            for alias, imported in imports.items():
+                if not isinstance(alias, str) or not isinstance(imported, dict):
+                    continue
+                output_specs = imported.get("outputs")
+                if not isinstance(output_specs, dict):
+                    continue
+                for output_name in output_specs:
+                    if isinstance(output_name, str):
+                        owners.setdefault(output_name, []).append(f"import:{alias}")
 
     warnings: List[Dict[str, Any]] = []
     for output_name, output_owners in sorted(owners.items()):

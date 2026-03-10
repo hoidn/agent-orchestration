@@ -267,7 +267,8 @@ def run_workflow(args: Namespace) -> int:
         logger.info(f"Loading workflow: {workflow_path}")
         loader = WorkflowLoader(workspace)
         try:
-            workflow = loader.load(workflow_path)
+            workflow_bundle = loader.load_bundle(workflow_path)
+            workflow = workflow_bundle.legacy_workflow
         except WorkflowValidationError as e:
             # Print validation errors to stderr
             for error in e.errors:
@@ -309,7 +310,7 @@ def run_workflow(args: Namespace) -> int:
             raw_inputs,
             workspace=workspace,
         )
-        lint_warnings = lint_workflow(workflow)
+        lint_warnings = lint_workflow(workflow_bundle)
 
         if args.dry_run:
             for warning in lint_warnings:
@@ -347,7 +348,7 @@ def run_workflow(args: Namespace) -> int:
 
         # Execute workflow
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=workflow_bundle,
             workspace=workspace,
             state_manager=state_manager,
             logs_dir=state_manager.logs_dir,

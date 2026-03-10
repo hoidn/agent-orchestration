@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from .state_projection import WorkflowStateProjection
+
 
 class ResumePlanner:
     """Determine where a resumed run should re-enter top-level execution."""
@@ -27,6 +29,7 @@ class ResumePlanner:
         self,
         state: Dict[str, Any],
         steps: List[Dict[str, Any]],
+        projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[int]:
         """Determine the top-level step index where resumed execution should restart."""
         steps_state = state.get("steps", {})
@@ -35,6 +38,11 @@ class ResumePlanner:
 
         current_step = state.get("current_step")
         if isinstance(current_step, dict):
+            projected_index = self._projected_step_index(current_step, projection)
+            if projected_index is not None:
+                current_result = steps_state.get(current_step.get("name"))
+                if not self.entry_is_terminal(current_result):
+                    return projected_index
             current_index = current_step.get("index")
             current_status = current_step.get("status")
             if isinstance(current_index, int) and current_status == "running":
@@ -62,10 +70,26 @@ class ResumePlanner:
 
         return None
 
+    def _projected_step_index(
+        self,
+        current_step: Dict[str, Any],
+        projection: Optional[WorkflowStateProjection],
+    ) -> Optional[int]:
+        if projection is None:
+            return None
+        step_id = current_step.get("step_id")
+        if not isinstance(step_id, str) or not step_id:
+            return None
+        node_id = projection.node_id_by_step_id.get(step_id)
+        if node_id is None:
+            return None
+        return projection.compatibility_index_by_node_id.get(node_id)
+
     def detect_interrupted_provider_session_visit(
         self,
         state: Dict[str, Any],
         steps: List[Dict[str, Any]],
+        projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[Dict[str, Any]]:
         """Detect whether resume must quarantine an interrupted provider-session visit."""
         error = state.get("error")
@@ -86,6 +110,19 @@ class ResumePlanner:
             candidate = steps[current_index]
             if isinstance(candidate, dict):
                 step = candidate
+        elif projection is not None:
+            step_id = current_step.get("step_id")
+            if isinstance(step_id, str):
+                node_id = projection.node_id_by_step_id.get(step_id)
+                projected_index = (
+                    projection.compatibility_index_by_node_id.get(node_id)
+                    if node_id is not None
+                    else None
+                )
+                if isinstance(projected_index, int) and 0 <= projected_index < len(steps):
+                    candidate = steps[projected_index]
+                    if isinstance(candidate, dict):
+                        step = candidate
         if step is None:
             for candidate in steps:
                 if isinstance(candidate, dict) and candidate.get("name") == step_name:

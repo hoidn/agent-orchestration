@@ -266,6 +266,37 @@ def test_call_rejects_unknown_import_alias(tmp_path: Path):
     )
 
 
+def test_call_executes_from_loaded_bundle_without_legacy_import_magic(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _library_workflow(),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+                "with": {
+                    "max_cycles": 3,
+                    "write_root": "state/review-loop",
+                },
+            },
+        ),
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle.legacy_workflow.pop("__imports", None)
+
+    state_manager = StateManager(tmp_path, run_id="bundle-call")
+    state_manager.initialize("workflow.yaml", context=bundle.legacy_workflow.get("context", {}))
+    final_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    assert final_state["status"] == "completed"
+    assert final_state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
+
+
 def test_import_path_rejects_source_tree_escape(tmp_path: Path):
     caller_path = _write_yaml(
         tmp_path / "workflow.yaml",

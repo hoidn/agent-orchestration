@@ -17,13 +17,11 @@ from orchestrator.providers import (
 )
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
-from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
+from orchestrator.workflow.identity import STEP_ID_PATTERN
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, attach_legacy_workflow_metadata
 from orchestrator.workflow.lowering import (
     lower_surface_workflow,
-    lower_finalization_block,
-    lower_repeat_until_bodies,
-    lower_structured_steps,
+    render_legacy_compatible_workflow,
 )
 from orchestrator.workflow.predicates import (
     SCORE_PREDICATE_BOUND_KEYS,
@@ -227,16 +225,6 @@ class WorkflowLoader:
                     workflow['__managed_write_root_inputs'] = []
                 self._validate_call_write_root_collisions(steps, workflow.get('finally'))
 
-            assign_step_ids(workflow.get('steps', []))
-            lower_repeat_until_bodies(workflow.get('steps', []))
-            if self._version_at_least(version, STRUCTURED_IF_VERSION):
-                workflow['steps'] = lower_structured_steps(workflow.get('steps', []))
-            if normalized_finally is not None:
-                workflow['finally'] = lower_finalization_block(normalized_finally)
-
-            workflow['__workflow_path'] = str(resolved_workflow_path)
-            workflow['__source_root'] = str(resolved_workflow_path.parent)
-            workflow['__imports'] = imported_workflows
             surface = elaborate_surface_workflow(
                 surface_source,
                 workflow_path=resolved_workflow_path,
@@ -244,15 +232,21 @@ class WorkflowLoader:
                 managed_write_root_inputs=tuple(managed_write_root_inputs),
             )
             ir, projection = lower_surface_workflow(surface)
+            legacy_workflow = render_legacy_compatible_workflow(
+                surface,
+                ir,
+                projection,
+                imported_workflows=imported_workflows,
+            )
             bundle = LoadedWorkflowBundle(
                 surface=surface,
                 ir=ir,
                 projection=projection,
-                legacy_workflow=workflow,
+                legacy_workflow=legacy_workflow,
                 imports=MappingProxyType(dict(imported_bundles)),
                 provenance=surface.provenance,
             )
-            attach_legacy_workflow_metadata(workflow, bundle)
+            attach_legacy_workflow_metadata(legacy_workflow, bundle)
             return bundle
         finally:
             self._load_stack.pop()

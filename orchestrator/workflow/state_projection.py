@@ -9,6 +9,10 @@ from .executable_ir import WorkflowRegion
 from .surface_ast import empty_frozen_mapping
 
 
+def _runtime_step_id(loop_node_id: str, iteration_index: int, nested_suffix: str) -> str:
+    return f"{loop_node_id}#{iteration_index}.{nested_suffix}"
+
+
 @dataclass(frozen=True)
 class CompatibilityNodeProjection:
     """Compatibility metadata for one executable node."""
@@ -29,6 +33,7 @@ class IterationStepKeyProjection:
     node_id: str
     frame_key: str
     nested_presentation_keys: Mapping[str, str] = field(default_factory=empty_frozen_mapping)
+    nested_step_id_suffixes: Mapping[str, str] = field(default_factory=empty_frozen_mapping)
 
     def step_key(self, iteration_index: int, nested_node_id: str) -> str:
         """Return the persisted/reporting step key for one loop iteration node."""
@@ -36,6 +41,13 @@ class IterationStepKeyProjection:
         if nested_key is None:
             raise KeyError(f"Unknown nested node id '{nested_node_id}' for '{self.node_id}'")
         return f"{self.frame_key}[{iteration_index}].{nested_key}"
+
+    def runtime_step_id(self, iteration_index: int, nested_node_id: str) -> str:
+        """Return the runtime-qualified step id for one loop iteration node."""
+        nested_suffix = self.nested_step_id_suffixes.get(nested_node_id)
+        if nested_suffix is None:
+            raise KeyError(f"Unknown nested node id '{nested_node_id}' for '{self.node_id}'")
+        return _runtime_step_id(self.node_id, iteration_index, nested_suffix)
 
 
 @dataclass(frozen=True)
@@ -45,6 +57,23 @@ class CallBoundaryProjection:
     node_id: str
     presentation_key: str
     step_id: str
+    iteration_owner_node_id: Optional[str] = None
+    iteration_step_id_suffix: Optional[str] = None
+
+    def runtime_step_id(self, iteration_index: Optional[int] = None) -> str:
+        """Return the runtime-qualified step id used for call-frame checkpoint storage."""
+        if self.iteration_owner_node_id is None:
+            return self.step_id
+        if not isinstance(iteration_index, int):
+            raise ValueError(
+                f"Call boundary '{self.node_id}' requires an iteration index to build a runtime step id"
+            )
+        assert self.iteration_step_id_suffix is not None
+        return _runtime_step_id(
+            self.iteration_owner_node_id,
+            iteration_index,
+            self.iteration_step_id_suffix,
+        )
 
 
 @dataclass(frozen=True)
@@ -75,3 +104,39 @@ class WorkflowStateProjection:
         if projection is None:
             raise KeyError(f"Unknown for_each node id '{for_each_node_id}'")
         return projection.step_key(iteration_index, nested_node_id)
+
+    def repeat_until_runtime_step_id(
+        self,
+        loop_node_id: str,
+        iteration_index: int,
+        nested_node_id: str,
+    ) -> str:
+        """Return the runtime-qualified step id for one repeat-until iteration node."""
+        projection = self.repeat_until_nodes.get(loop_node_id)
+        if projection is None:
+            raise KeyError(f"Unknown repeat_until node id '{loop_node_id}'")
+        return projection.runtime_step_id(iteration_index, nested_node_id)
+
+    def for_each_runtime_step_id(
+        self,
+        for_each_node_id: str,
+        iteration_index: int,
+        nested_node_id: str,
+    ) -> str:
+        """Return the runtime-qualified step id for one for-each iteration node."""
+        projection = self.for_each_nodes.get(for_each_node_id)
+        if projection is None:
+            raise KeyError(f"Unknown for_each node id '{for_each_node_id}'")
+        return projection.runtime_step_id(iteration_index, nested_node_id)
+
+    def call_boundary_runtime_step_id(
+        self,
+        node_id: str,
+        *,
+        iteration_index: Optional[int] = None,
+    ) -> str:
+        """Return the runtime-qualified step id for one call-boundary checkpoint."""
+        projection = self.call_boundaries.get(node_id)
+        if projection is None:
+            raise KeyError(f"Unknown call boundary node id '{node_id}'")
+        return projection.runtime_step_id(iteration_index)

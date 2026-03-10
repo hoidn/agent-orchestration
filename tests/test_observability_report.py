@@ -244,6 +244,102 @@ def test_snapshot_recognizes_call_steps(tmp_path: Path):
     assert snapshot["steps"][0]["output"]["call"]["call_frame_id"] == "root.run_review_loop::visit::1"
 
 
+def test_snapshot_accepts_loaded_bundle_and_uses_projection_ordering(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "bundle-run"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.7",
+                "name": "bundle-report",
+                "artifacts": {
+                    "ready": {"kind": "scalar", "type": "bool"},
+                },
+                "steps": [
+                    {
+                        "name": "SetReady",
+                        "id": "set_ready",
+                        "set_scalar": {
+                            "artifact": "ready",
+                            "value": True,
+                        },
+                    },
+                    {
+                        "name": "RouteReady",
+                        "id": "route_ready",
+                        "if": {
+                            "artifact_bool": {
+                                "ref": "root.steps.SetReady.artifacts.ready",
+                            }
+                        },
+                        "then": {
+                            "id": "approve_path",
+                            "steps": [
+                                {
+                                    "name": "WriteApproved",
+                                    "id": "write_approved",
+                                    "command": ["bash", "-lc", "printf 'approved\\n'"],
+                                }
+                            ],
+                        },
+                        "else": {
+                            "id": "revise_path",
+                            "steps": [
+                                {
+                                    "name": "WriteRevision",
+                                    "id": "write_revision",
+                                    "command": ["bash", "-lc", "printf 'revise\\n'"],
+                                }
+                            ],
+                        },
+                    },
+                ],
+                "finally": {
+                    "id": "cleanup",
+                    "steps": [
+                        {
+                            "name": "WriteCleanupMarker",
+                            "id": "write_cleanup_marker",
+                            "command": ["bash", "-lc", "printf 'cleanup\\n'"],
+                        }
+                    ],
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    snapshot = build_status_snapshot(
+        bundle,
+        {
+            "run_id": "bundle-run",
+            "status": "running",
+            "started_at": "2026-02-27T00:00:00+00:00",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "workflow_file": str(workflow_path),
+            "steps": {
+                "SetReady": {
+                    "status": "completed",
+                    "step_id": "root.set_ready",
+                    "exit_code": 0,
+                }
+            },
+        },
+        run_root,
+    )
+
+    assert [step["name"] for step in snapshot["steps"]] == [
+        bundle.projection.presentation_key_by_node_id[node_id]
+        for node_id in bundle.ir.body_region + bundle.ir.finalization_region
+    ]
+    assert snapshot["steps"][1]["kind"] == "structured_if_branch"
+    assert snapshot["steps"][-1]["kind"] == "finally"
+
+
 def test_snapshot_recognizes_repeat_until_steps(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "repeat-run"
     (run_root / "logs").mkdir(parents=True)

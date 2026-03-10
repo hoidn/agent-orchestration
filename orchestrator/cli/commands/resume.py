@@ -208,7 +208,8 @@ def resume_workflow(
     workspace_dir = Path.cwd()
     loader = WorkflowLoader(workspace_dir)
     try:
-        workflow = loader.load(workflow_path)
+        workflow_bundle = loader.load_bundle(workflow_path)
+        workflow = workflow_bundle.legacy_workflow
     except WorkflowValidationError as e:
         print(f"Error loading workflow: {e}", file=sys.stderr)
         return 2
@@ -276,7 +277,7 @@ def resume_workflow(
     # Initialize executor with existing state
     workspace_dir = Path.cwd()
     executor = WorkflowExecutor(
-        workflow=workflow,
+        workflow=workflow_bundle,
         workspace=workspace_dir,
         state_manager=state_manager,
         max_retries=max_retries,

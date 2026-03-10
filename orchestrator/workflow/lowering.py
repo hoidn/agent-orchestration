@@ -581,10 +581,15 @@ class _ProjectionBuilder:
         frame_key: str,
         nested_presentation_keys: Mapping[str, str],
     ) -> None:
+        nested_step_id_suffixes = {
+            nested_node_id: _iteration_step_id_suffix(node_id, nested_node_id)
+            for nested_node_id in nested_presentation_keys
+        }
         self.repeat_until_nodes[node_id] = IterationStepKeyProjection(
             node_id=node_id,
             frame_key=frame_key,
             nested_presentation_keys=MappingProxyType(dict(nested_presentation_keys)),
+            nested_step_id_suffixes=MappingProxyType(dict(nested_step_id_suffixes)),
         )
 
     def register_for_each(
@@ -593,17 +598,34 @@ class _ProjectionBuilder:
         frame_key: str,
         nested_presentation_keys: Mapping[str, str],
     ) -> None:
+        nested_step_id_suffixes = {
+            nested_node_id: _iteration_step_id_suffix(node_id, nested_node_id)
+            for nested_node_id in nested_presentation_keys
+        }
         self.for_each_nodes[node_id] = IterationStepKeyProjection(
             node_id=node_id,
             frame_key=frame_key,
             nested_presentation_keys=MappingProxyType(dict(nested_presentation_keys)),
+            nested_step_id_suffixes=MappingProxyType(dict(nested_step_id_suffixes)),
         )
 
-    def register_call_boundary(self, node_id: str, presentation_key: str, step_id: str) -> None:
+    def register_call_boundary(
+        self,
+        node_id: str,
+        presentation_key: str,
+        step_id: str,
+        *,
+        iteration_owner_node_id: Optional[str] = None,
+    ) -> None:
+        iteration_step_id_suffix = None
+        if iteration_owner_node_id is not None:
+            iteration_step_id_suffix = _iteration_step_id_suffix(iteration_owner_node_id, step_id)
         self.call_boundaries[node_id] = CallBoundaryProjection(
             node_id=node_id,
             presentation_key=presentation_key,
             step_id=step_id,
+            iteration_owner_node_id=iteration_owner_node_id,
+            iteration_step_id_suffix=iteration_step_id_suffix,
         )
 
     def build(self) -> WorkflowStateProjection:
@@ -678,7 +700,8 @@ class _IRBuilder:
                 top_level_region=self.finalization_region,
             )
 
-        self._patch_linear_fallthrough(self.body_region)
+        finalization_entry_node_id = self.finalization_region[0] if self.finalization_region else None
+        self._patch_linear_fallthrough(self.body_region, final_target=finalization_entry_node_id)
         self._patch_linear_fallthrough(self.finalization_region)
 
         executable = ExecutableWorkflow(
@@ -687,6 +710,7 @@ class _IRBuilder:
             provenance=self.surface.provenance,
             body_region=tuple(self.body_region),
             finalization_region=tuple(self.finalization_region),
+            finalization_entry_node_id=finalization_entry_node_id,
             nodes=MappingProxyType(dict(self.nodes)),
             artifacts=_bind_contracts(
                 self.surface.artifacts,
@@ -780,6 +804,13 @@ class _IRBuilder:
                 presentation_name=principal_name,
             )
             self._register_node(node=node, region=region, top_level_region=top_level_region)
+            if step.kind is SurfaceStepKind.CALL:
+                self.projection.register_call_boundary(
+                    node.node_id,
+                    node.presentation_name,
+                    node.step_id,
+                    iteration_owner_node_id=context.current_loop_node_id,
+                )
             ordered.append(node.node_id)
         return ordered
 
@@ -807,9 +838,6 @@ class _IRBuilder:
             compatibility_index=compatibility_index,
             finalization_index=finalization_index,
         )
-        if isinstance(node, CallBoundaryNode):
-            self.projection.register_call_boundary(node.node_id, node.presentation_name, node.step_id)
-
     def _build_leaf_node(
         self,
         step: SurfaceStep,
@@ -830,9 +858,14 @@ class _IRBuilder:
         }
         routed_transfers = _leaf_goto_transfers(step.raw, context.root_targets)
         if step.kind is SurfaceStepKind.CALL:
+            call_transfers = dict(routed_transfers)
+            call_transfers["call_return"] = ExecutableTransfer(
+                reason="call_return",
+                target_node_id=None,
+            )
             return CallBoundaryNode(
                 **common,
-                routed_transfers=routed_transfers,
+                routed_transfers=MappingProxyType(call_transfers),
                 call_alias=step.call_alias or "",
                 bound_inputs=MappingProxyType(
                     {
@@ -893,6 +926,18 @@ class _IRBuilder:
             region=region,
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
             raw=step.raw,
+            routed_transfers=MappingProxyType(
+                {
+                    "loop_continue": ExecutableTransfer(
+                        reason="loop_continue",
+                        target_node_id=body_node_ids[0] if body_node_ids else None,
+                    ),
+                    "loop_exit": ExecutableTransfer(
+                        reason="loop_exit",
+                        target_node_id=None,
+                    ),
+                }
+            ),
             body_node_ids=tuple(body_node_ids),
             body_entry_node_id=body_node_ids[0] if body_node_ids else None,
             condition=_bind_predicate(step.repeat_until.condition, body_context),
@@ -931,6 +976,18 @@ class _IRBuilder:
             region=region,
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
             raw=step.raw,
+            routed_transfers=MappingProxyType(
+                {
+                    "loop_continue": ExecutableTransfer(
+                        reason="loop_continue",
+                        target_node_id=body_node_ids[0] if body_node_ids else None,
+                    ),
+                    "loop_exit": ExecutableTransfer(
+                        reason="loop_exit",
+                        target_node_id=None,
+                    ),
+                }
+            ),
             body_node_ids=tuple(body_node_ids),
             body_entry_node_id=body_node_ids[0] if body_node_ids else None,
             bound_when_predicate=_bind_predicate(step.when_predicate, context),
@@ -1142,7 +1199,22 @@ class _IRBuilder:
             node = self.nodes[node_id]
             if next_node_id is None:
                 continue
-            self.nodes[node_id] = replace(node, fallthrough_node_id=next_node_id)
+            replacement = replace(node, fallthrough_node_id=next_node_id)
+            if isinstance(replacement, CallBoundaryNode):
+                routed = dict(replacement.routed_transfers)
+                routed["call_return"] = replace(
+                    routed["call_return"],
+                    target_node_id=next_node_id,
+                )
+                replacement = replace(replacement, routed_transfers=MappingProxyType(routed))
+            elif isinstance(replacement, (RepeatUntilFrameNode, ForEachNode)):
+                routed = dict(replacement.routed_transfers)
+                routed["loop_exit"] = replace(
+                    routed["loop_exit"],
+                    target_node_id=next_node_id,
+                )
+                replacement = replace(replacement, routed_transfers=MappingProxyType(routed))
+            self.nodes[node_id] = replacement
 
 
 def _qualified_presentation_name(prefix: Optional[str], name: str) -> str:
@@ -1163,6 +1235,15 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
         SurfaceStepKind.CALL: ExecutableNodeKind.CALL_BOUNDARY,
     }
     return mapping[kind]
+
+
+def _iteration_step_id_suffix(loop_node_id: str, nested_step_id: str) -> str:
+    prefix = f"{loop_node_id}."
+    if nested_step_id.startswith(prefix):
+        return nested_step_id[len(prefix):]
+    if "." in nested_step_id:
+        return nested_step_id.split(".", 1)[1]
+    return nested_step_id
 
 
 def _surface_binding_targets(steps: tuple[SurfaceStep, ...]) -> Mapping[str, _BindingTarget]:
@@ -1282,3 +1363,146 @@ def _bind_predicate(predicate: Any, context: _BindingContext) -> Any:
 def lower_surface_workflow(surface: SurfaceWorkflow) -> tuple[ExecutableWorkflow, WorkflowStateProjection]:
     """Lower the immutable authored surface AST into executable IR + compatibility projection."""
     return _IRBuilder(surface).build()
+
+
+def render_legacy_compatible_workflow(
+    surface: SurfaceWorkflow,
+    ir: ExecutableWorkflow,
+    projection: WorkflowStateProjection,
+    *,
+    imported_workflows: Optional[Mapping[str, Any]] = None,
+) -> Dict[str, Any]:
+    """Render the narrow legacy lowered-dict adapter from the typed workflow bundle."""
+    workflow = _thaw_mapping(surface.raw)
+    _rewrite_repeat_until_condition_refs_on_steps(workflow.get("steps", []))
+    workflow_steps = workflow.get("steps", [])
+    if isinstance(workflow_steps, list):
+        assign_step_ids(workflow_steps)
+        lower_repeat_until_bodies(workflow_steps)
+        workflow["steps"] = lower_structured_steps(workflow_steps)
+
+    if workflow.get("finally") is not None:
+        workflow["finally"] = lower_finalization_block(workflow.get("finally"))
+
+    workflow["__workflow_path"] = str(surface.provenance.workflow_path)
+    workflow["__source_root"] = str(surface.provenance.source_root)
+    workflow["__imports"] = dict(imported_workflows or {})
+    workflow["__managed_write_root_inputs"] = list(surface.provenance.managed_write_root_inputs)
+
+    _assert_legacy_adapter_matches_projection(workflow, ir, projection)
+    return workflow
+
+
+def _assert_legacy_adapter_matches_projection(
+    workflow: Mapping[str, Any],
+    ir: ExecutableWorkflow,
+    projection: WorkflowStateProjection,
+) -> None:
+    steps = workflow.get("steps", [])
+    if isinstance(steps, list):
+        expected_ids = [projection.node_id_by_compatibility_index[index] for index in range(len(ir.body_region))]
+        actual_ids = [
+            step.get("step_id")
+            for step in steps
+            if isinstance(step, Mapping) and isinstance(step.get("step_id"), str)
+        ]
+        if actual_ids != expected_ids:
+            raise LoweringError("Legacy body-step adapter drifted from the typed projection ordering")
+
+    finally_block = workflow.get("finally")
+    final_steps = finally_block.get("steps", []) if isinstance(finally_block, Mapping) else []
+    if isinstance(final_steps, list):
+        expected_final_ids = [
+            projection.finalization_node_id_by_index[index]
+            for index in range(len(ir.finalization_region))
+        ]
+        actual_final_ids = [
+            step.get("step_id")
+            for step in final_steps
+            if isinstance(step, Mapping) and isinstance(step.get("step_id"), str)
+        ]
+        if actual_final_ids != expected_final_ids:
+            raise LoweringError("Legacy finalization adapter drifted from the typed projection ordering")
+
+
+def _thaw_value(value: Any) -> Any:
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_value(item) for item in value]
+    if isinstance(value, list):
+        return [_thaw_value(item) for item in value]
+    return value
+
+
+def _thaw_mapping(value: Mapping[str, Any]) -> Dict[str, Any]:
+    return {str(key): _thaw_value(item) for key, item in value.items()}
+
+
+def _rewrite_repeat_until_condition_refs_on_steps(steps: Any) -> None:
+    if not isinstance(steps, list):
+        return
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        step_name = step.get("name")
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, dict):
+            output_specs = repeat_until.get("outputs", {})
+            if isinstance(step_name, str):
+                repeat_until["condition"] = _rewrite_repeat_until_condition_refs(
+                    repeat_until.get("condition"),
+                    step_name=step_name,
+                    output_specs=output_specs if isinstance(output_specs, dict) else {},
+                )
+            _rewrite_repeat_until_condition_refs_on_steps(repeat_until.get("steps"))
+
+        for_each = step.get("for_each")
+        if isinstance(for_each, dict):
+            _rewrite_repeat_until_condition_refs_on_steps(for_each.get("steps"))
+
+        for branch_name in ("then", "else"):
+            branch = step.get(branch_name)
+            if isinstance(branch, dict):
+                _rewrite_repeat_until_condition_refs_on_steps(branch.get("steps"))
+
+        match = step.get("match")
+        cases = match.get("cases") if isinstance(match, dict) else None
+        if isinstance(cases, dict):
+            for case in cases.values():
+                if isinstance(case, dict):
+                    _rewrite_repeat_until_condition_refs_on_steps(case.get("steps"))
+
+
+def _rewrite_repeat_until_condition_refs(
+    node: Any,
+    *,
+    step_name: str,
+    output_specs: Dict[str, Dict[str, Any]],
+) -> Any:
+    if isinstance(node, list):
+        return [
+            _rewrite_repeat_until_condition_refs(
+                item,
+                step_name=step_name,
+                output_specs=output_specs,
+            )
+            for item in node
+        ]
+    if not isinstance(node, dict):
+        return node
+    if set(node.keys()) == {"ref"}:
+        ref = node.get("ref")
+        if isinstance(ref, str) and ref.startswith("self.outputs."):
+            output_name = ref[len("self.outputs."):]
+            if output_name in output_specs:
+                return {"ref": f"root.steps.{step_name}.artifacts.{output_name}"}
+        return {"ref": ref}
+    return {
+        key: _rewrite_repeat_until_condition_refs(
+            value,
+            step_name=step_name,
+            output_specs=output_specs,
+        )
+        for key, value in node.items()
+    }

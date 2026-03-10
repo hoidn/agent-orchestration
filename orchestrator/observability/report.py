@@ -6,6 +6,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 
+from orchestrator.workflow.executable_ir import ExecutableNodeKind
+from orchestrator.workflow.loaded_bundle import workflow_bundle, workflow_legacy_dict
+
 
 _PREVIEW_LIMIT = 200
 _STALE_RUNNING_TIMEOUT_SEC = 300
@@ -15,7 +18,25 @@ def _step_name(step: Dict[str, Any], index: int) -> str:
     return str(step.get("name", f"step_{index}"))
 
 
-def _step_kind(step: Dict[str, Any]) -> str:
+def _step_kind(step: Dict[str, Any], node_kind: Optional[ExecutableNodeKind] = None) -> str:
+    if node_kind is not None:
+        kind_map = {
+            ExecutableNodeKind.IF_BRANCH_MARKER: "structured_if_branch",
+            ExecutableNodeKind.IF_JOIN: "structured_if_join",
+            ExecutableNodeKind.MATCH_CASE_MARKER: "structured_match_case",
+            ExecutableNodeKind.MATCH_JOIN: "structured_match_join",
+            ExecutableNodeKind.REPEAT_UNTIL_FRAME: "repeat_until",
+            ExecutableNodeKind.FOR_EACH: "for_each",
+            ExecutableNodeKind.CALL_BOUNDARY: "call",
+            ExecutableNodeKind.FINALIZATION_STEP: "finally",
+            ExecutableNodeKind.PROVIDER: "provider",
+            ExecutableNodeKind.COMMAND: "command",
+            ExecutableNodeKind.WAIT_FOR: "wait_for",
+            ExecutableNodeKind.ASSERT: "assert",
+            ExecutableNodeKind.SET_SCALAR: "set_scalar",
+            ExecutableNodeKind.INCREMENT_SCALAR: "increment_scalar",
+        }
+        return kind_map.get(node_kind, "unknown")
     if "workflow_finalization" in step:
         return "finally"
     if "structured_if_branch" in step:
@@ -45,6 +66,37 @@ def _step_kind(step: Dict[str, Any]) -> str:
     if "call" in step:
         return "call"
     return "unknown"
+
+
+def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Dict[str, Any], Optional[str]]], Dict[str, Any]]:
+    workflow_dict = workflow_legacy_dict(workflow) or {}
+    bundle = workflow_bundle(workflow)
+    if bundle is None:
+        steps = list(workflow_dict.get("steps", []))
+        finally_block = workflow_dict.get("finally") if isinstance(workflow_dict.get("finally"), dict) else None
+        if isinstance(finally_block, dict) and isinstance(finally_block.get("steps"), list):
+            steps.extend(finally_block.get("steps", []))
+        return [(step, step.get("step_id") if isinstance(step, dict) else None) for step in steps], workflow_dict
+
+    steps_by_step_id: Dict[str, Dict[str, Any]] = {}
+    body_steps = workflow_dict.get("steps", [])
+    if isinstance(body_steps, list):
+        for step in body_steps:
+            if isinstance(step, dict) and isinstance(step.get("step_id"), str):
+                steps_by_step_id[step["step_id"]] = step
+    finally_block = workflow_dict.get("finally") if isinstance(workflow_dict.get("finally"), dict) else None
+    final_steps = finally_block.get("steps", []) if isinstance(finally_block, dict) else []
+    if isinstance(final_steps, list):
+        for step in final_steps:
+            if isinstance(step, dict) and isinstance(step.get("step_id"), str):
+                steps_by_step_id[step["step_id"]] = step
+
+    ordered_steps: list[tuple[Dict[str, Any], Optional[str]]] = []
+    for node_id in bundle.ir.body_region + bundle.ir.finalization_region:
+        step = steps_by_step_id.get(node_id)
+        if step is not None:
+            ordered_steps.append((step, node_id))
+    return ordered_steps, workflow_dict
 
 
 def _normalize_output_preview(step_result: Dict[str, Any]) -> str:
@@ -144,26 +196,29 @@ def _derive_run_status(state: Dict[str, Any], step_entries: list[Dict[str, Any]]
 
 
 def build_status_snapshot(
-    workflow: Dict[str, Any],
+    workflow: Any,
     state: Dict[str, Any],
     run_root: Path,
     run_log_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Build a deterministic status snapshot from workflow + state artifacts."""
-    steps = list(workflow.get("steps", []))
-    finally_block = workflow.get("finally") if isinstance(workflow.get("finally"), dict) else None
-    if isinstance(finally_block, dict) and isinstance(finally_block.get("steps"), list):
-        steps.extend(finally_block.get("steps", []))
+    ordered_steps, workflow_dict = _ordered_step_entries(workflow)
+    bundle = workflow_bundle(workflow)
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
     current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
 
     step_entries = []
-    for idx, step in enumerate(steps):
-        name = _step_name(step, idx)
+    for idx, (step, node_id) in enumerate(ordered_steps):
+        name = (
+            bundle.projection.presentation_key_by_node_id.get(node_id, _step_name(step, idx))
+            if bundle is not None and isinstance(node_id, str)
+            else _step_name(step, idx)
+        )
         result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
         prompt_text = _read_prompt_audit(run_root, name)
         is_current_step = isinstance(current_step, dict) and current_step.get("name") == name
+        node_kind = bundle.ir.nodes[node_id].kind if bundle is not None and isinstance(node_id, str) else None
 
         status = _coerce_step_status(result) or "pending"
         if is_current_step:
@@ -174,7 +229,7 @@ def build_status_snapshot(
         entry = {
             "name": name,
             "step_id": result.get("step_id") if isinstance(result, dict) else step.get("step_id"),
-            "kind": _step_kind(step),
+            "kind": _step_kind(step, node_kind=node_kind),
             "status": status,
             "consumes": step.get("consumes", []),
             "expected_outputs": step.get("expected_outputs", []),
@@ -257,7 +312,7 @@ def build_status_snapshot(
         "run_root": str(run_root),
         "run_log_path": str(run_log_path) if run_log_path else None,
         "transition_count": state.get("transition_count", 0),
-        "max_transitions": workflow.get("max_transitions"),
+        "max_transitions": workflow_dict.get("max_transitions"),
     }
     if status_reason:
         run_payload["status_reason"] = status_reason

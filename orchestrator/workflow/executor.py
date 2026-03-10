@@ -36,7 +36,7 @@ from .calls import CallExecutor
 from .dataflow import DataflowManager
 from .finalization import FinalizationController
 from .identity import iteration_step_id, runtime_step_id
-from .loaded_bundle import workflow_provenance
+from .loaded_bundle import workflow_bundle, workflow_legacy_dict, workflow_provenance
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
 from .predicates import PredicateEvaluationError, resolve_typed_operand
@@ -278,7 +278,7 @@ class WorkflowExecutor:
 
     def __init__(
         self,
-        workflow: Dict[str, Any],
+        workflow: Any,
         workspace: Path,
         state_manager: StateManager,
         logs_dir: Optional[Path] = None,
@@ -300,7 +300,11 @@ class WorkflowExecutor:
             debug: Enable debug mode
             stream_output: Stream provider stdout/stderr live without enabling debug mode
         """
-        self.workflow = workflow
+        self.loaded_bundle = workflow_bundle(workflow)
+        legacy_workflow = workflow_legacy_dict(workflow)
+        if legacy_workflow is None:
+            raise TypeError(f"Unsupported workflow type for execution: {type(workflow).__name__}")
+        self.workflow = legacy_workflow
         self.workspace = workspace
         self.state_manager = state_manager
         self.debug = debug
@@ -312,8 +316,8 @@ class WorkflowExecutor:
 
         # Initialize provider registry (load from workflow providers if present)
         self.provider_registry = ProviderRegistry()
-        if 'providers' in workflow:
-            errors = self.provider_registry.register_from_workflow(workflow['providers'])
+        if 'providers' in self.workflow:
+            errors = self.provider_registry.register_from_workflow(self.workflow['providers'])
             if errors:
                 raise ValueError(f"Provider registration errors: {'; '.join(errors)}")
 
@@ -352,8 +356,8 @@ class WorkflowExecutor:
 
         # Execution state
         self.current_step = 0
-        self.body_steps = workflow.get('steps', [])
-        self.finalization = workflow.get('finally') if isinstance(workflow.get('finally'), dict) else None
+        self.body_steps = self.workflow.get('steps', [])
+        self.finalization = self.workflow.get('finally') if isinstance(self.workflow.get('finally'), dict) else None
         self.finalization_steps = (
             self.finalization.get('steps', [])
             if isinstance(self.finalization, dict) and isinstance(self.finalization.get('steps'), list)
@@ -361,8 +365,9 @@ class WorkflowExecutor:
         )
         self.finalization_start_index = len(self.body_steps)
         self.steps = list(self.body_steps) + list(self.finalization_steps)
-        self.variables = workflow.get('variables', {})
-        self.global_secrets = workflow.get('secrets', [])
+        self.variables = self.workflow.get('variables', {})
+        self.global_secrets = self.workflow.get('secrets', [])
+        self.projection = self.loaded_bundle.projection if self.loaded_bundle is not None else None
         self.resume_planner = ResumePlanner()
         self.finalization_controller = FinalizationController(
             finalization=self.finalization,
@@ -433,7 +438,11 @@ class WorkflowExecutor:
 
     def _determine_resume_restart_index(self, state: Dict[str, Any]) -> Optional[int]:
         """Determine the top-level step index where resumed execution should restart."""
-        return self.resume_planner.determine_restart_index(state, self.steps)
+        return self.resume_planner.determine_restart_index(
+            state,
+            self.steps,
+            projection=self.projection,
+        )
 
     def _resume_for_each_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
         """Return True when persisted loop bookkeeping shows unfinished iterations."""
@@ -753,7 +762,11 @@ class WorkflowExecutor:
             state.setdefault('finalization', initial_finalization)
         state['_resolved_consumes'] = {}
         if resume:
-            session_guard = self.resume_planner.detect_interrupted_provider_session_visit(state, self.steps)
+            session_guard = self.resume_planner.detect_interrupted_provider_session_visit(
+                state,
+                self.steps,
+                projection=self.projection,
+            )
             if session_guard is not None:
                 if session_guard.get("kind") == "existing_quarantine":
                     state['status'] = 'failed'

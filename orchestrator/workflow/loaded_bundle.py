@@ -14,6 +14,8 @@ from .surface_ast import ImportedWorkflowMetadata, SurfaceWorkflow, WorkflowProv
 
 LEGACY_TYPED_PROVENANCE_KEY = "__typed_provenance"
 LEGACY_TYPED_IMPORTS_KEY = "__typed_imports"
+LEGACY_TYPED_BUNDLE_KEY = "__typed_bundle"
+LEGACY_TYPED_IMPORT_BUNDLES_KEY = "__typed_import_bundles"
 
 
 @dataclass(frozen=True)
@@ -32,13 +34,36 @@ def attach_legacy_workflow_metadata(legacy_workflow: Dict[str, Any], bundle: Loa
     """Attach typed compatibility adapters onto the legacy loaded-workflow dict."""
     legacy_workflow[LEGACY_TYPED_PROVENANCE_KEY] = bundle.provenance
     legacy_workflow[LEGACY_TYPED_IMPORTS_KEY] = MappingProxyType(dict(bundle.surface.imports))
+    legacy_workflow[LEGACY_TYPED_BUNDLE_KEY] = bundle
+    legacy_workflow[LEGACY_TYPED_IMPORT_BUNDLES_KEY] = MappingProxyType(dict(bundle.imports))
     return legacy_workflow
+
+
+def workflow_bundle(workflow_or_bundle: Any) -> Optional[LoadedWorkflowBundle]:
+    """Return the loaded workflow bundle when one is available."""
+    if isinstance(workflow_or_bundle, LoadedWorkflowBundle):
+        return workflow_or_bundle
+    if isinstance(workflow_or_bundle, dict):
+        bundle = workflow_or_bundle.get(LEGACY_TYPED_BUNDLE_KEY)
+        if isinstance(bundle, LoadedWorkflowBundle):
+            return bundle
+    return None
+
+
+def workflow_legacy_dict(workflow_or_bundle: Any) -> Optional[Dict[str, Any]]:
+    """Return the legacy dict compatibility view for a workflow or bundle."""
+    if isinstance(workflow_or_bundle, LoadedWorkflowBundle):
+        return workflow_or_bundle.legacy_workflow
+    if isinstance(workflow_or_bundle, dict):
+        return workflow_or_bundle
+    return None
 
 
 def workflow_provenance(workflow_or_bundle: Any) -> Optional[WorkflowProvenance]:
     """Return typed workflow provenance for either a bundle or legacy workflow dict."""
-    if isinstance(workflow_or_bundle, LoadedWorkflowBundle):
-        return workflow_or_bundle.provenance
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        return bundle.provenance
     if isinstance(workflow_or_bundle, dict):
         provenance = workflow_or_bundle.get(LEGACY_TYPED_PROVENANCE_KEY)
         if isinstance(provenance, WorkflowProvenance):
@@ -66,8 +91,9 @@ def workflow_import_metadata(workflow_or_bundle: Any, alias: str) -> Optional[Im
     """Return typed imported-workflow metadata for one alias."""
     if not isinstance(alias, str) or not alias:
         return None
-    if isinstance(workflow_or_bundle, LoadedWorkflowBundle):
-        return workflow_or_bundle.surface.imports.get(alias)
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        return bundle.surface.imports.get(alias)
     if isinstance(workflow_or_bundle, dict):
         imports = workflow_or_bundle.get(LEGACY_TYPED_IMPORTS_KEY)
         if isinstance(imports, Mapping):
@@ -85,6 +111,22 @@ def workflow_import_metadata(workflow_or_bundle: Any, alias: str) -> Optional[Im
             managed_write_root_inputs=provenance.managed_write_root_inputs,
             workflow_name=imported.get("name") if isinstance(imported, dict) and isinstance(imported.get("name"), str) else None,
         )
+    return None
+
+
+def workflow_import_bundle(workflow_or_bundle: Any, alias: str) -> Optional[LoadedWorkflowBundle]:
+    """Return the imported loaded-workflow bundle for one alias when available."""
+    if not isinstance(alias, str) or not alias:
+        return None
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        return bundle.imports.get(alias)
+    if isinstance(workflow_or_bundle, dict):
+        imports = workflow_or_bundle.get(LEGACY_TYPED_IMPORT_BUNDLES_KEY)
+        if isinstance(imports, Mapping):
+            imported_bundle = imports.get(alias)
+            if isinstance(imported_bundle, LoadedWorkflowBundle):
+                return imported_bundle
     return None
 
 
