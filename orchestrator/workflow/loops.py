@@ -6,9 +6,11 @@ import logging
 from typing import Any, Dict, List, Mapping, Optional
 
 from ..state import ForEachState, StepResult
+from .executable_ir import ExecutableNodeKind
 from .pointers import PointerResolver
 from .runtime_context import RuntimeContext
 from .identity import iteration_step_id
+from .state_projection import IterationStepKeyProjection
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +61,286 @@ class LoopExecutor:
         while len(loop_results) <= index:
             loop_results.append({})
         loop_results[index] = iteration_state
+
+    def persist_loop_iteration_step_result(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        index: int,
+        nested_name: str,
+        iteration_state: Dict[str, Any],
+        result: Dict[str, Any],
+    ) -> None:
+        """Persist one loop-iteration step result in memory and state.json."""
+        iteration_state[nested_name] = result
+        state.setdefault("steps", {})[f"{loop_name}[{index}].{nested_name}"] = result
+        self.executor.state_manager.update_loop_step(
+            loop_name,
+            index,
+            nested_name,
+            self.executor._to_step_result(result, nested_name),
+        )
+
+    def _typed_loop_body_context(
+        self,
+        loop_step: Dict[str, Any],
+        body_steps: List[Dict[str, Any]],
+        *,
+        loop_kind: str,
+    ) -> Optional[tuple[str, tuple[str, ...], Dict[str, Dict[str, Any]], IterationStepKeyProjection]]:
+        """Return typed loop-body metadata when this loop is backed by executable IR."""
+        projection = getattr(self.executor, "projection", None)
+        loop_node = self.executor._executable_node_for_step(loop_step)
+        if projection is None or loop_node is None:
+            return None
+
+        expected_kind = (
+            ExecutableNodeKind.REPEAT_UNTIL_FRAME
+            if loop_kind == "repeat_until"
+            else ExecutableNodeKind.FOR_EACH
+        )
+        if getattr(loop_node, "kind", None) != expected_kind:
+            return None
+
+        if loop_kind == "repeat_until":
+            loop_projection = projection.repeat_until_nodes.get(loop_node.node_id)
+        else:
+            loop_projection = projection.for_each_nodes.get(loop_node.node_id)
+        if loop_projection is None:
+            return None
+
+        body_node_ids = tuple(
+            node_id
+            for node_id in getattr(loop_node, "body_node_ids", ())
+            if isinstance(node_id, str) and node_id
+        )
+        body_steps_by_node_id: Dict[str, Dict[str, Any]] = {}
+        for nested_step in body_steps:
+            node_id = nested_step.get("step_id") if isinstance(nested_step, dict) else None
+            if isinstance(node_id, str) and node_id:
+                body_steps_by_node_id[node_id] = nested_step
+
+        if any(node_id not in body_steps_by_node_id for node_id in body_node_ids):
+            return None
+
+        return loop_node.node_id, body_node_ids, body_steps_by_node_id, loop_projection
+
+    def _typed_loop_next_node_id(
+        self,
+        current_node_id: str,
+        result: Dict[str, Any],
+        body_node_ids: tuple[str, ...],
+    ) -> Optional[str]:
+        """Return the next typed loop-body node id after one nested result settles."""
+        target_node_id = None
+        implicit_transfer = self.executor._implicit_typed_transfer_for_result(
+            current_node_id,
+            skipped=bool(result.get("skipped", False)),
+        )
+        if implicit_transfer is not None:
+            target_node_id = implicit_transfer.target_node_id
+        elif self.executor.executable_ir is not None:
+            node = self.executor.executable_ir.nodes.get(current_node_id)
+            if node is not None:
+                target_node_id = node.fallthrough_node_id
+
+        if isinstance(target_node_id, str) and target_node_id in body_node_ids:
+            return target_node_id
+        return None
+
+    def _persist_typed_loop_skipped_descendants(
+        self,
+        *,
+        state: Dict[str, Any],
+        loop_name: str,
+        iteration_index: int,
+        iteration_state: Dict[str, Any],
+        current_node_id: str,
+        body_node_ids: tuple[str, ...],
+        body_steps_by_node_id: Dict[str, Dict[str, Any]],
+        loop_projection: IterationStepKeyProjection,
+    ) -> None:
+        """Persist skipped descendants for one skipped typed branch or case marker."""
+        descendant_prefix = f"{current_node_id}."
+        for node_id in body_node_ids:
+            if not node_id.startswith(descendant_prefix):
+                continue
+            nested_name = loop_projection.nested_presentation_keys.get(node_id)
+            if not isinstance(nested_name, str) or not nested_name or nested_name in iteration_state:
+                continue
+            nested_step = body_steps_by_node_id.get(node_id)
+            if not isinstance(nested_step, dict):
+                continue
+            skipped_result = self.executor._attach_outcome(
+                nested_step,
+                {
+                    "status": "skipped",
+                    "exit_code": 0,
+                    "skipped": True,
+                    "name": nested_name,
+                    "step_id": loop_projection.runtime_step_id(iteration_index, node_id),
+                },
+            )
+            self.persist_loop_iteration_step_result(
+                state,
+                loop_name,
+                iteration_index,
+                nested_name,
+                iteration_state,
+                skipped_result,
+            )
+
+    def _execute_typed_loop_body(
+        self,
+        *,
+        state: Dict[str, Any],
+        loop_step: Dict[str, Any],
+        loop_name: str,
+        iteration_index: int,
+        iteration_state: Dict[str, Any],
+        start_node_id: Optional[str],
+        body_node_ids: tuple[str, ...],
+        body_steps_by_node_id: Dict[str, Dict[str, Any]],
+        loop_projection: IterationStepKeyProjection,
+        loop_context: Dict[str, Any],
+        parent_scope_steps: Dict[str, Any],
+        parent_scope_node_results: Dict[str, Any],
+        stop_on_failure: bool,
+    ) -> Optional[tuple[str, Dict[str, Any]]]:
+        """Execute one typed loop body by IR node ids until the frame boundary or failure."""
+        current_node_id = start_node_id
+        while isinstance(current_node_id, str) and current_node_id in body_steps_by_node_id:
+            nested_step = body_steps_by_node_id[current_node_id]
+            nested_name = loop_projection.nested_presentation_keys.get(
+                current_node_id,
+                nested_step.get("name", current_node_id),
+            )
+            nested_runtime_step_id = loop_projection.runtime_step_id(iteration_index, current_node_id)
+            loop_scope = self.build_loop_scope(
+                state,
+                iteration_state,
+                parent_scope_steps,
+                loop_step=loop_step,
+                parent_scope_node_results=parent_scope_node_results,
+            )
+
+            result = None
+            guard_condition, invert = self.executor._structured_guard_condition(nested_step)
+            if guard_condition is not None:
+                result = self.evaluate_loop_body_condition(
+                    nested_step,
+                    guard_condition,
+                    state,
+                    loop_context=loop_context,
+                    scope=loop_scope,
+                    runtime_step_id=nested_runtime_step_id,
+                    invert=invert,
+                )
+            when_condition = self.executor._when_condition(nested_step)
+            if result is None and when_condition is not None:
+                result = self.evaluate_loop_body_condition(
+                    nested_step,
+                    when_condition,
+                    state,
+                    loop_context=loop_context,
+                    scope=loop_scope,
+                    runtime_step_id=nested_runtime_step_id,
+                )
+
+            if result is not None:
+                self.persist_loop_iteration_step_result(
+                    state,
+                    loop_name,
+                    iteration_index,
+                    nested_name,
+                    iteration_state,
+                    result,
+                )
+                if result.get("skipped", False):
+                    self._persist_typed_loop_skipped_descendants(
+                        state=state,
+                        loop_name=loop_name,
+                        iteration_index=iteration_index,
+                        iteration_state=iteration_state,
+                        current_node_id=current_node_id,
+                        body_node_ids=body_node_ids,
+                        body_steps_by_node_id=body_steps_by_node_id,
+                        loop_projection=loop_projection,
+                    )
+                    current_node_id = self._typed_loop_next_node_id(
+                        current_node_id,
+                        result,
+                        body_node_ids,
+                    )
+                    continue
+                if stop_on_failure:
+                    return nested_name, result
+                current_node_id = self._typed_loop_next_node_id(
+                    current_node_id,
+                    result,
+                    body_node_ids,
+                )
+                continue
+
+            nested_context = self.create_loop_context(nested_step, loop_context, iteration_state)
+            if self.executor.debug:
+                self.executor.state_manager.backup_state(
+                    f"{loop_name}[{iteration_index}].{nested_name}"
+                )
+
+            consume_error = self.executor._enforce_consumes_contract(
+                nested_step,
+                nested_name,
+                state,
+                runtime_step_id=nested_runtime_step_id,
+            )
+            if consume_error is not None:
+                consume_error.setdefault("name", nested_name)
+                consume_error.setdefault("step_id", nested_runtime_step_id)
+                result = self.executor._attach_outcome(nested_step, consume_error)
+                self.persist_loop_iteration_step_result(
+                    state,
+                    loop_name,
+                    iteration_index,
+                    nested_name,
+                    iteration_state,
+                    result,
+                )
+            else:
+                result = self.executor._execute_nested_loop_step(
+                    nested_step,
+                    nested_context,
+                    state,
+                    iteration_state,
+                    parent_scope_steps,
+                    loop_step=loop_step,
+                    parent_scope_node_results=parent_scope_node_results,
+                    runtime_step_id=nested_runtime_step_id,
+                    loop_name=loop_name,
+                    iteration_index=iteration_index,
+                )
+
+            if stop_on_failure and result.get("exit_code", 0) != 0 and not result.get("skipped", False):
+                return nested_name, result
+
+            if result.get("skipped", False):
+                self._persist_typed_loop_skipped_descendants(
+                    state=state,
+                    loop_name=loop_name,
+                    iteration_index=iteration_index,
+                    iteration_state=iteration_state,
+                    current_node_id=current_node_id,
+                    body_node_ids=body_node_ids,
+                    body_steps_by_node_id=body_steps_by_node_id,
+                    loop_projection=loop_projection,
+                )
+            current_node_id = self._typed_loop_next_node_id(
+                current_node_id,
+                result,
+                body_node_ids,
+            )
+
+        return None
 
     def persist_for_each_progress(
         self,
@@ -309,6 +591,11 @@ class LoopExecutor:
         loop_step_id = self.executor._step_id(step)
         parent_scope_steps = self.build_loop_parent_scope_steps(step, state)
         parent_scope_node_results = self.build_loop_parent_scope_node_results(step, state)
+        typed_body_context = self._typed_loop_body_context(
+            step,
+            body_steps,
+            loop_kind="repeat_until",
+        )
 
         if resume and current_iteration not in completed_iterations:
             _, _, body_complete = self.repeat_until_iteration_resume_state(
@@ -374,187 +661,209 @@ class LoopExecutor:
             }
 
             if not body_complete:
-                for nested_index in range(start_nested_index, len(body_steps)):
-                    nested_step = body_steps[nested_index]
-                    nested_name = nested_step.get("name", f"nested_{nested_index}")
-                    nested_runtime_step_id = iteration_step_id(
-                        loop_step_id,
-                        current_iteration,
-                        nested_step,
-                        nested_index,
-                    )
-
-                    loop_scope = self.build_loop_scope(
-                        state,
-                        iteration_state,
-                        parent_scope_steps,
+                failure_name = None
+                failure_result = None
+                if typed_body_context is not None:
+                    _loop_node_id, body_node_ids, body_steps_by_node_id, loop_projection = typed_body_context
+                    start_node_id = None
+                    if start_nested_index < len(body_steps):
+                        candidate_node_id = body_steps[start_nested_index].get("step_id")
+                        if isinstance(candidate_node_id, str):
+                            start_node_id = candidate_node_id
+                    typed_failure = self._execute_typed_loop_body(
+                        state=state,
                         loop_step=step,
+                        loop_name=step_name,
+                        iteration_index=current_iteration,
+                        iteration_state=iteration_state,
+                        start_node_id=start_node_id,
+                        body_node_ids=body_node_ids,
+                        body_steps_by_node_id=body_steps_by_node_id,
+                        loop_projection=loop_projection,
+                        loop_context=loop_context,
+                        parent_scope_steps=parent_scope_steps,
                         parent_scope_node_results=parent_scope_node_results,
+                        stop_on_failure=True,
                     )
-                    result = None
-                    guard_condition, invert = self.executor._structured_guard_condition(nested_step)
-                    if guard_condition is not None:
-                        result = self.evaluate_loop_body_condition(
-                            nested_step,
-                            guard_condition,
-                            state,
-                            loop_context=loop_context,
-                            scope=loop_scope,
-                            runtime_step_id=nested_runtime_step_id,
-                            invert=invert,
-                        )
-                    when_condition = self.executor._when_condition(nested_step)
-                    if result is None and when_condition is not None:
-                        result = self.evaluate_loop_body_condition(
-                            nested_step,
-                            when_condition,
-                            state,
-                            loop_context=loop_context,
-                            scope=loop_scope,
-                            runtime_step_id=nested_runtime_step_id,
-                        )
-                    if result is not None:
-                        iteration_state[nested_name] = result
-                        self.executor.state_manager.update_loop_step(
-                            step_name,
+                    if typed_failure is not None:
+                        failure_name, failure_result = typed_failure
+                else:
+                    for nested_index in range(start_nested_index, len(body_steps)):
+                        nested_step = body_steps[nested_index]
+                        nested_name = nested_step.get("name", f"nested_{nested_index}")
+                        nested_runtime_step_id = iteration_step_id(
+                            loop_step_id,
                             current_iteration,
-                            nested_name,
-                            StepResult(
-                                status=result.get("status", "completed" if result.get("exit_code", 0) == 0 else "failed"),
-                                name=result.get("name", nested_name),
-                                step_id=result.get("step_id"),
-                                exit_code=result.get("exit_code", 0),
-                                duration_ms=result.get("duration_ms", 0),
-                                error=result.get("error"),
-                                truncated=result.get("truncated", False),
-                                artifacts=result.get("artifacts"),
-                                skipped=result.get("skipped", False),
-                                outcome=result.get("outcome"),
-                            ),
-                        )
-                        if result.get("skipped", False):
-                            continue
-                        failure_progress = {
-                            "current_iteration": current_iteration,
-                            "completed_iterations": completed_iterations,
-                            "condition_evaluated_for_iteration": condition_evaluated_for_iteration,
-                            "last_condition_result": last_condition_result,
-                        }
-                        failure = self.executor._attach_outcome(
-                            step,
-                            self.build_repeat_until_frame_result(
-                                step,
-                                status="failed",
-                                exit_code=2,
-                                artifacts=frame_artifacts,
-                                progress=failure_progress,
-                                error={
-                                    "type": "repeat_until_body_step_failed",
-                                    "message": "repeat_until body step failed",
-                                    "context": {
-                                        "iteration": current_iteration,
-                                        "step": nested_name,
-                                        "error": result.get("error"),
-                                    },
-                                },
-                            ),
-                            phase_hint="pre_execution",
-                            class_hint="pre_execution_failed",
-                            retryable_hint=False,
-                        )
-                        self.persist_repeat_until_progress(state, step_name, failure_progress, failure)
-                        return state
-
-                    nested_context = self.create_loop_context(nested_step, loop_context, iteration_state)
-
-                    if self.executor.debug:
-                        backup_name = f"{step_name}[{current_iteration}].{nested_name}"
-                        self.executor.state_manager.backup_state(backup_name)
-
-                    consume_error = self.executor._enforce_consumes_contract(
-                        nested_step,
-                        nested_name,
-                        state,
-                        runtime_step_id=nested_runtime_step_id,
-                    )
-                    if consume_error is not None:
-                        result = consume_error
-                    else:
-                        result = self.executor._execute_nested_loop_step(
                             nested_step,
-                            nested_context,
+                            nested_index,
+                        )
+
+                        loop_scope = self.build_loop_scope(
                             state,
                             iteration_state,
                             parent_scope_steps,
                             loop_step=step,
                             parent_scope_node_results=parent_scope_node_results,
-                            runtime_step_id=nested_runtime_step_id,
-                            loop_name=step_name,
-                            iteration_index=current_iteration,
                         )
+                        result = None
+                        guard_condition, invert = self.executor._structured_guard_condition(nested_step)
+                        if guard_condition is not None:
+                            result = self.evaluate_loop_body_condition(
+                                nested_step,
+                                guard_condition,
+                                state,
+                                loop_context=loop_context,
+                                scope=loop_scope,
+                                runtime_step_id=nested_runtime_step_id,
+                                invert=invert,
+                            )
+                        when_condition = self.executor._when_condition(nested_step)
+                        if result is None and when_condition is not None:
+                            result = self.evaluate_loop_body_condition(
+                                nested_step,
+                                when_condition,
+                                state,
+                                loop_context=loop_context,
+                                scope=loop_scope,
+                                runtime_step_id=nested_runtime_step_id,
+                            )
+                        if result is not None:
+                            iteration_state[nested_name] = result
+                            self.executor.state_manager.update_loop_step(
+                                step_name,
+                                current_iteration,
+                                nested_name,
+                                StepResult(
+                                    status=result.get("status", "completed" if result.get("exit_code", 0) == 0 else "failed"),
+                                    name=result.get("name", nested_name),
+                                    step_id=result.get("step_id"),
+                                    exit_code=result.get("exit_code", 0),
+                                    duration_ms=result.get("duration_ms", 0),
+                                    error=result.get("error"),
+                                    truncated=result.get("truncated", False),
+                                    artifacts=result.get("artifacts"),
+                                    skipped=result.get("skipped", False),
+                                    outcome=result.get("outcome"),
+                                ),
+                            )
+                            if result.get("skipped", False):
+                                continue
+                            failure_name, failure_result = nested_name, result
+                            break
 
-                    if consume_error is not None:
-                        result.setdefault("name", nested_name)
-                        result.setdefault("step_id", nested_runtime_step_id)
-                        result = self.executor._attach_outcome(nested_step, result)
-                        iteration_state[nested_name] = result
-                        self.executor.state_manager.update_loop_step(
-                            step_name,
-                            current_iteration,
+                        nested_context = self.create_loop_context(nested_step, loop_context, iteration_state)
+
+                        if self.executor.debug:
+                            backup_name = f"{step_name}[{current_iteration}].{nested_name}"
+                            self.executor.state_manager.backup_state(backup_name)
+
+                        consume_error = self.executor._enforce_consumes_contract(
+                            nested_step,
                             nested_name,
-                            StepResult(
-                                status=result.get("status", "completed" if result.get("exit_code", 0) == 0 else "failed"),
-                                name=result.get("name", nested_name),
-                                step_id=result.get("step_id"),
-                                exit_code=result.get("exit_code", 0),
-                                duration_ms=result.get("duration_ms", 0),
-                                output=result.get("output"),
-                                lines=result.get("lines"),
-                                json=result.get("json"),
-                                error=result.get("error"),
-                                truncated=result.get("truncated", False),
-                                artifacts=result.get("artifacts"),
-                                skipped=result.get("skipped", False),
-                                files=result.get("files"),
-                                wait_duration_ms=result.get("wait_duration_ms"),
-                                poll_count=result.get("poll_count"),
-                                timed_out=result.get("timed_out"),
-                                outcome=result.get("outcome"),
-                            ),
+                            state,
+                            runtime_step_id=nested_runtime_step_id,
                         )
+                        if consume_error is not None:
+                            result = consume_error
+                        else:
+                            result = self.executor._execute_nested_loop_step(
+                                nested_step,
+                                nested_context,
+                                state,
+                                iteration_state,
+                                parent_scope_steps,
+                                loop_step=step,
+                                parent_scope_node_results=parent_scope_node_results,
+                                runtime_step_id=nested_runtime_step_id,
+                                loop_name=step_name,
+                                iteration_index=current_iteration,
+                            )
 
-                    if result.get("exit_code", 0) != 0 and not result.get("skipped", False):
-                        nested_outcome = result.get("outcome") if isinstance(result.get("outcome"), dict) else {}
-                        failure_progress = {
-                            "current_iteration": current_iteration,
-                            "completed_iterations": completed_iterations,
-                            "condition_evaluated_for_iteration": condition_evaluated_for_iteration,
-                            "last_condition_result": last_condition_result,
-                        }
-                        failure = self.executor._attach_outcome(
+                        if consume_error is not None:
+                            result.setdefault("name", nested_name)
+                            result.setdefault("step_id", nested_runtime_step_id)
+                            result = self.executor._attach_outcome(nested_step, result)
+                            iteration_state[nested_name] = result
+                            self.executor.state_manager.update_loop_step(
+                                step_name,
+                                current_iteration,
+                                nested_name,
+                                StepResult(
+                                    status=result.get("status", "completed" if result.get("exit_code", 0) == 0 else "failed"),
+                                    name=result.get("name", nested_name),
+                                    step_id=result.get("step_id"),
+                                    exit_code=result.get("exit_code", 0),
+                                    duration_ms=result.get("duration_ms", 0),
+                                    output=result.get("output"),
+                                    lines=result.get("lines"),
+                                    json=result.get("json"),
+                                    error=result.get("error"),
+                                    truncated=result.get("truncated", False),
+                                    artifacts=result.get("artifacts"),
+                                    skipped=result.get("skipped", False),
+                                    files=result.get("files"),
+                                    wait_duration_ms=result.get("wait_duration_ms"),
+                                    poll_count=result.get("poll_count"),
+                                    timed_out=result.get("timed_out"),
+                                    outcome=result.get("outcome"),
+                                ),
+                            )
+
+                        if result.get("exit_code", 0) != 0 and not result.get("skipped", False):
+                            failure_name, failure_result = nested_name, result
+                            break
+
+                if failure_result is not None:
+                    failure_progress = {
+                        "current_iteration": current_iteration,
+                        "completed_iterations": completed_iterations,
+                        "condition_evaluated_for_iteration": condition_evaluated_for_iteration,
+                        "last_condition_result": last_condition_result,
+                    }
+                    nested_outcome = (
+                        failure_result.get("outcome")
+                        if isinstance(failure_result.get("outcome"), dict)
+                        else {}
+                    )
+                    phase_hint = (
+                        nested_outcome.get("phase")
+                        if nested_outcome
+                        else "pre_execution"
+                    )
+                    class_hint = (
+                        nested_outcome.get("class")
+                        if nested_outcome
+                        else "pre_execution_failed"
+                    )
+                    retryable_hint = (
+                        nested_outcome.get("retryable")
+                        if nested_outcome
+                        else False
+                    )
+                    failure = self.executor._attach_outcome(
+                        step,
+                        self.build_repeat_until_frame_result(
                             step,
-                            self.build_repeat_until_frame_result(
-                                step,
-                                status="failed",
-                                exit_code=result.get("exit_code", 1),
-                                artifacts=frame_artifacts,
-                                progress=failure_progress,
-                                error={
-                                    "type": "repeat_until_body_step_failed",
-                                    "message": "repeat_until body step failed",
-                                    "context": {
-                                        "iteration": current_iteration,
-                                        "step": nested_name,
-                                        "error": result.get("error"),
-                                    },
+                            status="failed",
+                            exit_code=failure_result.get("exit_code", 1),
+                            artifacts=frame_artifacts,
+                            progress=failure_progress,
+                            error={
+                                "type": "repeat_until_body_step_failed",
+                                "message": "repeat_until body step failed",
+                                "context": {
+                                    "iteration": current_iteration,
+                                    "step": failure_name,
+                                    "error": failure_result.get("error"),
                                 },
-                            ),
-                            phase_hint=nested_outcome.get("phase"),
-                            class_hint=nested_outcome.get("class"),
-                            retryable_hint=nested_outcome.get("retryable"),
-                        )
-                        self.persist_repeat_until_progress(state, step_name, failure_progress, failure)
-                        return state
+                            },
+                        ),
+                        phase_hint=phase_hint,
+                        class_hint=class_hint,
+                        retryable_hint=retryable_hint,
+                    )
+                    self.persist_repeat_until_progress(state, step_name, failure_progress, failure)
+                    return state
 
             artifacts = self.executor._resolve_structured_output_artifacts(
                 outputs,
@@ -814,6 +1123,11 @@ class LoopExecutor:
         loop_step_id = self.executor._step_id(step)
         parent_scope_steps = self.build_loop_parent_scope_steps(step, state)
         parent_scope_node_results = self.build_loop_parent_scope_node_results(step, state)
+        typed_body_context = self._typed_loop_body_context(
+            step,
+            loop_steps,
+            loop_kind="for_each",
+        )
         for index in range(start_index, len(items)):
             item = items[index]
             self.persist_for_each_progress(
@@ -834,161 +1148,195 @@ class LoopExecutor:
                 },
             }
 
-            iteration_state: Dict[str, Any] = {}
-            for nested_index, nested_step in enumerate(loop_steps):
-                nested_name = nested_step.get("name", f"nested_{index}")
-                nested_runtime_step_id = iteration_step_id(loop_step_id, index, nested_step, nested_index)
-
-                loop_scope = self.build_loop_scope(
+            if resume and index == start_index:
+                iteration_state, start_nested_index, _ = self.repeat_until_iteration_resume_state(
                     state,
-                    iteration_state,
-                    parent_scope_steps,
+                    step_name,
+                    index,
+                    loop_steps,
+                )
+            else:
+                iteration_state = {}
+                start_nested_index = 0
+
+            if typed_body_context is not None:
+                _loop_node_id, body_node_ids, body_steps_by_node_id, loop_projection = typed_body_context
+                start_node_id = None
+                if start_nested_index < len(loop_steps):
+                    candidate_node_id = loop_steps[start_nested_index].get("step_id")
+                    if isinstance(candidate_node_id, str):
+                        start_node_id = candidate_node_id
+                self._execute_typed_loop_body(
+                    state=state,
                     loop_step=step,
+                    loop_name=step_name,
+                    iteration_index=index,
+                    iteration_state=iteration_state,
+                    start_node_id=start_node_id,
+                    body_node_ids=body_node_ids,
+                    body_steps_by_node_id=body_steps_by_node_id,
+                    loop_projection=loop_projection,
+                    loop_context=loop_context,
+                    parent_scope_steps=parent_scope_steps,
                     parent_scope_node_results=parent_scope_node_results,
+                    stop_on_failure=False,
                 )
-                guard_condition, invert = self.executor._structured_guard_condition(nested_step)
-                when_condition = self.executor._when_condition(nested_step)
-                if guard_condition is not None or when_condition is not None:
-                    nested_runtime_context = self.executor._runtime_context(
-                        loop_context,
-                        state,
-                        parent_steps=parent_scope_steps,
-                    )
-                    variables = nested_runtime_context.build_variables(self.executor.variable_substitutor, state)
+            else:
+                for nested_index in range(start_nested_index, len(loop_steps)):
+                    nested_step = loop_steps[nested_index]
+                    nested_name = nested_step.get("name", f"nested_{index}")
+                    nested_runtime_step_id = iteration_step_id(loop_step_id, index, nested_step, nested_index)
 
-                    try:
-                        condition = guard_condition if guard_condition is not None else when_condition
-                        should_execute = self.executor._evaluate_condition_expression(
-                            condition,
-                            variables,
-                            state,
-                            scope=loop_scope,
-                        )
-                        if guard_condition is not None and invert:
-                            should_execute = not should_execute
-                    except Exception as exc:
-                        result = {
-                            "status": "failed",
-                            "exit_code": 2,
-                            "error": {
-                                "type": "predicate_evaluation_failed",
-                                "message": f"Condition evaluation failed: {exc}",
-                                "context": {
-                                    "condition": self.executor._json_safe_runtime_value(
-                                        condition
-                                    ),
-                                },
-                            },
-                        }
-                        result.setdefault("name", nested_name)
-                        result.setdefault("step_id", nested_runtime_step_id)
-                        result = self.executor._attach_outcome(nested_step, result)
-                        iteration_state[nested_name] = result
-                        self.executor.state_manager.update_loop_step(
-                            step_name,
-                            index,
-                            nested_name,
-                            StepResult(
-                                status=result.get("status", "failed"),
-                                name=result.get("name", nested_name),
-                                step_id=result.get("step_id"),
-                                exit_code=result.get("exit_code", 2),
-                                duration_ms=result.get("duration_ms", 0),
-                                error=result.get("error"),
-                                truncated=result.get("truncated", False),
-                                artifacts=result.get("artifacts"),
-                                skipped=result.get("skipped", False),
-                                outcome=result.get("outcome"),
-                            ),
-                        )
-                        continue
-
-                    if not should_execute:
-                        result = {
-                            "status": "skipped",
-                            "exit_code": 0,
-                            "skipped": True,
-                        }
-                        result.setdefault("name", nested_name)
-                        result.setdefault("step_id", nested_runtime_step_id)
-                        result = self.executor._attach_outcome(nested_step, result)
-                        iteration_state[nested_name] = result
-                        self.executor.state_manager.update_loop_step(
-                            step_name,
-                            index,
-                            nested_name,
-                            StepResult(
-                                status=result.get("status", "skipped"),
-                                name=result.get("name", nested_name),
-                                step_id=result.get("step_id"),
-                                exit_code=result.get("exit_code", 0),
-                                duration_ms=result.get("duration_ms", 0),
-                                truncated=result.get("truncated", False),
-                                artifacts=result.get("artifacts"),
-                                skipped=result.get("skipped", True),
-                                outcome=result.get("outcome"),
-                            ),
-                        )
-                        continue
-
-                nested_context = self.create_loop_context(nested_step, loop_context, iteration_state)
-
-                if self.executor.debug:
-                    backup_name = f"{step_name}[{index}].{nested_name}"
-                    self.executor.state_manager.backup_state(backup_name)
-
-                consume_error = self.executor._enforce_consumes_contract(
-                    nested_step,
-                    nested_name,
-                    state,
-                    runtime_step_id=nested_runtime_step_id,
-                )
-                if consume_error is not None:
-                    result = consume_error
-                else:
-                    result = self.executor._execute_nested_loop_step(
-                        nested_step,
-                        nested_context,
+                    loop_scope = self.build_loop_scope(
                         state,
                         iteration_state,
                         parent_scope_steps,
                         loop_step=step,
                         parent_scope_node_results=parent_scope_node_results,
-                        runtime_step_id=nested_runtime_step_id,
-                        loop_name=step_name,
-                        iteration_index=index,
                     )
+                    guard_condition, invert = self.executor._structured_guard_condition(nested_step)
+                    when_condition = self.executor._when_condition(nested_step)
+                    if guard_condition is not None or when_condition is not None:
+                        nested_runtime_context = self.executor._runtime_context(
+                            loop_context,
+                            state,
+                            parent_steps=parent_scope_steps,
+                        )
+                        variables = nested_runtime_context.build_variables(self.executor.variable_substitutor, state)
 
-                if consume_error is not None:
-                    result.setdefault("name", nested_name)
-                    result.setdefault("step_id", nested_runtime_step_id)
-                    result = self.executor._attach_outcome(nested_step, result)
-                    iteration_state[nested_name] = result
+                        try:
+                            condition = guard_condition if guard_condition is not None else when_condition
+                            should_execute = self.executor._evaluate_condition_expression(
+                                condition,
+                                variables,
+                                state,
+                                scope=loop_scope,
+                            )
+                            if guard_condition is not None and invert:
+                                should_execute = not should_execute
+                        except Exception as exc:
+                            result = {
+                                "status": "failed",
+                                "exit_code": 2,
+                                "error": {
+                                    "type": "predicate_evaluation_failed",
+                                    "message": f"Condition evaluation failed: {exc}",
+                                    "context": {
+                                        "condition": self.executor._json_safe_runtime_value(
+                                            condition
+                                        ),
+                                    },
+                                },
+                            }
+                            result.setdefault("name", nested_name)
+                            result.setdefault("step_id", nested_runtime_step_id)
+                            result = self.executor._attach_outcome(nested_step, result)
+                            iteration_state[nested_name] = result
+                            self.executor.state_manager.update_loop_step(
+                                step_name,
+                                index,
+                                nested_name,
+                                StepResult(
+                                    status=result.get("status", "failed"),
+                                    name=result.get("name", nested_name),
+                                    step_id=result.get("step_id"),
+                                    exit_code=result.get("exit_code", 2),
+                                    duration_ms=result.get("duration_ms", 0),
+                                    error=result.get("error"),
+                                    truncated=result.get("truncated", False),
+                                    artifacts=result.get("artifacts"),
+                                    skipped=result.get("skipped", False),
+                                    outcome=result.get("outcome"),
+                                ),
+                            )
+                            continue
 
-                    self.executor.state_manager.update_loop_step(
-                        step_name,
-                        index,
+                        if not should_execute:
+                            result = {
+                                "status": "skipped",
+                                "exit_code": 0,
+                                "skipped": True,
+                            }
+                            result.setdefault("name", nested_name)
+                            result.setdefault("step_id", nested_runtime_step_id)
+                            result = self.executor._attach_outcome(nested_step, result)
+                            iteration_state[nested_name] = result
+                            self.executor.state_manager.update_loop_step(
+                                step_name,
+                                index,
+                                nested_name,
+                                StepResult(
+                                    status=result.get("status", "skipped"),
+                                    name=result.get("name", nested_name),
+                                    step_id=result.get("step_id"),
+                                    exit_code=result.get("exit_code", 0),
+                                    duration_ms=result.get("duration_ms", 0),
+                                    truncated=result.get("truncated", False),
+                                    artifacts=result.get("artifacts"),
+                                    skipped=result.get("skipped", True),
+                                    outcome=result.get("outcome"),
+                                ),
+                            )
+                            continue
+
+                    nested_context = self.create_loop_context(nested_step, loop_context, iteration_state)
+
+                    if self.executor.debug:
+                        backup_name = f"{step_name}[{index}].{nested_name}"
+                        self.executor.state_manager.backup_state(backup_name)
+
+                    consume_error = self.executor._enforce_consumes_contract(
+                        nested_step,
                         nested_name,
-                        StepResult(
-                            status=result.get("status", "completed" if result.get("exit_code", 0) == 0 else "failed"),
-                            name=result.get("name", nested_name),
-                            step_id=result.get("step_id"),
-                            exit_code=result.get("exit_code", 0),
-                            duration_ms=result.get("duration_ms", 0),
-                            output=result.get("output"),
-                            lines=result.get("lines"),
-                            json=result.get("json"),
-                            error=result.get("error"),
-                            truncated=result.get("truncated", False),
-                            artifacts=result.get("artifacts"),
-                            skipped=result.get("skipped", False),
-                            files=result.get("files"),
-                            wait_duration_ms=result.get("wait_duration_ms"),
-                            poll_count=result.get("poll_count"),
-                            timed_out=result.get("timed_out"),
-                            outcome=result.get("outcome"),
-                        ),
+                        state,
+                        runtime_step_id=nested_runtime_step_id,
                     )
+                    if consume_error is not None:
+                        result = consume_error
+                    else:
+                        result = self.executor._execute_nested_loop_step(
+                            nested_step,
+                            nested_context,
+                            state,
+                            iteration_state,
+                            parent_scope_steps,
+                            loop_step=step,
+                            parent_scope_node_results=parent_scope_node_results,
+                            runtime_step_id=nested_runtime_step_id,
+                            loop_name=step_name,
+                            iteration_index=index,
+                        )
+
+                    if consume_error is not None:
+                        result.setdefault("name", nested_name)
+                        result.setdefault("step_id", nested_runtime_step_id)
+                        result = self.executor._attach_outcome(nested_step, result)
+                        iteration_state[nested_name] = result
+
+                        self.executor.state_manager.update_loop_step(
+                            step_name,
+                            index,
+                            nested_name,
+                            StepResult(
+                                status=result.get("status", "completed" if result.get("exit_code", 0) == 0 else "failed"),
+                                name=result.get("name", nested_name),
+                                step_id=result.get("step_id"),
+                                exit_code=result.get("exit_code", 0),
+                                duration_ms=result.get("duration_ms", 0),
+                                output=result.get("output"),
+                                lines=result.get("lines"),
+                                json=result.get("json"),
+                                error=result.get("error"),
+                                truncated=result.get("truncated", False),
+                                artifacts=result.get("artifacts"),
+                                skipped=result.get("skipped", False),
+                                files=result.get("files"),
+                                wait_duration_ms=result.get("wait_duration_ms"),
+                                poll_count=result.get("poll_count"),
+                                timed_out=result.get("timed_out"),
+                                outcome=result.get("outcome"),
+                            ),
+                        )
 
             self.store_loop_iteration_result(loop_results, index, iteration_state)
             completed_indices.append(index)

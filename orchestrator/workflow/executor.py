@@ -717,16 +717,28 @@ class WorkflowExecutor:
         state: Dict[str, Any],
     ) -> Optional[ExecutableTransfer]:
         """Return the implicit typed transfer selected by the current node result."""
+        return self._implicit_typed_transfer_for_result(
+            current_node_id,
+            skipped=self._step_result_was_skipped(current_node_id, state),
+        )
+
+    def _implicit_typed_transfer_for_result(
+        self,
+        current_node_id: str,
+        *,
+        skipped: bool,
+    ) -> Optional[ExecutableTransfer]:
+        """Return the implicit typed transfer for one node/result pair."""
         if self.executable_ir is None:
             return None
         node = self.executable_ir.nodes.get(current_node_id)
         if node is None:
             return None
         if isinstance(node, IfBranchMarkerNode):
-            reason = "branch_skipped" if self._step_result_was_skipped(current_node_id, state) else "branch_taken"
+            reason = "branch_skipped" if skipped else "branch_taken"
             return node.routed_transfers.get(reason)
         if isinstance(node, MatchCaseMarkerNode):
-            reason = "case_skipped" if self._step_result_was_skipped(current_node_id, state) else "case_selected"
+            reason = "case_skipped" if skipped else "case_selected"
             return node.routed_transfers.get(reason)
         transfer = node.routed_transfers.get("call_return")
         if transfer is not None and transfer.target_node_id == node.fallthrough_node_id:
@@ -3152,6 +3164,8 @@ class WorkflowExecutor:
         result.setdefault("step_id", runtime_step_id)
         result = self._attach_outcome(step, result)
         iteration_state[nested_name] = result
+        if isinstance(loop_name, str):
+            state.setdefault("steps", {})[f"{resolved_loop_name}[{resolved_iteration_index}].{nested_name}"] = result
         self.state_manager.update_loop_step(
             resolved_loop_name,
             resolved_iteration_index,
