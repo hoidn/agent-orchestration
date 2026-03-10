@@ -426,7 +426,7 @@ class WorkflowExecutor:
         )
         workflow_variables = _thaw_workflow_value(self.loaded_bundle.surface.raw.get("variables", {}))
         self.workflow_variables = workflow_variables if isinstance(workflow_variables, dict) else {}
-        global_secrets = _thaw_workflow_value(self.loaded_bundle.surface.raw.get("secrets", ()))
+        global_secrets = _thaw_workflow_value(self.loaded_bundle.surface.secrets)
         self.global_secrets = (
             list(global_secrets)
             if isinstance(global_secrets, list)
@@ -434,16 +434,16 @@ class WorkflowExecutor:
             if isinstance(global_secrets, tuple)
             else []
         )
-        workflow_providers = _thaw_workflow_value(self.loaded_bundle.surface.raw.get("providers", {}))
+        workflow_providers = _thaw_workflow_value(self.loaded_bundle.surface.providers)
         self.workflow_providers = workflow_providers if isinstance(workflow_providers, dict) else {}
         self.workflow_artifacts = {
             name: _thaw_workflow_value(contract.raw)
             for name, contract in self.loaded_bundle.surface.artifacts.items()
             if isinstance(name, str)
         }
-        max_transitions = self.loaded_bundle.surface.raw.get("max_transitions")
+        max_transitions = self.loaded_bundle.surface.max_transitions
         self.max_transitions = max_transitions if isinstance(max_transitions, int) else None
-        strict_flow = self.loaded_bundle.surface.raw.get("strict_flow")
+        strict_flow = self.loaded_bundle.surface.strict_flow
         self.strict_flow = strict_flow if isinstance(strict_flow, bool) else True
         self.workspace = workspace
         self.state_manager = state_manager
@@ -1389,19 +1389,11 @@ class WorkflowExecutor:
 
     def _determine_resume_restart_index(self, state: Dict[str, Any]) -> Optional[int]:
         """Determine the top-level step index where resumed execution should restart."""
-        return self.resume_planner.determine_restart_index(
-            state,
-            None if self._use_ir_topology else self.steps,
-            projection=self.projection,
-        )
+        return self.resume_planner.determine_restart_index(state, projection=self.projection)
 
     def _determine_resume_restart_node_id(self, state: Dict[str, Any]) -> Optional[str]:
         """Determine the top-level executable node id where resumed execution should restart."""
-        return self.resume_planner.determine_restart_node_id(
-            state,
-            None if self._use_ir_topology else self.steps,
-            projection=self.projection,
-        )
+        return self.resume_planner.determine_restart_node_id(state, projection=self.projection)
 
     def _fail_resume_state_integrity(
         self,
@@ -1758,7 +1750,6 @@ class WorkflowExecutor:
         if resume:
             session_guard = self.resume_planner.detect_interrupted_provider_session_visit(
                 state,
-                None if self._use_ir_topology else self.steps,
                 projection=self.projection,
             )
             if session_guard is not None:

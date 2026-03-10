@@ -6,13 +6,20 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import MappingProxyType
 
+import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.observability.report import build_status_snapshot, render_status_markdown
 
 
-def _sample_workflow():
+def _write_yaml(path: Path, payload: dict) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
+    return path
+
+
+def _sample_workflow_payload():
     return {
         "version": "1.3",
         "name": "obs-test",
@@ -26,11 +33,16 @@ def _sample_workflow():
                 "name": "DraftPlan",
                 "provider": "codex",
                 "expected_outputs": [
-                    {"name": "plan_path", "path": "state/plan_path.txt", "type": "path"}
+                    {"name": "plan_path", "path": "state/plan_path.txt", "type": "relpath"}
                 ],
             },
         ],
     }
+
+
+def _load_bundle(tmp_path: Path, payload: dict, *, filename: str = "workflow.yaml"):
+    workflow_path = _write_yaml(tmp_path / filename, payload)
+    return WorkflowLoader(tmp_path).load_bundle(workflow_path)
 
 
 def test_snapshot_counts_and_infers_running_from_prompt_audit(tmp_path: Path):
@@ -55,7 +67,7 @@ def test_snapshot_counts_and_infers_running_from_prompt_audit(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
 
     assert snapshot["progress"]["total"] == 2
     assert snapshot["progress"]["completed"] == 1
@@ -88,7 +100,7 @@ def test_snapshot_contains_command_input_and_output_summary(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
     prep = snapshot["steps"][0]
 
     assert prep["input"]["command"] == ["bash", "-lc", "echo prep"]
@@ -124,7 +136,7 @@ def test_snapshot_surfaces_normalized_outcome_fields(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
     prep = snapshot["steps"][0]
 
     assert prep["output"]["outcome"] == {
@@ -171,7 +183,7 @@ def test_snapshot_marks_completed_for_each_summary_as_completed(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(workflow, state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
 
     assert snapshot["steps"][0]["status"] == "completed"
     assert snapshot["progress"]["running"] == 0
@@ -193,7 +205,7 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
         "steps": {},
     }
 
-    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
     md = render_status_markdown(snapshot)
 
     assert "# Workflow Status" in md
@@ -206,10 +218,26 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
 def test_snapshot_recognizes_call_steps(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "call-run"
     (run_root / "logs").mkdir(parents=True)
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_loop.yaml",
+        {
+            "version": "2.5",
+            "name": "review-loop",
+            "steps": [
+                {
+                    "name": "Finish",
+                    "command": ["bash", "-lc", "true"],
+                }
+            ],
+        },
+    )
 
     workflow = {
         "version": "2.5",
         "name": "obs-call",
+        "imports": {
+            "review_loop": "workflows/library/review_loop.yaml",
+        },
         "steps": [
             {
                 "name": "RunReviewLoop",
@@ -241,7 +269,7 @@ def test_snapshot_recognizes_call_steps(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(workflow, state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
 
     assert snapshot["steps"][0]["kind"] == "call"
     assert snapshot["steps"][0]["output"]["call"]["call_frame_id"] == "root.run_review_loop::visit::1"
@@ -665,6 +693,13 @@ def test_snapshot_recognizes_repeat_until_steps(tmp_path: Path):
     workflow = {
         "version": "2.7",
         "name": "obs-repeat",
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }
+        },
         "steps": [
             {
                 "name": "ReviewLoop",
@@ -692,7 +727,10 @@ def test_snapshot_recognizes_repeat_until_steps(tmp_path: Path):
                     "steps": [
                         {
                             "name": "WriteDecision",
-                            "command": ["bash", "-lc", "echo APPROVE"],
+                            "set_scalar": {
+                                "artifact": "review_decision",
+                                "value": "APPROVE",
+                            },
                         }
                     ],
                 },
@@ -722,7 +760,7 @@ def test_snapshot_recognizes_repeat_until_steps(tmp_path: Path):
         },
     }
 
-    snapshot = build_status_snapshot(workflow, state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
 
     assert snapshot["steps"][0]["kind"] == "repeat_until"
     assert snapshot["steps"][0]["status"] == "completed"
@@ -736,6 +774,13 @@ def test_snapshot_exposes_repeat_until_debug_progress_and_markdown(tmp_path: Pat
     workflow = {
         "version": "2.7",
         "name": "obs-repeat-progress",
+        "artifacts": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }
+        },
         "steps": [
             {
                 "name": "ReviewLoop",
@@ -763,7 +808,10 @@ def test_snapshot_exposes_repeat_until_debug_progress_and_markdown(tmp_path: Pat
                     "steps": [
                         {
                             "name": "WriteDecision",
-                            "command": ["bash", "-lc", "echo REVISE"],
+                            "set_scalar": {
+                                "artifact": "review_decision",
+                                "value": "REVISE",
+                            },
                         }
                     ],
                 },
@@ -800,7 +848,7 @@ def test_snapshot_exposes_repeat_until_debug_progress_and_markdown(tmp_path: Pat
         },
     }
 
-    snapshot = build_status_snapshot(workflow, state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
     review_loop = snapshot["steps"][0]
     markdown = render_status_markdown(snapshot)
 
@@ -838,7 +886,7 @@ def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: P
         },
     }
 
-    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
 
     assert snapshot["run"]["status"] == "failed"
     assert snapshot["run"]["status_reason"] == "stale_running_without_current_step"
@@ -853,6 +901,12 @@ def test_snapshot_surfaces_provider_session_quarantine_and_metadata_paths(tmp_pa
     workflow = {
         "version": "2.10",
         "name": "obs-provider-session",
+        "artifacts": {
+            "implementation_session_id": {
+                "kind": "scalar",
+                "type": "string",
+            }
+        },
         "steps": [
             {
                 "name": "AskProvider",
@@ -894,7 +948,7 @@ def test_snapshot_surfaces_provider_session_quarantine_and_metadata_paths(tmp_pa
         },
     }
 
-    snapshot = build_status_snapshot(workflow, state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
     md = render_status_markdown(snapshot)
 
     assert snapshot["run"]["error"]["type"] == "provider_session_interrupted_visit_quarantined"
@@ -931,7 +985,7 @@ def test_snapshot_exposes_looped_resume_current_and_last_completed_visit_counts(
         },
     }
 
-    snapshot = build_status_snapshot(_sample_workflow(), state, run_root)
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, _sample_workflow_payload()), state, run_root)
     prep = snapshot["steps"][0]
 
     assert snapshot["run"]["status"] == "running"
@@ -1169,3 +1223,52 @@ def test_snapshot_includes_structured_helper_node_kinds(tmp_path: Path):
     assert steps["RouteDecision"]["kind"] == "structured_match_join"
     assert steps["RouteDecision.REVISE"]["status"] == "running"
     assert steps["RouteDecision.REVISE"]["current_visit_count"] == 1
+
+
+def test_snapshot_requires_loaded_workflow_bundle(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "raw-workflow"
+    (run_root / "logs").mkdir(parents=True)
+
+    with pytest.raises(TypeError, match="LoadedWorkflowBundle"):
+        build_status_snapshot(_sample_workflow_payload(), {"steps": {}}, run_root)
+
+
+def test_snapshot_uses_typed_surface_metadata_without_raw_workflow_fallback(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "typed-surface-metadata"
+    (run_root / "logs").mkdir(parents=True)
+
+    bundle = _load_bundle(
+        tmp_path,
+        {
+            "version": "2.10",
+            "name": "typed-surface-report",
+            "max_transitions": 7,
+            "steps": [
+                {
+                    "name": "GenerateReport",
+                    "id": "generate_report",
+                    "command": ["bash", "-lc", "echo report"],
+                }
+            ],
+        },
+        filename="typed_surface_report.yaml",
+    )
+    rawless_bundle = replace(
+        bundle,
+        surface=replace(bundle.surface, raw=MappingProxyType({})),
+    )
+
+    snapshot = build_status_snapshot(
+        rawless_bundle,
+        {
+            "run_id": "typed-surface-metadata",
+            "status": "running",
+            "started_at": "2026-03-10T00:00:00+00:00",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "workflow_file": str(tmp_path / "typed_surface_report.yaml"),
+            "steps": {},
+        },
+        run_root,
+    )
+
+    assert snapshot["run"]["max_transitions"] == 7

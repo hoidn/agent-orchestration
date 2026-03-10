@@ -887,17 +887,6 @@ def _leaf_goto_transfers(raw: Mapping[str, Any], root_targets: Mapping[str, _Bin
             if transfer is not None:
                 routed_transfers[transfer_key] = transfer
 
-    # Preserve internal compatibility for any pre-IR raw payloads that still
-    # carry the old non-spec top-level goto field.
-    if "on_success_goto" not in routed_transfers:
-        legacy_transfer = _bind_goto_transfer(
-            "on_success_goto",
-            raw.get("goto"),
-            root_targets,
-        )
-        if legacy_transfer is not None:
-            routed_transfers["on_success_goto"] = legacy_transfer
-
     return MappingProxyType(routed_transfers)
 
 

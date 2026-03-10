@@ -6,82 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
-from orchestrator.workflow.executable_ir import ExecutableNodeKind
 from orchestrator.workflow.loaded_bundle import workflow_bundle
 
 
 _PREVIEW_LIMIT = 200
 _STALE_RUNNING_TIMEOUT_SEC = 300
-
-
-def _step_name(step: Mapping[str, Any], index: int) -> str:
-    return str(step.get("name", f"step_{index}"))
-
-
-def _legacy_step_kind(step: Mapping[str, Any]) -> str:
-    """Return the compatibility step kind inferred from legacy lowered payloads."""
-    if "repeat_until" in step:
-        return "repeat_until"
-    if "provider" in step:
-        return "provider"
-    if "command" in step:
-        return "command"
-    if "for_each" in step:
-        return "for_each"
-    if "wait_for" in step:
-        return "wait_for"
-    if "assert" in step:
-        return "assert"
-    if "set_scalar" in step:
-        return "set_scalar"
-    if "increment_scalar" in step:
-        return "increment_scalar"
-    if "call" in step:
-        return "call"
-    return "unknown"
-
-
-def _step_kind(step: Mapping[str, Any], node_kind: Optional[ExecutableNodeKind] = None) -> str:
-    if node_kind is not None:
-        kind_map = {
-            ExecutableNodeKind.IF_BRANCH_MARKER: "structured_if_branch",
-            ExecutableNodeKind.IF_JOIN: "structured_if_join",
-            ExecutableNodeKind.MATCH_CASE_MARKER: "structured_match_case",
-            ExecutableNodeKind.MATCH_JOIN: "structured_match_join",
-            ExecutableNodeKind.REPEAT_UNTIL_FRAME: "repeat_until",
-            ExecutableNodeKind.FOR_EACH: "for_each",
-            ExecutableNodeKind.CALL_BOUNDARY: "call",
-            ExecutableNodeKind.FINALIZATION_STEP: "finally",
-            ExecutableNodeKind.PROVIDER: "provider",
-            ExecutableNodeKind.COMMAND: "command",
-            ExecutableNodeKind.WAIT_FOR: "wait_for",
-            ExecutableNodeKind.ASSERT: "assert",
-            ExecutableNodeKind.SET_SCALAR: "set_scalar",
-            ExecutableNodeKind.INCREMENT_SCALAR: "increment_scalar",
-        }
-        return kind_map.get(node_kind, "unknown")
-    return _legacy_step_kind(step)
-
-
-def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Mapping[str, Any], Optional[str]]], Mapping[str, Any]]:
-    bundle = workflow_bundle(workflow)
-    if bundle is None:
-        workflow_dict = workflow if isinstance(workflow, Mapping) else {}
-        steps = list(workflow_dict.get("steps", []))
-        finally_block = workflow_dict.get("finally") if isinstance(workflow_dict.get("finally"), dict) else None
-        if isinstance(finally_block, dict) and isinstance(finally_block.get("steps"), list):
-            steps.extend(finally_block.get("steps", []))
-        return [(step, step.get("step_id") if isinstance(step, dict) else None) for step in steps], workflow_dict
-
-    ordered_steps: list[tuple[Mapping[str, Any], Optional[str]]] = []
-    for node_id in bundle.projection.ordered_execution_node_ids():
-        node = bundle.ir.nodes.get(node_id)
-        if node is None:
-            continue
-        raw = node.raw if isinstance(node.raw, Mapping) else {}
-        ordered_steps.append((raw, node_id))
-    workflow_metadata = bundle.surface.raw if isinstance(bundle.surface.raw, Mapping) else workflow_dict
-    return ordered_steps, workflow_metadata
 
 
 def _resolved_current_step_name(workflow: Any, current_step: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -212,149 +141,85 @@ def build_status_snapshot(
 ) -> Dict[str, Any]:
     """Build a deterministic status snapshot from workflow + state artifacts."""
     bundle = workflow_bundle(workflow)
-    ordered_steps, workflow_dict = _ordered_step_entries(workflow)
+    if bundle is None:
+        raise TypeError("build_status_snapshot requires a LoadedWorkflowBundle")
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
     current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
     current_step_name = _resolved_current_step_name(workflow, current_step)
 
     step_entries = []
-    if bundle is None:
-        for idx, (step, _node_id) in enumerate(ordered_steps):
-            name = _step_name(step, idx)
-            result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
-            prompt_text = _read_prompt_audit(run_root, name)
-            is_current_step = current_step_name == name
+    for node_id in bundle.projection.ordered_execution_node_ids():
+        projection_entry = bundle.projection.entries_by_node_id.get(node_id)
+        if projection_entry is None:
+            continue
+        definition = projection_entry.step_definition
+        name = projection_entry.presentation_key
+        result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
+        prompt_text = _read_prompt_audit(run_root, name)
+        is_current_step = current_step_name == name
 
-            status = _coerce_step_status(result) or "pending"
-            if is_current_step:
-                status = "running"
-            if status == "pending" and prompt_text:
-                status = "running"
+        status = _coerce_step_status(result) or "pending"
+        if is_current_step:
+            status = "running"
+        if status == "pending" and prompt_text:
+            status = "running"
 
-            entry = {
-                "name": name,
-                "step_id": result.get("step_id") if isinstance(result, dict) else step.get("step_id"),
-                "kind": _step_kind(step),
-                "status": status,
-                "consumes": _report_compatible_value(step.get("consumes", [])),
-                "expected_outputs": _report_compatible_value(step.get("expected_outputs", [])),
-                "visit_count": step_visits.get(name),
-                "current_visit_count": current_step.get("visit_count") if is_current_step else None,
-                "last_result_visit_count": result.get("visit_count") if isinstance(result, dict) else None,
-                "max_visits": step.get("max_visits"),
-                "input": {},
-                "output": {},
+        entry = {
+            "name": name,
+            "step_id": (
+                result.get("step_id")
+                if isinstance(result, dict) and isinstance(result.get("step_id"), str)
+                else projection_entry.step_id
+            ),
+            "kind": definition.report_kind,
+            "status": status,
+            "consumes": _report_compatible_value(definition.consumes),
+            "expected_outputs": _report_compatible_value(definition.expected_outputs),
+            "visit_count": step_visits.get(name),
+            "current_visit_count": current_step.get("visit_count") if is_current_step else None,
+            "last_result_visit_count": result.get("visit_count") if isinstance(result, dict) else None,
+            "max_visits": definition.max_visits,
+            "input": {},
+            "output": {},
+        }
+
+        if definition.provider is not None:
+            entry["input"]["provider"] = definition.provider
+            if prompt_text is not None:
+                entry["input"]["prompt"] = prompt_text
+        if definition.command is not None:
+            entry["input"]["command"] = _report_compatible_value(definition.command)
+
+        if isinstance(result, dict) and result:
+            entry["output"] = {
+                "exit_code": result.get("exit_code"),
+                "duration_ms": result.get("duration_ms"),
+                "output_preview": _normalize_output_preview(result),
+                "artifacts": result.get("artifacts", {}),
+                "error": result.get("error"),
+                "outcome": result.get("outcome"),
             }
+            debug_payload = result.get("debug")
+            if isinstance(debug_payload, dict) and debug_payload:
+                entry["output"]["debug"] = debug_payload
+            if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
+                entry["output"]["call"] = debug_payload.get("call")
+            if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
+                entry["output"]["provider_session"] = debug_payload.get("provider_session")
 
-            if "provider" in step:
-                entry["input"]["provider"] = step.get("provider")
-                if prompt_text is not None:
-                    entry["input"]["prompt"] = prompt_text
-            if "command" in step:
-                entry["input"]["command"] = _report_compatible_value(step.get("command"))
+        if status == "completed":
+            entry["summary"] = "completed"
+        elif status == "running":
+            entry["summary"] = "in progress"
+        elif status == "failed":
+            entry["summary"] = "failed"
+        elif status == "skipped":
+            entry["summary"] = "skipped"
+        else:
+            entry["summary"] = "pending"
 
-            if isinstance(result, dict) and result:
-                entry["output"] = {
-                    "exit_code": result.get("exit_code"),
-                    "duration_ms": result.get("duration_ms"),
-                    "output_preview": _normalize_output_preview(result),
-                    "artifacts": result.get("artifacts", {}),
-                    "error": result.get("error"),
-                    "outcome": result.get("outcome"),
-                }
-                debug_payload = result.get("debug")
-                if isinstance(debug_payload, dict) and debug_payload:
-                    entry["output"]["debug"] = debug_payload
-                if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
-                    entry["output"]["call"] = debug_payload.get("call")
-                if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
-                    entry["output"]["provider_session"] = debug_payload.get("provider_session")
-
-            if status == "completed":
-                entry["summary"] = "completed"
-            elif status == "running":
-                entry["summary"] = "in progress"
-            elif status == "failed":
-                entry["summary"] = "failed"
-            elif status == "skipped":
-                entry["summary"] = "skipped"
-            else:
-                entry["summary"] = "pending"
-
-            step_entries.append(entry)
-    else:
-        for node_id in bundle.projection.ordered_execution_node_ids():
-            projection_entry = bundle.projection.entries_by_node_id.get(node_id)
-            if projection_entry is None:
-                continue
-            definition = projection_entry.step_definition
-            name = projection_entry.presentation_key
-            result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
-            prompt_text = _read_prompt_audit(run_root, name)
-            is_current_step = current_step_name == name
-
-            status = _coerce_step_status(result) or "pending"
-            if is_current_step:
-                status = "running"
-            if status == "pending" and prompt_text:
-                status = "running"
-
-            entry = {
-                "name": name,
-                "step_id": (
-                    result.get("step_id")
-                    if isinstance(result, dict) and isinstance(result.get("step_id"), str)
-                    else projection_entry.step_id
-                ),
-                "kind": definition.report_kind,
-                "status": status,
-                "consumes": _report_compatible_value(definition.consumes),
-                "expected_outputs": _report_compatible_value(definition.expected_outputs),
-                "visit_count": step_visits.get(name),
-                "current_visit_count": current_step.get("visit_count") if is_current_step else None,
-                "last_result_visit_count": result.get("visit_count") if isinstance(result, dict) else None,
-                "max_visits": definition.max_visits,
-                "input": {},
-                "output": {},
-            }
-
-            if definition.provider is not None:
-                entry["input"]["provider"] = definition.provider
-                if prompt_text is not None:
-                    entry["input"]["prompt"] = prompt_text
-            if definition.command is not None:
-                entry["input"]["command"] = _report_compatible_value(definition.command)
-
-            if isinstance(result, dict) and result:
-                entry["output"] = {
-                    "exit_code": result.get("exit_code"),
-                    "duration_ms": result.get("duration_ms"),
-                    "output_preview": _normalize_output_preview(result),
-                    "artifacts": result.get("artifacts", {}),
-                    "error": result.get("error"),
-                    "outcome": result.get("outcome"),
-                }
-                debug_payload = result.get("debug")
-                if isinstance(debug_payload, dict) and debug_payload:
-                    entry["output"]["debug"] = debug_payload
-                if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
-                    entry["output"]["call"] = debug_payload.get("call")
-                if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
-                    entry["output"]["provider_session"] = debug_payload.get("provider_session")
-
-            if status == "completed":
-                entry["summary"] = "completed"
-            elif status == "running":
-                entry["summary"] = "in progress"
-            elif status == "failed":
-                entry["summary"] = "failed"
-            elif status == "skipped":
-                entry["summary"] = "skipped"
-            else:
-                entry["summary"] = "pending"
-
-            step_entries.append(entry)
+        step_entries.append(entry)
 
     progress = {
         "total": len(step_entries),
@@ -390,7 +255,7 @@ def build_status_snapshot(
         "run_root": str(run_root),
         "run_log_path": str(run_log_path) if run_log_path else None,
         "transition_count": state.get("transition_count", 0),
-        "max_transitions": workflow_dict.get("max_transitions"),
+        "max_transitions": bundle.surface.max_transitions,
     }
     if status_reason:
         run_payload["status_reason"] = status_reason

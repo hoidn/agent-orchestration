@@ -386,7 +386,6 @@ def test_resume_planner_uses_projection_step_id_mapping_for_running_current_step
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
-    body_steps = materialize_projection_body_steps(bundle)
     restart_index = planner.determine_restart_index(
         {
             "steps": {},
@@ -396,7 +395,6 @@ def test_resume_planner_uses_projection_step_id_mapping_for_running_current_step
                 "step_id": "root.route_ready",
             },
         },
-        body_steps,
         projection=bundle.projection,
     )
 
@@ -410,7 +408,6 @@ def test_resume_planner_maps_finalization_current_step_step_ids_to_execution_ord
     planner = ResumePlanner()
     body_steps = materialize_projection_body_steps(bundle)
     final_steps = materialize_projection_finalization_steps(bundle)
-    steps = list(body_steps) + list(final_steps)
     restart_index = planner.determine_restart_index(
         {
             "steps": {
@@ -427,7 +424,6 @@ def test_resume_planner_maps_finalization_current_step_step_ids_to_execution_ord
                 "step_id": "root.finally.cleanup.write_cleanup_marker",
             },
         },
-        steps,
         projection=bundle.projection,
     )
 
@@ -438,9 +434,6 @@ def test_resume_planner_uses_projection_ordering_when_legacy_step_names_drift(tm
     workflow_path = _write_projection_workflow(tmp_path)
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    body_steps = materialize_projection_body_steps(bundle)
-    body_steps[0]["name"] = "LegacySetReady"
-    body_steps[1]["name"] = "LegacyRouteReady"
     planner = ResumePlanner()
 
     restart_index = planner.determine_restart_index(
@@ -450,7 +443,6 @@ def test_resume_planner_uses_projection_ordering_when_legacy_step_names_drift(tm
                 "RouteReady": {"status": "pending"},
             },
         },
-        body_steps,
         projection=bundle.projection,
     )
 
@@ -475,7 +467,6 @@ def test_resume_planner_rejects_inconsistent_projection_compatibility_fields(
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
-    body_steps = materialize_projection_body_steps(bundle)
     current_step = {
         "name": "RouteReady",
         "index": bundle.projection.compatibility_index_by_node_id["root.route_ready"],
@@ -490,7 +481,6 @@ def test_resume_planner_rejects_inconsistent_projection_compatibility_fields(
                 "steps": {},
                 "current_step": current_step,
             },
-            body_steps,
             projection=bundle.projection,
         )
 
@@ -503,7 +493,6 @@ def test_resume_planner_quarantines_provider_session_visits_without_current_step
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
-    body_steps = materialize_projection_body_steps(bundle)
     guard = planner.detect_interrupted_provider_session_visit(
         {
             "steps": {
@@ -523,7 +512,6 @@ def test_resume_planner_quarantines_provider_session_visits_without_current_step
                 "visit_count": 2,
             },
         },
-        body_steps,
         projection=bundle.projection,
     )
 
@@ -542,15 +530,6 @@ def test_resume_planner_quarantines_provider_session_visits_when_legacy_step_ord
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
-    body_steps = [
-        {
-            "name": "LegacyDrift",
-            "step_id": "root.legacy_drift",
-            "command": ["bash", "-lc", "echo drift"],
-        },
-        *materialize_projection_body_steps(bundle),
-    ]
-
     guard = planner.detect_interrupted_provider_session_visit(
         {
             "steps": {},
@@ -561,7 +540,6 @@ def test_resume_planner_quarantines_provider_session_visits_when_legacy_step_ord
                 "visit_count": 2,
             },
         },
-        body_steps,
         projection=bundle.projection,
     )
 
@@ -593,6 +571,13 @@ def test_resume_planner_uses_projection_without_runtime_steps_argument(tmp_path:
     )
 
     assert restart_index == bundle.projection.compatibility_index_by_node_id["root.route_ready"]
+
+
+def test_resume_planner_requires_projection_for_restart_index() -> None:
+    planner = ResumePlanner()
+
+    with pytest.raises(TypeError, match="WorkflowStateProjection"):
+        planner.determine_restart_index({"steps": {}})
 
 
 def test_resume_planner_quarantines_provider_session_visits_from_projection_without_runtime_steps(
@@ -632,3 +617,19 @@ def test_resume_planner_quarantines_provider_session_visits_from_projection_with
         "provider": "codex_session",
         "mode": "fresh",
     }
+
+
+def test_resume_planner_requires_projection_for_provider_session_guard() -> None:
+    planner = ResumePlanner()
+
+    with pytest.raises(TypeError, match="WorkflowStateProjection"):
+        planner.detect_interrupted_provider_session_visit(
+            {
+                "current_step": {
+                    "name": "Step",
+                    "status": "running",
+                    "step_id": "root.step",
+                    "visit_count": 1,
+                }
+            }
+        )

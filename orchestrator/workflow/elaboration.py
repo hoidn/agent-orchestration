@@ -190,6 +190,15 @@ def elaborate_surface_workflow(
             parent_step_names=(),
         ),
         provenance=provenance,
+        strict_flow=surface_workflow.get("strict_flow") if isinstance(surface_workflow.get("strict_flow"), bool) else True,
+        context=freeze_mapping(surface_workflow.get("context")),
+        providers=freeze_mapping(surface_workflow.get("providers")),
+        secrets=_string_tuple(surface_workflow.get("secrets")),
+        inbox_dir=_optional_string(surface_workflow.get("inbox_dir")),
+        processed_dir=_optional_string(surface_workflow.get("processed_dir")),
+        failed_dir=_optional_string(surface_workflow.get("failed_dir")),
+        task_extension=_optional_string(surface_workflow.get("task_extension")),
+        max_transitions=surface_workflow.get("max_transitions") if isinstance(surface_workflow.get("max_transitions"), int) else None,
         artifacts=_parse_contracts(surface_workflow.get("artifacts"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
         inputs=_parse_contracts(surface_workflow.get("inputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
         outputs=_parse_contracts(surface_workflow.get("outputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
@@ -521,6 +530,18 @@ def _parse_contracts(
             from_ref=from_ref,
         )
     return MappingProxyType(contracts)
+
+
+def _optional_string(value: Any) -> str | None:
+    if isinstance(value, str):
+        return value
+    return None
+
+
+def _string_tuple(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, list):
+        return ()
+    return tuple(item for item in value if isinstance(item, str))
 
 
 def _step_names(steps: Any) -> tuple[str, ...]:

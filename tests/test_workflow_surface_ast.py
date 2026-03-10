@@ -1,7 +1,8 @@
 """Tests for the typed surface workflow bundle and authored-shape AST."""
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
+from types import MappingProxyType
 
 import yaml
 
@@ -9,6 +10,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import (
     LoadedWorkflowBundle,
+    workflow_context,
     workflow_import_metadata,
     workflow_provenance,
 )
@@ -76,6 +78,12 @@ def _write_surface_workflow(workspace: Path) -> Path:
         {
             "version": "2.7",
             "name": "surface-ast",
+            "strict_flow": False,
+            "context": {
+                "project": "typed-pipeline",
+            },
+            "processed_dir": "typed-processed",
+            "max_transitions": 9,
             "imports": {
                 "review_loop": "workflows/library/review_loop.yaml",
             },
@@ -319,6 +327,25 @@ def test_load_exposes_typed_provenance_bundle_metadata(tmp_path: Path):
     assert imported is not None
     assert imported.workflow_path == (tmp_path / "workflows" / "library" / "review_loop.yaml").resolve()
     assert imported.source_root == (tmp_path / "workflows" / "library").resolve()
+
+
+def test_surface_workflow_exposes_typed_root_metadata_without_raw_fallbacks(tmp_path: Path):
+    """Typed workflow-root metadata stays available even when raw compatibility data is absent."""
+    workflow_path = _write_surface_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    assert bundle.surface.strict_flow is False
+    assert dict(bundle.surface.context) == {"project": "typed-pipeline"}
+    assert bundle.surface.processed_dir == "typed-processed"
+    assert bundle.surface.max_transitions == 9
+
+    rawless_bundle = replace(
+        bundle,
+        surface=replace(bundle.surface, raw=MappingProxyType({})),
+    )
+
+    assert dict(workflow_context(rawless_bundle)) == {"project": "typed-pipeline"}
 
 
 def test_elaboration_orchestrates_authored_shape_validation_before_ast_build(tmp_path: Path):

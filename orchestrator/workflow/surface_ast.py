@@ -158,6 +158,15 @@ class SurfaceWorkflow:
     name: Optional[str]
     steps: tuple[SurfaceStep, ...]
     provenance: WorkflowProvenance
+    strict_flow: bool = True
+    context: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    providers: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    secrets: tuple[str, ...] = ()
+    inbox_dir: Optional[str] = None
+    processed_dir: Optional[str] = None
+    failed_dir: Optional[str] = None
+    task_extension: Optional[str] = None
+    max_transitions: Optional[int] = None
     artifacts: Mapping[str, SurfaceContract] = field(default_factory=empty_frozen_mapping)
     inputs: Mapping[str, SurfaceContract] = field(default_factory=empty_frozen_mapping)
     outputs: Mapping[str, SurfaceContract] = field(default_factory=empty_frozen_mapping)

@@ -44,10 +44,7 @@ def workflow_context(workflow_or_bundle: Any) -> Mapping[str, Any]:
     """Return workflow context values from typed bundle or raw workflow data."""
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is not None:
-        context = bundle.surface.raw.get("context")
-        if isinstance(context, Mapping):
-            return context
-        return MappingProxyType({})
+        return bundle.surface.context
     if isinstance(workflow_or_bundle, Mapping):
         context = workflow_or_bundle.get("context")
         if isinstance(context, Mapping):
