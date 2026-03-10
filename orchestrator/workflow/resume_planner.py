@@ -20,7 +20,7 @@ class ResumeStateIntegrityError(RuntimeError):
 class _ProjectedCurrentStep:
     node_id: str
     presentation_key: str
-    compatibility_index: int
+    execution_index: int
 
 
 class ResumePlanner:
@@ -58,7 +58,7 @@ class ResumePlanner:
             if projected_current_step is not None:
                 current_result = steps_state.get(projected_current_step.presentation_key)
                 if not self.entry_is_terminal(current_result):
-                    return projected_current_step.compatibility_index
+                    return projected_current_step.execution_index
             current_index = current_step.get("index")
             current_status = current_step.get("status")
             if isinstance(current_index, int) and current_status == "running":
@@ -107,14 +107,14 @@ class ResumePlanner:
                     "actual": step_id,
                 },
             )
-        compatibility_index = entry.compatibility_index
-        if not isinstance(compatibility_index, int):
+        execution_index = projection.execution_index_for_step_id(step_id)
+        if not isinstance(execution_index, int):
             raise ResumeStateIntegrityError(
-                f"Persisted current_step.step_id '{step_id}' does not map to a resumable top-level workflow node.",
+                f"Persisted current_step.step_id '{step_id}' does not map to a resumable workflow execution index.",
                 context={
                     "step_id": step_id,
                     "field": "step_id",
-                    "expected": "top-level compatibility index",
+                    "expected": "workflow execution index",
                     "actual": None,
                 },
             )
@@ -131,20 +131,20 @@ class ResumePlanner:
                 },
             )
         current_index = current_step.get("index")
-        if isinstance(current_index, int) and current_index != compatibility_index:
+        if isinstance(current_index, int) and current_index != execution_index:
             raise ResumeStateIntegrityError(
                 "Persisted current_step.index does not match the projection entry for current_step.step_id.",
                 context={
                     "step_id": step_id,
                     "field": "index",
-                    "expected": compatibility_index,
+                    "expected": execution_index,
                     "actual": current_index,
                 },
             )
         return _ProjectedCurrentStep(
             node_id=entry.node_id,
             presentation_key=presentation_key,
-            compatibility_index=compatibility_index,
+            execution_index=execution_index,
         )
 
     def _resolve_provider_session_step(
@@ -156,7 +156,7 @@ class ResumePlanner:
         if projection is not None:
             step_id = current_step.get("step_id")
             if isinstance(step_id, str) and step_id:
-                projected_index = projection.compatibility_index_for_step_id(step_id)
+                projected_index = projection.execution_index_for_step_id(step_id)
                 if isinstance(projected_index, int) and 0 <= projected_index < len(steps):
                     candidate = steps[projected_index]
                     if isinstance(candidate, dict):

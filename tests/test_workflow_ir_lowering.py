@@ -270,6 +270,45 @@ def _write_ir_workflow(workspace: Path) -> Path:
     )
 
 
+def _write_for_each_call_ir_workflow(workspace: Path) -> Path:
+    _write_review_loop_library(workspace)
+    return _write_yaml(
+        workspace / "for_each_call_workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "typed-ir-for-each",
+            "imports": {
+                "review_loop": "workflows/library/review_loop.yaml",
+            },
+            "steps": [
+                {
+                    "name": "ProcessItems",
+                    "id": "process_items",
+                    "for_each": {
+                        "items": ["alpha", "beta"],
+                        "steps": [
+                            {
+                                "name": "RunReviewLoopFromForEach",
+                                "id": "run_review_loop_from_for_each",
+                                "call": "review_loop",
+                                "with": {
+                                    "iteration": 1,
+                                    "write_root": "state/review-loop",
+                                },
+                            }
+                        ],
+                    },
+                },
+                {
+                    "name": "Done",
+                    "id": "done",
+                    "command": ["bash", "-lc", "printf 'done\\n'"],
+                },
+            ],
+        },
+    )
+
+
 def _write_goto_workflow(workspace: Path) -> Path:
     return _write_yaml(
         workspace / "goto_workflow.yaml",
@@ -409,3 +448,27 @@ def test_ir_lowering_exposes_routed_transfers_for_goto_loop_call_and_finalizatio
 
     assert goto_node.routed_transfers["goto"].target_node_id == "root.done"
     assert goto_node.routed_transfers["goto"].counts_as_transition is True
+
+
+def test_ir_lowering_patches_for_each_body_fallthrough_and_iteration_owned_call_boundaries(
+    tmp_path: Path,
+):
+    workflow_path = _write_for_each_call_ir_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    ir = bundle.ir
+    loop_node = ir.nodes["root.process_items"]
+    call_node = ir.nodes["root.process_items.run_review_loop_from_for_each"]
+    call_boundary = bundle.projection.call_boundaries["root.process_items.run_review_loop_from_for_each"]
+
+    assert loop_node.kind is ExecutableNodeKind.FOR_EACH
+    assert loop_node.body_entry_node_id == "root.process_items.run_review_loop_from_for_each"
+    assert loop_node.body_node_ids == ("root.process_items.run_review_loop_from_for_each",)
+    assert loop_node.fallthrough_node_id == "root.done"
+    assert loop_node.routed_transfers["loop_exit"].target_node_id == "root.done"
+    assert call_node.fallthrough_node_id == "root.process_items"
+    assert call_node.routed_transfers["call_return"].target_node_id == "root.process_items"
+    assert call_boundary.iteration_owner_node_id == "root.process_items"
+    assert call_boundary.runtime_step_id(iteration_index=1) == (
+        "root.process_items#1.run_review_loop_from_for_each"
+    )

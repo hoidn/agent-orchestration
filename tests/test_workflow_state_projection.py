@@ -153,6 +153,16 @@ def _write_projection_call_workflow(workspace: Path) -> Path:
         {
             "version": "2.7",
             "name": "review-loop",
+            "inputs": {
+                "iteration": {
+                    "kind": "scalar",
+                    "type": "integer",
+                },
+                "write_root": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                },
+            },
             "outputs": {
                 "review_decision": {
                     "kind": "scalar",
@@ -217,10 +227,32 @@ def _write_projection_call_workflow(workspace: Path) -> Path:
                                 "name": "RunReviewLoop",
                                 "id": "run_review_loop",
                                 "call": "review_loop",
+                                "with": {
+                                    "iteration": 1,
+                                    "write_root": "state/review-loop",
+                                },
                             }
                         ],
                     },
-                }
+                },
+                {
+                    "name": "ProcessItems",
+                    "id": "process_items",
+                    "for_each": {
+                        "items": ["alpha"],
+                        "steps": [
+                            {
+                                "name": "RunReviewLoopFromForEach",
+                                "id": "run_review_loop_from_for_each",
+                                "call": "review_loop",
+                                "with": {
+                                    "iteration": 1,
+                                    "write_root": "state/review-loop",
+                                },
+                            }
+                        ],
+                    },
+                },
             ],
         },
     )
@@ -281,6 +313,9 @@ def test_projection_formats_call_boundary_checkpoint_runtime_step_ids(tmp_path: 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     projection = bundle.projection
     call_boundary = projection.call_boundaries["root.review_loop.iteration_body.run_review_loop"]
+    for_each_call_boundary = projection.call_boundaries[
+        "root.process_items.run_review_loop_from_for_each"
+    ]
 
     assert call_boundary.runtime_step_id(iteration_index=1) == (
         "root.review_loop#1.iteration_body.run_review_loop"
@@ -289,6 +324,14 @@ def test_projection_formats_call_boundary_checkpoint_runtime_step_ids(tmp_path: 
         "root.review_loop.iteration_body.run_review_loop",
         iteration_index=1,
     ) == "root.review_loop#1.iteration_body.run_review_loop"
+    assert for_each_call_boundary.iteration_owner_node_id == "root.process_items"
+    assert for_each_call_boundary.runtime_step_id(iteration_index=1) == (
+        "root.process_items#1.run_review_loop_from_for_each"
+    )
+    assert projection.call_boundary_runtime_step_id(
+        "root.process_items.run_review_loop_from_for_each",
+        iteration_index=1,
+    ) == "root.process_items#1.run_review_loop_from_for_each"
 
 
 def test_resume_planner_uses_projection_step_id_mapping_for_running_current_step(tmp_path: Path):
@@ -310,6 +353,35 @@ def test_resume_planner_uses_projection_step_id_mapping_for_running_current_step
     )
 
     assert restart_index == bundle.projection.compatibility_index_by_node_id["root.route_ready"]
+
+
+def test_resume_planner_maps_finalization_current_step_step_ids_to_execution_order(tmp_path: Path):
+    workflow_path = _write_projection_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    planner = ResumePlanner()
+    steps = list(bundle.legacy_workflow["steps"]) + list(bundle.legacy_workflow["finally"]["steps"])
+    restart_index = planner.determine_restart_index(
+        {
+            "steps": {
+                "SetReady": {"status": "completed"},
+                "RouteReady": {"status": "completed"},
+                "ReviewLoop": {"status": "completed"},
+                "ProcessItems": {"status": "completed"},
+                "finally.WriteCleanupMarker": {"status": "pending"},
+            },
+            "current_step": {
+                "name": "finally.WriteCleanupMarker",
+                "index": len(bundle.legacy_workflow["steps"]),
+                "status": "running",
+                "step_id": "root.finally.cleanup.write_cleanup_marker",
+            },
+        },
+        steps,
+        projection=bundle.projection,
+    )
+
+    assert restart_index == len(bundle.legacy_workflow["steps"])
 
 
 @pytest.mark.parametrize(

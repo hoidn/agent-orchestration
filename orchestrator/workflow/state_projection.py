@@ -112,6 +112,17 @@ class WorkflowStateProjection:
         entry = self.entry_for_step_id(step_id)
         return entry.compatibility_index if entry is not None else None
 
+    def execution_index_for_step_id(self, step_id: str) -> Optional[int]:
+        """Return the combined body/finalization execution index for a step id."""
+        entry = self.entry_for_step_id(step_id)
+        if entry is None:
+            return None
+        if entry.compatibility_index is not None:
+            return entry.compatibility_index
+        if entry.finalization_index is not None:
+            return len(self.node_id_by_compatibility_index) + entry.finalization_index
+        return None
+
     def repeat_until_step_key(self, loop_node_id: str, iteration_index: int, nested_node_id: str) -> str:
         """Format the persisted/reporting key for one repeat-until iteration node."""
         projection = self.repeat_until_nodes.get(loop_node_id)

@@ -657,11 +657,15 @@ class _BindingContext:
         self_targets: Mapping[str, _BindingTarget],
         parent_targets: Mapping[str, _BindingTarget],
         current_loop_node_id: Optional[str] = None,
+        iteration_owner_node_id: Optional[str] = None,
     ) -> None:
         self.root_targets = root_targets
         self.self_targets = self_targets
         self.parent_targets = parent_targets
         self.current_loop_node_id = current_loop_node_id
+        self.iteration_owner_node_id = (
+            current_loop_node_id if iteration_owner_node_id is None else iteration_owner_node_id
+        )
 
 
 class _IRBuilder:
@@ -809,7 +813,7 @@ class _IRBuilder:
                     node.node_id,
                     node.presentation_name,
                     node.step_id,
-                    iteration_owner_node_id=context.current_loop_node_id,
+                    iteration_owner_node_id=context.iteration_owner_node_id,
                 )
             ordered.append(node.node_id)
         return ordered
@@ -907,6 +911,7 @@ class _IRBuilder:
             self_targets=body_targets,
             parent_targets=context.self_targets,
             current_loop_node_id=step.step_id,
+            iteration_owner_node_id=step.step_id,
         )
         body_node_ids = self._lower_linear_steps(
             step.repeat_until.steps,
@@ -958,6 +963,7 @@ class _IRBuilder:
             root_targets=context.root_targets,
             self_targets=body_targets,
             parent_targets=context.self_targets,
+            iteration_owner_node_id=step.step_id,
         )
         body_node_ids = self._lower_linear_steps(
             step.for_each_steps,
@@ -966,6 +972,7 @@ class _IRBuilder:
             presentation_prefix=None,
             top_level_region=[],
         )
+        self._patch_linear_fallthrough(body_node_ids, final_target=step.step_id)
         nested_keys = {node_id: self.nodes[node_id].presentation_name for node_id in body_node_ids}
         self.projection.register_for_each(step.step_id, presentation_name, nested_keys)
         return ForEachNode(
@@ -1029,6 +1036,7 @@ class _IRBuilder:
                 self_targets=branch_targets,
                 parent_targets=context.self_targets,
                 current_loop_node_id=context.current_loop_node_id,
+                iteration_owner_node_id=context.iteration_owner_node_id,
             )
             branch_node_ids = self._lower_linear_steps(
                 block.steps,
@@ -1110,6 +1118,7 @@ class _IRBuilder:
                 self_targets=case_targets,
                 parent_targets=context.self_targets,
                 current_loop_node_id=context.current_loop_node_id,
+                iteration_owner_node_id=context.iteration_owner_node_id,
             )
             case_node_ids = self._lower_linear_steps(
                 block.steps,

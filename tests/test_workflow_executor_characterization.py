@@ -128,6 +128,7 @@ def test_executor_resume_partial_finalization_restarts_remaining_cleanup_step(tm
         "index": 1,
         "type": "command",
         "status": "running",
+        "step_id": "root.finally.cleanup.observe_outputs_pending",
         "started_at": "2024-01-01T00:00:10Z",
         "last_heartbeat_at": "2024-01-01T00:00:11Z",
     }

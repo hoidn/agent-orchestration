@@ -2046,6 +2046,7 @@ def test_resume_continues_partial_finalization_without_rerunning_completed_clean
         "index": 1,
         "type": "command",
         "status": "running",
+        "step_id": "root.finally.cleanup.observe_outputs_pending",
         "started_at": "2024-01-01T00:00:10Z",
         "last_heartbeat_at": "2024-01-01T00:00:11Z",
     }
