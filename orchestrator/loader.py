@@ -20,6 +20,7 @@ from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, attach_legacy_workflow_metadata
 from orchestrator.workflow.lowering import (
+    lower_surface_workflow,
     lower_finalization_block,
     lower_repeat_until_bodies,
     lower_structured_steps,
@@ -242,8 +243,11 @@ class WorkflowLoader:
                 imported_bundles=imported_bundles,
                 managed_write_root_inputs=tuple(managed_write_root_inputs),
             )
+            ir, projection = lower_surface_workflow(surface)
             bundle = LoadedWorkflowBundle(
                 surface=surface,
+                ir=ir,
+                projection=projection,
                 legacy_workflow=workflow,
                 imports=MappingProxyType(dict(imported_bundles)),
                 provenance=surface.provenance,

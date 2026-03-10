@@ -7,6 +7,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Dict, Mapping, Optional
 
+from .executable_ir import ExecutableWorkflow
+from .state_projection import WorkflowStateProjection
 from .surface_ast import ImportedWorkflowMetadata, SurfaceWorkflow, WorkflowProvenance
 
 
@@ -19,6 +21,8 @@ class LoadedWorkflowBundle:
     """Typed loaded-workflow bundle with a legacy dict compatibility slot."""
 
     surface: SurfaceWorkflow
+    ir: ExecutableWorkflow
+    projection: WorkflowStateProjection
     legacy_workflow: Dict[str, Any]
     imports: Mapping[str, "LoadedWorkflowBundle"]
     provenance: WorkflowProvenance
