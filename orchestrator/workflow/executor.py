@@ -36,6 +36,7 @@ from .calls import CallExecutor
 from .dataflow import DataflowManager
 from .finalization import FinalizationController
 from .identity import iteration_step_id, runtime_step_id
+from .loaded_bundle import workflow_provenance
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
 from .predicates import PredicateEvaluationError, resolve_typed_operand
@@ -92,7 +93,8 @@ class _CallFrameStateManager:
         if isinstance(existing_state, dict):
             self.state = RunState.from_dict(existing_state)
         else:
-            workflow_path = workflow.get("__workflow_path", "")
+            provenance = workflow_provenance(workflow)
+            workflow_path = str(provenance.workflow_path) if provenance is not None else ""
             workflow_checksum = ""
             if isinstance(workflow_path, str) and workflow_path:
                 workflow_checksum = parent_manager.calculate_checksum(Path(workflow_path))
@@ -324,10 +326,11 @@ class WorkflowExecutor:
         self.variable_substitutor = VariableSubstitutor()
         self.reference_resolver = ReferenceResolver()
         self.summary_observer = self._create_summary_observer()
-        workflow_path = workflow.get('__workflow_path')
+        provenance = workflow_provenance(workflow)
+        workflow_path = provenance.workflow_path if provenance is not None else None
         self.asset_resolver = (
             WorkflowAssetResolver(Path(workflow_path))
-            if isinstance(workflow_path, str) and workflow_path
+            if workflow_path is not None
             else None
         )
         self.prompt_composer = PromptComposer(

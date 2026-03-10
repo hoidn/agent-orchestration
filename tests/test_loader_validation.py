@@ -7,6 +7,7 @@ from pathlib import Path
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.workflow.loaded_bundle import workflow_provenance
 
 
 class TestLoaderValidation:
@@ -3056,6 +3057,28 @@ class TestLoaderValidation:
         result = self.loader.load(path)
         assert result["version"] == "1.4"
         assert result["steps"][0]["consume_bundle"]["path"] == "state/consumes/review.json"
+
+    def test_load_preserves_legacy_dict_shape_while_attaching_typed_provenance(self):
+        """The compatibility loader still returns a dict while exposing typed metadata."""
+        workflow = {
+            "version": "2.5",
+            "name": "typed-provenance-adapter",
+            "steps": [{
+                "name": "Echo",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+
+        provenance = workflow_provenance(loaded)
+
+        assert isinstance(loaded, dict)
+        assert loaded["__workflow_path"] == str(path.resolve())
+        assert loaded["__source_root"] == str(path.parent.resolve())
+        assert provenance.workflow_path == path.resolve()
+        assert provenance.source_root == path.parent.resolve()
 
     def test_v13_consume_bundle_include_must_be_subset_of_consumes(self):
         """consume_bundle.include must only contain artifacts declared in consumes."""

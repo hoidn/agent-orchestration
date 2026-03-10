@@ -5,6 +5,17 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, Tuple
 
+from .statements import (
+    branch_token,
+    finally_block_token,
+    is_if_statement,
+    is_match_statement,
+    match_case_token,
+    normalize_branch_block,
+    normalize_finally_block,
+    normalize_match_case_block,
+)
+
 
 STEP_ID_PATTERN = re.compile(r"^[A-Za-z][A-Za-z0-9_]*$")
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
@@ -35,6 +46,36 @@ def assign_step_ids(steps: Iterable[Dict[str, Any]], parent_step_id: str = "root
         step_id = f"{parent_step_id}.{token}"
         step["step_id"] = step_id
 
+        if is_if_statement(step):
+            for branch_name in ("then", "else"):
+                branch = normalize_branch_block(step.get(branch_name), branch_name)
+                if branch is None:
+                    continue
+                nested_steps = branch.get("steps")
+                if isinstance(nested_steps, list):
+                    assign_step_ids(
+                        nested_steps,
+                        parent_step_id=f"{step_id}.{branch_token(branch_name, branch)}",
+                    )
+            continue
+
+        if is_match_statement(step):
+            match = step.get("match")
+            cases = match.get("cases") if isinstance(match, dict) else {}
+            if not isinstance(cases, dict):
+                continue
+            for case_name, authored_case in cases.items():
+                case = normalize_match_case_block(authored_case, str(case_name))
+                if case is None:
+                    continue
+                nested_steps = case.get("steps")
+                if isinstance(nested_steps, list):
+                    assign_step_ids(
+                        nested_steps,
+                        parent_step_id=f"{step_id}.{match_case_token(str(case_name), case)}",
+                    )
+            continue
+
         for_each = step.get("for_each")
         if isinstance(for_each, dict):
             nested_steps = for_each.get("steps")
@@ -49,6 +90,20 @@ def assign_step_ids(steps: Iterable[Dict[str, Any]], parent_step_id: str = "root
                 if not authored_id_is_valid(body_token):
                     body_token = "repeat_until"
                 assign_step_ids(nested_steps, parent_step_id=f"{step_id}.{body_token}")
+
+
+def assign_finalization_step_ids(finally_block: Any) -> Dict[str, Any] | None:
+    """Annotate a normalized finalization block with stable nested step ids."""
+    normalized = normalize_finally_block(finally_block)
+    if normalized is None:
+        return None
+    steps = normalized.get("steps")
+    if isinstance(steps, list):
+        assign_step_ids(
+            steps,
+            parent_step_id=f"root.finally.{finally_block_token(normalized)}",
+        )
+    return normalized
 
 
 def runtime_step_id(step: Dict[str, Any], fallback_index: int = 0) -> str:

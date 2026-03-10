@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from ..contracts.output_contract import OutputContractError, validate_contract_value
+from .loaded_bundle import workflow_managed_write_root_inputs, workflow_provenance
 from .references import ReferenceResolutionError
 
 
@@ -138,8 +139,8 @@ class CallExecutor:
         bound_inputs: Dict[str, Any],
     ) -> Optional[Dict[str, Any]]:
         """Reject repeated or aliased managed write roots across call frames."""
-        managed_inputs = imported_workflow.get("__managed_write_root_inputs", [])
-        if not isinstance(managed_inputs, list) or not managed_inputs:
+        managed_inputs = workflow_managed_write_root_inputs(imported_workflow)
+        if not managed_inputs:
             return None
 
         current_roots: Dict[str, str] = {}
@@ -181,9 +182,9 @@ class CallExecutor:
             if not isinstance(prior_workflow, dict):
                 continue
 
-            prior_managed_inputs = prior_workflow.get("__managed_write_root_inputs", [])
+            prior_managed_inputs = workflow_managed_write_root_inputs(prior_workflow)
             prior_bound_inputs = prior_frame.get("bound_inputs")
-            if not isinstance(prior_managed_inputs, list) or not isinstance(prior_bound_inputs, dict):
+            if not prior_managed_inputs or not isinstance(prior_bound_inputs, dict):
                 continue
 
             for prior_input in prior_managed_inputs:
@@ -223,10 +224,11 @@ class CallExecutor:
         """Build observability metadata for one executed call frame."""
         from .executor import _display_workflow_path
 
-        workflow_path = imported_workflow.get("__workflow_path")
+        provenance = workflow_provenance(imported_workflow)
+        workflow_path = provenance.workflow_path if provenance is not None else None
         workflow_file = (
             _display_workflow_path(self.executor.workspace, workflow_path)
-            if isinstance(workflow_path, str) and workflow_path
+            if workflow_path is not None
             else None
         )
         call_frames = child_state.get("call_frames", {})
@@ -310,10 +312,11 @@ class CallExecutor:
         if not getattr(self.executor, "resume_mode", False) or not isinstance(existing_frame, dict):
             return None
 
-        workflow_path = imported_workflow.get("__workflow_path")
+        provenance = workflow_provenance(imported_workflow)
+        workflow_path = provenance.workflow_path if provenance is not None else None
         workflow_file = (
             _display_workflow_path(self.executor.workspace, workflow_path)
-            if isinstance(workflow_path, str) and workflow_path
+            if workflow_path is not None
             else None
         )
         persisted_state = existing_frame.get("state")
@@ -333,7 +336,7 @@ class CallExecutor:
                 reason="missing_recorded_checksum",
             )
 
-        if not isinstance(workflow_path, str) or not workflow_path:
+        if workflow_path is None:
             return self.resume_checksum_mismatch_result(
                 step_name=step_name,
                 call_alias=call_alias,

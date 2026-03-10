@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
-from .references import ReferenceResolutionError, ReferenceResolver
+from .references import (
+    ReferenceResolutionError,
+    ReferenceResolver,
+    SurfaceRefScopeCatalog,
+    parse_surface_ref,
+)
 
 SCORE_PREDICATE_BOUND_KEYS = ("gt", "gte", "lt", "lte")
 TYPED_PREDICATE_OPERATOR_KEYS = ("artifact_bool", "compare", "score", "all_of", "any_of", "not")
@@ -12,6 +18,54 @@ TYPED_PREDICATE_OPERATOR_KEYS = ("artifact_bool", "compare", "score", "all_of", 
 
 class PredicateEvaluationError(ValueError):
     """Raised when a typed predicate cannot be evaluated."""
+
+
+@dataclass(frozen=True)
+class ArtifactBoolPredicateNode:
+    """Typed authored artifact_bool predicate node."""
+
+    ref: Any
+
+
+@dataclass(frozen=True)
+class ComparePredicateNode:
+    """Typed authored compare predicate node."""
+
+    left: Any
+    op: str
+    right: Any
+
+
+@dataclass(frozen=True)
+class ScorePredicateNode:
+    """Typed authored score predicate node."""
+
+    ref: Any
+    gt: Optional[float] = None
+    gte: Optional[float] = None
+    lt: Optional[float] = None
+    lte: Optional[float] = None
+
+
+@dataclass(frozen=True)
+class AllOfPredicateNode:
+    """Typed authored all_of predicate node."""
+
+    items: tuple[Any, ...]
+
+
+@dataclass(frozen=True)
+class AnyOfPredicateNode:
+    """Typed authored any_of predicate node."""
+
+    items: tuple[Any, ...]
+
+
+@dataclass(frozen=True)
+class NotPredicateNode:
+    """Typed authored not predicate node."""
+
+    item: Any
 
 
 def typed_predicate_operator_keys(predicate: Dict[str, Any]) -> list[str]:
@@ -22,6 +76,73 @@ def typed_predicate_operator_keys(predicate: Dict[str, Any]) -> list[str]:
 def is_numeric_predicate_value(value: Any) -> bool:
     """Return True when one predicate operand is an integer or float, excluding bool."""
     return type(value) is int or isinstance(value, float)
+
+
+def parse_typed_operand(operand: Any, catalog: SurfaceRefScopeCatalog) -> Any:
+    """Parse one authored predicate operand into a typed value/ref node."""
+    if isinstance(operand, dict):
+        if set(operand.keys()) != {"ref"}:
+            raise PredicateEvaluationError("Operand dictionaries must contain only 'ref'")
+        return parse_surface_ref(operand["ref"], catalog)
+    return operand
+
+
+def parse_typed_predicate(predicate: Dict[str, Any], catalog: SurfaceRefScopeCatalog) -> Any:
+    """Parse one authored typed predicate into immutable AST nodes."""
+    if not isinstance(predicate, dict):
+        raise PredicateEvaluationError("Typed predicate must be a dictionary")
+
+    present_keys = typed_predicate_operator_keys(predicate)
+    if len(present_keys) != 1:
+        raise PredicateEvaluationError("Typed predicate nodes must declare exactly one operator")
+
+    if "artifact_bool" in predicate:
+        node = predicate["artifact_bool"]
+        if not isinstance(node, dict) or set(node.keys()) != {"ref"}:
+            raise PredicateEvaluationError("artifact_bool requires a ref operand")
+        return ArtifactBoolPredicateNode(ref=parse_surface_ref(node["ref"], catalog))
+
+    if "compare" in predicate:
+        node = predicate["compare"]
+        if not isinstance(node, dict):
+            raise PredicateEvaluationError("compare predicate must be a dictionary")
+        return ComparePredicateNode(
+            left=parse_typed_operand(node.get("left"), catalog),
+            op=str(node.get("op")),
+            right=parse_typed_operand(node.get("right"), catalog),
+        )
+
+    if "score" in predicate:
+        node = predicate["score"]
+        if not isinstance(node, dict):
+            raise PredicateEvaluationError("score predicate must be a dictionary")
+        ref = node.get("ref")
+        if not isinstance(ref, str) or not ref:
+            raise PredicateEvaluationError("score requires a ref")
+        return ScorePredicateNode(
+            ref=parse_surface_ref(ref, catalog),
+            gt=node.get("gt"),
+            gte=node.get("gte"),
+            lt=node.get("lt"),
+            lte=node.get("lte"),
+        )
+
+    if "all_of" in predicate:
+        items = predicate["all_of"]
+        if not isinstance(items, list):
+            raise PredicateEvaluationError("all_of requires a list")
+        return AllOfPredicateNode(items=tuple(parse_typed_predicate(item, catalog) for item in items))
+
+    if "any_of" in predicate:
+        items = predicate["any_of"]
+        if not isinstance(items, list):
+            raise PredicateEvaluationError("any_of requires a list")
+        return AnyOfPredicateNode(items=tuple(parse_typed_predicate(item, catalog) for item in items))
+
+    if "not" in predicate:
+        return NotPredicateNode(item=parse_typed_predicate(predicate["not"], catalog))
+
+    raise PredicateEvaluationError("Unsupported typed predicate")
 
 
 class TypedPredicateEvaluator:

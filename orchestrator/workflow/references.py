@@ -1,4 +1,4 @@
-"""Structured ref resolution for typed predicates."""
+"""Structured ref parsing and resolution for typed predicates."""
 
 from __future__ import annotations
 
@@ -8,6 +8,40 @@ from typing import Any, Dict, Iterable, Optional
 
 class ReferenceResolutionError(ValueError):
     """Raised when a structured ref cannot be resolved at runtime."""
+
+
+@dataclass(frozen=True)
+class SurfaceRefScopeCatalog:
+    """Available ref selectors for one authored lexical scope."""
+
+    root_step_names: tuple[str, ...] = ()
+    self_step_names: tuple[str, ...] = ()
+    parent_step_names: tuple[str, ...] = ()
+    output_names: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class WorkflowInputReference:
+    """Parsed workflow-input ref."""
+
+    input_name: str
+
+
+@dataclass(frozen=True)
+class StructuredStepReference:
+    """Parsed step-result ref used by the authored surface AST."""
+
+    scope: str
+    step_name: str
+    field: str
+    member: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SelfOutputReference:
+    """Parsed repeat-until self.outputs ref."""
+
+    output_name: str
 
 
 @dataclass(frozen=True)
@@ -25,6 +59,57 @@ class StructuredRefTarget:
     step_name: str
     field: str
     member: Optional[str] = None
+
+
+def parse_surface_ref(ref: str, catalog: SurfaceRefScopeCatalog) -> WorkflowInputReference | StructuredStepReference | SelfOutputReference:
+    """Parse one authored ref into a typed surface-AST node."""
+    if not isinstance(ref, str) or not ref:
+        raise ReferenceResolutionError("Structured ref must be a non-empty string")
+
+    if ref.startswith("inputs."):
+        input_name = ref[len("inputs."):]
+        if not input_name:
+            raise ReferenceResolutionError(f"Invalid structured ref '{ref}'")
+        return WorkflowInputReference(input_name=input_name)
+
+    if ref.startswith("self.outputs."):
+        output_name = ref[len("self.outputs."):]
+        if not output_name:
+            raise ReferenceResolutionError(f"Invalid structured ref '{ref}'")
+        if catalog.output_names and output_name not in set(catalog.output_names):
+            raise ReferenceResolutionError(f"Unknown self.outputs ref '{ref}'")
+        return SelfOutputReference(output_name=output_name)
+
+    if ref.startswith("root.steps."):
+        parsed = parse_structured_ref(ref, catalog.root_step_names)
+        return StructuredStepReference(
+            scope=parsed.scope,
+            step_name=parsed.step_name,
+            field=parsed.field,
+            member=parsed.member,
+        )
+
+    if ref.startswith("self.steps."):
+        parsed = parse_structured_ref(ref, catalog.self_step_names)
+        return StructuredStepReference(
+            scope=parsed.scope,
+            step_name=parsed.step_name,
+            field=parsed.field,
+            member=parsed.member,
+        )
+
+    if ref.startswith("parent.steps."):
+        if not catalog.parent_step_names:
+            raise ReferenceResolutionError(f"Structured ref target scope is unavailable for '{ref}'")
+        parsed = parse_structured_ref(ref, catalog.parent_step_names)
+        return StructuredStepReference(
+            scope=parsed.scope,
+            step_name=parsed.step_name,
+            field=parsed.field,
+            member=parsed.member,
+        )
+
+    raise ReferenceResolutionError(f"Unsupported structured ref '{ref}'")
 
 
 def parse_structured_ref(ref: str, step_names: Iterable[str]) -> StructuredRefTarget:

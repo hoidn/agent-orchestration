@@ -5,6 +5,7 @@ from pathlib import Path
 import yaml
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.surface_ast import SurfaceStepKind
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -635,3 +636,44 @@ def test_finalization_steps_use_prefixed_presentation_names_and_stable_ids(tmp_p
     assert steps_a["finally.WriteCleanupMarker"] == "root.finally.cleanup.write_cleanup_marker"
     assert steps_b["finally.ObserveOutputsPending"] == steps_a["finally.ObserveOutputsPending"]
     assert steps_b["finally.WriteCleanupMarker"] == steps_a["finally.WriteCleanupMarker"]
+
+
+def test_surface_ast_step_ids_match_legacy_lowered_compatibility_ids(tmp_path: Path):
+    _write_review_loop_library(tmp_path)
+
+    workflow = _top_level_structured_workflow()
+    workflow["finally"] = {
+        "id": "cleanup",
+        "steps": [
+            {
+                "name": "WriteCleanupMarker",
+                "id": "write_cleanup_marker",
+                "command": ["bash", "-lc", "printf 'cleanup\\n'"],
+            }
+        ],
+    }
+    workflow_path = _write_yaml(tmp_path / "workflow.yaml", workflow)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    surface_steps = {step.name: step for step in bundle.surface.steps}
+    lowered_steps = {step["name"]: step["step_id"] for step in bundle.legacy_workflow["steps"]}
+
+    assert surface_steps["RouteReview"].kind is SurfaceStepKind.IF
+    assert surface_steps["RouteReview"].then_branch is not None
+    assert (
+        surface_steps["RouteReview"].then_branch.steps[0].step_id
+        == lowered_steps["RouteReview.then.WriteApproved"]
+    )
+    assert surface_steps["RouteReview"].step_id == lowered_steps["RouteReview"]
+
+    assert surface_steps["RouteDecision"].kind is SurfaceStepKind.MATCH
+    assert surface_steps["RouteDecision"].match_cases["APPROVE"].steps[0].step_id == (
+        lowered_steps["RouteDecision.APPROVE.WriteApproved"]
+    )
+
+    assert surface_steps["RunReviewLoop"].kind is SurfaceStepKind.CALL
+    assert surface_steps["RunReviewLoop"].step_id == lowered_steps["RunReviewLoop"]
+
+    assert bundle.surface.finalization is not None
+    final_step = bundle.surface.finalization.steps[0]
+    assert final_step.step_id == bundle.legacy_workflow["finally"]["steps"][0]["step_id"]

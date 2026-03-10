@@ -3,6 +3,7 @@
 import re
 from copy import deepcopy
 from pathlib import Path
+from types import MappingProxyType
 from typing import Any, Dict, List, Optional, Set
 import yaml
 
@@ -15,7 +16,9 @@ from orchestrator.providers import (
     ProviderTemplate,
 )
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
+from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, attach_legacy_workflow_metadata
 from orchestrator.workflow.lowering import (
     lower_finalization_block,
     lower_repeat_until_bodies,
@@ -97,7 +100,11 @@ class WorkflowLoader:
         self._current_workflow_is_imported = False
 
     def load(self, workflow_path: Path) -> Dict[str, Any]:
-        """Load and validate workflow YAML."""
+        """Load and validate workflow YAML through the legacy dict compatibility path."""
+        return self.load_bundle(workflow_path).legacy_workflow
+
+    def load_bundle(self, workflow_path: Path) -> LoadedWorkflowBundle:
+        """Load and validate workflow YAML into the typed surface bundle."""
         self.errors = []
         self._workflow_input_specs = {}
         self._current_imports = {}
@@ -112,7 +119,7 @@ class WorkflowLoader:
         workflow_path: Path,
         *,
         expected_version: Optional[str] = None,
-    ) -> Dict[str, Any]:
+    ) -> LoadedWorkflowBundle:
         """Load and validate one workflow file without clearing accumulated errors."""
         resolved_workflow_path = workflow_path.resolve()
         if resolved_workflow_path in self._load_stack:
@@ -149,6 +156,7 @@ class WorkflowLoader:
                 return {}
 
             assert isinstance(workflow, dict), "Type narrowing for workflow"
+            surface_source = deepcopy(workflow)
 
             version = workflow.get('version')
             if not version:
@@ -167,7 +175,11 @@ class WorkflowLoader:
                 )
 
             self._validate_top_level(workflow, version)
-            imported_workflows = self._load_imports(workflow.get('imports'), version, resolved_workflow_path)
+            imported_bundles = self._load_imports(workflow.get('imports'), version, resolved_workflow_path)
+            imported_workflows = {
+                alias: bundle.legacy_workflow
+                for alias, bundle in imported_bundles.items()
+            }
             self._current_imports = imported_workflows
 
             steps = workflow.get('steps', [])
@@ -202,10 +214,12 @@ class WorkflowLoader:
 
             self._validate_goto_targets(workflow)
 
+            managed_write_root_inputs: List[str] = []
             if self._version_at_least(version, "2.5"):
                 if expected_version is not None:
                     managed_inputs, managed_errors = self._analyze_reusable_write_roots(workflow)
-                    workflow['__managed_write_root_inputs'] = sorted(managed_inputs)
+                    managed_write_root_inputs = sorted(managed_inputs)
+                    workflow['__managed_write_root_inputs'] = managed_write_root_inputs
                     for message in managed_errors:
                         self._add_error(message)
                 else:
@@ -222,7 +236,20 @@ class WorkflowLoader:
             workflow['__workflow_path'] = str(resolved_workflow_path)
             workflow['__source_root'] = str(resolved_workflow_path.parent)
             workflow['__imports'] = imported_workflows
-            return workflow
+            surface = elaborate_surface_workflow(
+                surface_source,
+                workflow_path=resolved_workflow_path,
+                imported_bundles=imported_bundles,
+                managed_write_root_inputs=tuple(managed_write_root_inputs),
+            )
+            bundle = LoadedWorkflowBundle(
+                surface=surface,
+                legacy_workflow=workflow,
+                imports=MappingProxyType(dict(imported_bundles)),
+                provenance=surface.provenance,
+            )
+            attach_legacy_workflow_metadata(workflow, bundle)
+            return bundle
         finally:
             self._load_stack.pop()
             self._workflow_input_specs = previous_input_specs
@@ -295,7 +322,7 @@ class WorkflowLoader:
         imports: Any,
         version: str,
         workflow_path: Path,
-    ) -> Dict[str, Dict[str, Any]]:
+    ) -> Dict[str, LoadedWorkflowBundle]:
         """Load imported workflows relative to the authored workflow file."""
         if imports is None:
             return {}
@@ -305,7 +332,7 @@ class WorkflowLoader:
         if not self._version_at_least(version, "2.5"):
             return {}
 
-        imported_workflows: Dict[str, Dict[str, Any]] = {}
+        imported_workflows: Dict[str, LoadedWorkflowBundle] = {}
         for alias, import_path in imports.items():
             context = f"imports.{alias}"
             if not isinstance(alias, str) or not alias.strip():
