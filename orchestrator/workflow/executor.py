@@ -305,6 +305,8 @@ class WorkflowExecutor:
         if legacy_workflow is None:
             raise TypeError(f"Unsupported workflow type for execution: {type(workflow).__name__}")
         self.workflow = legacy_workflow
+        self.projection = self.loaded_bundle.projection if self.loaded_bundle is not None else None
+        self.executable_ir = self.loaded_bundle.ir if self.loaded_bundle is not None else None
         self.workspace = workspace
         self.state_manager = state_manager
         self.debug = debug
@@ -363,11 +365,13 @@ class WorkflowExecutor:
             if isinstance(self.finalization, dict) and isinstance(self.finalization.get('steps'), list)
             else []
         )
+        self._step_node_ids: List[Optional[str]] = []
+        self.body_steps, self.finalization_steps, self._step_node_ids = self._ordered_top_level_steps()
         self.finalization_start_index = len(self.body_steps)
         self.steps = list(self.body_steps) + list(self.finalization_steps)
+        self._projection_index_by_presentation_name = self._build_projection_index_by_presentation_name()
         self.variables = self.workflow.get('variables', {})
         self.global_secrets = self.workflow.get('secrets', [])
-        self.projection = self.loaded_bundle.projection if self.loaded_bundle is not None else None
         self.resume_planner = ResumePlanner()
         self.finalization_controller = FinalizationController(
             finalization=self.finalization,
@@ -394,6 +398,12 @@ class WorkflowExecutor:
 
     def _step_id(self, step: Dict[str, Any], fallback_index: Optional[int] = None) -> str:
         """Return the durable identity for a top-level step."""
+        projection_entry = self._projection_entry_for_step(
+            step,
+            self.current_step if fallback_index is None else fallback_index,
+        )
+        if projection_entry is not None:
+            return projection_entry.step_id
         return runtime_step_id(step, self.current_step if fallback_index is None else fallback_index)
 
     def _step_identity(
@@ -407,14 +417,104 @@ class WorkflowExecutor:
     ) -> StepExecutionIdentity:
         """Build typed identity metadata for one step execution."""
         resolved_index = self.current_step if step_index is None else step_index
-        resolved_name = step_name or step.get("name", f"step_{resolved_index}")
-        resolved_step_id = step_id or self._step_id(step, resolved_index)
+        projection_entry = self._projection_entry_for_step(step, resolved_index)
+        if projection_entry is not None:
+            resolved_name = step_name or projection_entry.presentation_key
+            resolved_step_id = step_id or projection_entry.step_id
+            if isinstance(projection_entry.compatibility_index, int):
+                resolved_index = projection_entry.compatibility_index
+        else:
+            resolved_name = step_name or step.get("name", f"step_{resolved_index}")
+            resolved_step_id = step_id or self._step_id(step, resolved_index)
         return StepExecutionIdentity(
             name=resolved_name,
             step_id=resolved_step_id,
             step_index=resolved_index,
             visit_count=visit_count,
         )
+
+    def _ordered_top_level_steps(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Optional[str]]]:
+        """Return top-level body/finalization adapter steps ordered by projection when available."""
+        body_steps = self.workflow.get("steps", [])
+        if not isinstance(body_steps, list):
+            body_steps = []
+        finalization_steps = (
+            self.finalization.get("steps", [])
+            if isinstance(self.finalization, dict) and isinstance(self.finalization.get("steps"), list)
+            else []
+        )
+        if self.loaded_bundle is None or self.executable_ir is None:
+            step_node_ids = [
+                step.get("step_id") if isinstance(step, dict) and isinstance(step.get("step_id"), str) else None
+                for step in list(body_steps) + list(finalization_steps)
+            ]
+            return list(body_steps), list(finalization_steps), step_node_ids
+
+        steps_by_node_id: Dict[str, Dict[str, Any]] = {}
+        for step in list(body_steps) + list(finalization_steps):
+            if isinstance(step, dict) and isinstance(step.get("step_id"), str):
+                steps_by_node_id[step["step_id"]] = step
+
+        ordered_body_steps = self._ordered_projection_steps(
+            steps_by_node_id,
+            self.executable_ir.body_region,
+            region_name="body",
+        )
+        ordered_finalization_steps = self._ordered_projection_steps(
+            steps_by_node_id,
+            self.executable_ir.finalization_region,
+            region_name="finalization",
+        )
+        ordered_node_ids = list(self.executable_ir.body_region) + list(self.executable_ir.finalization_region)
+        return ordered_body_steps, ordered_finalization_steps, ordered_node_ids
+
+    @staticmethod
+    def _ordered_projection_steps(
+        steps_by_node_id: Dict[str, Dict[str, Any]],
+        node_ids: tuple[str, ...],
+        *,
+        region_name: str,
+    ) -> List[Dict[str, Any]]:
+        """Materialize legacy adapter steps in executable-node order."""
+        ordered_steps: List[Dict[str, Any]] = []
+        for node_id in node_ids:
+            step = steps_by_node_id.get(node_id)
+            if step is None:
+                raise ValueError(
+                    f"Legacy workflow adapter is missing {region_name} step for typed node '{node_id}'"
+                )
+            ordered_steps.append(step)
+        return ordered_steps
+
+    def _projection_entry_for_step(
+        self,
+        step: Dict[str, Any],
+        step_index: Optional[int] = None,
+    ) -> Optional[Any]:
+        """Return projection metadata for one top-level step when a bundle is present."""
+        if self.projection is None:
+            return None
+
+        node_id = None
+        if isinstance(step_index, int) and 0 <= step_index < len(self._step_node_ids):
+            node_id = self._step_node_ids[step_index]
+        if not isinstance(node_id, str):
+            candidate_step_id = step.get("step_id")
+            if isinstance(candidate_step_id, str):
+                node_id = candidate_step_id
+        if not isinstance(node_id, str):
+            return None
+        return self.projection.entries_by_node_id.get(node_id)
+
+    def _build_projection_index_by_presentation_name(self) -> Dict[str, int]:
+        """Index projection presentation keys to top-level compatibility indices."""
+        if self.projection is None:
+            return {}
+        return {
+            entry.presentation_key: entry.compatibility_index
+            for entry in self.projection.entries_by_node_id.values()
+            if isinstance(entry.compatibility_index, int)
+        }
 
     def _runtime_context(
         self,
@@ -1855,6 +1955,10 @@ class WorkflowExecutor:
         """
         if target == '_end':
             return '_end'
+
+        projected_index = self._projection_index_by_presentation_name.get(target)
+        if isinstance(projected_index, int):
+            return projected_index
 
         # Find step index by name
         for i, step in enumerate(self.steps):

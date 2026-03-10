@@ -21,6 +21,11 @@ def _load_workflow(workspace: Path, workflow: dict) -> dict:
     return WorkflowLoader(workspace).load(workflow_path)
 
 
+def _load_workflow_bundle(workspace: Path, workflow: dict):
+    workflow_path = _write_workflow(workspace, workflow)
+    return WorkflowLoader(workspace).load_bundle(workflow_path)
+
+
 def _persisted_state(workspace: Path, run_id: str) -> dict:
     state_file = workspace / ".orchestrate" / "runs" / run_id / "state.json"
     return json.loads(state_file.read_text(encoding="utf-8"))
@@ -420,3 +425,115 @@ def test_executor_on_error_continue_routes_through_later_top_level_step_and_fini
     assert persisted["status"] == "completed"
     assert persisted.get("current_step") is None
     assert persisted["step_visits"] == {"FailFirst": 1, "RunSecond": 1}
+
+
+def test_executor_uses_projection_order_and_presentation_names_over_legacy_adapter_drift(
+    tmp_path: Path,
+):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-order",
+        "steps": [
+            {
+                "name": "WriteOne",
+                "id": "write_one",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'one\\n' >> state/history.log",
+                ],
+            },
+            {
+                "name": "WriteTwo",
+                "id": "write_two",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'two\\n' >> state/history.log",
+                ],
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    legacy_steps = bundle.legacy_workflow["steps"]
+    legacy_steps[0]["name"] = "LegacyWriteOne"
+    legacy_steps[1]["name"] = "LegacyWriteTwo"
+    bundle.legacy_workflow["steps"] = [legacy_steps[1], legacy_steps[0]]
+
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-order")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-order")
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "history.log").read_text(encoding="utf-8").splitlines() == [
+        "one",
+        "two",
+    ]
+    assert "WriteOne" in state["steps"]
+    assert "WriteTwo" in state["steps"]
+    assert "LegacyWriteOne" not in state["steps"]
+    assert "LegacyWriteTwo" not in state["steps"]
+    assert persisted["step_visits"] == {"WriteOne": 1, "WriteTwo": 1}
+
+
+def test_executor_resolves_goto_against_projection_when_legacy_target_name_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-goto",
+        "steps": [
+            {
+                "name": "Start",
+                "id": "start",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'start\\n' >> state/history.log",
+                ],
+                "on": {
+                    "success": {
+                        "goto": "Final",
+                    }
+                },
+            },
+            {
+                "name": "Skipped",
+                "id": "skipped",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'skipped\\n' >> state/history.log",
+                ],
+            },
+            {
+                "name": "Final",
+                "id": "final",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'final\\n' >> state/history.log",
+                ],
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    bundle.legacy_workflow["steps"][2]["name"] = "LegacyFinal"
+
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-goto")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-goto")
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "history.log").read_text(encoding="utf-8").splitlines() == [
+        "start",
+        "final",
+    ]
+    assert "Final" in state["steps"]
+    assert "LegacyFinal" not in state["steps"]
+    assert "Skipped" not in state["steps"]
+    assert persisted["step_visits"] == {"Start": 1, "Final": 1}
