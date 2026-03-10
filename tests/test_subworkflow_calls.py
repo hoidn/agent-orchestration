@@ -297,6 +297,48 @@ def test_call_executes_from_loaded_bundle_without_legacy_import_magic(tmp_path: 
     assert final_state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
 
 
+def test_call_uses_typed_import_contracts_when_legacy_specs_are_missing(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _library_workflow(),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+                "with": {
+                    "max_cycles": 3,
+                    "write_root": "state/review-loop",
+                },
+            },
+        ),
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    imported_bundle = bundle.imports["review_loop"]
+    imported_bundle.legacy_workflow.pop("inputs", None)
+    imported_bundle.legacy_workflow.pop("outputs", None)
+
+    state_manager = StateManager(tmp_path, run_id="bundle-call-typed-contracts")
+    state_manager.initialize("workflow.yaml", context=bundle.legacy_workflow.get("context", {}))
+    final_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = state_manager.load().to_dict()
+
+    assert final_state["status"] == "completed"
+    assert final_state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
+
+    frame = next(iter(persisted["call_frames"].values()))
+    assert frame["bound_inputs"] == {
+        "max_cycles": 3,
+        "write_root": "state/review-loop",
+    }
+    assert frame["export_status"] == "completed"
+    assert frame["state"]["workflow_outputs"] == {"approved": True}
+
+
 def test_import_path_rejects_source_tree_escape(tmp_path: Path):
     caller_path = _write_yaml(
         tmp_path / "workflow.yaml",

@@ -7,9 +7,10 @@ from typing import Any, Dict, Mapping, Optional
 
 from ..contracts.output_contract import OutputContractError, validate_contract_value
 from .loaded_bundle import (
+    workflow_input_contracts,
     workflow_import_bundle,
-    workflow_legacy_dict,
     workflow_managed_write_root_inputs,
+    workflow_output_contracts,
     workflow_provenance,
 )
 from .predicates import PredicateEvaluationError
@@ -57,7 +58,7 @@ class CallExecutor:
     def resolve_bound_inputs(
         self,
         step: Dict[str, Any],
-        imported_workflow: Dict[str, Any],
+        imported_workflow: Any,
         state: Dict[str, Any],
         *,
         scope: Optional[Dict[str, Dict[str, Any]]] = None,
@@ -76,13 +77,11 @@ class CallExecutor:
                 },
             )
 
-        input_specs = imported_workflow.get("inputs", {})
-        if not isinstance(input_specs, dict):
-            input_specs = {}
+        input_specs = workflow_input_contracts(imported_workflow)
 
         bound_inputs: Dict[str, Any] = {}
         for input_name, input_spec in input_specs.items():
-            if not isinstance(input_spec, dict):
+            if not isinstance(input_spec, Mapping):
                 continue
 
             if input_name in bindings:
@@ -222,7 +221,7 @@ class CallExecutor:
         *,
         frame_id: str,
         step: Dict[str, Any],
-        imported_workflow: Dict[str, Any],
+        imported_workflow: Any,
         child_state: Dict[str, Any],
     ) -> Dict[str, Any]:
         """Build observability metadata for one executed call frame."""
@@ -239,15 +238,15 @@ class CallExecutor:
         nested_frames = list(call_frames.keys()) if isinstance(call_frames, dict) else []
         finalization = child_state.get("finalization", {})
         exports: Dict[str, Any] = {}
-        output_specs = imported_workflow.get("outputs", {})
+        output_specs = workflow_output_contracts(imported_workflow)
         workflow_outputs = child_state.get("workflow_outputs", {})
-        if isinstance(output_specs, dict) and isinstance(workflow_outputs, dict):
+        if isinstance(workflow_outputs, dict):
             child_steps = child_state.get("steps", {}) if isinstance(child_state.get("steps"), dict) else {}
             for output_name, output_spec in output_specs.items():
-                if output_name not in workflow_outputs or not isinstance(output_spec, dict):
+                if output_name not in workflow_outputs or not isinstance(output_spec, Mapping):
                     continue
                 binding = output_spec.get("from")
-                ref = binding.get("ref") if isinstance(binding, dict) else None
+                ref = binding.get("ref") if isinstance(binding, Mapping) else None
                 export_entry: Dict[str, Any] = {"source_ref": ref}
                 if isinstance(ref, str) and ref.startswith("root.steps."):
                     step_name = ref[len("root.steps."):].split(".", 1)[0]
@@ -307,7 +306,7 @@ class CallExecutor:
         step_name: str,
         call_alias: Any,
         frame_id: str,
-        imported_workflow: Dict[str, Any],
+        imported_workflow: Any,
         existing_frame: Optional[Dict[str, Any]],
     ) -> Optional[Dict[str, Any]]:
         """Reject resumed call frames when the imported workflow checksum changed."""
@@ -389,11 +388,10 @@ class CallExecutor:
 
         call_alias = step.get("call")
         imported_bundle = workflow_import_bundle(self.executor.loaded_bundle or self.executor.workflow, call_alias)
-        imported_workflow = workflow_legacy_dict(imported_bundle)
-        imported_target = imported_bundle or imported_workflow
+        imported_target = imported_bundle
         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
         step_id = runtime_step_id or self.executor._step_id(step)
-        if imported_workflow is None:
+        if imported_target is None:
             return self.executor._contract_violation_result(
                 "Call execution failed",
                 {
@@ -405,7 +403,7 @@ class CallExecutor:
 
         bound_inputs, binding_error = self.resolve_bound_inputs(
             step,
-            imported_workflow,
+            imported_target,
             state,
             scope=scope,
             step_name_override=step_name,
@@ -440,7 +438,7 @@ class CallExecutor:
             step_name=step_name,
             call_alias=call_alias,
             frame_id=frame_id,
-            imported_workflow=imported_workflow,
+            imported_workflow=imported_target,
             existing_frame=existing_frame if isinstance(existing_frame, dict) else None,
         )
         if checksum_error is not None:
@@ -448,7 +446,7 @@ class CallExecutor:
 
         child_state_manager = _CallFrameStateManager(
             parent_manager=self.executor.state_manager,
-            workflow=imported_workflow,
+            workflow=imported_target,
             frame_id=frame_id,
             call_step_name=step_name,
             call_step_id=step_id,
@@ -474,7 +472,7 @@ class CallExecutor:
         debug_payload = self.build_debug_payload(
             frame_id=frame_id,
             step=step,
-            imported_workflow=imported_workflow,
+            imported_workflow=imported_target,
             child_state=child_state,
         )
         if child_state.get("status") != "completed":

@@ -59,6 +59,56 @@ def workflow_legacy_dict(workflow_or_bundle: Any) -> Optional[Dict[str, Any]]:
     return None
 
 
+def workflow_context(workflow_or_bundle: Any) -> Mapping[str, Any]:
+    """Return workflow context values from typed or legacy workflow metadata."""
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        context = bundle.surface.raw.get("context")
+        if isinstance(context, Mapping):
+            return context
+        return MappingProxyType({})
+    workflow_dict = workflow_legacy_dict(workflow_or_bundle)
+    if isinstance(workflow_dict, dict):
+        context = workflow_dict.get("context")
+        if isinstance(context, Mapping):
+            return context
+    return MappingProxyType({})
+
+
+def workflow_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
+    """Return workflow input contracts from typed or legacy workflow metadata."""
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        return MappingProxyType({
+            name: contract.raw
+            for name, contract in bundle.surface.inputs.items()
+            if isinstance(name, str) and isinstance(contract.raw, Mapping)
+        })
+    workflow_dict = workflow_legacy_dict(workflow_or_bundle)
+    if isinstance(workflow_dict, dict):
+        inputs = workflow_dict.get("inputs")
+        if isinstance(inputs, Mapping):
+            return inputs
+    return MappingProxyType({})
+
+
+def workflow_output_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
+    """Return workflow output contracts from typed or legacy workflow metadata."""
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        return MappingProxyType({
+            name: contract.raw
+            for name, contract in bundle.surface.outputs.items()
+            if isinstance(name, str) and isinstance(contract.raw, Mapping)
+        })
+    workflow_dict = workflow_legacy_dict(workflow_or_bundle)
+    if isinstance(workflow_dict, dict):
+        outputs = workflow_dict.get("outputs")
+        if isinstance(outputs, Mapping):
+            return outputs
+    return MappingProxyType({})
+
+
 def workflow_provenance(workflow_or_bundle: Any) -> Optional[WorkflowProvenance]:
     """Return typed workflow provenance for either a bundle or legacy workflow dict."""
     bundle = workflow_bundle(workflow_or_bundle)

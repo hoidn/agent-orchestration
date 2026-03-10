@@ -56,7 +56,13 @@ from .executable_ir import (
 )
 from .finalization import FinalizationController
 from .identity import iteration_step_id, runtime_step_id
-from .loaded_bundle import workflow_bundle, workflow_legacy_dict, workflow_provenance
+from .loaded_bundle import (
+    workflow_bundle,
+    workflow_context,
+    workflow_legacy_dict,
+    workflow_output_contracts,
+    workflow_provenance,
+)
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
 from .predicates import (
@@ -112,7 +118,7 @@ class _CallFrameStateManager:
         self,
         *,
         parent_manager: StateManager,
-        workflow: Dict[str, Any],
+        workflow: Any,
         frame_id: str,
         call_step_name: str,
         call_step_id: str,
@@ -154,7 +160,7 @@ class _CallFrameStateManager:
                 updated_at=now,
                 status="running",
                 run_root=str(self.run_root),
-                context=workflow.get("context", {}),
+                context=dict(workflow_context(workflow)),
                 bound_inputs=dict(bound_inputs),
                 observability=observability,
             )
@@ -165,7 +171,7 @@ class _CallFrameStateManager:
         finalization = self.state.finalization if isinstance(self.state.finalization, dict) else {}
         body_status = finalization.get("body_status")
         finalization_status = finalization.get("status", "not_configured") if finalization else "not_configured"
-        has_outputs = isinstance(self.workflow.get("outputs"), dict) and bool(self.workflow.get("outputs"))
+        has_outputs = bool(workflow_output_contracts(self.workflow))
         if finalization:
             export_status = finalization.get(
                 "workflow_outputs_status",
