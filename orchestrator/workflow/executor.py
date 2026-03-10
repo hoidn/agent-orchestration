@@ -521,8 +521,6 @@ class WorkflowExecutor:
         retained_spool_path: Optional[str] = None
         if retain_transport_spool and spool_path is not None and spool_path.exists():
             retained_spool_path = str(spool_path)
-        elif spool_path is not None and spool_path.exists():
-            spool_path.unlink()
 
         self._update_active_provider_session_metadata(
             step_name,
@@ -535,6 +533,8 @@ class WorkflowExecutor:
             captured_transport_bytes=captured_transport_bytes,
             transport_spool_path=retained_spool_path,
         )
+        if not retain_transport_spool and spool_path is not None and spool_path.exists():
+            spool_path.unlink()
         self._active_provider_sessions.pop(step_name, None)
 
     def _quarantine_provider_session_resume_guard(
@@ -559,6 +559,7 @@ class WorkflowExecutor:
             "mode": guard.get("mode"),
             "step_status": "interrupted",
             "publication_state": "quarantined_interrupted_visit",
+            "metadata_synthesized": metadata_synthesized,
             "captured_transport_bytes": transport_spool_path.stat().st_size if transport_spool_path.exists() else 0,
             "transport_spool_path": str(transport_spool_path),
         }
@@ -2117,7 +2118,6 @@ class WorkflowExecutor:
             if isinstance(provider_debug, dict):
                 provider_debug.setdefault("mode", provider_session.get("mode"))
                 provider_debug.setdefault("metadata_path", session_info.get("metadata_path"))
-                provider_debug.setdefault("transport_spool_path", session_info.get("transport_spool_path"))
                 provider_debug.setdefault("session_id", None)
                 publication_state = (
                     "published"
@@ -2128,6 +2128,11 @@ class WorkflowExecutor:
                     else "suppressed_failure"
                 )
                 provider_debug["publication_state"] = publication_state
+                provider_debug["transport_spool_path"] = (
+                    session_info.get("transport_spool_path")
+                    if self.debug or finalized.get("exit_code", 0) != 0
+                    else None
+                )
         state.setdefault("steps", {})[step_name] = finalized
 
         artifact_versions = state.get("artifact_versions", {})

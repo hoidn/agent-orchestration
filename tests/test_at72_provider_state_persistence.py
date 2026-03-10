@@ -418,6 +418,7 @@ class TestProviderStatePersistence:
             "implementation_session_id": "sess-123"
         }
         assert provider_debug["publication_state"] == "published"
+        assert provider_debug["transport_spool_path"] is None
         assert metadata["step_status"] == "completed"
         assert metadata["publication_state"] == "published"
         assert metadata["session_id"] == "sess-123"
@@ -497,3 +498,73 @@ class TestProviderStatePersistence:
         assert metadata["publication_state"] == "published"
         assert transport_spool_path.exists()
         assert transport_spool_path.read_text(encoding="utf-8")
+
+    def test_provider_session_updates_metadata_before_deleting_success_spool(self):
+        """Successful non-debug finalization updates metadata before deleting the spool."""
+        session_script = "\n".join(
+            [
+                "python - <<'PY'",
+                "print('{\"type\":\"session.started\",\"session_id\":\"sess-123\"}')",
+                "print('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"hello\"}')",
+                "print('{\"type\":\"response.completed\",\"session_id\":\"sess-123\"}')",
+                "PY",
+            ]
+        )
+        workflow_data = {
+            "version": "2.10",
+            "providers": {
+                "codex_session": {
+                    "command": ["bash", "-lc", session_script],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["bash", "-lc", session_script],
+                        "resume_command": ["bash", "-lc", session_script + " # ${SESSION_ID}"],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [
+                {
+                    "name": "AskProvider",
+                    "provider": "codex_session",
+                    "provider_session": {
+                        "mode": "fresh",
+                        "publish_artifact": "implementation_session_id",
+                    },
+                }
+            ],
+        }
+
+        workflow_file = self.test_workspace / "provider_session_ordering_workflow.yaml"
+        with open(workflow_file, 'w') as f:
+            import yaml
+            yaml.dump(workflow_data, f)
+
+        workflow = WorkflowLoader(self.test_workspace).load(workflow_file)
+        state_manager = StateManager(workspace=self.test_workspace, run_id="test-run")
+        state_manager.initialize(str(workflow_file))
+
+        observed = {"spool_exists_during_finalize_update": None}
+        original_update = state_manager.update_provider_session_metadata
+
+        def recording_update(metadata_path, updates):
+            if updates.get("step_status") == "completed" and updates.get("transport_spool_path") is None:
+                observed["spool_exists_during_finalize_update"] = Path(metadata_path).with_suffix(
+                    ".transport.log"
+                ).exists()
+            return original_update(metadata_path, updates)
+
+        with patch.object(state_manager, "update_provider_session_metadata", side_effect=recording_update):
+            WorkflowExecutor(
+                workflow=workflow,
+                workspace=self.test_workspace,
+                state_manager=state_manager,
+            ).execute()
+
+        assert observed["spool_exists_during_finalize_update"] is True

@@ -2383,6 +2383,7 @@ steps:
     assert error["context"]["metadata_synthesized"] is True
     assert metadata["step_status"] == "interrupted"
     assert metadata["publication_state"] == "quarantined_interrupted_visit"
+    assert metadata["metadata_synthesized"] is True
     assert transport_spool_path.exists()
 
     captured = capsys.readouterr()
@@ -2520,6 +2521,7 @@ def test_resume_quarantines_live_provider_session_with_retained_partial_spool(te
     assert metadata["step_status"] == "interrupted"
     assert metadata["publication_state"] == "quarantined_interrupted_visit"
     assert metadata["captured_transport_bytes"] > 0
+    assert metadata["metadata_synthesized"] is False
 
     captured = capsys.readouterr()
     assert "interrupted provider-session visit was quarantined" in captured.err
