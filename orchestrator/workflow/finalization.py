@@ -17,6 +17,7 @@ class FinalizationController:
         finalization: Optional[Dict[str, Any]],
         finalization_steps: List[Dict[str, Any]],
         finalization_start_index: int,
+        finalization_step_count: Optional[int] = None,
         finalization_node_ids: Optional[List[str]] = None,
         finalization_entry_node_id: Optional[str] = None,
         projection: Optional[WorkflowStateProjection] = None,
@@ -29,6 +30,11 @@ class FinalizationController:
         self.finalization_start_index = finalization_start_index
         self.finalization_node_ids = tuple(
             node_id for node_id in (finalization_node_ids or []) if isinstance(node_id, str)
+        )
+        self.finalization_step_count = (
+            finalization_step_count
+            if isinstance(finalization_step_count, int)
+            else len(self.finalization_node_ids) or len(self.finalization_steps)
         )
         self.finalization_node_id_set = set(self.finalization_node_ids)
         self.finalization_entry_node_id = finalization_entry_node_id
@@ -75,7 +81,7 @@ class FinalizationController:
 
     def initial_state(self) -> Optional[Dict[str, Any]]:
         """Return durable finalization bookkeeping for workflows with cleanup."""
-        if not self.finalization_steps:
+        if self.finalization_step_count <= 0:
             return None
         output_status = "pending" if self.has_workflow_outputs else "not_configured"
         return {
@@ -90,7 +96,7 @@ class FinalizationController:
 
     def ensure_state(self, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """Ensure run state contains the finalization bookkeeping structure."""
-        if not self.finalization_steps:
+        if self.finalization_step_count <= 0:
             return None
         finalization = state.get("finalization")
         if not isinstance(finalization, dict):
@@ -158,7 +164,7 @@ class FinalizationController:
                 "step_id": result.get("step_id") if isinstance(result, dict) else None,
                 "error": error,
             }
-        elif len(completed_indices) == len(self.finalization_steps):
+        elif len(completed_indices) == self.finalization_step_count:
             finalization["status"] = "completed"
             finalization.pop("failure", None)
         else:
@@ -210,7 +216,7 @@ class FinalizationController:
             return RoutingDecision(terminal_status=terminal_status, should_break=False)
         if next_step == "_stop":
             terminal_status = "failed"
-        if self.finalization_steps and not self.is_finalization_step(
+        if self.finalization_step_count > 0 and not self.is_finalization_step(
             step_index=step_index,
             step_node_id=step_node_id,
         ):
@@ -238,7 +244,7 @@ class FinalizationController:
         if isinstance(step_node_id, str) and self.finalization_node_id_set:
             return step_node_id in self.finalization_node_id_set
         return (
-            bool(self.finalization_steps)
+            self.finalization_step_count > 0
             and isinstance(step_index, int)
             and step_index >= self.finalization_start_index
         )

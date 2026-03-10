@@ -418,30 +418,36 @@ class WorkflowExecutor:
 
         # Execution state
         self.current_step = 0
-        self.body_steps = self.workflow.get('steps', [])
         self.finalization = self.workflow.get('finally') if isinstance(self.workflow.get('finally'), dict) else None
-        self.finalization_steps = (
-            self.finalization.get('steps', [])
-            if isinstance(self.finalization, dict) and isinstance(self.finalization.get('steps'), list)
-            else []
-        )
-        self._step_node_ids: List[Optional[str]] = []
-        self.body_steps, self.finalization_steps, self._step_node_ids = self._ordered_top_level_steps()
-        self.finalization_start_index = len(self.body_steps)
-        self.steps = list(self.body_steps) + list(self.finalization_steps)
         self._use_ir_topology = (
             self.loaded_bundle is not None and self.executable_ir is not None and self.projection is not None
         )
-        self._step_by_node_id = {
-            node_id: step
-            for node_id, step in zip(self._step_node_ids, self.steps)
-            if isinstance(node_id, str) and isinstance(step, dict)
-        }
+        self._step_node_ids: List[Optional[str]] = []
+        if self._use_ir_topology and self.executable_ir is not None:
+            self.body_steps = []
+            self.finalization_steps = []
+            self._step_node_ids = list(self.executable_ir.body_region) + list(
+                self.executable_ir.finalization_region
+            )
+            self.finalization_start_index = len(self.executable_ir.body_region)
+            self.steps = []
+        else:
+            self.body_steps = self.workflow.get('steps', [])
+            self.finalization_steps = (
+                self.finalization.get('steps', [])
+                if isinstance(self.finalization, dict) and isinstance(self.finalization.get('steps'), list)
+                else []
+            )
+            self.body_steps, self.finalization_steps, self._step_node_ids = self._ordered_top_level_steps()
+            self.finalization_start_index = len(self.body_steps)
+            self.steps = list(self.body_steps) + list(self.finalization_steps)
+        self._step_by_node_id: Dict[str, Dict[str, Any]] = {}
         self._execution_index_by_node_id = {
             node_id: index
             for index, node_id in enumerate(self._step_node_ids)
             if isinstance(node_id, str)
         }
+        self._top_level_step_count = len(self._step_node_ids)
         self._projection_index_by_presentation_name = self._build_projection_index_by_presentation_name()
         self.variables = self.workflow.get('variables', {})
         self.global_secrets = self.workflow.get('secrets', [])
@@ -450,6 +456,11 @@ class WorkflowExecutor:
             finalization=self.finalization,
             finalization_steps=self.finalization_steps,
             finalization_start_index=self.finalization_start_index,
+            finalization_step_count=(
+                len(self.executable_ir.finalization_region)
+                if self.executable_ir is not None
+                else None
+            ),
             finalization_node_ids=list(self.executable_ir.finalization_region) if self.executable_ir is not None else [],
             finalization_entry_node_id=(
                 self.executable_ir.finalization_entry_node_id if self.executable_ir is not None else None
@@ -659,6 +670,15 @@ class WorkflowExecutor:
     def _step_for_node_id(self, node_id: str) -> Dict[str, Any]:
         """Return the runtime step payload for one executable node id."""
         step = self._step_by_node_id.get(node_id)
+        if step is None and self.executable_ir is not None:
+            node = self.executable_ir.nodes.get(node_id)
+            if node is None:
+                raise ValueError(f"Typed workflow is missing executable node '{node_id}'")
+            step = self._materialize_projection_step(
+                node,
+                region_name=node.region.value,
+            )
+            self._step_by_node_id[node_id] = step
         if step is None:
             raise ValueError(f"Typed workflow is missing a top-level runtime step for node '{node_id}'")
         return step
@@ -674,7 +694,7 @@ class WorkflowExecutor:
                 if isinstance(entry.compatibility_index, int):
                     return entry.compatibility_index
                 if isinstance(entry.finalization_index, int):
-                    return len(self.body_steps) + entry.finalization_index
+                    return self.finalization_start_index + entry.finalization_index
         raise ValueError(f"Typed node '{node_id}' does not map to a top-level execution index")
 
     def _node_id_for_execution_index(self, step_index: int) -> Optional[str]:
@@ -1084,7 +1104,10 @@ class WorkflowExecutor:
                     and candidate.node_id.startswith(f"{marker.node_id}.")
                 ]
                 branch_steps.sort(
-                    key=lambda name: self._projection_index_by_presentation_name.get(name, len(self.steps))
+                    key=lambda name: self._projection_index_by_presentation_name.get(
+                        name,
+                        self._top_level_step_count,
+                    )
                 )
                 branches[marker.branch_name] = {
                     "marker": marker.presentation_name,
@@ -1119,7 +1142,10 @@ class WorkflowExecutor:
                     and candidate.node_id.startswith(f"{marker.node_id}.")
                 ]
                 case_steps.sort(
-                    key=lambda name: self._projection_index_by_presentation_name.get(name, len(self.steps))
+                    key=lambda name: self._projection_index_by_presentation_name.get(
+                        name,
+                        self._top_level_step_count,
+                    )
                 )
                 cases[marker.case_name] = {
                     "marker": marker.presentation_name,
@@ -1252,7 +1278,7 @@ class WorkflowExecutor:
         """Determine the top-level step index where resumed execution should restart."""
         return self.resume_planner.determine_restart_index(
             state,
-            self.steps,
+            None if self._use_ir_topology else self.steps,
             projection=self.projection,
         )
 
@@ -1260,7 +1286,7 @@ class WorkflowExecutor:
         """Determine the top-level executable node id where resumed execution should restart."""
         return self.resume_planner.determine_restart_node_id(
             state,
-            self.steps,
+            None if self._use_ir_topology else self.steps,
             projection=self.projection,
         )
 
@@ -1619,7 +1645,7 @@ class WorkflowExecutor:
         if resume:
             session_guard = self.resume_planner.detect_interrupted_provider_session_visit(
                 state,
-                self.steps,
+                None if self._use_ir_topology else self.steps,
                 projection=self.projection,
             )
             if session_guard is not None:

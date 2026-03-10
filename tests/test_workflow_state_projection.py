@@ -562,3 +562,62 @@ def test_resume_planner_quarantines_provider_session_visits_when_legacy_step_ord
         "provider": "codex_session",
         "mode": "fresh",
     }
+
+
+def test_resume_planner_uses_projection_without_runtime_steps_argument(tmp_path: Path):
+    workflow_path = _write_projection_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    planner = ResumePlanner()
+    restart_index = planner.determine_restart_index(
+        {
+            "steps": {},
+            "current_step": {
+                "name": "RouteReady",
+                "status": "running",
+                "step_id": "root.route_ready",
+            },
+        },
+        projection=bundle.projection,
+    )
+
+    assert restart_index == bundle.projection.compatibility_index_by_node_id["root.route_ready"]
+
+
+def test_resume_planner_quarantines_provider_session_visits_from_projection_without_runtime_steps(
+    tmp_path: Path,
+):
+    workflow_path = _write_provider_session_projection_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    planner = ResumePlanner()
+    guard = planner.detect_interrupted_provider_session_visit(
+        {
+            "steps": {
+                "StartImplementation": {
+                    "status": "completed",
+                    "step_id": "root.start_implementation",
+                    "visit_count": 1,
+                    "artifacts": {
+                        "implementation_session_id": "sess-old",
+                    },
+                }
+            },
+            "current_step": {
+                "index": 0,
+                "status": "running",
+                "step_id": "root.start_implementation",
+                "visit_count": 2,
+            },
+        },
+        projection=bundle.projection,
+    )
+
+    assert guard == {
+        "kind": "quarantine",
+        "step_name": "StartImplementation",
+        "step_id": "root.start_implementation",
+        "visit_count": 2,
+        "provider": "codex_session",
+        "mode": "fresh",
+    }

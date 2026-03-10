@@ -44,12 +44,12 @@ class ResumePlanner:
     def determine_restart_index(
         self,
         state: Dict[str, Any],
-        steps: List[Dict[str, Any]],
+        steps: Optional[List[Dict[str, Any]]] = None,
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[int]:
         """Determine the top-level step index where resumed execution should restart."""
         if projection is not None:
-            restart_node_id = self.determine_restart_node_id(state, steps, projection=projection)
+            restart_node_id = self.determine_restart_node_id(state, projection=projection)
             if not isinstance(restart_node_id, str):
                 return None
             entry = projection.entries_by_node_id.get(restart_node_id)
@@ -61,12 +61,12 @@ class ResumePlanner:
                 return len(projection.node_id_by_compatibility_index) + entry.finalization_index
             return None
 
-        return self._determine_restart_index_legacy(state, steps)
+        return self._determine_restart_index_legacy(state, steps or [])
 
     def determine_restart_node_id(
         self,
         state: Dict[str, Any],
-        steps: List[Dict[str, Any]],
+        steps: Optional[List[Dict[str, Any]]] = None,
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[str]:
         """Determine the top-level executable node id where resumed execution should restart."""
@@ -110,11 +110,12 @@ class ResumePlanner:
                     return node_id
             return None
 
-        restart_index = self._determine_restart_index_legacy(state, steps)
+        legacy_steps = steps or []
+        restart_index = self._determine_restart_index_legacy(state, legacy_steps)
         if not isinstance(restart_index, int):
             return None
-        if 0 <= restart_index < len(steps):
-            step = steps[restart_index]
+        if 0 <= restart_index < len(legacy_steps):
+            step = legacy_steps[restart_index]
             step_id = step.get("step_id")
             if isinstance(step_id, str) and step_id:
                 return step_id
@@ -224,31 +225,7 @@ class ResumePlanner:
         self,
         current_step: Dict[str, Any],
         steps: List[Dict[str, Any]],
-        projection: Optional[WorkflowStateProjection],
     ) -> Optional[Dict[str, Any]]:
-        if projection is not None:
-            step_id = current_step.get("step_id")
-            if isinstance(step_id, str) and step_id:
-                projected_index = projection.execution_index_for_step_id(step_id)
-                if isinstance(projected_index, int) and 0 <= projected_index < len(steps):
-                    candidate = steps[projected_index]
-                    if (
-                        isinstance(candidate, dict)
-                        and candidate.get("step_id") == step_id
-                    ):
-                        return candidate
-                for candidate in steps:
-                    if isinstance(candidate, dict) and candidate.get("step_id") == step_id:
-                        return candidate
-                raise ResumeStateIntegrityError(
-                    "Persisted current_step.step_id does not resolve to a matching runtime step payload.",
-                    context={
-                        "step_id": step_id,
-                        "field": "step_id",
-                        "expected": step_id,
-                        "actual": None,
-                    },
-                )
         current_index = current_step.get("index")
         if isinstance(current_index, int) and 0 <= current_index < len(steps):
             candidate = steps[current_index]
@@ -278,7 +255,7 @@ class ResumePlanner:
     def detect_interrupted_provider_session_visit(
         self,
         state: Dict[str, Any],
-        steps: List[Dict[str, Any]],
+        steps: Optional[List[Dict[str, Any]]] = None,
         projection: Optional[WorkflowStateProjection] = None,
     ) -> Optional[Dict[str, Any]]:
         """Detect whether resume must quarantine an interrupted provider-session visit."""
@@ -290,32 +267,51 @@ class ResumePlanner:
         if not isinstance(current_step, dict) or current_step.get("status") != "running":
             return None
 
-        try:
-            step = self._resolve_provider_session_step(current_step, steps, projection)
-        except ResumeStateIntegrityError as exc:
-            return self._projection_integrity_error(current_step, exc)
-        if not isinstance(step, dict):
-            return None
-
-        provider_session = step.get("provider_session")
-        if not isinstance(provider_session, dict):
-            return None
-
-        projected_current_step = None
-        try:
-            projected_current_step = self._projected_current_step(current_step, projection)
-        except ResumeStateIntegrityError as exc:
-            return self._projection_integrity_error(current_step, exc)
-
-        step_name = (
-            projected_current_step.presentation_key
-            if projected_current_step is not None
-            else current_step.get("name")
-        )
-        if not isinstance(step_name, str) or not step_name:
-            resolved_step_name = step.get("name")
-            if isinstance(resolved_step_name, str) and resolved_step_name:
-                step_name = resolved_step_name
+        step_name = current_step.get("name")
+        provider = None
+        mode = None
+        if projection is not None:
+            projected_current_step = None
+            projection_entry = None
+            step_id = current_step.get("step_id")
+            if isinstance(step_id, str) and step_id:
+                projection_entry = projection.entry_for_step_id(step_id)
+            if projection_entry is None:
+                current_index = current_step.get("index")
+                current_status = current_step.get("status")
+                if isinstance(current_index, int) and current_status == "running":
+                    node_id = projection.node_id_for_execution_index(current_index)
+                    if isinstance(node_id, str):
+                        projection_entry = projection.entries_by_node_id.get(node_id)
+            if projection_entry is None:
+                return None
+            step_definition = projection_entry.step_definition
+            if not step_definition.provider_session_enabled:
+                return None
+            try:
+                projected_current_step = self._projected_current_step(current_step, projection)
+            except ResumeStateIntegrityError as exc:
+                return self._projection_integrity_error(current_step, exc)
+            step_name = (
+                projected_current_step.presentation_key
+                if projected_current_step is not None
+                else projection_entry.presentation_key
+            )
+            provider = step_definition.provider
+            mode = step_definition.provider_session_mode
+        else:
+            step = self._resolve_provider_session_step(current_step, steps or [])
+            if not isinstance(step, dict):
+                return None
+            provider_session = step.get("provider_session")
+            if not isinstance(provider_session, dict):
+                return None
+            if not isinstance(step_name, str) or not step_name:
+                resolved_step_name = step.get("name")
+                if isinstance(resolved_step_name, str) and resolved_step_name:
+                    step_name = resolved_step_name
+            provider = step.get("provider")
+            mode = provider_session.get("mode")
 
         step_id = current_step.get("step_id")
         visit_count = current_step.get("visit_count")
@@ -359,8 +355,8 @@ class ResumePlanner:
             "step_name": step_name,
             "step_id": step_id,
             "visit_count": visit_count,
-            "provider": step.get("provider"),
-            "mode": provider_session.get("mode"),
+            "provider": provider,
+            "mode": mode,
         }
 
     def for_each_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:

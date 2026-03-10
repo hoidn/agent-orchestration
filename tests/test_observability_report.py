@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from types import MappingProxyType
 
 import yaml
 
@@ -473,6 +474,92 @@ def test_snapshot_uses_ir_node_metadata_when_bundle_legacy_steps_are_missing(tmp
         bundle.projection.presentation_key_by_node_id[node_id]
         for node_id in bundle.ir.body_region + bundle.ir.finalization_region
     ]
+    steps = {step["name"]: step for step in snapshot["steps"]}
+    assert steps["GenerateReport"]["input"]["command"] == ["bash", "-lc", "echo report"]
+    assert steps["GenerateReport"]["consumes"] == [{"artifact": "plan_doc", "as": "plan"}]
+    assert steps["GenerateReport"]["expected_outputs"] == [
+        {
+            "name": "report_path",
+            "path": "state/report_path.txt",
+            "type": "string",
+        }
+    ]
+    assert steps["finally.Cleanup"]["kind"] == "finally"
+
+
+def test_snapshot_uses_projection_metadata_when_bundle_ir_raw_and_legacy_steps_are_missing(
+    tmp_path: Path,
+):
+    run_root = tmp_path / ".orchestrate" / "runs" / "bundle-projection-metadata"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.10",
+                "name": "bundle-projection-metadata",
+                "steps": [
+                    {
+                        "name": "GenerateReport",
+                        "id": "generate_report",
+                        "command": ["bash", "-lc", "echo report"],
+                        "consumes": [{"artifact": "plan_doc", "as": "plan"}],
+                        "expected_outputs": [
+                            {
+                                "name": "report_path",
+                                "path": "state/report_path.txt",
+                                "type": "string",
+                            }
+                        ],
+                    }
+                ],
+                "finally": {
+                    "id": "cleanup",
+                    "steps": [
+                        {
+                            "name": "Cleanup",
+                            "id": "cleanup_step",
+                            "command": ["bash", "-lc", "echo cleanup"],
+                        }
+                    ],
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle.legacy_workflow["steps"] = []
+    bundle.legacy_workflow["finally"]["steps"] = []
+    mutated_nodes = {
+        node_id: replace(node, raw=MappingProxyType({}))
+        for node_id, node in bundle.ir.nodes.items()
+    }
+    mutated_bundle = replace(
+        bundle,
+        ir=replace(bundle.ir, nodes=MappingProxyType(mutated_nodes)),
+    )
+
+    snapshot = build_status_snapshot(
+        mutated_bundle,
+        {
+            "run_id": "bundle-projection-metadata",
+            "status": "running",
+            "started_at": "2026-03-10T00:00:00+00:00",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "workflow_file": str(workflow_path),
+            "steps": {
+                "GenerateReport": {
+                    "status": "completed",
+                    "step_id": "root.generate_report",
+                    "exit_code": 0,
+                }
+            },
+        },
+        run_root,
+    )
+
     steps = {step["name"]: step for step in snapshot["steps"]}
     assert steps["GenerateReport"]["input"]["command"] == ["bash", "-lc", "echo report"]
     assert steps["GenerateReport"]["consumes"] == [{"artifact": "plan_doc", "as": "plan"}]

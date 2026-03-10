@@ -221,87 +221,150 @@ def build_status_snapshot(
     run_log_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
     """Build a deterministic status snapshot from workflow + state artifacts."""
-    ordered_steps, workflow_dict = _ordered_step_entries(workflow)
     bundle = workflow_bundle(workflow)
+    ordered_steps, workflow_dict = _ordered_step_entries(workflow)
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
     current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
     current_step_name = _resolved_current_step_name(workflow, current_step)
 
     step_entries = []
-    for idx, (step, node_id) in enumerate(ordered_steps):
-        typed_node = bundle.ir.nodes[node_id] if bundle is not None and isinstance(node_id, str) else None
-        name = (
-            bundle.projection.presentation_key_by_node_id.get(node_id, _step_name(step, idx))
-            if bundle is not None and isinstance(node_id, str)
-            else _step_name(step, idx)
-        )
-        result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
-        prompt_text = _read_prompt_audit(run_root, name)
-        is_current_step = current_step_name == name
-        node_kind = typed_node.kind if typed_node is not None else None
+    if bundle is None:
+        for idx, (step, _node_id) in enumerate(ordered_steps):
+            name = _step_name(step, idx)
+            result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
+            prompt_text = _read_prompt_audit(run_root, name)
+            is_current_step = current_step_name == name
 
-        status = _coerce_step_status(result) or "pending"
-        if is_current_step:
-            status = "running"
-        if status == "pending" and prompt_text:
-            status = "running"
+            status = _coerce_step_status(result) or "pending"
+            if is_current_step:
+                status = "running"
+            if status == "pending" and prompt_text:
+                status = "running"
 
-        entry = {
-            "name": name,
-            "step_id": (
-                result.get("step_id")
-                if isinstance(result, dict)
-                else typed_node.step_id if typed_node is not None else step.get("step_id")
-            ),
-            "kind": _step_kind(step, node_kind=node_kind) if bundle is None or node_kind is not None else "unknown",
-            "status": status,
-            "consumes": _report_compatible_value(step.get("consumes", [])),
-            "expected_outputs": _report_compatible_value(step.get("expected_outputs", [])),
-            "visit_count": step_visits.get(name),
-            "current_visit_count": current_step.get("visit_count") if is_current_step else None,
-            "last_result_visit_count": result.get("visit_count") if isinstance(result, dict) else None,
-            "max_visits": step.get("max_visits"),
-            "input": {},
-            "output": {},
-        }
-
-        if "provider" in step:
-            entry["input"]["provider"] = step.get("provider")
-            if prompt_text is not None:
-                entry["input"]["prompt"] = prompt_text
-        if "command" in step:
-            entry["input"]["command"] = _report_compatible_value(step.get("command"))
-
-        if isinstance(result, dict) and result:
-            entry["output"] = {
-                "exit_code": result.get("exit_code"),
-                "duration_ms": result.get("duration_ms"),
-                "output_preview": _normalize_output_preview(result),
-                "artifacts": result.get("artifacts", {}),
-                "error": result.get("error"),
-                "outcome": result.get("outcome"),
+            entry = {
+                "name": name,
+                "step_id": result.get("step_id") if isinstance(result, dict) else step.get("step_id"),
+                "kind": _step_kind(step),
+                "status": status,
+                "consumes": _report_compatible_value(step.get("consumes", [])),
+                "expected_outputs": _report_compatible_value(step.get("expected_outputs", [])),
+                "visit_count": step_visits.get(name),
+                "current_visit_count": current_step.get("visit_count") if is_current_step else None,
+                "last_result_visit_count": result.get("visit_count") if isinstance(result, dict) else None,
+                "max_visits": step.get("max_visits"),
+                "input": {},
+                "output": {},
             }
-            debug_payload = result.get("debug")
-            if isinstance(debug_payload, dict) and debug_payload:
-                entry["output"]["debug"] = debug_payload
-            if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
-                entry["output"]["call"] = debug_payload.get("call")
-            if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
-                entry["output"]["provider_session"] = debug_payload.get("provider_session")
 
-        if status == "completed":
-            entry["summary"] = "completed"
-        elif status == "running":
-            entry["summary"] = "in progress"
-        elif status == "failed":
-            entry["summary"] = "failed"
-        elif status == "skipped":
-            entry["summary"] = "skipped"
-        else:
-            entry["summary"] = "pending"
+            if "provider" in step:
+                entry["input"]["provider"] = step.get("provider")
+                if prompt_text is not None:
+                    entry["input"]["prompt"] = prompt_text
+            if "command" in step:
+                entry["input"]["command"] = _report_compatible_value(step.get("command"))
 
-        step_entries.append(entry)
+            if isinstance(result, dict) and result:
+                entry["output"] = {
+                    "exit_code": result.get("exit_code"),
+                    "duration_ms": result.get("duration_ms"),
+                    "output_preview": _normalize_output_preview(result),
+                    "artifacts": result.get("artifacts", {}),
+                    "error": result.get("error"),
+                    "outcome": result.get("outcome"),
+                }
+                debug_payload = result.get("debug")
+                if isinstance(debug_payload, dict) and debug_payload:
+                    entry["output"]["debug"] = debug_payload
+                if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
+                    entry["output"]["call"] = debug_payload.get("call")
+                if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
+                    entry["output"]["provider_session"] = debug_payload.get("provider_session")
+
+            if status == "completed":
+                entry["summary"] = "completed"
+            elif status == "running":
+                entry["summary"] = "in progress"
+            elif status == "failed":
+                entry["summary"] = "failed"
+            elif status == "skipped":
+                entry["summary"] = "skipped"
+            else:
+                entry["summary"] = "pending"
+
+            step_entries.append(entry)
+    else:
+        for node_id in bundle.projection.ordered_execution_node_ids():
+            projection_entry = bundle.projection.entries_by_node_id.get(node_id)
+            if projection_entry is None:
+                continue
+            definition = projection_entry.step_definition
+            name = projection_entry.presentation_key
+            result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
+            prompt_text = _read_prompt_audit(run_root, name)
+            is_current_step = current_step_name == name
+
+            status = _coerce_step_status(result) or "pending"
+            if is_current_step:
+                status = "running"
+            if status == "pending" and prompt_text:
+                status = "running"
+
+            entry = {
+                "name": name,
+                "step_id": (
+                    result.get("step_id")
+                    if isinstance(result, dict) and isinstance(result.get("step_id"), str)
+                    else projection_entry.step_id
+                ),
+                "kind": definition.report_kind,
+                "status": status,
+                "consumes": _report_compatible_value(definition.consumes),
+                "expected_outputs": _report_compatible_value(definition.expected_outputs),
+                "visit_count": step_visits.get(name),
+                "current_visit_count": current_step.get("visit_count") if is_current_step else None,
+                "last_result_visit_count": result.get("visit_count") if isinstance(result, dict) else None,
+                "max_visits": definition.max_visits,
+                "input": {},
+                "output": {},
+            }
+
+            if definition.provider is not None:
+                entry["input"]["provider"] = definition.provider
+                if prompt_text is not None:
+                    entry["input"]["prompt"] = prompt_text
+            if definition.command is not None:
+                entry["input"]["command"] = _report_compatible_value(definition.command)
+
+            if isinstance(result, dict) and result:
+                entry["output"] = {
+                    "exit_code": result.get("exit_code"),
+                    "duration_ms": result.get("duration_ms"),
+                    "output_preview": _normalize_output_preview(result),
+                    "artifacts": result.get("artifacts", {}),
+                    "error": result.get("error"),
+                    "outcome": result.get("outcome"),
+                }
+                debug_payload = result.get("debug")
+                if isinstance(debug_payload, dict) and debug_payload:
+                    entry["output"]["debug"] = debug_payload
+                if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
+                    entry["output"]["call"] = debug_payload.get("call")
+                if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
+                    entry["output"]["provider_session"] = debug_payload.get("provider_session")
+
+            if status == "completed":
+                entry["summary"] = "completed"
+            elif status == "running":
+                entry["summary"] = "in progress"
+            elif status == "failed":
+                entry["summary"] = "failed"
+            elif status == "skipped":
+                entry["summary"] = "skipped"
+            else:
+                entry["summary"] = "pending"
+
+            step_entries.append(entry)
 
     progress = {
         "total": len(step_entries),

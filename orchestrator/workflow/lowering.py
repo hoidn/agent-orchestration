@@ -34,6 +34,7 @@ from .predicates import TYPED_PREDICATE_OPERATOR_KEYS
 from .references import SelfOutputReference, StructuredStepReference, WorkflowInputReference
 from .state_projection import (
     CallBoundaryProjection,
+    CompatibilityStepDefinition,
     CompatibilityNodeProjection,
     IterationStepKeyProjection,
     WorkflowStateProjection,
@@ -53,6 +54,7 @@ from .surface_ast import (
     SurfaceStep,
     SurfaceStepKind,
     SurfaceWorkflow,
+    freeze_value,
 )
 
 
@@ -554,6 +556,7 @@ class _ProjectionBuilder:
         step_id: str,
         presentation_key: str,
         region: WorkflowRegion,
+        step_definition: CompatibilityStepDefinition,
         compatibility_index: Optional[int] = None,
         finalization_index: Optional[int] = None,
     ) -> None:
@@ -565,6 +568,7 @@ class _ProjectionBuilder:
             region=region,
             compatibility_index=compatibility_index,
             finalization_index=finalization_index,
+            step_definition=step_definition,
         )
         self.presentation_key_by_node_id[node_id] = presentation_key
         self.node_id_by_step_id[step_id] = node_id
@@ -839,6 +843,7 @@ class _IRBuilder:
             step_id=node.step_id,
             presentation_key=node.presentation_name,
             region=region,
+            step_definition=_compatibility_step_definition(node),
             compatibility_index=compatibility_index,
             finalization_index=finalization_index,
         )
@@ -1196,6 +1201,7 @@ class _IRBuilder:
             step_id=node.step_id,
             presentation_key=node.presentation_name,
             region=region,
+            step_definition=_compatibility_step_definition(node),
             compatibility_index=compatibility_index,
             finalization_index=finalization_index,
         )
@@ -1244,6 +1250,53 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
         SurfaceStepKind.CALL: ExecutableNodeKind.CALL_BOUNDARY,
     }
     return mapping[kind]
+
+
+def _report_kind_for_node(node: ExecutableNode) -> str:
+    kind_map = {
+        ExecutableNodeKind.IF_BRANCH_MARKER: "structured_if_branch",
+        ExecutableNodeKind.IF_JOIN: "structured_if_join",
+        ExecutableNodeKind.MATCH_CASE_MARKER: "structured_match_case",
+        ExecutableNodeKind.MATCH_JOIN: "structured_match_join",
+        ExecutableNodeKind.REPEAT_UNTIL_FRAME: "repeat_until",
+        ExecutableNodeKind.FOR_EACH: "for_each",
+        ExecutableNodeKind.CALL_BOUNDARY: "call",
+        ExecutableNodeKind.FINALIZATION_STEP: "finally",
+        ExecutableNodeKind.PROVIDER: "provider",
+        ExecutableNodeKind.COMMAND: "command",
+        ExecutableNodeKind.WAIT_FOR: "wait_for",
+        ExecutableNodeKind.ASSERT: "assert",
+        ExecutableNodeKind.SET_SCALAR: "set_scalar",
+        ExecutableNodeKind.INCREMENT_SCALAR: "increment_scalar",
+    }
+    return kind_map.get(node.kind, "unknown")
+
+
+def _compatibility_step_definition(node: ExecutableNode) -> CompatibilityStepDefinition:
+    raw = node.raw if isinstance(node.raw, Mapping) else {}
+    consumes = raw.get("consumes")
+    expected_outputs = raw.get("expected_outputs")
+    provider_session = raw.get("provider_session")
+    max_visits = raw.get("max_visits")
+    return CompatibilityStepDefinition(
+        report_kind=_report_kind_for_node(node),
+        command=freeze_value(raw.get("command")) if "command" in raw else None,
+        provider=raw.get("provider") if isinstance(raw.get("provider"), str) else None,
+        consumes=tuple(freeze_value(item) for item in consumes)
+        if isinstance(consumes, (list, tuple))
+        else (),
+        expected_outputs=tuple(freeze_value(item) for item in expected_outputs)
+        if isinstance(expected_outputs, (list, tuple))
+        else (),
+        max_visits=max_visits if isinstance(max_visits, int) else None,
+        provider_session_enabled=isinstance(provider_session, Mapping),
+        provider_session_mode=(
+            provider_session.get("mode")
+            if isinstance(provider_session, Mapping)
+            and isinstance(provider_session.get("mode"), str)
+            else None
+        ),
+    )
 
 
 def _iteration_step_id_suffix(loop_node_id: str, nested_step_id: str) -> str:

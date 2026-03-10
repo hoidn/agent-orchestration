@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Mapping, Optional
+from typing import Any, Mapping, Optional
 
 from .executable_ir import WorkflowRegion
 from .surface_ast import empty_frozen_mapping
@@ -11,6 +11,20 @@ from .surface_ast import empty_frozen_mapping
 
 def _runtime_step_id(loop_node_id: str, iteration_index: int, nested_suffix: str) -> str:
     return f"{loop_node_id}#{iteration_index}.{nested_suffix}"
+
+
+@dataclass(frozen=True)
+class CompatibilityStepDefinition:
+    """Explicit per-node compatibility metadata for reporting and resume guards."""
+
+    report_kind: str = "unknown"
+    command: Any = None
+    provider: Optional[str] = None
+    consumes: tuple[Any, ...] = ()
+    expected_outputs: tuple[Any, ...] = ()
+    max_visits: Optional[int] = None
+    provider_session_enabled: bool = False
+    provider_session_mode: Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -24,6 +38,9 @@ class CompatibilityNodeProjection:
     region: WorkflowRegion
     compatibility_index: Optional[int] = None
     finalization_index: Optional[int] = None
+    step_definition: CompatibilityStepDefinition = field(
+        default_factory=CompatibilityStepDefinition
+    )
 
 
 @dataclass(frozen=True)
