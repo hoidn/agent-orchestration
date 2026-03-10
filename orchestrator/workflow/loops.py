@@ -1063,6 +1063,7 @@ class LoopExecutor:
             values=runtime_context.values,
             workflow_context=runtime_context.workflow_context,
             self_steps=scope.get("self_steps", {}),
+            explicit_steps=True,
             parent_steps=runtime_context.parent_steps,
             root_steps=runtime_context.root_steps,
         )

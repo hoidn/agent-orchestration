@@ -16,6 +16,7 @@ class RuntimeContext:
     values: Mapping[str, Any] = field(default_factory=dict)
     workflow_context: Mapping[str, Any] = field(default_factory=dict)
     self_steps: Mapping[str, Any] = field(default_factory=dict)
+    explicit_steps: bool = False
     parent_steps: Mapping[str, Any] = field(default_factory=dict)
     root_steps: Mapping[str, Any] = field(default_factory=dict)
 
@@ -34,19 +35,21 @@ class RuntimeContext:
             workflow_context = dict(explicit_context)
         else:
             workflow_context = dict(default_context or {})
-        explicit_steps = raw.get("steps")
-        self_steps = dict(explicit_steps) if isinstance(explicit_steps, Mapping) else {}
+        explicit_steps_value = raw.get("steps")
+        has_explicit_steps = isinstance(explicit_steps_value, Mapping)
+        self_steps = dict(explicit_steps_value) if has_explicit_steps else {}
         return cls(
             values=raw,
             workflow_context=workflow_context,
             self_steps=self_steps,
+            explicit_steps=has_explicit_steps,
             parent_steps=dict(parent_steps or {}),
             root_steps=dict(root_steps or {}),
         )
 
     def scoped_state(self, state: Dict[str, Any]) -> Dict[str, Any]:
         scoped_state = state.copy()
-        if self.self_steps:
+        if self.explicit_steps:
             scoped_state["steps"] = dict(self.self_steps)
         return scoped_state
 

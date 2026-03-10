@@ -111,8 +111,7 @@ class TestAT66EnvLiteralSemantics:
             "version": "1.1",
             "providers": {
                 "test_provider": {
-                    "executable": "/bin/echo",
-                    "command": "Args: ${args}",
+                    "command": ["/bin/echo", "Args: ${args}"],
                     "defaults": {
                         "args": "default"
                     }
