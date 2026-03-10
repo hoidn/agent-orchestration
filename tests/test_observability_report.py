@@ -3,6 +3,9 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import yaml
+
+from orchestrator.loader import WorkflowLoader
 from orchestrator.observability.report import build_status_snapshot, render_status_markdown
 
 
@@ -492,3 +495,166 @@ def test_snapshot_includes_finalization_progress_and_steps(tmp_path: Path):
     steps = {entry["name"]: entry for entry in snapshot["steps"]}
     assert steps["finally.ReleaseLock"]["kind"] == "finally"
     assert steps["finally.ReleaseLock"]["status"] == "running"
+
+
+def test_snapshot_includes_structured_helper_node_kinds(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-structured"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.6",
+                "name": "obs-structured",
+                "artifacts": {
+                    "ready": {
+                        "kind": "scalar",
+                        "type": "bool",
+                    },
+                    "decision": {
+                        "kind": "scalar",
+                        "type": "enum",
+                        "allowed": ["APPROVE", "REVISE"],
+                    },
+                },
+                "steps": [
+                    {
+                        "name": "SetReady",
+                        "id": "set_ready",
+                        "set_scalar": {
+                            "artifact": "ready",
+                            "value": True,
+                        },
+                    },
+                    {
+                        "name": "RouteReady",
+                        "id": "route_ready",
+                        "if": {
+                            "artifact_bool": {
+                                "ref": "root.steps.SetReady.artifacts.ready",
+                            }
+                        },
+                        "then": {
+                            "id": "approve_path",
+                            "outputs": {
+                                "decision": {
+                                    "kind": "scalar",
+                                    "type": "enum",
+                                    "allowed": ["APPROVE", "REVISE"],
+                                    "from": {
+                                        "ref": "self.steps.WriteApproved.artifacts.decision",
+                                    },
+                                }
+                            },
+                            "steps": [
+                                {
+                                    "name": "WriteApproved",
+                                    "id": "write_approved",
+                                    "set_scalar": {
+                                        "artifact": "decision",
+                                        "value": "APPROVE",
+                                    },
+                                }
+                            ],
+                        },
+                        "else": {
+                            "id": "revise_path",
+                            "outputs": {
+                                "decision": {
+                                    "kind": "scalar",
+                                    "type": "enum",
+                                    "allowed": ["APPROVE", "REVISE"],
+                                    "from": {
+                                        "ref": "self.steps.WriteRevision.artifacts.decision",
+                                    },
+                                }
+                            },
+                            "steps": [
+                                {
+                                    "name": "WriteRevision",
+                                    "id": "write_revision",
+                                    "set_scalar": {
+                                        "artifact": "decision",
+                                        "value": "REVISE",
+                                    },
+                                }
+                            ],
+                        },
+                    },
+                    {
+                        "name": "RouteDecision",
+                        "id": "route_decision",
+                        "match": {
+                            "ref": "root.steps.RouteReady.artifacts.decision",
+                            "cases": {
+                                "APPROVE": {
+                                    "id": "approve_path",
+                                    "steps": [
+                                        {
+                                            "name": "EchoApproved",
+                                            "id": "echo_approved",
+                                            "command": ["bash", "-lc", "printf 'approved\\n'"],
+                                        }
+                                    ],
+                                },
+                                "REVISE": {
+                                    "id": "revise_path",
+                                    "steps": [
+                                        {
+                                            "name": "EchoRevision",
+                                            "id": "echo_revision",
+                                            "command": ["bash", "-lc", "printf 'revise\\n'"],
+                                        }
+                                    ],
+                                },
+                            },
+                        },
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    workflow = WorkflowLoader(tmp_path).load(workflow_path)
+
+    state = {
+        "run_id": "run-structured",
+        "status": "running",
+        "started_at": "2026-03-10T00:00:00+00:00",
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+        "workflow_file": "workflow.yaml",
+        "current_step": {
+            "name": "RouteDecision.REVISE",
+            "status": "running",
+            "visit_count": 1,
+            "last_heartbeat_at": datetime.now(timezone.utc).isoformat(),
+        },
+        "steps": {
+            "SetReady": {"status": "completed", "artifacts": {"ready": True}},
+            "RouteReady.then": {"status": "completed"},
+            "RouteReady.then.WriteApproved": {
+                "status": "completed",
+                "artifacts": {"decision": "APPROVE"},
+            },
+            "RouteReady.else": {"status": "skipped"},
+            "RouteReady.else.WriteRevision": {"status": "skipped"},
+            "RouteReady": {"status": "completed", "artifacts": {"decision": "APPROVE"}},
+            "RouteDecision.APPROVE": {"status": "skipped"},
+            "RouteDecision.APPROVE.EchoApproved": {"status": "skipped"},
+            "RouteDecision.REVISE": {"status": "running"},
+            "RouteDecision.REVISE.EchoRevision": {"status": "pending"},
+            "RouteDecision": {"status": "pending"},
+        },
+    }
+
+    snapshot = build_status_snapshot(workflow, state, run_root)
+    steps = {entry["name"]: entry for entry in snapshot["steps"]}
+
+    assert steps["RouteReady.then"]["kind"] == "structured_if_branch"
+    assert steps["RouteReady"]["kind"] == "structured_if_join"
+    assert steps["RouteDecision.APPROVE"]["kind"] == "structured_match_case"
+    assert steps["RouteDecision"]["kind"] == "structured_match_join"
+    assert steps["RouteDecision.REVISE"]["status"] == "running"
+    assert steps["RouteDecision.REVISE"]["current_visit_count"] == 1
