@@ -29,6 +29,7 @@ from ..contracts.output_contract import (
 )
 from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
+from .conditions import EqualsConditionNode, ExistsConditionNode, NotExistsConditionNode
 from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
@@ -1028,12 +1029,9 @@ class WorkflowExecutor:
         ):
             return self._resolve_bound_address(value, state, scope=scope)
         if isinstance(value, dict) and set(value.keys()) == {"ref"}:
-            if self._use_ir_topology:
-                raise ReferenceResolutionError(
-                    "Typed runtime does not accept legacy ref payloads; use lowered bound addresses"
-                )
-            resolver_scope = scope if isinstance(scope, dict) else None
-            return self.reference_resolver.resolve(value["ref"], state, scope=resolver_scope).value
+            raise ReferenceResolutionError(
+                "Typed runtime does not accept legacy ref payloads; use lowered bound addresses"
+            )
         return value
 
     def _evaluate_bound_predicate(
@@ -1104,7 +1102,9 @@ class WorkflowExecutor:
         except ReferenceResolutionError as exc:
             raise PredicateEvaluationError(str(exc)) from exc
 
-        return self.condition_evaluator.evaluate(predicate, {}, state, scope=scope)
+        raise PredicateEvaluationError(
+            f"Unsupported lowered predicate node '{type(predicate).__name__}'"
+        )
 
     def _evaluate_condition_expression(
         self,
@@ -1127,7 +1127,13 @@ class WorkflowExecutor:
             ),
         ):
             return self._evaluate_bound_predicate(condition, state, scope=scope)
-        return self.condition_evaluator.evaluate(condition, variables, state, scope=scope)
+        if isinstance(condition, (EqualsConditionNode, ExistsConditionNode, NotExistsConditionNode)):
+            return self.condition_evaluator.evaluate_parsed(condition, variables)
+        if condition is None:
+            return True
+        raise PredicateEvaluationError(
+            f"Typed runtime does not accept raw condition payloads; got '{type(condition).__name__}'"
+        )
 
     def _structured_if_branches(self, step: Dict[str, Any]) -> Mapping[str, Any]:
         """Return structured-if branch metadata sourced from typed IR when available."""

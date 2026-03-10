@@ -64,6 +64,44 @@ def test_executor_requires_loaded_workflow_bundle(tmp_path: Path):
         WorkflowExecutor(workflow, tmp_path, StateManager(tmp_path, run_id="typed-bundle-only"))
 
 
+def test_executor_respects_legacy_when_equals_without_condition_dict_fallback(tmp_path: Path):
+    workflow = {
+        "version": "1.4",
+        "name": "legacy-when-typed-runtime",
+        "steps": [
+            {
+                "name": "ReviewPlan",
+                "command": ["bash", "-lc", "printf 'APPROVE'"],
+            },
+            {
+                "name": "RouteDecision",
+                "command": ["bash", "-lc", "printf 'routed' > routed.txt"],
+                "when": {
+                    "equals": {
+                        "left": "${steps.ReviewPlan.output}",
+                        "right": "REVISE",
+                    }
+                },
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="legacy-when-typed-runtime")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    def _fail_condition_evaluator(*args, **kwargs):
+        raise AssertionError("executor fell back to raw dict condition evaluation")
+
+    executor.condition_evaluator.evaluate = _fail_condition_evaluator  # type: ignore[method-assign]
+    state = executor.execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RouteDecision"]["status"] == "skipped"
+    assert not (tmp_path / "routed.txt").exists()
+
+
 def _structured_finally_resume_workflow() -> dict:
     return {
         "version": "2.3",

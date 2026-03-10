@@ -1,37 +1,39 @@
 # Completed In This Pass
 
-- Lowered spec-authoritative `on.success|failure|always.goto` handlers into executable-IR routed transfers, including `_end` as an explicit typed terminal route.
-- Switched typed top-level control-flow handling to consume IR routed transfers directly instead of resolving goto targets through projection/name lookup.
-- Added regressions that lock the IR route metadata to the DSL `on.*.goto` surface and verify typed executor dispatch stays correct even when a materialized step payload's goto target text drifts.
+- Parsed legacy `when/assert` conditions into typed surface nodes and carried them through the IR runtime so legacy `when.equals` no longer depends on raw dict condition fallback or gets silently ignored under typed execution.
+- Removed raw-workflow fallbacks from loaded-bundle root metadata helpers and from DSL lint entrypoints, while preserving the `None -> empty contracts` import-validation path the loader still uses before it raises workflow validation errors.
+- Switched advisory linting for stringly `when.equals` checks to typed surface condition nodes instead of `step.raw`, and added focused regression coverage for the bundle-only and typed-condition boundaries.
 
 # Completed Plan Tasks
 
-- Tranche 4 routing slice: typed IR now encodes spec `on.*.goto` handlers as explicit node-id transfers instead of relying on unsupported raw `goto` lowering.
-- Tranche 4 executor slice: bundle-backed typed runs no longer use `_resolve_goto_target()`'s projection/name-scan fallback for goto dispatch.
-- Tranche 1/4 characterization slice: added focused IR/executor regressions around typed goto lowering and dispatch.
+- Tranche 5: removed the reviewed bundle/lint raw-authority fallbacks so maintainer-facing helpers and linting now require typed loaded bundles instead of raw workflow mappings.
+- Tranche 5: removed the reviewed executor mixed-mode legacy condition/ref fallback slice by evaluating only typed condition forms in the IR runtime.
+- Tranche 5: reran the approved structured/finalization/call/report verification boundary and the required `design_plan_impl_review_stack_v2_call.yaml --dry-run` smoke check.
 
 # Remaining Required Plan Tasks
 
-- Tranche 4: finish removing the remaining top-level and nested leaf-execution adapters that still materialize legacy-shaped step dicts from `ExecutableNode.raw` before command/provider/wait/assert/scalar execution.
-- Tranche 5: delete the legacy bundle/adapter plumbing and remaining magic-metadata compatibility paths once runtime callers no longer need them.
-- Tranche 5: update maintainer docs for the typed `parse -> elaborate -> lower -> execute` pipeline and projection-backed runtime surfaces.
+- Remove the remaining `raw` payload storage and propagation on core AST/IR/contracts in `surface_ast.py`, `executable_ir.py`, and `lowering.py` so raw dicts stop escaping elaboration/lowering internals.
+- Continue trimming remaining typed-pipeline compatibility scaffolding outside this slice, including any steady-state runtime/reporting helpers that still depend on raw compatibility payloads rather than typed bundle/IR/projection data.
+- Finish the broader Tranche 5 steady-state cleanup and exit criteria before declaring the typed pipeline migration complete.
 
 # Verification
 
-- `pytest --collect-only -q tests/test_workflow_ir_lowering.py tests/test_workflow_executor_characterization.py`
-  - `29 tests collected in 0.07s`
-- `pytest tests/test_workflow_ir_lowering.py -k "on_goto_loop_call_and_finalization" -q`
-  - `1 passed, 4 deselected in 0.10s`
-- `pytest tests/test_workflow_executor_characterization.py -k "materialized_on_target_drifts" -q`
-  - `1 passed, 23 deselected in 0.09s`
-- `pytest tests/test_workflow_ir_lowering.py tests/test_workflow_executor_characterization.py tests/test_at56_at57_error_handling.py tests/test_at71_retries_goto.py -k "goto or routed_transfer or on_always or on_failure or on_success" -q`
-  - `12 passed, 30 deselected in 3.20s`
-- `pytest tests/test_workflow_executor_characterization.py tests/test_for_each_execution.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_resume_command.py tests/test_observability_report.py tests/test_cli_report_command.py tests/test_subworkflow_calls.py -k "current_step or transition_count or repeat_until or finalization or call or report" -q`
-  - `69 passed, 93 deselected in 0.93s`
+- `pytest --collect-only -q tests/test_workflow_surface_ast.py tests/test_dsl_linting.py tests/test_workflow_executor_characterization.py`
+  - `54 tests collected`
+- `pytest -q tests/test_workflow_surface_ast.py -k 'loaded_workflow_helpers_require_loaded_bundle or parses_legacy_when_equals_into_condition_node' -v`
+  - `2 passed`
+- `pytest -q tests/test_dsl_linting.py -k 'lint_requires_loaded_workflow_bundle or typed_legacy_when_condition_when_step_raw_drifts' -v`
+  - `2 passed`
+- `pytest -q tests/test_workflow_executor_characterization.py -k respects_legacy_when_equals_without_condition_dict_fallback -v`
+  - `1 passed`
+- `pytest -q tests/test_workflow_surface_ast.py tests/test_dsl_linting.py tests/test_typed_predicates.py tests/test_workflow_output_contract_integration.py -k 'surface or lint or when or workflow_input_binding_uses_typed_contract_definition_when_legacy_contract_raw_drifts or workflow_output_export_uses_bound_ir_contracts_when_legacy_refs_are_corrupted or workflow_output_export_uses_typed_contract_definition_when_legacy_contract_raw_drifts' -v`
+  - `26 passed, 21 deselected`
+- `pytest tests/test_loader_validation.py tests/test_structured_control_flow.py tests/test_subworkflow_calls.py tests/test_resume_command.py tests/test_workflow_examples_v0.py tests/test_observability_report.py tests/test_cli_report_command.py -k 'structured or repeat_until or finalization or call or report or design_plan_impl_review_stack_v2_call' -v`
+  - `87 passed, 137 deselected`
 - `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/design_plan_impl_review_stack_v2_call.yaml --dry-run`
-  - `2026-03-10 12:29:34,481 - orchestrator.cli.commands.run - INFO - [DRY RUN] Workflow validation successful`
+  - `[DRY RUN] Workflow validation successful`
 
 # Residual Risks
 
-- Bundle-backed runtime still adapts command/provider/wait/assert/scalar execution through legacy-shaped dict payloads materialized from `ExecutableNode.raw`, so Tranche 4 is not yet at IR-only leaf execution.
-- Legacy bundle compatibility surfaces and magic metadata remain in the tree for unchanged callers; Tranche 5 cleanup is still required before the migration can be declared complete.
+- Core AST/IR nodes and contract wrappers still retain `raw` payloads for compatibility and tests, so the typed-only “raw dicts do not escape parse/elaboration internals” end state is still incomplete.
+- Bundle helpers still preserve `None -> {}` behavior for import prevalidation; that keeps loader validation stable, but the remaining Tranche 5 cleanup should continue auditing similar compatibility shims so they do not become steady-state runtime authority again.

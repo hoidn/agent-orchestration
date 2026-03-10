@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import Any, Mapping, Protocol
 
 from .identity import assign_finalization_step_ids, assign_step_ids
+from .conditions import parse_legacy_condition
 from .predicates import TYPED_PREDICATE_OPERATOR_KEYS, parse_typed_predicate
 from .references import SurfaceRefScopeCatalog, parse_surface_ref
 from .statements import (
@@ -555,7 +556,7 @@ def _parse_predicate(node: Any, catalog: SurfaceRefScopeCatalog) -> Any:
     if not isinstance(node, Mapping):
         return None
     if not any(key in node for key in TYPED_PREDICATE_OPERATOR_KEYS):
-        return None
+        return parse_legacy_condition(dict(node))
     return parse_typed_predicate(dict(node), catalog)
 
 

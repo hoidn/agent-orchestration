@@ -4,14 +4,18 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from types import MappingProxyType
 
+import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.conditions import EqualsConditionNode
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import (
     LoadedWorkflowBundle,
     workflow_context,
+    workflow_input_contracts,
     workflow_import_metadata,
+    workflow_output_contracts,
     workflow_provenance,
 )
 from orchestrator.workflow.predicates import ComparePredicateNode
@@ -382,6 +386,18 @@ def test_surface_workflow_exposes_typed_root_metadata_without_raw_fallbacks(tmp_
     assert dict(workflow_context(rawless_bundle)) == {"project": "typed-pipeline"}
 
 
+def test_loaded_workflow_helpers_require_loaded_bundle() -> None:
+    """Bundle compatibility helpers should reject raw workflow mappings."""
+    with pytest.raises(TypeError, match="LoadedWorkflowBundle"):
+        workflow_context({"context": {"project": "typed-pipeline"}})
+
+    with pytest.raises(TypeError, match="LoadedWorkflowBundle"):
+        workflow_input_contracts({"inputs": {"task_path": {"kind": "relpath"}}})
+
+    with pytest.raises(TypeError, match="LoadedWorkflowBundle"):
+        workflow_output_contracts({"outputs": {"report_path": {"kind": "relpath"}}})
+
+
 def test_surface_ast_preserves_scalar_commands_and_provider_dependency_mappings(tmp_path: Path):
     """Typed elaboration must not coerce legacy-valid scalar or mapping payloads away."""
     workflow_path = _write_leaf_payload_workflow(tmp_path)
@@ -394,6 +410,41 @@ def test_surface_ast_preserves_scalar_commands_and_provider_dependency_mappings(
     assert provider_step.kind is SurfaceStepKind.PROVIDER
     assert provider_step.depends_on["required"] == ("data.txt",)
     assert provider_step.depends_on["inject"] is True
+
+
+def test_surface_ast_parses_legacy_when_equals_into_condition_node(tmp_path: Path):
+    """Legacy when.equals should be represented in the typed surface AST."""
+    workflow_path = _write_yaml(
+        tmp_path / "legacy_when_workflow.yaml",
+        {
+            "version": "1.4",
+            "name": "legacy-when-surface-ast",
+            "steps": [
+                {
+                    "name": "ReviewPlan",
+                    "command": ["echo", "APPROVE"],
+                },
+                {
+                    "name": "RouteDecision",
+                    "when": {
+                        "equals": {
+                            "left": "${steps.ReviewPlan.output}",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "command": ["echo", "route"],
+                },
+            ],
+        },
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    route_step = bundle.surface.steps[1]
+
+    assert route_step.when_predicate == EqualsConditionNode(
+        left="${steps.ReviewPlan.output}",
+        right="APPROVE",
+    )
 
 
 def test_elaboration_orchestrates_authored_shape_validation_before_ast_build(tmp_path: Path):

@@ -1,5 +1,6 @@
 """Condition evaluation for workflow steps."""
 
+from dataclasses import dataclass
 import glob
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -10,6 +11,55 @@ from .predicates import TYPED_PREDICATE_OPERATOR_KEYS, TypedPredicateEvaluator
 
 LEGACY_CONDITION_TYPES = ['equals', 'exists', 'not_exists']
 TYPED_PREDICATE_TYPES = list(TYPED_PREDICATE_OPERATOR_KEYS)
+
+
+@dataclass(frozen=True)
+class EqualsConditionNode:
+    """Typed representation of one legacy ``when/assert.equals`` condition."""
+
+    left: Any
+    right: Any
+
+
+@dataclass(frozen=True)
+class ExistsConditionNode:
+    """Typed representation of one legacy ``when/assert.exists`` condition."""
+
+    pattern: str
+
+
+@dataclass(frozen=True)
+class NotExistsConditionNode:
+    """Typed representation of one legacy ``when/assert.not_exists`` condition."""
+
+    pattern: str
+
+
+def parse_legacy_condition(condition: Any) -> Any:
+    """Parse one legacy condition mapping into an immutable typed node."""
+    if not isinstance(condition, dict):
+        return None
+
+    present_types = [key for key in LEGACY_CONDITION_TYPES if key in condition]
+    if len(present_types) != 1:
+        return None
+
+    if "equals" in condition:
+        equals = condition["equals"]
+        if not isinstance(equals, dict):
+            return None
+        return EqualsConditionNode(
+            left=equals.get("left"),
+            right=equals.get("right"),
+        )
+
+    if "exists" in condition and isinstance(condition["exists"], str):
+        return ExistsConditionNode(pattern=condition["exists"])
+
+    if "not_exists" in condition and isinstance(condition["not_exists"], str):
+        return NotExistsConditionNode(pattern=condition["not_exists"])
+
+    return None
 
 
 class ConditionEvaluator:
@@ -83,6 +133,27 @@ class ConditionEvaluator:
             return self.typed_evaluator.evaluate(condition, state, scope=scope)
 
         return True
+
+    def evaluate_parsed(
+        self,
+        condition: Any,
+        variables: Dict[str, Any],
+    ) -> bool:
+        """Evaluate one parsed legacy condition node."""
+        if condition is None:
+            return True
+        if isinstance(condition, EqualsConditionNode):
+            return self._evaluate_equals(
+                {"left": condition.left, "right": condition.right},
+                variables,
+            )
+        if isinstance(condition, ExistsConditionNode):
+            return self._evaluate_exists(condition.pattern, variables)
+        if isinstance(condition, NotExistsConditionNode):
+            return self._evaluate_not_exists(condition.pattern, variables)
+        raise ValueError(
+            f"Invalid parsed condition format: expected typed condition node, got {type(condition)}"
+        )
 
     def _evaluate_equals(self, equals_cond: Dict[str, Any], variables: Dict[str, Any]) -> bool:
         """

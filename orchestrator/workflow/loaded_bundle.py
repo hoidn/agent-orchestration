@@ -40,48 +40,41 @@ def workflow_bundle(workflow_or_bundle: Any) -> Optional[LoadedWorkflowBundle]:
     return None
 
 
-def workflow_context(workflow_or_bundle: Any) -> Mapping[str, Any]:
-    """Return workflow context values from typed bundle or raw workflow data."""
+def _require_bundle(workflow_or_bundle: Any) -> LoadedWorkflowBundle:
+    """Return one loaded-workflow bundle or raise for non-typed callers."""
     bundle = workflow_bundle(workflow_or_bundle)
-    if bundle is not None:
-        return bundle.surface.context
-    if isinstance(workflow_or_bundle, Mapping):
-        context = workflow_or_bundle.get("context")
-        if isinstance(context, Mapping):
-            return context
-    return MappingProxyType({})
+    if bundle is None:
+        raise TypeError("LoadedWorkflowBundle required")
+    return bundle
+
+
+def workflow_context(workflow_or_bundle: Any) -> Mapping[str, Any]:
+    """Return workflow context values from the typed bundle."""
+    return _require_bundle(workflow_or_bundle).surface.context
 
 
 def workflow_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
-    """Return workflow input contracts from typed or legacy workflow metadata."""
-    bundle = workflow_bundle(workflow_or_bundle)
-    if bundle is not None:
-        return MappingProxyType({
-            name: _compatibility_value(contract.definition)
-            for name, contract in bundle.surface.inputs.items()
-            if isinstance(name, str) and isinstance(contract.definition, Mapping)
-        })
-    if isinstance(workflow_or_bundle, Mapping):
-        inputs = workflow_or_bundle.get("inputs")
-        if isinstance(inputs, Mapping):
-            return inputs
-    return MappingProxyType({})
+    """Return workflow input contracts from the typed bundle."""
+    if workflow_or_bundle is None:
+        return MappingProxyType({})
+    bundle = _require_bundle(workflow_or_bundle)
+    return MappingProxyType({
+        name: _compatibility_value(contract.definition)
+        for name, contract in bundle.surface.inputs.items()
+        if isinstance(name, str) and isinstance(contract.definition, Mapping)
+    })
 
 
 def workflow_output_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:
-    """Return workflow output contracts from typed or legacy workflow metadata."""
-    bundle = workflow_bundle(workflow_or_bundle)
-    if bundle is not None:
-        return MappingProxyType({
-            name: _compatibility_value(contract.definition)
-            for name, contract in bundle.surface.outputs.items()
-            if isinstance(name, str) and isinstance(contract.definition, Mapping)
-        })
-    if isinstance(workflow_or_bundle, Mapping):
-        outputs = workflow_or_bundle.get("outputs")
-        if isinstance(outputs, Mapping):
-            return outputs
-    return MappingProxyType({})
+    """Return workflow output contracts from the typed bundle."""
+    if workflow_or_bundle is None:
+        return MappingProxyType({})
+    bundle = _require_bundle(workflow_or_bundle)
+    return MappingProxyType({
+        name: _compatibility_value(contract.definition)
+        for name, contract in bundle.surface.outputs.items()
+        if isinstance(name, str) and isinstance(contract.definition, Mapping)
+    })
 
 
 def workflow_provenance(workflow_or_bundle: Any) -> Optional[WorkflowProvenance]:

@@ -4,6 +4,7 @@ from dataclasses import replace
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
@@ -209,6 +210,11 @@ def test_lint_warns_when_imported_workflows_export_colliding_outputs(tmp_path: P
     )
 
 
+def test_lint_requires_loaded_workflow_bundle() -> None:
+    with pytest.raises(TypeError, match="LoadedWorkflowBundle"):
+        lint_workflow({"steps": []})
+
+
 def test_lint_uses_surface_steps_from_typed_bundle(tmp_path: Path):
     bundle = _load_workflow_bundle(
         tmp_path,
@@ -287,6 +293,57 @@ def test_lint_uses_typed_surface_leaf_fields_when_step_raw_drifts(tmp_path: Path
 
     assert "shell-gate-to-assert" in warning_codes
     assert "goto-diamond-to-structured-control" in warning_codes
+
+
+def test_lint_uses_typed_legacy_when_condition_when_step_raw_drifts(tmp_path: Path):
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "1.4",
+            "name": "typed-lint-legacy-when-raw-drift",
+            "steps": [
+                {
+                    "name": "ReviewPlan",
+                    "command": ["echo", "APPROVE"],
+                },
+                {
+                    "name": "RouteDecision",
+                    "when": {
+                        "equals": {
+                            "left": "${steps.ReviewPlan.output}",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "command": ["echo", "route"],
+                },
+            ],
+        },
+    )
+    drifted_bundle = replace(
+        bundle,
+        surface=replace(
+            bundle.surface,
+            steps=(
+                bundle.surface.steps[0],
+                replace(
+                    bundle.surface.steps[1],
+                    raw=freeze_mapping(
+                        {
+                            **dict(bundle.surface.steps[1].raw),
+                            "when": {},
+                        }
+                    ),
+                ),
+            ),
+        ),
+    )
+
+    warnings = lint_workflow(drifted_bundle)
+
+    assert any(
+        warning["code"] == "stringly-when-equals" and warning["step"] == "RouteDecision"
+        for warning in warnings
+    )
 
 
 def test_lint_uses_typed_import_outputs_from_imported_bundles(tmp_path: Path):
