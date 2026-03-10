@@ -1463,21 +1463,6 @@ class WorkflowExecutor:
 
         return substituted, None
 
-    def _write_consume_bundle(
-        self,
-        consume_bundle: Any,
-        step_name: str,
-        state: Dict[str, Any],
-        resolved_values: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        """Materialize resolved consumes into a deterministic JSON bundle file."""
-        return self.dataflow_manager.write_consume_bundle(
-            consume_bundle=consume_bundle,
-            step_name=step_name,
-            state=state,
-            resolved_values=resolved_values,
-        )
-
     def _resolve_workspace_path(self, relative_path: str) -> Optional[Path]:
         """Resolve workspace-relative path and reject escapes."""
         path = Path(relative_path)
@@ -1499,27 +1484,6 @@ class WorkflowExecutor:
             return None
         output_file.parent.mkdir(parents=True, exist_ok=True)
         return output_file
-
-    def _read_prompt_source(self, step: Dict[str, Any]) -> tuple[str, Optional[Dict[str, Any]]]:
-        """Read either a workspace-relative input_file or a source-relative asset_file."""
-        return self.prompt_composer.read_prompt_source(
-            step,
-            step_name=step.get('name', f'step_{self.current_step}'),
-            contract_violation_result=self._contract_violation_result,
-        )
-
-    def _apply_asset_depends_on_prompt_injection(
-        self,
-        step: Dict[str, Any],
-        prompt: str,
-    ) -> tuple[str, Optional[Dict[str, Any]]]:
-        """Inject source-relative asset files into the composed provider prompt."""
-        return self.prompt_composer.apply_asset_depends_on_prompt_injection(
-            step,
-            prompt,
-            step_name=step.get('name', f'step_{self.current_step}'),
-            contract_violation_result=self._contract_violation_result,
-        )
 
     def _write_prompt_audit(self, step_name: str, prompt_text: str, secrets: Optional[List[str]] = None, env: Optional[Dict[str, str]] = None) -> None:
         """
@@ -2117,7 +2081,11 @@ class WorkflowExecutor:
         variables = runtime_context.build_variables(self.variable_substitutor, state)
 
         # Initialize prompt variable from either input_file or asset_file.
-        prompt, prompt_error = self._read_prompt_source(step)
+        prompt, prompt_error = self.prompt_composer.read_prompt_source(
+            step,
+            step_name=step.get('name', f'step_{self.current_step}'),
+            contract_violation_result=self._contract_violation_result,
+        )
         if prompt_error is not None:
             return prompt_error
 
@@ -2175,21 +2143,28 @@ class WorkflowExecutor:
                 if injection_result.was_truncated and injection_result.truncation_details:
                     debug_info['injection'] = injection_result.truncation_details
 
-        prompt, asset_error = self._apply_asset_depends_on_prompt_injection(step, prompt)
+        prompt, asset_error = self.prompt_composer.apply_asset_depends_on_prompt_injection(
+            step,
+            prompt,
+            step_name=step.get('name', f'step_{self.current_step}'),
+            contract_violation_result=self._contract_violation_result,
+        )
         if asset_error is not None:
             return asset_error
 
         # Inject resolved consumes into provider prompt when requested.
-        prompt = self._apply_consumes_prompt_injection(
+        resolved_consumes = state.get('_resolved_consumes', {})
+        prompt = self.prompt_composer.apply_consumes_prompt_injection(
             step,
-            step.get('name', f'step_{self.current_step}'),
             prompt,
-            state,
-            runtime_step_id=runtime_step_id,
+            resolved_consumes=resolved_consumes if isinstance(resolved_consumes, dict) else {},
+            step_name=step.get('name', f'step_{self.current_step}'),
+            consume_identity=runtime_step_id or self._step_id(step),
+            uses_qualified_identities=self._uses_qualified_identities(),
         )
 
         # Deterministic output contract prompt suffix (provider steps only).
-        prompt = self._apply_output_contract_prompt_suffix(step, prompt)
+        prompt = self.prompt_composer.apply_output_contract_prompt_suffix(step, prompt)
 
         # AT-70: Prompt audit with debug mode (when no dependencies)
         if self.debug and prompt:
@@ -2347,118 +2322,6 @@ class WorkflowExecutor:
 
         return self._apply_expected_outputs_contract(step, result, state)
 
-    def _call_frame_id(self, step: Dict[str, Any], state: Dict[str, Any]) -> str:
-        """Derive a durable call-frame id from the authored call step and visit count."""
-        return self.call_executor.frame_id(step, state)
-
-    def _call_frame_id_with_overrides(
-        self,
-        step: Dict[str, Any],
-        state: Dict[str, Any],
-        *,
-        step_name: Optional[str] = None,
-        step_id: Optional[str] = None,
-    ) -> str:
-        """Derive a durable call-frame id from an optional runtime-local step identity."""
-        return self.call_executor.frame_id_with_overrides(
-            step,
-            state,
-            step_name=step_name,
-            step_id=step_id,
-        )
-
-    def _resolve_call_bound_inputs(
-        self,
-        step: Dict[str, Any],
-        imported_workflow: Dict[str, Any],
-        state: Dict[str, Any],
-        *,
-        scope: Optional[Dict[str, Dict[str, Any]]] = None,
-        step_name_override: Optional[str] = None,
-    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
-        """Resolve call-site literal and structured-ref bindings into typed callee inputs."""
-        return self.call_executor.resolve_bound_inputs(
-            step,
-            imported_workflow,
-            state,
-            scope=scope,
-            step_name_override=step_name_override,
-        )
-
-    def _validate_call_write_root_bindings(
-        self,
-        *,
-        step_name: str,
-        frame_id: str,
-        imported_workflow: Dict[str, Any],
-        state: Dict[str, Any],
-        bound_inputs: Dict[str, Any],
-    ) -> Optional[Dict[str, Any]]:
-        """Reject repeated or aliased managed write roots across call frames."""
-        return self.call_executor.validate_write_root_bindings(
-            step_name=step_name,
-            frame_id=frame_id,
-            imported_workflow=imported_workflow,
-            state=state,
-            bound_inputs=bound_inputs,
-        )
-
-    def _build_call_debug_payload(
-        self,
-        *,
-        frame_id: str,
-        step: Dict[str, Any],
-        imported_workflow: Dict[str, Any],
-        child_state: Dict[str, Any],
-    ) -> Dict[str, Any]:
-        """Build observability metadata for one executed call frame."""
-        return self.call_executor.build_debug_payload(
-            frame_id=frame_id,
-            step=step,
-            imported_workflow=imported_workflow,
-            child_state=child_state,
-        )
-
-    def _call_resume_checksum_mismatch_result(
-        self,
-        *,
-        step_name: str,
-        call_alias: Any,
-        frame_id: str,
-        workflow_file: Optional[str],
-        persisted_checksum: Optional[str],
-        current_checksum: Optional[str],
-        reason: str,
-    ) -> Dict[str, Any]:
-        """Build a deterministic failure when nested resume checksum validation fails."""
-        return self.call_executor.resume_checksum_mismatch_result(
-            step_name=step_name,
-            call_alias=call_alias,
-            frame_id=frame_id,
-            workflow_file=workflow_file,
-            persisted_checksum=persisted_checksum,
-            current_checksum=current_checksum,
-            reason=reason,
-        )
-
-    def _validate_call_resume_checksum(
-        self,
-        *,
-        step_name: str,
-        call_alias: Any,
-        frame_id: str,
-        imported_workflow: Dict[str, Any],
-        existing_frame: Optional[Dict[str, Any]],
-    ) -> Optional[Dict[str, Any]]:
-        """Reject resumed call frames when the imported workflow checksum changed."""
-        return self.call_executor.validate_resume_checksum(
-            step_name=step_name,
-            call_alias=call_alias,
-            frame_id=frame_id,
-            imported_workflow=imported_workflow,
-            existing_frame=existing_frame,
-        )
-
     def _execute_call(
         self,
         step: Dict[str, Any],
@@ -2587,30 +2450,6 @@ class WorkflowExecutor:
         enriched_result = dict(result)
         enriched_result['artifacts'] = artifacts
         return enriched_result
-
-    def _apply_output_contract_prompt_suffix(self, step: Dict[str, Any], prompt: str) -> str:
-        """Append deterministic output contract instructions to provider prompts."""
-        return self.prompt_composer.apply_output_contract_prompt_suffix(step, prompt)
-
-    def _apply_consumes_prompt_injection(
-        self,
-        step: Dict[str, Any],
-        step_name: str,
-        prompt: str,
-        state: Dict[str, Any],
-        runtime_step_id: Optional[str] = None,
-    ) -> str:
-        """Inject resolved consume values into provider prompts (v1.2)."""
-        resolved_consumes = state.get('_resolved_consumes', {})
-        consume_identity = runtime_step_id or self._step_id(step)
-        return self.prompt_composer.apply_consumes_prompt_injection(
-            step,
-            prompt,
-            resolved_consumes=resolved_consumes if isinstance(resolved_consumes, dict) else {},
-            step_name=step_name,
-            consume_identity=consume_identity,
-            uses_qualified_identities=self._uses_qualified_identities(),
-        )
 
     def _create_loop_context(
         self,

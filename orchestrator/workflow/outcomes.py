@@ -147,6 +147,7 @@ class OutcomeRecorder:
             lines=result.get("lines"),
             json=result.get("json"),
             error=result.get("error"),
+            debug=result.get("debug"),
             truncated=result.get("truncated", False),
             artifacts=result.get("artifacts"),
             skipped=result.get("skipped", False),
