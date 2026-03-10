@@ -524,3 +524,41 @@ def test_resume_planner_quarantines_provider_session_visits_without_current_step
         "provider": "codex_session",
         "mode": "fresh",
     }
+
+
+def test_resume_planner_quarantines_provider_session_visits_when_legacy_step_order_drifts(tmp_path: Path):
+    workflow_path = _write_provider_session_projection_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    planner = ResumePlanner()
+    bundle.legacy_workflow["steps"] = [
+        {
+            "name": "LegacyDrift",
+            "step_id": "root.legacy_drift",
+            "command": ["bash", "-lc", "echo drift"],
+        },
+        *bundle.legacy_workflow["steps"],
+    ]
+
+    guard = planner.detect_interrupted_provider_session_visit(
+        {
+            "steps": {},
+            "current_step": {
+                "index": 0,
+                "status": "running",
+                "step_id": "root.start_implementation",
+                "visit_count": 2,
+            },
+        },
+        bundle.legacy_workflow["steps"],
+        projection=bundle.projection,
+    )
+
+    assert guard == {
+        "kind": "quarantine",
+        "step_name": "StartImplementation",
+        "step_id": "root.start_implementation",
+        "visit_count": 2,
+        "provider": "codex_session",
+        "mode": "fresh",
+    }

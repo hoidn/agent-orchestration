@@ -232,8 +232,23 @@ class ResumePlanner:
                 projected_index = projection.execution_index_for_step_id(step_id)
                 if isinstance(projected_index, int) and 0 <= projected_index < len(steps):
                     candidate = steps[projected_index]
-                    if isinstance(candidate, dict):
+                    if (
+                        isinstance(candidate, dict)
+                        and candidate.get("step_id") == step_id
+                    ):
                         return candidate
+                for candidate in steps:
+                    if isinstance(candidate, dict) and candidate.get("step_id") == step_id:
+                        return candidate
+                raise ResumeStateIntegrityError(
+                    "Persisted current_step.step_id does not resolve to a matching runtime step payload.",
+                    context={
+                        "step_id": step_id,
+                        "field": "step_id",
+                        "expected": step_id,
+                        "actual": None,
+                    },
+                )
         current_index = current_step.get("index")
         if isinstance(current_index, int) and 0 <= current_index < len(steps):
             candidate = steps[current_index]

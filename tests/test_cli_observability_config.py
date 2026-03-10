@@ -4,11 +4,13 @@ import hashlib
 import json
 from argparse import Namespace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.cli.commands.run import build_observability_config, run_workflow
 from orchestrator.cli.main import create_parser
+from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 
 
@@ -141,7 +143,7 @@ def test_run_workflow_persists_observability_runtime_config(mock_loader, mock_st
     workflow_file.write_text('version: "1.3"\nname: test\nsteps: []\n')
     monkeypatch.chdir(tmp_path)
 
-    mock_loader.return_value.load.return_value = {
+    mock_loader.return_value.load_bundle.return_value = {
         'version': '1.3',
         'name': 'test',
         'steps': [],
@@ -209,7 +211,7 @@ def test_resume_uses_persisted_observability_and_applies_override(mock_loader, m
     }
     (run_dir / 'state.json').write_text(json.dumps(state, indent=2))
 
-    mock_loader.return_value.load.return_value = {
+    mock_loader.return_value.load_bundle.return_value = {
         'version': '1.3',
         'name': 'test',
         'steps': [],
@@ -263,7 +265,7 @@ def test_resume_workflow_passes_stream_output_to_executor(mock_loader, mock_exec
         )
     )
 
-    mock_loader.return_value.load.return_value = {
+    mock_loader.return_value.load_bundle.return_value = {
         'version': '1.3',
         'name': 'test',
         'steps': [],
@@ -282,3 +284,67 @@ def test_resume_workflow_passes_stream_output_to_executor(mock_loader, mock_exec
     assert result == 0
     exec_kwargs = mock_executor.call_args.kwargs
     assert exec_kwargs['stream_output'] is True
+
+
+@patch('orchestrator.cli.commands.resume.WorkflowExecutor')
+@patch('orchestrator.cli.commands.resume.WorkflowLoader')
+@patch('orchestrator.cli.commands.resume.StateManager')
+def test_resume_force_restart_uses_typed_bundle_context_when_legacy_adapter_drifts(
+    mock_state,
+    mock_loader,
+    mock_executor,
+    tmp_path,
+    monkeypatch,
+):
+    run_id = 'run-typed-context'
+    monkeypatch.chdir(tmp_path)
+
+    workflow_path = tmp_path / 'workflow.yaml'
+    workflow_text = """
+version: "2.1"
+name: typed-resume
+context:
+  max_review_cycles: "3"
+steps:
+  - name: Noop
+    command: ["bash", "-lc", "true"]
+""".strip() + "\n"
+    workflow_path.write_text(workflow_text, encoding='utf-8')
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle.legacy_workflow.pop('context', None)
+    mock_loader.return_value.load_bundle.return_value = bundle
+
+    run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
+    run_dir.mkdir(parents=True)
+
+    loaded_state = SimpleNamespace()
+    existing_state = SimpleNamespace(
+        schema_version=StateManager.SCHEMA_VERSION,
+        error=None,
+        workflow_file=str(workflow_path),
+        observability=None,
+        status='running',
+        steps={},
+        bound_inputs={'max_cycles': 5},
+    )
+    existing_manager = MagicMock()
+    existing_manager.load.return_value = loaded_state
+    existing_manager.state = existing_state
+
+    restarted_manager = MagicMock()
+    restarted_manager.initialize.return_value = MagicMock(run_id='new-run-id')
+    mock_state.side_effect = [existing_manager, restarted_manager]
+
+    exec_inst = MagicMock()
+    exec_inst.execute.return_value = {'status': 'completed'}
+    mock_executor.return_value = exec_inst
+
+    result = resume_workflow(
+        run_id=run_id,
+        force_restart=True,
+    )
+
+    assert result == 0
+    init_kwargs = restarted_manager.initialize.call_args.kwargs
+    assert init_kwargs['context'] == {'max_review_cycles': '3'}
+    assert init_kwargs['bound_inputs'] == {'max_cycles': 5}

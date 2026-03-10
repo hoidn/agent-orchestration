@@ -14,6 +14,11 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import (
+    workflow_context,
+    workflow_input_contracts,
+    workflow_legacy_dict,
+)
 from orchestrator.workflow.linting import lint_workflow
 from orchestrator.workflow.signatures import bind_workflow_inputs
 
@@ -268,15 +273,15 @@ def run_workflow(args: Namespace) -> int:
         loader = WorkflowLoader(workspace)
         try:
             workflow_bundle = loader.load_bundle(workflow_path)
-            workflow = workflow_bundle.legacy_workflow
         except WorkflowValidationError as e:
             # Print validation errors to stderr
             for error in e.errors:
                 logger.error(f"Validation error: {error.message}")
             return e.exit_code
+        legacy_workflow = workflow_legacy_dict(workflow_bundle) or {}
 
         # Determine processed directory
-        processed_dir = workspace / (workflow.get('processed_dir', 'processed'))
+        processed_dir = workspace / (legacy_workflow.get('processed_dir', 'processed'))
 
         # Handle --clean-processed flag
         if args.clean_processed:
@@ -306,7 +311,7 @@ def run_workflow(args: Namespace) -> int:
         # Dry run mode - just validate
         raw_inputs = parse_inputs(args)
         bound_inputs = bind_workflow_inputs(
-            workflow.get('inputs'),
+            workflow_input_contracts(workflow_bundle),
             raw_inputs,
             workspace=workspace,
         )
@@ -324,7 +329,7 @@ def run_workflow(args: Namespace) -> int:
             return 0
 
         # Parse context
-        context = parse_context(args, workflow_context=workflow.get('context', {}))
+        context = parse_context(args, workflow_context=dict(workflow_context(workflow_bundle)))
 
         observability = build_observability_config(args)
 

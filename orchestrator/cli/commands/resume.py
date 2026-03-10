@@ -9,6 +9,7 @@ import sys
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_context
 from orchestrator.exceptions import WorkflowValidationError
 
 
@@ -209,7 +210,6 @@ def resume_workflow(
     loader = WorkflowLoader(workspace_dir)
     try:
         workflow_bundle = loader.load_bundle(workflow_path)
-        workflow = workflow_bundle.legacy_workflow
     except WorkflowValidationError as e:
         print(f"Error loading workflow: {e}", file=sys.stderr)
         return 2
@@ -242,7 +242,7 @@ def resume_workflow(
         )
         state_manager.initialize(
             workflow_file=str(workflow_path),
-            context=workflow.get('context', {}),
+            context=dict(workflow_context(workflow_bundle)),
             bound_inputs=getattr(state, 'bound_inputs', {}),
             observability=observability,
         )
