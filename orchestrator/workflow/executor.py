@@ -86,6 +86,22 @@ def _display_workflow_path(workspace: Path, workflow_path: Any) -> str:
         return str(path)
 
 
+def _thaw_workflow_value(value: Any) -> Any:
+    """Convert frozen AST/IR payloads back into plain JSON-like runtime values."""
+    if isinstance(value, Mapping):
+        return {str(key): _thaw_workflow_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_thaw_workflow_value(item) for item in value]
+    if isinstance(value, list):
+        return [_thaw_workflow_value(item) for item in value]
+    return value
+
+
+def _thaw_workflow_mapping(value: Mapping[str, Any]) -> Dict[str, Any]:
+    """Convert one frozen workflow mapping into a plain mutable dict."""
+    return {str(key): _thaw_workflow_value(item) for key, item in value.items()}
+
+
 class _CallFrameStateManager:
     """Persist a nested workflow state snapshot under the parent run state."""
 
@@ -515,22 +531,32 @@ class WorkflowExecutor:
         ordered_node_ids = list(self.executable_ir.body_region) + list(self.executable_ir.finalization_region)
         return ordered_body_steps, ordered_finalization_steps, ordered_node_ids
 
-    @staticmethod
     def _ordered_projection_steps(
+        self,
         steps_by_node_id: Dict[str, Dict[str, Any]],
         node_ids: tuple[str, ...],
         *,
         region_name: str,
     ) -> List[Dict[str, Any]]:
-        """Materialize legacy adapter steps in executable-node order."""
+        """Materialize top-level runtime steps, preferring IR raw payloads where runtime can consume them."""
         ordered_steps: List[Dict[str, Any]] = []
         for node_id in node_ids:
-            step = steps_by_node_id.get(node_id)
-            if step is None:
-                raise ValueError(
-                    f"Legacy workflow adapter is missing {region_name} step for typed node '{node_id}'"
-                )
-            ordered_steps.append(step)
+            legacy_step = steps_by_node_id.get(node_id)
+            if self.executable_ir is None:
+                raise ValueError("Typed top-level ordering requires executable IR")
+            node = self.executable_ir.nodes.get(node_id)
+            if node is None:
+                raise ValueError(f"Executable IR is missing {region_name} node '{node_id}'")
+            if node.kind in {ExecutableNodeKind.FOR_EACH, ExecutableNodeKind.REPEAT_UNTIL_FRAME}:
+                if legacy_step is None:
+                    raise ValueError(
+                        f"Legacy workflow adapter is missing {region_name} step for typed node '{node_id}'"
+                    )
+                ordered_steps.append(legacy_step)
+                continue
+            if not isinstance(node.raw, Mapping):
+                raise ValueError(f"Executable IR is missing {region_name} raw payload for node '{node_id}'")
+            ordered_steps.append(_thaw_workflow_mapping(node.raw))
         return ordered_steps
 
     def _first_execution_node_id(self) -> Optional[str]:
@@ -541,10 +567,10 @@ class WorkflowExecutor:
         return ordered_node_ids[0] if ordered_node_ids else None
 
     def _step_for_node_id(self, node_id: str) -> Dict[str, Any]:
-        """Return the legacy adapter step for one executable node id."""
+        """Return the runtime step payload for one executable node id."""
         step = self._step_by_node_id.get(node_id)
         if step is None:
-            raise ValueError(f"Legacy workflow adapter is missing top-level step for typed node '{node_id}'")
+            raise ValueError(f"Typed workflow is missing a top-level runtime step for node '{node_id}'")
         return step
 
     def _execution_index_for_node_id(self, node_id: str) -> int:
@@ -576,6 +602,50 @@ class WorkflowExecutor:
             return None
         node = self.executable_ir.nodes.get(current_node_id)
         return node.fallthrough_node_id if node is not None else None
+
+    def _non_counting_implicit_transfer_target(self, current_node_id: str) -> Optional[str]:
+        """Return the implicit typed route target when fallthrough represents a non-counting transfer."""
+        if self.executable_ir is None:
+            return None
+        node = self.executable_ir.nodes.get(current_node_id)
+        if node is None:
+            return None
+        fallthrough_node_id = node.fallthrough_node_id
+        if not isinstance(fallthrough_node_id, str) or not fallthrough_node_id:
+            return None
+        for reason in ("call_return",):
+            transfer = node.routed_transfers.get(reason)
+            if transfer is None:
+                continue
+            if transfer.target_node_id == fallthrough_node_id and transfer.counts_as_transition is False:
+                return fallthrough_node_id
+        return None
+
+    def _counts_as_transition_for_typed_target(
+        self,
+        current_node_id: str,
+        target_node_id: Optional[str],
+        *,
+        implicit: bool,
+    ) -> bool:
+        """Return whether one typed top-level move should increment transition_count."""
+        if not isinstance(target_node_id, str) or not target_node_id:
+            return False
+        if self.executable_ir is None:
+            return True
+        node = self.executable_ir.nodes.get(current_node_id)
+        if node is None:
+            return True
+
+        if implicit:
+            return self._non_counting_implicit_transfer_target(current_node_id) != target_node_id
+
+        for transfer in node.routed_transfers.values():
+            if transfer.target_node_id == target_node_id:
+                return transfer.counts_as_transition
+        if node.fallthrough_node_id == target_node_id:
+            return True
+        return True
 
     def _projection_entry_for_step(
         self,
@@ -2266,13 +2336,21 @@ class WorkflowExecutor:
             return None, None, terminal_status, True
 
         if self._use_ir_topology and isinstance(current_node_id, str):
+            implicit_target = next_step is None
             if isinstance(next_step, str) and next_step not in {"_end", "_stop"}:
                 next_node_id = next_step
             elif isinstance(next_step, int):
                 next_node_id = self._node_id_for_execution_index(next_step)
             else:
-                next_node_id = self._fallthrough_node_id(current_node_id)
-            if next_node_id is not None:
+                next_node_id = (
+                    self._non_counting_implicit_transfer_target(current_node_id)
+                    or self._fallthrough_node_id(current_node_id)
+                )
+            if self._counts_as_transition_for_typed_target(
+                current_node_id,
+                next_node_id,
+                implicit=implicit_target,
+            ):
                 self._increment_transition_count(state)
             return None, next_node_id, terminal_status, False
 
@@ -2615,6 +2693,11 @@ class WorkflowExecutor:
             transfer = node.routed_transfers.get("goto") if node is not None else None
             if transfer is not None:
                 return transfer.target_node_id
+            projected_index = self._projection_index_by_presentation_name.get(target)
+            if isinstance(projected_index, int):
+                return self._node_id_for_execution_index(projected_index)
+            logger.error(f"Typed goto target '{target}' is unavailable for node '{current_node_id}'")
+            return None
 
         projected_index = self._projection_index_by_presentation_name.get(target)
         if isinstance(projected_index, int):

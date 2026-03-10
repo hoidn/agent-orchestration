@@ -543,6 +543,146 @@ def test_executor_resolves_goto_against_projection_when_legacy_target_name_drift
     assert persisted["step_visits"] == {"Start": 1, "Final": 1}
 
 
+def test_executor_uses_ir_raw_step_payloads_when_legacy_adapter_payloads_drift(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-raw-payload",
+        "steps": [
+            {
+                "name": "Start",
+                "id": "start",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'start\\n' >> state/history.log",
+                ],
+                "on": {
+                    "success": {
+                        "goto": "Final",
+                    }
+                },
+            },
+            {
+                "name": "Skipped",
+                "id": "skipped",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'skipped\\n' >> state/history.log",
+                ],
+            },
+            {
+                "name": "Final",
+                "id": "final",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'final\\n' >> state/history.log",
+                ],
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    legacy_steps = bundle.legacy_workflow["steps"]
+    legacy_steps[0]["command"] = [
+        "bash",
+        "-lc",
+        "mkdir -p state && printf 'legacy-start\\n' >> state/history.log",
+    ]
+    legacy_steps[0]["on"] = {"success": {"goto": "LegacyFinal"}}
+    legacy_steps[1]["command"] = [
+        "bash",
+        "-lc",
+        "mkdir -p state && printf 'legacy-skipped\\n' >> state/history.log",
+    ]
+    legacy_steps[2]["name"] = "LegacyFinal"
+    legacy_steps[2]["command"] = [
+        "bash",
+        "-lc",
+        "mkdir -p state && printf 'legacy-final\\n' >> state/history.log",
+    ]
+
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-raw-payload")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-raw-payload")
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "history.log").read_text(encoding="utf-8").splitlines() == [
+        "start",
+        "final",
+    ]
+    assert "LegacyFinal" not in state["steps"]
+    assert "Skipped" not in state["steps"]
+    assert persisted["step_visits"] == {"Start": 1, "Final": 1}
+
+
+def test_executor_uses_non_counting_ir_transfer_metadata_for_typed_call_return(tmp_path: Path):
+    child_path = tmp_path / "workflows" / "library" / "child.yaml"
+    child_path.parent.mkdir(parents=True, exist_ok=True)
+    child_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.7",
+                "name": "child",
+                "steps": [
+                    {
+                        "name": "WriteChild",
+                        "id": "write_child",
+                        "command": ["bash", "-lc", "printf 'child\\n' > state/child.log"],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "2.7",
+            "name": "typed-call-return-transition",
+            "imports": {
+                "child": "workflows/library/child.yaml",
+            },
+            "steps": [
+                {
+                    "name": "RunChild",
+                    "id": "run_child",
+                    "call": "child",
+                },
+                {
+                    "name": "AfterChild",
+                    "id": "after_child",
+                    "command": ["bash", "-lc", "printf 'after\\n' > state/after.log"],
+                },
+            ],
+        },
+    )
+    state_manager = StateManager(workspace=tmp_path, run_id="typed-call-return-transition")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    call_node = bundle.ir.nodes["root.run_child"]
+    state = {"transition_count": 0}
+
+    next_step_index, next_node_id, terminal_status, should_break = executor._advance_after_top_level_route(
+        current_index=0,
+        current_node_id=call_node.node_id,
+        next_step=None,
+        terminal_status="completed",
+        state=state,
+    )
+
+    assert next_step_index is None
+    assert next_node_id == "root.after_child"
+    assert terminal_status == "completed"
+    assert should_break is False
+    assert state["transition_count"] == 0
+
+
 def test_executor_uses_projection_names_for_finalization_bookkeeping_when_legacy_names_drift(
     tmp_path: Path,
 ):

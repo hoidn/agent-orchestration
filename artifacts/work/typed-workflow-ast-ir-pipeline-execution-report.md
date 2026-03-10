@@ -1,35 +1,37 @@
 # Completed In This Pass
 
-- Switched bundle-backed top-level execution advancement onto typed executable node ids, using IR fallthrough and routed goto targets while still persisting compatibility `current_step.index` surfaces.
-- Made resume planning projection-driven for typed workflows, so restart selection now scans projection-ordered node ids instead of drift-prone legacy adapter names.
-- Moved workflow finalization bookkeeping onto projection/IR metadata for typed runs, including finalization entry routing by node id and projected `step_names` surfaces.
-- Added regression coverage for projection-ordered resume selection under legacy-name drift and for projected finalization bookkeeping under legacy finalization-name drift.
+- Bundle-backed top-level execution now prefers thawed IR raw payloads for typed leaf/helper nodes, so typed command/goto execution no longer drifts when the legacy compatibility adapter is mutated after load.
+- Typed goto resolution now stays on IR/projection data and no longer scans compatibility step names for bundle-backed execution.
+- Top-level typed routing now honors non-counting `call_return` transfer metadata, fixing the concrete IR/runtime contract mismatch without changing current repeat-until transition compatibility.
+- Added regression coverage for typed payload drift and non-counting typed call-return routing.
 
 # Completed Plan Tasks
 
-- Tranche 4 runtime slice: top-level typed-bundle execution now advances through IR node ids instead of using legacy adapter list order as execution truth.
-- Tranche 4 runtime slice: resume planning now uses projection-owned execution ordering and `step_id -> node_id` mapping for typed workflows.
-- Tranche 4 runtime slice: finalization entry and bookkeeping now consume projection/IR metadata rather than drift-prone legacy finalization step names.
+- Tranche 4 runtime slice: reduced top-level executor dependence on the legacy lowered-dict adapter by sourcing typed leaf/helper step payloads from IR raw data where the runtime can consume authored shape directly.
+- Tranche 4 runtime slice: tightened typed goto routing so bundle-backed execution resolves targets from IR/projection metadata instead of compatibility step-name scans.
+- Tranche 4 runtime slice: aligned typed top-level transition accounting with IR transfer metadata for non-counting call returns.
 
 # Remaining Required Plan Tasks
 
-- Tranche 4: migrate the remaining runtime helpers that still consult legacy lowered dict metadata or compatibility step lists as fallback dispatch inputs.
-- Tranche 4: finish moving finalization/resume/reporting consumers onto IR regions/projection-only lookups so typed execution no longer depends on the legacy adapter outside the narrow leaf-step bridge.
-- Tranche 5: remove the second lowering path and steady-state legacy magic metadata, then update maintainer docs to the `parse -> elaborate -> lower -> execute` model.
+- Tranche 4: finish migrating loop, finalization, and call helpers that still require legacy compatibility payloads or name/index-based bookkeeping.
+- Tranche 4: move the remaining reporting/linting/runtime consumers off legacy helper-key and magic-metadata fallbacks.
+- Tranche 5: remove the legacy lowering/metadata path entirely and update maintainer docs to the typed `parse -> elaborate -> lower -> execute` model.
 
 # Verification
 
-- `pytest --collect-only -q tests/test_workflow_state_projection.py tests/test_workflow_executor_characterization.py`
-  - `19 tests collected`
-- `pytest tests/test_workflow_state_projection.py::test_resume_planner_uses_projection_ordering_when_legacy_step_names_drift tests/test_workflow_executor_characterization.py::test_executor_uses_projection_names_for_finalization_bookkeeping_when_legacy_names_drift -q`
-  - `2 passed`
-- `pytest tests/test_workflow_executor_characterization.py tests/test_for_each_execution.py tests/test_artifact_dataflow_integration.py tests/test_state_manager.py tests/test_resume_command.py tests/test_observability_report.py tests/test_cli_report_command.py tests/test_subworkflow_calls.py tests/test_workflow_state_projection.py -k "current_step or transition_count or repeat_until or finalization or call or report or projection" -q`
-  - `72 passed, 80 deselected`
+- `pytest --collect-only -q tests/test_workflow_executor_characterization.py`
+  - `13 tests collected`
+- `pytest -q tests/test_workflow_executor_characterization.py -k "projection or goto or transition or raw_step_payloads or typed_call_return_transition"`
+  - `5 passed, 8 deselected`
+- `pytest -q tests/test_workflow_state_compatibility.py -k "transition_count or call_frame or finalization or repeat_until"`
+  - `3 passed, 1 deselected`
+- `pytest -q tests/test_resume_command.py -k "transition_count or current_step or call or finalization"`
+  - `7 passed, 23 deselected`
 - `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/design_plan_impl_review_stack_v2_call.yaml --dry-run`
   - `[DRY RUN] Workflow validation successful`
 
 # Residual Risks
 
-- The executor still relies on the legacy adapter as the leaf-step payload source, so Tranche 5 adapter removal is still required.
-- Some runtime/reporting paths still retain compatibility fallbacks for legacy dict metadata, which means typed IR is not yet the sole steady-state authority everywhere.
-- This pass did not remove the legacy adapter renderer or imported-metadata shims, so raw dict cleanup and doc updates remain outstanding.
+- `repeat_until` and `for_each` top-level frames still execute through the compatibility adapter because their runtime helpers have not finished the Tranche 4 migration.
+- Loop-exit transition counting still follows existing compatibility behavior; only typed call-return routing is projection/IR-driven in this pass.
+- Reporting, linting, and bundle helper cleanup from the approved Tranche 5 work remains outstanding.
