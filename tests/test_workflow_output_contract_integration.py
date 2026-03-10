@@ -196,6 +196,74 @@ def test_workflow_signature_preserves_exact_string_inputs_and_outputs(tmp_path: 
     }
 
 
+def test_workflow_output_export_uses_bound_ir_contracts_when_legacy_refs_are_corrupted(tmp_path: Path):
+    """Workflow output export should follow lowered IR bindings, not mutated legacy refs."""
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "task-a.md").write_text("# task\n")
+
+    workflow = {
+        "version": "2.1",
+        "name": "workflow-signature-bound-output-export",
+        "inputs": {
+            "task_path": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "docs/tasks",
+                "must_exist_target": True,
+            },
+        },
+        "outputs": {
+            "report_path": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "artifacts/reports",
+                "must_exist_target": True,
+                "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
+            },
+        },
+        "steps": [{
+            "name": "GenerateReport",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p state artifacts/reports && "
+                "cp \"${inputs.task_path}\" artifacts/reports/report.md && "
+                "printf 'artifacts/reports/report.md\\n' > state/report_path.txt",
+            ],
+            "expected_outputs": [
+                {
+                    "name": "report_path",
+                    "path": "state/report_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/reports",
+                    "must_exist_target": True,
+                },
+            ],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+    loaded["outputs"]["report_path"]["from"]["ref"] = "root.steps.DoesNotExist.artifacts.report_path"
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={
+            "task_path": "docs/tasks/task-a.md",
+        },
+    )
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "report_path": "artifacts/reports/report.md",
+    }
+
+
 def test_workflow_output_export_fails_when_export_contract_is_invalid(tmp_path: Path):
     """Workflow output export should fail the run when the exported value violates its contract."""
     workflow = {

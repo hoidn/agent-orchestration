@@ -402,7 +402,9 @@ class WorkflowExecutor:
             finalization=self.finalization,
             finalization_steps=self.finalization_steps,
             finalization_start_index=self.finalization_start_index,
-            has_workflow_outputs=bool(self.workflow.get("outputs")),
+            has_workflow_outputs=bool(
+                self.executable_ir.outputs if self.executable_ir is not None else self.workflow.get("outputs")
+            ),
             persist_state=self._persist_finalization_state,
             finalization_failure_error=self._finalization_failure_error,
         )
@@ -1678,21 +1680,27 @@ class WorkflowExecutor:
 
         if terminal_status == 'completed':
             try:
+                output_specs = (
+                    self.executable_ir.outputs
+                    if self.executable_ir is not None
+                    else self.workflow.get('outputs')
+                )
                 workflow_outputs = resolve_workflow_outputs(
-                    self.workflow.get('outputs'),
+                    output_specs,
                     state,
                     workspace=self.workspace,
+                    resolve_source=self._resolve_runtime_value,
                 )
             except WorkflowSignatureError as exc:
                 terminal_status = 'failed'
                 state['error'] = exc.error
-                if isinstance(finalization, dict) and self.workflow.get('outputs'):
+                if isinstance(finalization, dict) and output_specs:
                     finalization['workflow_outputs_status'] = 'failed'
                     self._persist_finalization_state(state)
             else:
                 state['workflow_outputs'] = workflow_outputs
                 state.pop('error', None)
-                if isinstance(finalization, dict) and self.workflow.get('outputs'):
+                if isinstance(finalization, dict) and output_specs:
                     finalization['workflow_outputs_status'] = 'completed'
                     self._persist_finalization_state(state)
         elif isinstance(finalization, dict) and finalization.get('workflow_outputs_status') == 'pending':

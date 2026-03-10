@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Mapping
+from typing import Any, Callable, Dict, Mapping
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 
+from .executable_ir import ExecutableContract
 from .references import ReferenceResolutionError, ReferenceResolver
 
 
@@ -80,9 +81,11 @@ def bind_workflow_inputs(
 
 
 def resolve_workflow_outputs(
-    output_specs: Mapping[str, Dict[str, Any]] | None,
+    output_specs: Mapping[str, Any] | None,
     state: Dict[str, Any],
     workspace: Path,
+    *,
+    resolve_source: Callable[[Any, Dict[str, Any]], Any] | None = None,
 ) -> Dict[str, Any]:
     """Resolve and validate declared workflow outputs from run state."""
     specs = dict(output_specs or {})
@@ -92,9 +95,13 @@ def resolve_workflow_outputs(
     resolver = ReferenceResolver()
     resolved_outputs: Dict[str, Any] = {}
     for name, spec in specs.items():
-        binding = spec.get("from")
-        ref = binding.get("ref") if isinstance(binding, dict) else None
-        if not isinstance(ref, str) or not ref:
+        validation_spec: Any = spec.raw if isinstance(spec, ExecutableContract) else spec
+        binding = validation_spec.get("from") if isinstance(validation_spec, Mapping) else None
+        ref = binding.get("ref") if isinstance(binding, Mapping) else None
+        source = spec.source_address if isinstance(spec, ExecutableContract) else None
+        if source is None and isinstance(ref, str) and ref:
+            source = {"ref": ref}
+        if source is None:
             raise WorkflowSignatureError(
                 "Workflow output export failed",
                 context={
@@ -105,7 +112,10 @@ def resolve_workflow_outputs(
             )
 
         try:
-            raw_value = resolver.resolve(ref, state).value
+            if resolve_source is not None:
+                raw_value = resolve_source(source, state)
+            else:
+                raw_value = resolver.resolve(ref, state).value
         except ReferenceResolutionError as exc:
             raise WorkflowSignatureError(
                 "Workflow output export failed",
@@ -119,7 +129,7 @@ def resolve_workflow_outputs(
             ) from exc
 
         try:
-            resolved_outputs[name] = validate_contract_value(raw_value, spec, workspace=workspace)
+            resolved_outputs[name] = validate_contract_value(raw_value, validation_spec, workspace=workspace)
         except OutputContractError as exc:
             raise WorkflowSignatureError(
                 "Workflow output export failed",
