@@ -151,6 +151,10 @@ class _CallFrameStateManager:
     def load(self) -> RunState:
         return self.state
 
+    def calculate_checksum(self, workflow_path: Path) -> str:
+        """Delegate checksum calculation so nested call frames can nest again."""
+        return self.parent_manager.calculate_checksum(workflow_path)
+
     def backup_state(self, step_name: str) -> None:
         del step_name
 
@@ -1651,12 +1655,12 @@ class WorkflowExecutor:
         return substituted, None
 
     def _resolve_workspace_path(self, relative_path: str) -> Optional[Path]:
-        """Resolve workspace-relative path and reject escapes."""
+        """Resolve a workspace path and reject escapes outside the workspace root."""
         path = Path(relative_path)
-        if path.is_absolute() or ".." in path.parts:
+        if ".." in path.parts:
             return None
 
-        candidate = (self.workspace / path).resolve()
+        candidate = path.resolve() if path.is_absolute() else (self.workspace / path).resolve()
         workspace_root = self.workspace.resolve()
         try:
             candidate.relative_to(workspace_root)
@@ -2542,11 +2546,17 @@ class WorkflowExecutor:
 
             session_runtime = self._active_provider_session(step_name)
             if session_runtime is not None:
-                resolved_command = self.secrets_manager.mask_text(" ".join(invocation.command))
+                invocation_command = getattr(invocation, "command", None)
+                if isinstance(invocation_command, list):
+                    resolved_command = self.secrets_manager.mask_text(
+                        " ".join(str(token) for token in invocation_command)
+                    )
+                else:
+                    resolved_command = None
                 self._update_active_provider_session_metadata(
                     step_name,
-                    metadata_mode=invocation.metadata_mode,
-                    command_variant=invocation.command_variant,
+                    metadata_mode=getattr(invocation, "metadata_mode", None),
+                    command_variant=getattr(invocation, "command_variant", None),
                     resolved_command=resolved_command,
                 )
 
@@ -2638,8 +2648,8 @@ class WorkflowExecutor:
                     'mode': session_request.mode.value if session_request is not None else None,
                     'session_id': provider_session_payload.get('session_id'),
                     'event_count': provider_session_payload.get('event_count'),
-                    'command_variant': invocation.command_variant,
-                    'metadata_mode': invocation.metadata_mode,
+                    'command_variant': getattr(invocation, 'command_variant', None),
+                    'metadata_mode': getattr(invocation, 'metadata_mode', None),
                     'metadata_path': session_runtime.get('metadata_path') if isinstance(session_runtime, dict) else None,
                     'transport_spool_path': (
                         session_runtime.get('transport_spool_path')
@@ -2650,8 +2660,8 @@ class WorkflowExecutor:
             elif isinstance(session_runtime, dict):
                 debug_info.setdefault('provider_session', {}).update({
                     'mode': session_request.mode.value if session_request is not None else None,
-                    'command_variant': invocation.command_variant,
-                    'metadata_mode': invocation.metadata_mode,
+                    'command_variant': getattr(invocation, 'command_variant', None),
+                    'metadata_mode': getattr(invocation, 'metadata_mode', None),
                     'metadata_path': session_runtime.get('metadata_path'),
                     'transport_spool_path': session_runtime.get('transport_spool_path'),
                 })

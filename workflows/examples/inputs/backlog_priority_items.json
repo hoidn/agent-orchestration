@@ -1,0 +1,17 @@
+[
+  {
+    "item_id": "typed-workflow-ast-ir-pipeline",
+    "title": "Typed Workflow AST / Executable IR Boundary",
+    "brief_path": "docs/backlog/active/2026-03-09-typed-workflow-ast-ir-pipeline.md"
+  },
+  {
+    "item_id": "depends-on-inject-imported-v2-workflows",
+    "title": "depends_on.inject in Imported 2.x Workflows",
+    "brief_path": "docs/backlog/active/2026-03-09-depends-on-inject-imported-v2-workflows.md"
+  },
+  {
+    "item_id": "workflow-authoring-surface-clarity",
+    "title": "Workflow Authoring Surface Clarity",
+    "brief_path": "docs/backlog/active/2026-03-09-provider-prompt-source-surface-clarity.md"
+  }
+]

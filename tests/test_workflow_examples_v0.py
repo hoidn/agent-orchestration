@@ -17,6 +17,7 @@ EXAMPLE_FILES = [
     "backlog_plan_execute_v0.yaml",
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
+    "backlog_priority_design_plan_impl_stack_v2_call.yaml",
     "call_subworkflow_demo.yaml",
     "cycle_guard_demo.yaml",
     "design_plan_impl_review_stack_v2_call.yaml",
@@ -1169,6 +1170,9 @@ def test_backlog_priority_design_plan_impl_stack_v2_call_runtime(tmp_path: Path)
         "prompts/workflows/design_plan_impl_stack_v2_call/review_implementation.md",
         "prompts/workflows/design_plan_impl_stack_v2_call/fix_implementation.md",
         "workflows/examples/inputs/backlog_priority_items.json",
+        "docs/backlog/active/2026-03-09-typed-workflow-ast-ir-pipeline.md",
+        "docs/backlog/active/2026-03-09-depends-on-inject-imported-v2-workflows.md",
+        "docs/backlog/active/2026-03-09-provider-prompt-source-surface-clarity.md",
     ]:
         _copy_repo_file_to_workspace(workspace, repo_file)
 
@@ -1271,37 +1275,73 @@ def test_backlog_priority_design_plan_impl_stack_v2_call_runtime(tmp_path: Path)
         if index == 1:
             _write_design(
                 workspace,
-                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows/design-phase",
                 "depends-on-inject-imported-v2-workflows",
             )
         elif index == 2:
             _write_design_review(
                 workspace,
-                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows/design-phase",
                 "APPROVE",
             )
         elif index == 3:
             _write_plan(
                 workspace,
-                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows/plan-phase",
                 "depends-on-inject-imported-v2-workflows",
             )
         elif index == 4:
             _write_plan_review(
                 workspace,
-                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows/plan-phase",
                 "APPROVE",
             )
         elif index == 5:
             _write_execution_report(
                 workspace,
-                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows/implementation-phase",
                 "depends-on-inject-imported-v2-workflows",
             )
         elif index == 6:
             _write_implementation_review(
                 workspace,
-                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows/implementation-phase",
+                "APPROVE",
+            )
+        elif index == 7:
+            _write_design(
+                workspace,
+                "state/backlog-priority-stack/workflow-authoring-surface-clarity/design-phase",
+                "workflow-authoring-surface-clarity",
+            )
+        elif index == 8:
+            _write_design_review(
+                workspace,
+                "state/backlog-priority-stack/workflow-authoring-surface-clarity/design-phase",
+                "APPROVE",
+            )
+        elif index == 9:
+            _write_plan(
+                workspace,
+                "state/backlog-priority-stack/workflow-authoring-surface-clarity/plan-phase",
+                "workflow-authoring-surface-clarity",
+            )
+        elif index == 10:
+            _write_plan_review(
+                workspace,
+                "state/backlog-priority-stack/workflow-authoring-surface-clarity/plan-phase",
+                "APPROVE",
+            )
+        elif index == 11:
+            _write_execution_report(
+                workspace,
+                "state/backlog-priority-stack/workflow-authoring-surface-clarity/implementation-phase",
+                "workflow-authoring-surface-clarity",
+            )
+        elif index == 12:
+            _write_implementation_review(
+                workspace,
+                "state/backlog-priority-stack/workflow-authoring-surface-clarity/implementation-phase",
                 "APPROVE",
             )
         else:
@@ -1325,6 +1365,7 @@ def test_backlog_priority_design_plan_impl_stack_v2_call_runtime(tmp_path: Path)
     assert state["status"] == "completed"
     assert state["steps"]["ProcessBacklogItems"][0]["RunItemWorkflow"]["artifacts"]["item_outcome"] == "SKIPPED_AFTER_DESIGN"
     assert state["steps"]["ProcessBacklogItems"][1]["RunItemWorkflow"]["artifacts"]["item_outcome"] == "APPROVED"
+    assert state["steps"]["ProcessBacklogItems"][2]["RunItemWorkflow"]["artifacts"]["item_outcome"] == "APPROVED"
     assert (
         state["steps"]["ProcessBacklogItems"][1]["RunItemWorkflow"]["artifacts"]["execution_report_path"]
         == "artifacts/work/depends-on-inject-imported-v2-workflows-execution-report.md"
