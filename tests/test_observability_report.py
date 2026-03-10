@@ -252,7 +252,7 @@ def test_snapshot_accepts_loaded_bundle_and_uses_projection_ordering(tmp_path: P
     workflow_path.write_text(
         yaml.safe_dump(
             {
-                "version": "2.7",
+                "version": "2.10",
                 "name": "bundle-report",
                 "artifacts": {
                     "ready": {"kind": "scalar", "type": "bool"},
@@ -338,6 +338,86 @@ def test_snapshot_accepts_loaded_bundle_and_uses_projection_ordering(tmp_path: P
     ]
     assert snapshot["steps"][1]["kind"] == "structured_if_branch"
     assert snapshot["steps"][-1]["kind"] == "finally"
+
+
+def test_snapshot_uses_ir_node_metadata_when_bundle_legacy_steps_are_missing(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "bundle-ir-metadata"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.10",
+                "name": "bundle-ir-metadata",
+                "steps": [
+                    {
+                        "name": "GenerateReport",
+                        "id": "generate_report",
+                        "command": ["bash", "-lc", "echo report"],
+                        "consumes": [{"artifact": "plan_doc", "as": "plan"}],
+                        "expected_outputs": [
+                            {
+                                "name": "report_path",
+                                "path": "state/report_path.txt",
+                                "type": "string",
+                            }
+                        ],
+                    }
+                ],
+                "finally": {
+                    "id": "cleanup",
+                    "steps": [
+                        {
+                            "name": "Cleanup",
+                            "id": "cleanup_step",
+                            "command": ["bash", "-lc", "echo cleanup"],
+                        }
+                    ],
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle.legacy_workflow["steps"] = []
+    bundle.legacy_workflow["finally"]["steps"] = []
+
+    snapshot = build_status_snapshot(
+        bundle,
+        {
+            "run_id": "bundle-ir-metadata",
+            "status": "running",
+            "started_at": "2026-03-10T00:00:00+00:00",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "workflow_file": str(workflow_path),
+            "steps": {
+                "GenerateReport": {
+                    "status": "completed",
+                    "step_id": "root.generate_report",
+                    "exit_code": 0,
+                }
+            },
+        },
+        run_root,
+    )
+
+    assert [step["name"] for step in snapshot["steps"]] == [
+        bundle.projection.presentation_key_by_node_id[node_id]
+        for node_id in bundle.ir.body_region + bundle.ir.finalization_region
+    ]
+    steps = {step["name"]: step for step in snapshot["steps"]}
+    assert steps["GenerateReport"]["input"]["command"] == ["bash", "-lc", "echo report"]
+    assert steps["GenerateReport"]["consumes"] == [{"artifact": "plan_doc", "as": "plan"}]
+    assert steps["GenerateReport"]["expected_outputs"] == [
+        {
+            "name": "report_path",
+            "path": "state/report_path.txt",
+            "type": "string",
+        }
+    ]
+    assert steps["finally.Cleanup"]["kind"] == "finally"
 
 
 def test_snapshot_resolves_current_step_from_projection_step_id(tmp_path: Path):

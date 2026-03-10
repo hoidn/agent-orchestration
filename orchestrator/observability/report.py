@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
 from orchestrator.workflow.loaded_bundle import workflow_bundle, workflow_legacy_dict
@@ -14,11 +14,11 @@ _PREVIEW_LIMIT = 200
 _STALE_RUNNING_TIMEOUT_SEC = 300
 
 
-def _step_name(step: Dict[str, Any], index: int) -> str:
+def _step_name(step: Mapping[str, Any], index: int) -> str:
     return str(step.get("name", f"step_{index}"))
 
 
-def _step_kind(step: Dict[str, Any], node_kind: Optional[ExecutableNodeKind] = None) -> str:
+def _step_kind(step: Mapping[str, Any], node_kind: Optional[ExecutableNodeKind] = None) -> str:
     if node_kind is not None:
         kind_map = {
             ExecutableNodeKind.IF_BRANCH_MARKER: "structured_if_branch",
@@ -68,7 +68,7 @@ def _step_kind(step: Dict[str, Any], node_kind: Optional[ExecutableNodeKind] = N
     return "unknown"
 
 
-def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Dict[str, Any], Optional[str]]], Dict[str, Any]]:
+def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Mapping[str, Any], Optional[str]]], Mapping[str, Any]]:
     workflow_dict = workflow_legacy_dict(workflow) or {}
     bundle = workflow_bundle(workflow)
     if bundle is None:
@@ -78,25 +78,15 @@ def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Dict[str, Any], Opt
             steps.extend(finally_block.get("steps", []))
         return [(step, step.get("step_id") if isinstance(step, dict) else None) for step in steps], workflow_dict
 
-    steps_by_step_id: Dict[str, Dict[str, Any]] = {}
-    body_steps = workflow_dict.get("steps", [])
-    if isinstance(body_steps, list):
-        for step in body_steps:
-            if isinstance(step, dict) and isinstance(step.get("step_id"), str):
-                steps_by_step_id[step["step_id"]] = step
-    finally_block = workflow_dict.get("finally") if isinstance(workflow_dict.get("finally"), dict) else None
-    final_steps = finally_block.get("steps", []) if isinstance(finally_block, dict) else []
-    if isinstance(final_steps, list):
-        for step in final_steps:
-            if isinstance(step, dict) and isinstance(step.get("step_id"), str):
-                steps_by_step_id[step["step_id"]] = step
-
-    ordered_steps: list[tuple[Dict[str, Any], Optional[str]]] = []
+    ordered_steps: list[tuple[Mapping[str, Any], Optional[str]]] = []
     for node_id in bundle.ir.body_region + bundle.ir.finalization_region:
-        step = steps_by_step_id.get(node_id)
-        if step is not None:
-            ordered_steps.append((step, node_id))
-    return ordered_steps, workflow_dict
+        node = bundle.ir.nodes.get(node_id)
+        if node is None:
+            continue
+        raw = node.raw if isinstance(node.raw, Mapping) else {}
+        ordered_steps.append((raw, node_id))
+    workflow_metadata = bundle.surface.raw if isinstance(bundle.surface.raw, Mapping) else workflow_dict
+    return ordered_steps, workflow_metadata
 
 
 def _resolved_current_step_name(workflow: Any, current_step: Optional[Dict[str, Any]]) -> Optional[str]:
@@ -127,6 +117,16 @@ def _normalize_output_preview(step_result: Dict[str, Any]) -> str:
         text = str(payload)
         return text[:_PREVIEW_LIMIT]
     return ""
+
+
+def _report_compatible_value(value: Any) -> Any:
+    if isinstance(value, tuple):
+        return [_report_compatible_value(item) for item in value]
+    if isinstance(value, list):
+        return [_report_compatible_value(item) for item in value]
+    if isinstance(value, Mapping):
+        return {key: _report_compatible_value(item) for key, item in value.items()}
+    return value
 
 
 def _read_prompt_audit(run_root: Path, step_name: str) -> Optional[str]:
@@ -225,6 +225,7 @@ def build_status_snapshot(
 
     step_entries = []
     for idx, (step, node_id) in enumerate(ordered_steps):
+        typed_node = bundle.ir.nodes[node_id] if bundle is not None and isinstance(node_id, str) else None
         name = (
             bundle.projection.presentation_key_by_node_id.get(node_id, _step_name(step, idx))
             if bundle is not None and isinstance(node_id, str)
@@ -233,7 +234,7 @@ def build_status_snapshot(
         result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
         prompt_text = _read_prompt_audit(run_root, name)
         is_current_step = current_step_name == name
-        node_kind = bundle.ir.nodes[node_id].kind if bundle is not None and isinstance(node_id, str) else None
+        node_kind = typed_node.kind if typed_node is not None else None
 
         status = _coerce_step_status(result) or "pending"
         if is_current_step:
@@ -243,11 +244,15 @@ def build_status_snapshot(
 
         entry = {
             "name": name,
-            "step_id": result.get("step_id") if isinstance(result, dict) else step.get("step_id"),
+            "step_id": (
+                result.get("step_id")
+                if isinstance(result, dict)
+                else typed_node.step_id if typed_node is not None else step.get("step_id")
+            ),
             "kind": _step_kind(step, node_kind=node_kind),
             "status": status,
-            "consumes": step.get("consumes", []),
-            "expected_outputs": step.get("expected_outputs", []),
+            "consumes": _report_compatible_value(step.get("consumes", [])),
+            "expected_outputs": _report_compatible_value(step.get("expected_outputs", [])),
             "visit_count": step_visits.get(name),
             "current_visit_count": current_step.get("visit_count") if is_current_step else None,
             "last_result_visit_count": result.get("visit_count") if isinstance(result, dict) else None,
@@ -261,7 +266,7 @@ def build_status_snapshot(
             if prompt_text is not None:
                 entry["input"]["prompt"] = prompt_text
         if "command" in step:
-            entry["input"]["command"] = step.get("command")
+            entry["input"]["command"] = _report_compatible_value(step.get("command"))
 
         if isinstance(result, dict) and result:
             entry["output"] = {
