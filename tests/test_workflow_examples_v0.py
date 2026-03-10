@@ -1149,6 +1149,188 @@ def test_dsl_follow_on_plan_impl_review_loop_v2_call_runtime(tmp_path: Path):
     assert len(state.get("call_frames", {})) == 2
 
 
+def test_backlog_priority_design_plan_impl_stack_v2_call_runtime(tmp_path: Path):
+    """Priority backlog driver skips failed items and keeps processing later ones."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "backlog_priority_design_plan_impl_stack_v2_call.yaml"
+    )
+    for repo_file in [
+        "workflows/library/backlog_item_design_plan_impl_stack.yaml",
+        "workflows/library/tracked_design_phase.yaml",
+        "workflows/library/tracked_plan_phase.yaml",
+        "workflows/library/design_plan_impl_implementation_phase.yaml",
+        "prompts/workflows/design_plan_impl_stack_v2_call/draft_design.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/review_design.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/revise_design.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/draft_plan.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/review_plan.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/revise_plan.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/implement_plan.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/review_implementation.md",
+        "prompts/workflows/design_plan_impl_stack_v2_call/fix_implementation.md",
+        "workflows/examples/inputs/backlog_priority_items.json",
+    ]:
+        _copy_repo_file_to_workspace(workspace, repo_file)
+
+    provider_index = {"value": 0}
+
+    def _write_design(ws: Path, state_root: str, item_id: str) -> None:
+        _write_relpath_artifact(
+            ws,
+            f"{state_root}/design_path.txt",
+            f"docs/plans/{item_id}-design.md",
+            f"# Design for {item_id}\n",
+        )
+
+    def _write_design_review(ws: Path, state_root: str, decision: str) -> None:
+        report_relpath = (ws / state_root / "design_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "decision": decision,
+            "summary": f"Design review decision: {decision}",
+            "unresolved_high_count": 0 if decision == "APPROVE" else 1,
+            "unresolved_medium_count": 0,
+            "findings": [],
+        }
+        report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        (ws / state_root / "design_review_decision.txt").write_text(f"{decision}\n", encoding="utf-8")
+        (ws / state_root / "unresolved_high_count.txt").write_text(
+            f"{payload['unresolved_high_count']}\n", encoding="utf-8"
+        )
+        (ws / state_root / "unresolved_medium_count.txt").write_text(
+            f"{payload['unresolved_medium_count']}\n", encoding="utf-8"
+        )
+
+    def _write_plan(ws: Path, state_root: str, item_id: str) -> None:
+        _write_relpath_artifact(
+            ws,
+            f"{state_root}/plan_path.txt",
+            f"docs/plans/{item_id}-execution-plan.md",
+            f"# Plan for {item_id}\n",
+        )
+
+    def _write_plan_review(ws: Path, state_root: str, decision: str) -> None:
+        report_relpath = (ws / state_root / "plan_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        payload = {
+            "decision": decision,
+            "summary": f"Plan review decision: {decision}",
+            "unresolved_high_count": 0,
+            "unresolved_medium_count": 0,
+            "findings": [],
+        }
+        report_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        (ws / state_root / "plan_review_decision.txt").write_text(f"{decision}\n", encoding="utf-8")
+        (ws / state_root / "unresolved_high_count.txt").write_text("0\n", encoding="utf-8")
+        (ws / state_root / "unresolved_medium_count.txt").write_text("0\n", encoding="utf-8")
+
+    def _write_execution_report(ws: Path, state_root: str, item_id: str) -> None:
+        _write_relpath_artifact(
+            ws,
+            f"{state_root}/execution_report_path.txt",
+            f"artifacts/work/{item_id}-execution-report.md",
+            f"Execution report for {item_id}\n",
+        )
+
+    def _write_implementation_review(ws: Path, state_root: str, decision: str) -> None:
+        report_relpath = (ws / state_root / "implementation_review_report_path.txt").read_text().strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(f"## Decision\n{decision}\n", encoding="utf-8")
+        (ws / state_root / "implementation_review_decision.txt").write_text(f"{decision}\n", encoding="utf-8")
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_relpath,
+        workflow.get("context", {}),
+        bound_inputs={"backlog_manifest_path": "workflows/examples/inputs/backlog_priority_items.json"},
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    def _prepare_invocation(_self, *_args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **_kwargs):
+        index = provider_index["value"]
+        provider_index["value"] += 1
+        if index == 0:
+            return SimpleNamespace(
+                exit_code=1,
+                stdout=b"",
+                stderr=b"draft design failed",
+                duration_ms=1,
+                error=None,
+                missing_placeholders=None,
+                invalid_prompt_placeholder=False,
+                provider_session=None,
+            )
+        if index == 1:
+            _write_design(
+                workspace,
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "depends-on-inject-imported-v2-workflows",
+            )
+        elif index == 2:
+            _write_design_review(
+                workspace,
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "APPROVE",
+            )
+        elif index == 3:
+            _write_plan(
+                workspace,
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "depends-on-inject-imported-v2-workflows",
+            )
+        elif index == 4:
+            _write_plan_review(
+                workspace,
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "APPROVE",
+            )
+        elif index == 5:
+            _write_execution_report(
+                workspace,
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "depends-on-inject-imported-v2-workflows",
+            )
+        elif index == 6:
+            _write_implementation_review(
+                workspace,
+                "state/backlog-priority-stack/depends-on-inject-imported-v2-workflows",
+                "APPROVE",
+            )
+        else:
+            raise AssertionError(f"Unexpected provider invocation index {index}")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ProcessBacklogItems"][0]["RunItemWorkflow"]["artifacts"]["item_outcome"] == "SKIPPED_AFTER_DESIGN"
+    assert state["steps"]["ProcessBacklogItems"][1]["RunItemWorkflow"]["artifacts"]["item_outcome"] == "APPROVED"
+    assert (
+        state["steps"]["ProcessBacklogItems"][1]["RunItemWorkflow"]["artifacts"]["execution_report_path"]
+        == "artifacts/work/depends-on-inject-imported-v2-workflows-execution-report.md"
+    )
+
+
 def test_design_plan_impl_review_stack_v2_call_runtime(tmp_path: Path):
     """Call-based stack runs tracked design, tracked plan, then implementation review/fix."""
     workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
