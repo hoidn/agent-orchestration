@@ -230,6 +230,145 @@ def test_executor_for_each_nested_scalar_steps_materialize_artifacts_per_iterati
     ]
 
 
+def test_executor_uses_ir_raw_for_each_payloads_when_legacy_adapter_payload_is_missing(
+    tmp_path: Path,
+):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-for-each-raw-payload",
+        "artifacts": {
+            "failed_count": {
+                "kind": "scalar",
+                "type": "integer",
+            }
+        },
+        "steps": [
+            {
+                "name": "ProcessItems",
+                "id": "process_items",
+                "for_each": {
+                    "items": ["alpha", "beta"],
+                    "steps": [
+                        {
+                            "name": "InitializeCount",
+                            "id": "initialize_count",
+                            "set_scalar": {
+                                "artifact": "failed_count",
+                                "value": 0,
+                            },
+                            "publishes": [{"artifact": "failed_count", "from": "failed_count"}],
+                        },
+                        {
+                            "name": "IncrementCount",
+                            "id": "increment_count",
+                            "increment_scalar": {
+                                "artifact": "failed_count",
+                                "by": 1,
+                            },
+                            "publishes": [{"artifact": "failed_count", "from": "failed_count"}],
+                        },
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    bundle.legacy_workflow["steps"] = []
+
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-for-each-raw-payload",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-for-each-raw-payload")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ProcessItems"][0]["IncrementCount"]["artifacts"] == {"failed_count": 1}
+    assert state["steps"]["ProcessItems"][1]["IncrementCount"]["artifacts"] == {"failed_count": 1}
+    assert persisted["steps"]["ProcessItems"][0]["IncrementCount"]["artifacts"] == {
+        "failed_count": 1
+    }
+    assert persisted["for_each"]["ProcessItems"]["completed_indices"] == [0, 1]
+    assert persisted["for_each"]["ProcessItems"]["current_index"] is None
+
+
+def test_executor_uses_ir_raw_repeat_until_payloads_when_legacy_adapter_payload_is_missing(
+    tmp_path: Path,
+):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-repeat-until-raw-payload",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "ready": {
+                            "kind": "scalar",
+                            "type": "bool",
+                            "from": {
+                                "ref": "self.steps.MarkReady.artifacts.ready",
+                            },
+                        }
+                    },
+                    "condition": {
+                        "artifact_bool": {
+                            "ref": "self.outputs.ready",
+                        }
+                    },
+                    "max_iterations": 3,
+                    "steps": [
+                        {
+                            "name": "MarkReady",
+                            "id": "mark_ready",
+                            "set_scalar": {
+                                "artifact": "ready",
+                                "value": True,
+                            },
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    bundle.legacy_workflow["steps"] = []
+
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-repeat-until-raw-payload",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-repeat-until-raw-payload")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"ready": True}
+    assert state["steps"]["ReviewLoop"]["debug"]["structured_repeat_until"] == {
+        "body_id": "iteration_body",
+        "max_iterations": 3,
+        "current_iteration": None,
+        "completed_iterations": [0],
+        "condition_evaluated_for_iteration": 0,
+        "last_condition_result": True,
+    }
+    assert persisted["repeat_until"]["ReviewLoop"]["completed_iterations"] == [0]
+    assert persisted["repeat_until"]["ReviewLoop"]["current_iteration"] is None
+
+
 def test_executor_for_each_nested_provider_pre_execution_failures_normalize_outcomes(tmp_path: Path):
     workflow = {
         "version": "1.6",

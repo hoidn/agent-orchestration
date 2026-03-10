@@ -39,10 +39,12 @@ from .executable_ir import (
     BlockOutputAddress,
     CallBoundaryNode,
     CallOutputAddress,
+    ExecutableNode,
     ExecutableTransfer,
     ExecutableNodeKind,
     FinalizationStepNode,
     ExecutableContract,
+    ForEachNode,
     IfBranchMarkerNode,
     IfJoinNode,
     LoopOutputAddress,
@@ -539,7 +541,7 @@ class WorkflowExecutor:
         *,
         region_name: str,
     ) -> List[Dict[str, Any]]:
-        """Materialize top-level runtime steps, preferring IR raw payloads where runtime can consume them."""
+        """Materialize top-level runtime steps from IR raw payloads, with a narrow adapter fallback."""
         ordered_steps: List[Dict[str, Any]] = []
         for node_id in node_ids:
             legacy_step = steps_by_node_id.get(node_id)
@@ -548,16 +550,11 @@ class WorkflowExecutor:
             node = self.executable_ir.nodes.get(node_id)
             if node is None:
                 raise ValueError(f"Executable IR is missing {region_name} node '{node_id}'")
-            if node.kind in {ExecutableNodeKind.FOR_EACH, ExecutableNodeKind.REPEAT_UNTIL_FRAME}:
-                if legacy_step is None:
-                    raise ValueError(
-                        f"Legacy workflow adapter is missing {region_name} step for typed node '{node_id}'"
-                    )
-                ordered_steps.append(legacy_step)
-                continue
-            if not isinstance(node.raw, Mapping):
-                raise ValueError(f"Executable IR is missing {region_name} raw payload for node '{node_id}'")
-            materialized_step = _thaw_workflow_mapping(node.raw)
+            materialized_step = self._materialize_projection_step(
+                node,
+                legacy_step=legacy_step,
+                region_name=region_name,
+            )
             if not isinstance(materialized_step.get("step_id"), str) or not materialized_step["step_id"]:
                 materialized_step["step_id"] = node.step_id
             if not isinstance(materialized_step.get("name"), str) or not materialized_step["name"]:
@@ -568,6 +565,88 @@ class WorkflowExecutor:
                 )
             ordered_steps.append(materialized_step)
         return ordered_steps
+
+    def _materialize_projection_step(
+        self,
+        node: ExecutableNode,
+        *,
+        legacy_step: Optional[Dict[str, Any]],
+        region_name: str,
+    ) -> Dict[str, Any]:
+        """Convert one executable node into the runtime step payload used by the executor."""
+        if isinstance(node.raw, Mapping):
+            materialized_step = _thaw_workflow_mapping(node.raw)
+        elif legacy_step is not None:
+            materialized_step = _thaw_workflow_mapping(legacy_step)
+        else:
+            raise ValueError(
+                f"Typed workflow is missing both {region_name} IR raw payload and adapter step for '{node.node_id}'"
+            )
+
+        if isinstance(node, ForEachNode):
+            for_each = materialized_step.get("for_each")
+            if not isinstance(for_each, dict):
+                raise ValueError(f"Typed for_each node '{node.node_id}' is missing its loop payload")
+            for_each["steps"] = self._materialize_loop_body_steps(
+                node.body_node_ids,
+                region_name=region_name,
+                loop_node_id=node.node_id,
+                loop_kind="for_each",
+            )
+        elif isinstance(node, RepeatUntilFrameNode):
+            repeat_until = materialized_step.get("repeat_until")
+            if not isinstance(repeat_until, dict):
+                raise ValueError(f"Typed repeat_until node '{node.node_id}' is missing its loop payload")
+            repeat_until["steps"] = self._materialize_loop_body_steps(
+                node.body_node_ids,
+                region_name=region_name,
+                loop_node_id=node.node_id,
+                loop_kind="repeat_until",
+            )
+
+        return materialized_step
+
+    def _materialize_loop_body_steps(
+        self,
+        node_ids: tuple[str, ...],
+        *,
+        region_name: str,
+        loop_node_id: str,
+        loop_kind: str,
+    ) -> List[Dict[str, Any]]:
+        """Rebuild one lowered loop body from executable child nodes."""
+        if self.executable_ir is None:
+            raise ValueError("Typed loop body materialization requires executable IR")
+
+        nested_names: Optional[Mapping[str, str]] = None
+        if self.projection is not None:
+            if loop_kind == "for_each":
+                projection = self.projection.for_each_nodes.get(loop_node_id)
+            else:
+                projection = self.projection.repeat_until_nodes.get(loop_node_id)
+            if projection is not None:
+                nested_names = projection.nested_presentation_keys
+
+        materialized_steps: List[Dict[str, Any]] = []
+        for node_id in node_ids:
+            child_node = self.executable_ir.nodes.get(node_id)
+            if child_node is None or not isinstance(child_node.raw, Mapping):
+                raise ValueError(
+                    f"Typed {loop_kind} node '{loop_node_id}' is missing {region_name} child payload for '{node_id}'"
+                )
+            child_step = _thaw_workflow_mapping(child_node.raw)
+            if not isinstance(child_step.get("step_id"), str) or not child_step["step_id"]:
+                child_step["step_id"] = child_node.step_id
+            if nested_names is not None and isinstance(nested_names.get(node_id), str):
+                child_step["name"] = nested_names[node_id]
+            elif not isinstance(child_step.get("name"), str) or not child_step["name"]:
+                child_step["name"] = (
+                    nested_names.get(node_id, child_node.presentation_name)
+                    if nested_names is not None
+                    else child_node.presentation_name
+                )
+            materialized_steps.append(child_step)
+        return materialized_steps
 
     def _first_execution_node_id(self) -> Optional[str]:
         """Return the first top-level executable node id when bundle-backed IR is available."""
@@ -1584,7 +1663,11 @@ class WorkflowExecutor:
                 step_name = identity.name
                 step_id = identity.step_id
                 resume_current_step = False
-                if resume_restart_index is not None:
+                if self._use_ir_topology:
+                    if resume_restart_node_id is not None and current_node_id == resume_restart_node_id:
+                        resume_current_step = True
+                        resume_restart_node_id = None
+                elif resume_restart_index is not None:
                     if step_index < resume_restart_index:
                         logger.info(f"Skipping step before resume restart point: {step_name}")
                         step_index += 1
