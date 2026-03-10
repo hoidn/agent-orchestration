@@ -12,6 +12,7 @@ from orchestrator.security.secrets import SecretsManager, SecretsContext, Secret
 from orchestrator.exec.step_executor import StepExecutor
 from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
+from tests.workflow_bundle_helpers import thaw_surface_workflow
 
 
 class TestSecretsManager:
@@ -253,7 +254,7 @@ class TestWorkflowLoaderSecrets:
 
         # Should load without errors
         loaded = loader.load(workflow_path)
-        assert loaded['secrets'] == ['DB_PASSWORD', 'API_KEY']
+        assert thaw_surface_workflow(loaded)['secrets'] == ['DB_PASSWORD', 'API_KEY']
 
     def test_secrets_validation_rejects_non_list(self, tmp_path):
         """Test that secrets must be a list."""
@@ -336,18 +337,20 @@ def test_integration_secrets_workflow(tmp_path):
         state_manager = StateManager(tmp_path, backup_enabled=False)
         state_manager.initialize(workflow_file)
 
+        loaded = WorkflowLoader(tmp_path).load(workflow_path)
+        loaded_workflow = thaw_surface_workflow(loaded)
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=loaded,
             workspace=tmp_path,
             state_manager=state_manager
         )
 
         # Execute step
-        step = workflow['steps'][0]
+        step = loaded_workflow['steps'][0]
         result = executor.step_executor.execute_command(
             step_name=step['name'],
             command=step['command'],
-            secrets=workflow.get('secrets', [])
+            secrets=loaded_workflow.get('secrets', [])
         )
 
         # Verify execution succeeded

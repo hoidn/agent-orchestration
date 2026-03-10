@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Mapping, Optional
 
 
 class DataflowManager:
@@ -14,7 +14,8 @@ class DataflowManager:
         self,
         *,
         workspace: Path,
-        workflow: Dict[str, Any],
+        artifact_registry: Mapping[str, Any],
+        workflow_version: Optional[str],
         uses_qualified_identities: Callable[[], bool],
         workflow_version_at_least: Callable[[str], bool],
         step_id_resolver: Callable[[Dict[str, Any]], str],
@@ -25,7 +26,8 @@ class DataflowManager:
         current_step_index: Callable[[], int],
     ) -> None:
         self.workspace = workspace
-        self.workflow = workflow
+        self.artifact_registry = artifact_registry
+        self.workflow_version = workflow_version
         self.uses_qualified_identities = uses_qualified_identities
         self.workflow_version_at_least = workflow_version_at_least
         self.step_id_resolver = step_id_resolver
@@ -72,10 +74,6 @@ class DataflowManager:
                 },
             )
 
-        artifacts_registry = self.workflow.get("artifacts", {})
-        if not isinstance(artifacts_registry, dict):
-            artifacts_registry = {}
-
         artifact_versions = state.setdefault("artifact_versions", {})
         if not isinstance(artifact_versions, dict):
             artifact_versions = {}
@@ -106,7 +104,7 @@ class DataflowManager:
                 )
 
             value = artifacts[output_name]
-            artifact_spec = artifacts_registry.get(artifact_name, {})
+            artifact_spec = self.artifact_registry.get(artifact_name, {})
             if isinstance(artifact_spec, dict) and artifact_spec.get("type") == "enum":
                 allowed = artifact_spec.get("allowed")
                 if (
@@ -178,10 +176,6 @@ class DataflowManager:
                 {"step": step_name, "reason": "consumes_not_list"},
             )
 
-        artifacts_registry = self.workflow.get("artifacts", {})
-        if not isinstance(artifacts_registry, dict):
-            artifacts_registry = {}
-
         artifact_versions = state.setdefault("artifact_versions", {})
         if not isinstance(artifact_versions, dict):
             artifact_versions = {}
@@ -210,8 +204,7 @@ class DataflowManager:
             artifact_consumes["__global__"] = global_consumes
         step_resolved_consumes: Dict[str, Any] = {}
         resolved_consumes[consumer_identity] = step_resolved_consumes
-        workflow_version = self.workflow.get("version")
-        materialize_relpath_consume_pointer = workflow_version in {"1.2", "1.3"}
+        materialize_relpath_consume_pointer = self.workflow_version in {"1.2", "1.3"}
         freshness_uses_step_scope = self.workflow_version_at_least("1.4")
 
         for consume in consumes:
@@ -283,7 +276,7 @@ class DataflowManager:
                     },
                 )
 
-            artifact_spec = artifacts_registry.get(artifact_name, {})
+            artifact_spec = self.artifact_registry.get(artifact_name, {})
             artifact_kind = "relpath"
             artifact_type = None
             if isinstance(artifact_spec, dict):

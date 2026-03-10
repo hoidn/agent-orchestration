@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping as MappingABC
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
@@ -13,28 +12,14 @@ from .surface_ast import ImportedWorkflowMetadata, SurfaceWorkflow, WorkflowProv
 
 
 @dataclass(frozen=True)
-class LoadedWorkflowBundle(MappingABC[str, Any]):
-    """Typed loaded-workflow bundle with direct access to authored top-level YAML fields."""
+class LoadedWorkflowBundle:
+    """Typed loaded-workflow bundle."""
 
     surface: SurfaceWorkflow
     ir: ExecutableWorkflow
     projection: WorkflowStateProjection
     imports: Mapping[str, "LoadedWorkflowBundle"]
     provenance: WorkflowProvenance
-
-    def __getitem__(self, key: str) -> Any:
-        return _compatibility_value(self.surface.raw[key])
-
-    def __iter__(self) -> Iterator[str]:
-        return iter(self.surface.raw)
-
-    def __len__(self) -> int:
-        return len(self.surface.raw)
-
-    def get(self, key: str, default: Any = None) -> Any:
-        if key not in self.surface.raw:
-            return default
-        return _compatibility_value(self.surface.raw[key])
 
 
 def _compatibility_value(value: Any) -> Any:

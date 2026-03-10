@@ -15,7 +15,7 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.surface_ast import freeze_mapping
-from tests.workflow_bundle_helpers import materialize_projection_body_steps
+from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -108,7 +108,7 @@ def _run_workflow(
     workflow_path = _write_yaml(tmp_path / "workflow.yaml", workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_path)
     state_manager = StateManager(tmp_path, run_id=run_id)
-    state_manager.initialize("workflow.yaml", context=loaded.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(loaded))
     executor = WorkflowExecutor(loaded, tmp_path, state_manager)
     final_state = executor.execute(on_error=on_error)
     persisted = state_manager.load().to_dict()
@@ -292,7 +292,7 @@ def test_call_executes_from_loaded_bundle_without_legacy_import_magic(tmp_path: 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
 
     state_manager = StateManager(tmp_path, run_id="bundle-call")
-    state_manager.initialize("workflow.yaml", context=bundle.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
     final_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
 
     assert final_state["status"] == "completed"
@@ -322,7 +322,7 @@ def test_call_uses_typed_import_contracts_when_legacy_specs_are_missing(tmp_path
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
 
     state_manager = StateManager(tmp_path, run_id="bundle-call-typed-contracts")
-    state_manager.initialize("workflow.yaml", context=bundle.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
     final_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
     persisted = state_manager.load().to_dict()
 
@@ -507,7 +507,7 @@ def test_call_rejects_colliding_write_root_bindings_without_imported_legacy_magi
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
 
     state_manager = StateManager(tmp_path, run_id="for-each-call-collision-typed-imports")
-    state_manager.initialize("workflow.yaml", context=bundle.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
     state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
     persisted = state_manager.load().to_dict()
 
@@ -699,7 +699,7 @@ def test_call_executes_imported_workflow_and_persists_call_frame_state(tmp_path:
 
     workflow = WorkflowLoader(tmp_path).load(workflow_path)
     state_manager = StateManager(tmp_path, run_id="call-run")
-    state_manager.initialize("workflow.yaml", context=workflow.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, tmp_path, state_manager)
 
     state = executor.execute()
@@ -768,7 +768,7 @@ def test_call_outputs_publish_into_caller_lineage_with_outer_producer(tmp_path: 
 
     workflow = WorkflowLoader(tmp_path).load(workflow_path)
     state_manager = StateManager(tmp_path, run_id="call-lineage")
-    state_manager.initialize("workflow.yaml", context=workflow.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, tmp_path, state_manager)
 
     state = executor.execute()
@@ -964,7 +964,7 @@ def test_call_repeat_until_provider_defaults_use_callee_context(tmp_path: Path):
 
     workflow = WorkflowLoader(tmp_path).load(workflow_path)
     state_manager = StateManager(tmp_path, run_id="call-repeat-until-provider-context")
-    state_manager.initialize("workflow.yaml", context=workflow.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, tmp_path, state_manager)
 
     captured_commands: list[list[str]] = []
@@ -1101,7 +1101,7 @@ def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corru
     corrupted_bundle = replace(imported_bundle, surface=corrupted_surface)
 
     state_manager = StateManager(tmp_path, run_id="bound-call-output-provenance")
-    state_manager.initialize("workflow.yaml", context=bundle.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
     state = executor.execute()
     persisted = state_manager.load().to_dict()

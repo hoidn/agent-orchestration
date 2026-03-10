@@ -50,6 +50,20 @@ def _replace_ir_node_raw(bundle, node_id: str, raw_payload: dict):
     )
 
 
+def test_executor_requires_loaded_workflow_bundle(tmp_path: Path):
+    workflow = {
+        "version": "2.5",
+        "name": "typed-bundle-only",
+        "steps": [{
+            "name": "Echo",
+            "command": ["echo", "ok"],
+        }],
+    }
+
+    with pytest.raises(TypeError, match="LoadedWorkflowBundle"):
+        WorkflowExecutor(workflow, tmp_path, StateManager(tmp_path, run_id="typed-bundle-only"))
+
+
 def _structured_finally_resume_workflow() -> dict:
     return {
         "version": "2.3",

@@ -278,7 +278,7 @@ def run_workflow(args: Namespace) -> int:
                 logger.error(f"Validation error: {error.message}")
             return e.exit_code
         # Determine processed directory
-        processed_dir = workspace / str(workflow_bundle.get('processed_dir', 'processed'))
+        processed_dir = workspace / str(workflow_bundle.surface.raw.get('processed_dir', 'processed'))
 
         # Handle --clean-processed flag
         if args.clean_processed:

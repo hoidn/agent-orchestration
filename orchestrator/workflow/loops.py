@@ -1614,7 +1614,7 @@ class LoopExecutor:
         """Evaluate one loop-body guard/when condition and return failure or skip results."""
         runtime_context = RuntimeContext.from_mapping(
             loop_context,
-            default_context=self.executor.workflow.get("context", {}),
+            default_context=self.executor.workflow_context_defaults,
             parent_steps=scope.get("parent_steps", {}),
             root_steps=scope.get("root_steps", {}),
         )

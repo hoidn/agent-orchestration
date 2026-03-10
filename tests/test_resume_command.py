@@ -19,6 +19,7 @@ from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 def _build_resume_loop_workflow() -> dict:
@@ -1123,7 +1124,7 @@ def test_repeat_until_resume_advances_past_already_evaluated_condition_without_r
         encoding="utf-8",
     )
     workflow = WorkflowLoader(temp_workspace).load(workflow_path)
-    repeat_step = workflow["steps"][0]
+    repeat_step = workflow.surface.raw["steps"][0]
     body_steps = repeat_step["repeat_until"]["steps"]
 
     state_dir = temp_workspace / "state"
@@ -1337,7 +1338,7 @@ def test_call_subworkflow_smoke_resume_preserves_completed_nested_steps(temp_wor
     loader = WorkflowLoader(temp_workspace)
     loaded = loader.load(workflow_path)
     state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize(str(workflow_path), context=loaded.get("context", {}))
+    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
 
     first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
 
@@ -1394,7 +1395,7 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
     loader = WorkflowLoader(temp_workspace)
     loaded = loader.load(workflow_path)
     state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
-    state_manager.initialize(str(workflow_path), context=loaded.get("context", {}))
+    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
 
     first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
 
@@ -2689,8 +2690,9 @@ def test_resume_quarantines_live_provider_session_with_retained_partial_spool(te
                 ):
                     candidate = transport_candidates[0]
                     if candidate.exists() and candidate.stat().st_size > 0:
-                        transport_spool_path = candidate
-                        break
+                        if "partial" in candidate.read_text(encoding="utf-8"):
+                            transport_spool_path = candidate
+                            break
         time.sleep(0.05)
 
     assert run_id is not None

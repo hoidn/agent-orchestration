@@ -1,5 +1,6 @@
 """Integration tests for expected_outputs enforcement in workflow execution."""
 
+from dataclasses import replace
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -8,6 +9,8 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.surface_ast import freeze_mapping
+from tests.workflow_bundle_helpers import thaw_surface_workflow
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -245,7 +248,14 @@ def test_workflow_output_export_uses_bound_ir_contracts_when_legacy_refs_are_cor
     workflow_file = _write_workflow(tmp_path, workflow)
     loader = WorkflowLoader(tmp_path)
     loaded = loader.load(workflow_file)
-    loaded["outputs"]["report_path"]["from"]["ref"] = "root.steps.DoesNotExist.artifacts.report_path"
+    corrupted_surface = thaw_surface_workflow(loaded)
+    corrupted_surface["outputs"]["report_path"]["from"]["ref"] = (
+        "root.steps.DoesNotExist.artifacts.report_path"
+    )
+    loaded = replace(
+        loaded,
+        surface=replace(loaded.surface, raw=freeze_mapping(corrupted_surface)),
+    )
 
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
     state_manager.initialize(

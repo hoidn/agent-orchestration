@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from orchestrator.workflow.executable_ir import ForEachNode, RepeatUntilFrameNode
-from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_context
 
 
 def _thaw(value: Any) -> Any:
@@ -82,3 +82,11 @@ def materialize_projection_body_steps(bundle: LoadedWorkflowBundle) -> list[dict
 
 def materialize_projection_finalization_steps(bundle: LoadedWorkflowBundle) -> list[dict[str, Any]]:
     return [materialize_projection_step(bundle, node_id) for node_id in bundle.ir.finalization_region]
+
+
+def thaw_surface_workflow(bundle: LoadedWorkflowBundle) -> dict[str, Any]:
+    return _thaw(bundle.surface.raw)
+
+
+def bundle_context_dict(bundle: LoadedWorkflowBundle) -> dict[str, Any]:
+    return _thaw(workflow_context(bundle))

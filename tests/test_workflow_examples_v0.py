@@ -10,6 +10,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 EXAMPLE_FILES = [
@@ -82,7 +83,7 @@ def _run_with_mocked_providers(
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     call_index = {"value": 0}
@@ -133,7 +134,7 @@ def test_workflow_examples_v0_load():
     for example_file in EXAMPLE_FILES:
         workflow_path = root / "workflows" / "examples" / example_file
         workflow = loader.load(workflow_path)
-        assert workflow["steps"], f"Expected steps in {example_file}"
+        assert workflow.surface.raw["steps"], f"Expected steps in {example_file}"
 
 
 def test_backlog_plan_execute_v0_runtime(tmp_path: Path):
@@ -171,7 +172,7 @@ def test_assert_gate_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute()
@@ -190,7 +191,7 @@ def test_call_subworkflow_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute()
@@ -208,7 +209,7 @@ def test_structured_if_else_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute()
@@ -225,7 +226,7 @@ def test_finally_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute()
@@ -243,7 +244,7 @@ def test_match_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute()
@@ -262,7 +263,7 @@ def test_repeat_until_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute()
@@ -288,7 +289,7 @@ def test_score_gate_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute()
@@ -415,7 +416,7 @@ def test_typed_predicate_routing_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute(on_error="continue")
@@ -458,7 +459,7 @@ def test_scalar_bookkeeping_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute()
@@ -475,7 +476,7 @@ def test_cycle_guard_demo_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     state = executor.execute(on_error="continue")
@@ -605,7 +606,7 @@ def test_dsl_review_first_fix_loop_provider_session_runtime(tmp_path: Path):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
-    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
     executor = WorkflowExecutor(workflow, workspace, state_manager)
 
     provider_sequence = ["ReviewDraft", "FixIssues", "ReviewDraft"]
@@ -904,7 +905,7 @@ def test_dsl_follow_on_plan_impl_review_loop_v2_runtime(tmp_path: Path):
     state_manager = StateManager(workspace=workspace, run_id="test-run")
     state_manager.initialize(
         workflow_relpath,
-        workflow.get("context", {}),
+        bundle_context_dict(workflow),
         bound_inputs={
             "upstream_state_path": "workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json",
             "design_path": "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md",
@@ -1080,7 +1081,7 @@ def test_dsl_follow_on_plan_impl_review_loop_v2_call_runtime(tmp_path: Path):
     state_manager = StateManager(workspace=workspace, run_id="test-run")
     state_manager.initialize(
         workflow_relpath,
-        workflow.get("context", {}),
+        bundle_context_dict(workflow),
         bound_inputs={
             "upstream_state_path": "workflows/examples/inputs/dsl-follow-on-upstream-completed-state.json",
             "design_path": "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md",
@@ -1250,7 +1251,7 @@ def test_backlog_priority_design_plan_impl_stack_v2_call_runtime(tmp_path: Path)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
     state_manager.initialize(
         workflow_relpath,
-        workflow.get("context", {}),
+        bundle_context_dict(workflow),
         bound_inputs={"backlog_manifest_path": "workflows/examples/inputs/backlog_priority_items.json"},
     )
     executor = WorkflowExecutor(workflow, workspace, state_manager)
@@ -1552,7 +1553,7 @@ def test_design_plan_impl_review_stack_v2_call_runtime(tmp_path: Path):
     state_manager = StateManager(workspace=workspace, run_id="test-run")
     state_manager.initialize(
         workflow_relpath,
-        workflow.get("context", {}),
+        bundle_context_dict(workflow),
         bound_inputs={
             "brief_path": "workflows/examples/inputs/provider_session_resume_brief.md",
             "design_target_path": "docs/plans/2026-03-09-provider-session-resume-design.md",

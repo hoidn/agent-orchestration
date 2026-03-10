@@ -14,6 +14,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.providers import ProviderRegistry, ProviderExecutor
 from orchestrator.exec.step_executor import StepExecutor
+from tests.workflow_bundle_helpers import thaw_surface_workflow
 
 
 class TestProviderIntegration:
@@ -61,12 +62,13 @@ class TestProviderIntegration:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        loaded_workflow = thaw_surface_workflow(loaded)
 
         assert loaded is not None
-        assert "custom" in loaded["providers"]
+        assert "custom" in loaded_workflow["providers"]
 
         # Check provider was parsed correctly
-        custom = loaded["providers"]["custom"]
+        custom = loaded_workflow["providers"]["custom"]
         assert custom["command"] == ["custom-cli", "-p", "${PROMPT}", "--model", "${model}"]
         assert custom["defaults"]["model"] == "default-model"
         assert custom.get("input_mode", "argv") == "argv"
@@ -95,9 +97,10 @@ class TestProviderIntegration:
         (self.workspace / "input.txt").write_text("Input for stdin")
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        loaded_workflow = thaw_surface_workflow(loaded)
 
         assert loaded is not None
-        provider = loaded["providers"]["stdin_tool"]
+        provider = loaded_workflow["providers"]["stdin_tool"]
         assert provider["input_mode"] == "stdin"
 
     def test_at49_stdin_prompt_validation_in_workflow(self):
@@ -152,9 +155,10 @@ class TestProviderIntegration:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        loaded_workflow = thaw_surface_workflow(loaded)
 
         assert loaded is not None
-        step = loaded["steps"][0]
+        step = loaded_workflow["steps"][0]
         assert step["provider"] == "simple"
         assert step["provider_params"]["config"] == "/custom/config.yml"
 
@@ -183,9 +187,10 @@ class TestProviderIntegration:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        loaded_workflow = thaw_surface_workflow(loaded)
 
         assert loaded is not None
-        step = loaded["steps"][0]
+        step = loaded_workflow["steps"][0]
         # Variables in provider_params should be preserved for runtime substitution
         assert "${context.base_path}" in step["provider_params"]["input_path"]
 
@@ -222,14 +227,15 @@ class TestProviderIntegration:
         # Load workflow
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        loaded_workflow = thaw_surface_workflow(loaded)
 
         # Set up provider registry and executor
         registry = ProviderRegistry()
-        registry.register_from_workflow(loaded["providers"])
+        registry.register_from_workflow(loaded_workflow["providers"])
         executor = ProviderExecutor(self.workspace, registry)
 
         # Get step and prepare invocation
-        step = loaded["steps"][0]
+        step = loaded_workflow["steps"][0]
         params = {
             "params": step.get("provider_params", {}),
             "input_file": step.get("input_file"),
@@ -292,8 +298,9 @@ class TestProviderIntegration:
         (self.workspace / "prompt.txt").write_text("Test")
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        loaded_workflow = thaw_surface_workflow(loaded)
 
         assert loaded is not None
         # Built-in providers should work without explicit definition
-        assert loaded["steps"][0]["provider"] == "claude"
-        assert loaded["steps"][1]["provider"] == "codex"
+        assert loaded_workflow["steps"][0]["provider"] == "claude"
+        assert loaded_workflow["steps"][1]["provider"] == "codex"

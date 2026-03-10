@@ -235,7 +235,7 @@ class CallExecutor:
 
             prior_alias = prior_frame.get("import_alias")
             prior_bundle = (
-                workflow_import_bundle(self.executor.loaded_bundle or self.executor.workflow, prior_alias)
+                workflow_import_bundle(self.executor.loaded_bundle, prior_alias)
                 if isinstance(prior_alias, str)
                 else None
             )
@@ -440,7 +440,7 @@ class CallExecutor:
         from .executor import WorkflowExecutor, _CallFrameStateManager
 
         call_alias = step.get("call")
-        imported_bundle = workflow_import_bundle(self.executor.loaded_bundle or self.executor.workflow, call_alias)
+        imported_bundle = workflow_import_bundle(self.executor.loaded_bundle, call_alias)
         imported_target = imported_bundle
         step_name = step_name_override or step.get("name", f"step_{self.executor.current_step}")
         step_id = runtime_step_id or self.executor._step_id(step)
