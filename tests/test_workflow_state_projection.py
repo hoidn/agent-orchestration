@@ -258,6 +258,48 @@ def _write_projection_call_workflow(workspace: Path) -> Path:
     )
 
 
+def _write_provider_session_projection_workflow(workspace: Path) -> Path:
+    return _write_yaml(
+        workspace / "provider_session_projection.yaml",
+        {
+            "version": "2.10",
+            "name": "provider-session-projection",
+            "providers": {
+                "codex_session": {
+                    "command": ["bash", "-lc", "echo should-not-run"],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["bash", "-lc", "echo should-not-run"],
+                        "resume_command": [
+                            "bash",
+                            "-lc",
+                            "echo should-not-run ${SESSION_ID}",
+                        ],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [
+                {
+                    "name": "StartImplementation",
+                    "id": "start_implementation",
+                    "provider": "codex_session",
+                    "provider_session": {
+                        "mode": "fresh",
+                        "publish_artifact": "implementation_session_id",
+                    },
+                }
+            ],
+        },
+    )
+
+
 def test_projection_preserves_existing_lowered_order_and_presentation_keys(tmp_path: Path):
     workflow_path = _write_projection_workflow(tmp_path)
 
@@ -444,3 +486,41 @@ def test_resume_planner_rejects_inconsistent_projection_compatibility_fields(
 
     assert exc_info.value.context["step_id"] == "root.route_ready"
     assert exc_info.value.context["field"] == field
+
+
+def test_resume_planner_quarantines_provider_session_visits_without_current_step_name(tmp_path: Path):
+    workflow_path = _write_provider_session_projection_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    planner = ResumePlanner()
+    guard = planner.detect_interrupted_provider_session_visit(
+        {
+            "steps": {
+                "StartImplementation": {
+                    "status": "completed",
+                    "step_id": "root.start_implementation",
+                    "visit_count": 1,
+                    "artifacts": {
+                        "implementation_session_id": "sess-old",
+                    },
+                }
+            },
+            "current_step": {
+                "index": 0,
+                "status": "running",
+                "step_id": "root.start_implementation",
+                "visit_count": 2,
+            },
+        },
+        bundle.legacy_workflow["steps"],
+        projection=bundle.projection,
+    )
+
+    assert guard == {
+        "kind": "quarantine",
+        "step_name": "StartImplementation",
+        "step_id": "root.start_implementation",
+        "visit_count": 2,
+        "provider": "codex_session",
+        "mode": "fresh",
+    }

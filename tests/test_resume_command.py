@@ -2430,6 +2430,112 @@ steps:
     assert "interrupted provider-session visit was quarantined" in captured.err
 
 
+def test_resume_quarantines_interrupted_provider_session_visit_without_current_step_name(
+    temp_workspace,
+    capsys,
+):
+    """Interrupted provider-session visits still quarantine when only durable identity survives."""
+    workflow_path = temp_workspace / "provider_session_resume_missing_name.yaml"
+    workflow_content = """
+version: "2.10"
+name: provider-session-resume-missing-name
+providers:
+  codex_session:
+    command: ["bash", "-lc", "echo should-not-run"]
+    input_mode: "stdin"
+    session_support:
+      metadata_mode: codex_exec_jsonl_stdout
+      fresh_command: ["bash", "-lc", "echo should-not-run"]
+      resume_command: ["bash", "-lc", "echo should-not-run ${SESSION_ID}"]
+artifacts:
+  implementation_session_id:
+    kind: scalar
+    type: string
+steps:
+  - name: StartImplementation
+    id: start_implementation
+    provider: codex_session
+    provider_session:
+      mode: fresh
+      publish_artifact: implementation_session_id
+"""
+    workflow_path.write_text(workflow_content, encoding="utf-8")
+    checksum = f"sha256:{hashlib.sha256(workflow_content.encode()).hexdigest()}"
+
+    run_id = "provider-session-quarantine-missing-name"
+    state_dir = temp_workspace / ".orchestrate" / "runs" / run_id
+    state_dir.mkdir(parents=True)
+    (state_dir / "state.json").write_text(json.dumps({
+        "schema_version": StateManager.SCHEMA_VERSION,
+        "run_id": run_id,
+        "workflow_file": str(workflow_path),
+        "workflow_checksum": checksum,
+        "started_at": "2024-01-01T00:00:00Z",
+        "updated_at": "2024-01-01T00:01:00Z",
+        "status": "running",
+        "context": {},
+        "steps": {
+            "StartImplementation": {
+                "status": "completed",
+                "step_id": "root.start_implementation",
+                "visit_count": 1,
+                "exit_code": 0,
+                "artifacts": {
+                    "implementation_session_id": "sess-old",
+                },
+            },
+        },
+        "current_step": {
+            "index": 0,
+            "type": "provider",
+            "status": "running",
+            "step_id": "root.start_implementation",
+            "visit_count": 2,
+            "started_at": "2024-01-01T00:02:00Z",
+            "last_heartbeat_at": "2024-01-01T00:02:00Z",
+        },
+        "artifact_versions": {
+            "implementation_session_id": [
+                {
+                    "version": 1,
+                    "value": "sess-old",
+                    "producer": "root.start_implementation",
+                    "producer_name": "StartImplementation",
+                    "step_index": 0,
+                }
+            ]
+        },
+        "artifact_consumes": {},
+        "transition_count": 0,
+        "step_visits": {"StartImplementation": 2},
+    }, indent=2), encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(run_id=run_id)
+
+    assert result == 1
+    persisted_state = json.loads((state_dir / "state.json").read_text(encoding="utf-8"))
+    error = persisted_state["error"]
+    metadata_path = Path(error["context"]["metadata_path"])
+    transport_spool_path = Path(error["context"]["transport_spool_path"])
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    assert persisted_state["status"] == "failed"
+    assert persisted_state.get("current_step") is None
+    assert persisted_state["steps"]["StartImplementation"]["visit_count"] == 1
+    assert error["type"] == "provider_session_interrupted_visit_quarantined"
+    assert error["context"]["step_name"] == "StartImplementation"
+    assert error["context"]["visit_count"] == 2
+    assert error["context"]["metadata_synthesized"] is True
+    assert metadata["step_status"] == "interrupted"
+    assert metadata["publication_state"] == "quarantined_interrupted_visit"
+    assert metadata["metadata_synthesized"] is True
+    assert transport_spool_path.exists()
+
+    captured = capsys.readouterr()
+    assert "interrupted provider-session visit was quarantined" in captured.err
+
+
 def test_resume_quarantines_live_provider_session_with_retained_partial_spool(temp_workspace, capsys):
     """Resume quarantine retains the bytes captured before a live provider-session run was interrupted."""
     workflow_path = temp_workspace / "provider_session_resume_live.yaml"

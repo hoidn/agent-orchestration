@@ -275,14 +275,8 @@ class ResumePlanner:
         if not isinstance(current_step, dict) or current_step.get("status") != "running":
             return None
 
-        step_name = current_step.get("name")
-        if not isinstance(step_name, str) or not step_name:
-            return None
-
         try:
             step = self._resolve_provider_session_step(current_step, steps, projection)
-            if isinstance(step, dict) and isinstance(step.get("provider_session"), dict):
-                self._projected_current_step(current_step, projection)
         except ResumeStateIntegrityError as exc:
             return self._projection_integrity_error(current_step, exc)
         if not isinstance(step, dict):
@@ -292,8 +286,32 @@ class ResumePlanner:
         if not isinstance(provider_session, dict):
             return None
 
+        projected_current_step = None
+        try:
+            projected_current_step = self._projected_current_step(current_step, projection)
+        except ResumeStateIntegrityError as exc:
+            return self._projection_integrity_error(current_step, exc)
+
+        step_name = (
+            projected_current_step.presentation_key
+            if projected_current_step is not None
+            else current_step.get("name")
+        )
+        if not isinstance(step_name, str) or not step_name:
+            resolved_step_name = step.get("name")
+            if isinstance(resolved_step_name, str) and resolved_step_name:
+                step_name = resolved_step_name
+
         step_id = current_step.get("step_id")
         visit_count = current_step.get("visit_count")
+        if not isinstance(step_name, str) or not step_name:
+            return {
+                "kind": "integrity_error",
+                "message": "Interrupted provider-session visit is missing a resolvable step presentation key",
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+            }
         if not isinstance(step_id, str) or not step_id:
             return {
                 "kind": "integrity_error",
