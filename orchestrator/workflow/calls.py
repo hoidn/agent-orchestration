@@ -6,11 +6,18 @@ from pathlib import Path
 from typing import Any, Dict, Mapping, Optional
 
 from ..contracts.output_contract import OutputContractError, validate_contract_value
+from .executable_ir import (
+    BlockOutputAddress,
+    CallOutputAddress,
+    NodeResultAddress,
+    LoopOutputAddress,
+    WorkflowInputAddress,
+)
 from .loaded_bundle import (
+    workflow_bundle,
     workflow_input_contracts,
     workflow_import_bundle,
     workflow_managed_write_root_inputs,
-    workflow_output_contracts,
     workflow_provenance,
 )
 from .predicates import PredicateEvaluationError
@@ -22,6 +29,56 @@ class CallExecutor:
 
     def __init__(self, executor: Any) -> None:
         self.executor = executor
+
+    @staticmethod
+    def _source_ref_for_address(bundle: Any, address: Any) -> Optional[str]:
+        """Render a stable compatibility ref string from one bound output address."""
+        projection = getattr(bundle, "projection", None)
+        if isinstance(address, WorkflowInputAddress):
+            return f"inputs.{address.input_name}"
+        if projection is None:
+            return None
+        if isinstance(address, NodeResultAddress):
+            presentation_key = projection.presentation_key_by_node_id.get(address.node_id)
+            if not isinstance(presentation_key, str) or not presentation_key:
+                return None
+            if address.field == "exit_code":
+                return f"root.steps.{presentation_key}.exit_code"
+            if address.member is None:
+                return f"root.steps.{presentation_key}.{address.field}"
+            return f"root.steps.{presentation_key}.{address.field}.{address.member}"
+        if isinstance(address, (BlockOutputAddress, LoopOutputAddress, CallOutputAddress)):
+            presentation_key = projection.presentation_key_by_node_id.get(address.node_id)
+            if not isinstance(presentation_key, str) or not presentation_key:
+                return None
+            return f"root.steps.{presentation_key}.artifacts.{address.output_name}"
+        return None
+
+    @staticmethod
+    def _source_provenance_for_output(bundle: Any, output_name: str) -> Optional[Dict[str, Any]]:
+        """Return canonical export provenance from typed output contracts when available."""
+        ir = getattr(bundle, "ir", None)
+        projection = getattr(bundle, "projection", None)
+        if ir is None or projection is None:
+            return None
+        output_contract = ir.outputs.get(output_name)
+        if output_contract is None:
+            return None
+        source_address = output_contract.source_address
+        source_ref = CallExecutor._source_ref_for_address(bundle, source_address)
+        if source_ref is None:
+            return None
+
+        provenance: Dict[str, Any] = {"source_ref": source_ref}
+        if isinstance(
+            source_address,
+            (NodeResultAddress, BlockOutputAddress, LoopOutputAddress, CallOutputAddress),
+        ):
+            projection_entry = projection.entries_by_node_id.get(source_address.node_id)
+            if projection_entry is not None:
+                provenance["source_step_name"] = projection_entry.presentation_key
+                provenance["source_step_id"] = projection_entry.step_id
+        return provenance
 
     def frame_id(self, step: Dict[str, Any], state: Dict[str, Any]) -> str:
         """Derive a durable call-frame id from the authored call step and visit count."""
@@ -238,23 +295,19 @@ class CallExecutor:
         nested_frames = list(call_frames.keys()) if isinstance(call_frames, dict) else []
         finalization = child_state.get("finalization", {})
         exports: Dict[str, Any] = {}
-        output_specs = workflow_output_contracts(imported_workflow)
+        imported_bundle = workflow_bundle(imported_workflow)
         workflow_outputs = child_state.get("workflow_outputs", {})
         if isinstance(workflow_outputs, dict):
-            child_steps = child_state.get("steps", {}) if isinstance(child_state.get("steps"), dict) else {}
-            for output_name, output_spec in output_specs.items():
-                if output_name not in workflow_outputs or not isinstance(output_spec, Mapping):
+            for output_name in workflow_outputs:
+                if not isinstance(output_name, str):
                     continue
-                binding = output_spec.get("from")
-                ref = binding.get("ref") if isinstance(binding, Mapping) else None
-                export_entry: Dict[str, Any] = {"source_ref": ref}
-                if isinstance(ref, str) and ref.startswith("root.steps."):
-                    step_name = ref[len("root.steps."):].split(".", 1)[0]
-                    child_step = child_steps.get(step_name)
-                    if isinstance(child_step, dict):
-                        export_entry["source_step_name"] = step_name
-                        if isinstance(child_step.get("step_id"), str):
-                            export_entry["source_step_id"] = child_step.get("step_id")
+                export_entry = (
+                    self._source_provenance_for_output(imported_bundle, output_name)
+                    if imported_bundle is not None
+                    else None
+                )
+                if export_entry is None:
+                    export_entry = {}
                 exports[output_name] = export_entry
 
         return {

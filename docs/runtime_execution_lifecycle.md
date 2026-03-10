@@ -8,27 +8,37 @@ Normative behavior is defined by `specs/`. This file is explanatory.
 ## Execution Timeline
 
 ```text
-1) Load + validate workflow YAML (version-gated strict schema)
-2) Bind workflow `inputs` (v2.1+, if declared), lower any v2.2 structured `if/else`, lower loop-local v2.7 `repeat_until` body `if/else` / `match`, lower any v2.3 `finally`, assign any v2.7 `repeat_until` body step ids, then initialize run root and state.json
-3) Iterate steps in graph order (or goto targets)
-4) For each step:
+1) Parse workflow YAML into a raw mapping for syntax/load errors only
+2) Elaborate the raw mapping into immutable surface AST nodes
+   - run version-gated validation
+   - normalize authored shapes (`if`, `match`, `repeat_until`, `finally`, `call`, `for_each`)
+   - assign durable `step_id` values
+   - capture typed provenance/import metadata and parse structured refs/predicates
+3) Lower the surface AST into immutable executable IR plus a compatibility projection
+   - bind refs/predicates to durable addresses
+   - resolve routed transfers (`goto`, branch/case routing, loop/call/finalization edges) to node ids
+   - map node ids back to compatibility surfaces such as `steps.*`, `current_step.index`, `finalization.*`, and report ordering
+4) Initialize run root and `state.json`
+5) Iterate executable nodes in IR order (or explicit routed transfers)
+6) For each node:
    a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
    b) evaluate `when` (may skip)
    c) enforce consumes preflight (if configured)
    c1) for v2.10 session-enabled provider steps, create the canonical provider-session metadata + transport-spool artifacts before persisting `current_step`
-   d) execute step body (`assert`/command/provider/wait_for/for_each/call)
+   d) execute the node body (`assert`/command/provider/wait_for/for_each/call)
    e) validate deterministic outputs (`expected_outputs` or `output_bundle`)
    f) record published artifacts (if configured)
    f1) project normalized step `outcome` metadata for observable results
-   g) compute next step (`on.success`, `on.failure`, `on.always`, fallback flow)
-   h) increment `transition_count` if control transfers into another top-level step
-5) If declared, run workflow `finally` exactly once after the body settles on success or failure
-6) Export workflow `outputs` (v2.1+, if declared) only after successful finalization, then persist final run status and report artifacts
+   g) compute the next node from IR fallthrough or routed transfers (`on.success`, `on.failure`, `on.always`, structured control, loop/call return)
+   h) increment `transition_count` if control transfers into another top-level compatibility step
+7) If declared, run workflow `finally` exactly once after the body settles on success or failure
+8) Export workflow `outputs` (v2.1+, if declared) only after successful finalization, then persist final run status and report artifacts
 ```
 
 Identity note:
 - v2.0 assigns every step a durable internal `step_id`.
-- Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping and resume-facing identity now use `step_id`.
+- Surface AST is the authored-shape truth; executable IR is the execution-shape truth.
+- Presentation keys in `state.steps` remain name-oriented for compatibility, but lineage/freshness bookkeeping, resume planning, and report ordering now flow through the IR compatibility projection rather than raw lowered dict layout.
 - `for_each` iterations derive qualified identities such as `root.loop_publish#0.produce_in_loop`.
 - v2.2 structured `if/else` lowers to branch markers, lowered branch-body nodes, and a join node that keeps the authored statement presentation key.
 - v2.3 structured `finally` lowers to stable cleanup-step identities under `finally.<StepName>` while keeping durable ancestry rooted under `root.finally.<block-id-or-finally>`.
@@ -43,6 +53,7 @@ Identity note:
 - When a run stops inside `repeat_until`, `resume` uses `state.repeat_until` plus indexed nested step results to restart from the first unfinished nested step in the current iteration; if that iteration's condition already evaluated, resume advances without replaying the settled iteration.
 - When a run stops mid-visit on a v2.10 session-enabled provider step, `resume` quarantines that exact visit instead of replaying the provider and records the canonical metadata/spool paths in the run-level error.
 - During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
+- Runtime code no longer needs workflow-path/import magic fields or helper-key inspection to resume/report typed runs; typed provenance/import metadata plus the compatibility projection are the maintained bridge back to the persisted compatibility surfaces.
 
 ## Run Artifacts
 

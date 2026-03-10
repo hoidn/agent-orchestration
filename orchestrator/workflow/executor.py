@@ -74,7 +74,6 @@ from .predicates import (
     PredicateEvaluationError,
     ScorePredicateNode,
     is_numeric_predicate_value,
-    resolve_typed_operand,
 )
 from .prompting import PromptComposer
 from .references import ReferenceResolutionError, ReferenceResolver
@@ -1131,7 +1130,12 @@ class WorkflowExecutor:
         ):
             return self._resolve_bound_address(value, state, scope=scope)
         if isinstance(value, dict) and set(value.keys()) == {"ref"}:
-            return resolve_typed_operand(value, state, scope=scope)
+            if self._use_ir_topology:
+                raise ReferenceResolutionError(
+                    "Typed runtime does not accept legacy ref payloads; use lowered bound addresses"
+                )
+            resolver_scope = scope if isinstance(scope, dict) else None
+            return self.reference_resolver.resolve(value["ref"], state, scope=resolver_scope).value
         return value
 
     def _evaluate_bound_predicate(
@@ -3047,11 +3051,6 @@ class WorkflowExecutor:
         projected_index = self._projection_index_by_presentation_name.get(target)
         if isinstance(projected_index, int):
             return projected_index
-
-        # Find step index by name
-        for i, step in enumerate(self.steps):
-            if step.get('name') == target:
-                return i
 
         # This should not happen if validation passed
         logger.error(f"Goto target '{target}' not found")

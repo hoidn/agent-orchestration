@@ -4,7 +4,7 @@ import re
 from copy import deepcopy
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Mapping, Optional, Set
 import yaml
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
@@ -18,7 +18,13 @@ from orchestrator.providers import (
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.identity import STEP_ID_PATTERN
-from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, attach_legacy_workflow_metadata
+from orchestrator.workflow.loaded_bundle import (
+    LoadedWorkflowBundle,
+    attach_legacy_workflow_metadata,
+    workflow_input_contracts,
+    workflow_managed_write_root_inputs,
+    workflow_output_contracts,
+)
 from orchestrator.workflow.lowering import (
     lower_surface_workflow,
     render_legacy_compatible_workflow,
@@ -93,7 +99,7 @@ class WorkflowLoader:
         self._workflow_input_specs: Dict[str, Dict[str, Any]] = {}
         self._current_workflow_path: Optional[Path] = None
         self._current_source_root: Optional[Path] = None
-        self._current_imports: Dict[str, Dict[str, Any]] = {}
+        self._current_imports: Dict[str, Any] = {}
         self._load_stack: List[Path] = []
         self._provider_registry = ProviderRegistry()
         self._current_workflow_is_imported = False
@@ -174,11 +180,7 @@ class WorkflowLoader:
                 )
 
             imported_bundles = self._load_imports(workflow.get('imports'), version, resolved_workflow_path)
-            imported_workflows = {
-                alias: bundle.legacy_workflow
-                for alias, bundle in imported_bundles.items()
-            }
-            self._current_imports = imported_workflows
+            self._current_imports = dict(imported_bundles)
 
             surface = elaborate_surface_workflow(
                 surface_source,
@@ -190,12 +192,7 @@ class WorkflowLoader:
             if surface is None:
                 return {}
             ir, projection = lower_surface_workflow(surface)
-            legacy_workflow = render_legacy_compatible_workflow(
-                surface,
-                ir,
-                projection,
-                imported_workflows=imported_workflows,
-            )
+            legacy_workflow = render_legacy_compatible_workflow(surface, ir, projection)
             bundle = LoadedWorkflowBundle(
                 surface=surface,
                 ir=ir,
@@ -2089,9 +2086,10 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': call requires an authored stable 'id'")
 
         imported_workflow = self._current_imports.get(call_alias)
-        if not isinstance(imported_workflow, dict):
+        if imported_workflow is None:
             self._add_error(f"Step '{step_name}': unknown import alias '{call_alias}'")
             return
+        callee_inputs = workflow_input_contracts(imported_workflow)
 
         bindings = step.get('with', {})
         if bindings is None:
@@ -2100,10 +2098,6 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': with must be a dictionary")
             return
 
-        callee_inputs = imported_workflow.get('inputs', {})
-        if not isinstance(callee_inputs, dict):
-            callee_inputs = {}
-
         for bound_name in bindings:
             if bound_name not in callee_inputs:
                 self._add_error(
@@ -2111,7 +2105,7 @@ class WorkflowLoader:
                 )
 
         for input_name, input_spec in callee_inputs.items():
-            if not isinstance(input_spec, dict):
+            if not isinstance(input_spec, Mapping):
                 continue
 
             if input_name not in bindings:
@@ -2158,16 +2152,14 @@ class WorkflowLoader:
             except OutputContractError as exc:
                 self._add_error(f"Step '{step_name}': call.with.{input_name} is invalid: {exc}")
 
-        managed_inputs = imported_workflow.get('__managed_write_root_inputs', [])
-        if isinstance(managed_inputs, list):
-            callee_inputs = imported_workflow.get('inputs', {})
-            if not isinstance(callee_inputs, dict):
-                callee_inputs = {}
+        managed_inputs = workflow_managed_write_root_inputs(imported_workflow)
+        if managed_inputs:
+            callee_inputs = workflow_input_contracts(imported_workflow)
             for input_name in managed_inputs:
                 if input_name in bindings:
                     continue
                 input_spec = callee_inputs.get(input_name, {})
-                if isinstance(input_spec, dict) and "default" in input_spec:
+                if isinstance(input_spec, Mapping) and "default" in input_spec:
                     continue
                 self._add_error(
                     f"Step '{step_name}': call is missing required write-root binding '{input_name}'"
@@ -2251,26 +2243,24 @@ class WorkflowLoader:
 
             step_name = step.get('name', 'step')
             imported_workflow = self._current_imports.get(step.get('call'))
-            if not isinstance(imported_workflow, dict):
+            if imported_workflow is None:
                 continue
 
-            managed_inputs = imported_workflow.get('__managed_write_root_inputs', [])
-            if not isinstance(managed_inputs, list) or not managed_inputs:
+            managed_inputs = workflow_managed_write_root_inputs(imported_workflow)
+            if not managed_inputs:
                 continue
 
             bindings = step.get('with', {})
             if not isinstance(bindings, dict):
                 bindings = {}
-            callee_inputs = imported_workflow.get('inputs', {})
-            if not isinstance(callee_inputs, dict):
-                callee_inputs = {}
+            callee_inputs = workflow_input_contracts(imported_workflow)
 
             for input_name in managed_inputs:
                 if input_name in bindings:
                     binding = bindings[input_name]
                 else:
                     input_spec = callee_inputs.get(input_name, {})
-                    if not isinstance(input_spec, dict) or 'default' not in input_spec:
+                    if not isinstance(input_spec, Mapping) or 'default' not in input_spec:
                         continue
                     binding = input_spec['default']
 
@@ -2903,10 +2893,10 @@ class WorkflowLoader:
 
             if 'call' in step:
                 imported_workflow = self._current_imports.get(step.get('call'))
-                imported_outputs = imported_workflow.get('outputs') if isinstance(imported_workflow, dict) else None
-                if isinstance(imported_outputs, dict):
+                imported_outputs = workflow_output_contracts(imported_workflow)
+                if isinstance(imported_outputs, Mapping):
                     for artifact_name, output_spec in imported_outputs.items():
-                        if not isinstance(artifact_name, str) or not isinstance(output_spec, dict):
+                        if not isinstance(artifact_name, str) or not isinstance(output_spec, Mapping):
                             continue
                         outputs[artifact_name] = self._normalize_output_contract_artifact_spec(
                             output_spec,

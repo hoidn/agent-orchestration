@@ -196,6 +196,8 @@ def test_lint_warns_when_imported_workflows_export_colliding_outputs(tmp_path: P
         },
     )
 
+    assert "__imports" not in workflow
+
     warnings = lint_workflow(workflow)
 
     assert any(

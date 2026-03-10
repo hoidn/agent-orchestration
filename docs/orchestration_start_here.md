@@ -17,11 +17,11 @@ Normative behavior lives in `specs/`. This file is explanatory.
 ```text
 Design time (authoring)                              Runtime (execution)
 -----------------------------------------------------------------------------
-Write workflow YAML (DSL) -------------------------> Orchestrator loads graph
-Write provider prompt files -----------------------> Provider steps execute
-Define artifact contracts -------------------------> Contracts are enforced
-Configure queue conventions in workflow -----------> Queue steps run in graph
-Use runbook/CLI flags -----------------------------> Run state/logs emitted
+Write workflow YAML (DSL) -------------------------> Parse raw mapping
+Write provider prompt files -----------------------> Elaborate to typed surface AST
+Define artifact contracts -------------------------> Lower to executable IR + compatibility projection
+Configure queue conventions in workflow -----------> Execute IR nodes / enforce contracts
+Use runbook/CLI flags -----------------------------> Emit state/logs/reports through compatibility surfaces
 ```
 
 Short version:
@@ -39,6 +39,15 @@ Short version:
 
 `DSL`
 - The YAML schema used to express workflows (`steps`, `on.goto`, `artifacts`, `publishes`, `consumes`, etc.).
+
+`surface AST`
+- The immutable authored-shape in-memory model produced after validation/elaboration.
+
+`executable IR`
+- The immutable execution-shape in-memory model consumed by runtime collaborators.
+
+`compatibility projection`
+- The mapping from executable node ids back to persisted/reporting surfaces such as `steps.*`, `current_step.index`, `finalization.*`, and report ordering.
 
 `step`
 - One node in a workflow graph (`command`, `provider`, `wait_for`, or loop-nested step).
@@ -71,8 +80,20 @@ Short version:
                                         |
                                         v
                            +---------------------------+
+                           | Parse + Elaborate         |
+                           | raw -> typed surface AST  |
+                           +-----------+---------------+
+                                       |
+                                       v
+                           +---------------------------+
+                           | Lowering                  |
+                           | AST -> IR + projection    |
+                           +-----------+---------------+
+                                       |
+                                       v
+                           +---------------------------+
                            | Orchestrator Runtime      |
-                           | (loads + executes steps)  |
+                           | executes IR nodes         |
                            +-----------+---------------+
                                        |
                    +-------------------+-------------------+
@@ -86,7 +107,7 @@ Short version:
                      v                                      |
         +-------------------------+            +------------+------------+
         | state.json + run logs   |<-----------| prompt files + injection |
-        | contract outcomes        |            | composition               |
+        | report/projection views |            | composition               |
         +------------+------------+            +-------------------------+
                      ^
                      |
@@ -124,6 +145,9 @@ Confusion: "Prompt text can define routing."
 
 Confusion: "Queue lifecycle is automatic."
 - Correction: queue file lifecycle is workflow-authored; orchestrator does not auto-move items.
+
+Confusion: "Execution still runs the raw lowered dict graph."
+- Correction: raw YAML exists only long enough to parse; execution runs the lowered executable IR, and persisted/reporting compatibility surfaces are reconstructed through the projection layer.
 
 Confusion: "Informative docs are normative."
 - Correction: `specs/` are normative; docs are guidance.

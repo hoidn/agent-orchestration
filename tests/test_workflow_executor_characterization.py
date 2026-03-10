@@ -1418,6 +1418,80 @@ def test_executor_bound_address_resolution_fails_closed_without_projection_owned
         )
 
 
+def test_executor_rejects_legacy_runtime_ref_payload_when_ir_is_active(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "typed-runtime-ref-rejection",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="typed-runtime-ref-rejection")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    with pytest.raises(ReferenceResolutionError, match="legacy ref"):
+        executor._resolve_runtime_value(
+            {"ref": "root.steps.SetReady.artifacts.ready"},
+            {
+                "steps": {
+                    "SetReady": {
+                        "status": "completed",
+                        "step_id": "root.set_ready",
+                        "artifacts": {"ready": True},
+                    }
+                }
+            },
+        )
+
+
+def test_executor_goto_resolution_uses_projection_without_name_scan_fallback(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-goto-targets",
+        "steps": [
+            {
+                "name": "RunStep",
+                "id": "run_step",
+                "command": ["bash", "-lc", "exit 0"],
+                "on": {
+                    "success": {
+                        "goto": "Finish",
+                    }
+                },
+            },
+            {
+                "name": "Finish",
+                "id": "finish",
+                "command": ["bash", "-lc", "printf 'done\\n'"],
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-goto-targets")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._projection_index_by_presentation_name.pop("Finish", None)
+
+    assert executor._resolve_goto_target("Finish") is None
+
+
 def test_executor_uses_typed_if_nodes_when_legacy_helper_keys_are_removed(tmp_path: Path):
     workflow = {
         "version": "2.7",
@@ -1646,7 +1720,7 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_top_level_dis
     state_manager.initialize("workflow.yaml")
 
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor.steps[0]["structured_if_join"] = {"branches": {}}
+    bundle.legacy_workflow["steps"][0]["structured_if_join"] = {"branches": {}}
 
     state = executor.execute()
 
@@ -1686,7 +1760,7 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_nested_dispat
     state_manager.initialize("workflow.yaml")
 
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor.steps[0]["for_each"]["steps"][0]["structured_match_join"] = {"cases": {}}
+    bundle.legacy_workflow["steps"][0]["for_each"]["steps"][0]["structured_match_join"] = {"cases": {}}
 
     state = executor.execute()
 

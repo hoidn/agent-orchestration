@@ -1,8 +1,9 @@
 """Loader and runtime coverage for reusable workflow imports and call boundaries."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -13,6 +14,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.surface_ast import freeze_mapping
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -1051,6 +1053,67 @@ def test_call_uses_bound_inputs_when_legacy_ref_is_corrupted(tmp_path: Path):
 
     assert state["status"] == "completed"
     assert state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
+
+
+def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corrupted(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _library_workflow(),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        _caller_workflow(
+            call_step={
+                "name": "RunReviewLoop",
+                "id": "run_review_loop",
+                "call": "review_loop",
+                "with": {
+                    "max_cycles": 3,
+                    "write_root": "state/review-loop",
+                },
+            },
+        ),
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    imported_bundle = bundle.imports["review_loop"]
+    approved_output = imported_bundle.surface.outputs["approved"]
+    corrupted_output = replace(
+        approved_output,
+        raw=freeze_mapping(
+            {
+                "kind": "scalar",
+                "type": "bool",
+                "from": {"ref": "root.steps.Missing.artifacts.approved"},
+            }
+        ),
+    )
+    corrupted_surface = replace(
+        imported_bundle.surface,
+        outputs=MappingProxyType({"approved": corrupted_output}),
+    )
+    corrupted_bundle = replace(imported_bundle, surface=corrupted_surface)
+
+    state_manager = StateManager(tmp_path, run_id="bound-call-output-provenance")
+    state_manager.initialize("workflow.yaml", context=bundle.legacy_workflow.get("context", {}))
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    state = executor.execute()
+    persisted = state_manager.load().to_dict()
+    frame_id, frame = next(iter(persisted["call_frames"].items()))
+
+    debug_payload = executor.call_executor.build_debug_payload(
+        frame_id=frame_id,
+        step=bundle.legacy_workflow["steps"][0],
+        imported_workflow=corrupted_bundle,
+        child_state=frame["state"],
+    )
+
+    assert state["status"] == "completed"
+    assert debug_payload["exports"]["approved"] == {
+        "source_ref": "root.steps.SetApproved.artifacts.approved",
+        "source_step_id": "root.set_approved",
+        "source_step_name": "SetApproved",
+    }
 
 
 def test_call_frame_persists_internal_since_last_consume_bookkeeping(tmp_path: Path):

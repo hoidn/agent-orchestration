@@ -3058,8 +3058,8 @@ class TestLoaderValidation:
         assert result["version"] == "1.4"
         assert result["steps"][0]["consume_bundle"]["path"] == "state/consumes/review.json"
 
-    def test_load_preserves_legacy_dict_shape_while_attaching_typed_provenance(self):
-        """The compatibility loader still returns a dict while exposing typed metadata."""
+    def test_load_preserves_legacy_dict_shape_without_legacy_magic_metadata(self):
+        """The compatibility loader still returns a dict while exposing typed metadata only."""
         workflow = {
             "version": "2.5",
             "name": "typed-provenance-adapter",
@@ -3075,8 +3075,10 @@ class TestLoaderValidation:
         provenance = workflow_provenance(loaded)
 
         assert isinstance(loaded, dict)
-        assert loaded["__workflow_path"] == str(path.resolve())
-        assert loaded["__source_root"] == str(path.parent.resolve())
+        assert "__workflow_path" not in loaded
+        assert "__source_root" not in loaded
+        assert "__imports" not in loaded
+        assert "__managed_write_root_inputs" not in loaded
         assert provenance.workflow_path == path.resolve()
         assert provenance.source_root == path.parent.resolve()
 

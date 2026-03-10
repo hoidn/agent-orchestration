@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Dict, Mapping, Optional
 
@@ -28,6 +27,17 @@ class LoadedWorkflowBundle:
     legacy_workflow: Dict[str, Any]
     imports: Mapping[str, "LoadedWorkflowBundle"]
     provenance: WorkflowProvenance
+
+
+def _compatibility_value(value: Any) -> Any:
+    """Convert frozen AST contract payloads back into plain compatibility values."""
+    if isinstance(value, Mapping):
+        return {str(key): _compatibility_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_compatibility_value(item) for item in value]
+    if isinstance(value, list):
+        return [_compatibility_value(item) for item in value]
+    return value
 
 
 def attach_legacy_workflow_metadata(legacy_workflow: Dict[str, Any], bundle: LoadedWorkflowBundle) -> Dict[str, Any]:
@@ -80,7 +90,7 @@ def workflow_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[st
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is not None:
         return MappingProxyType({
-            name: contract.raw
+            name: _compatibility_value(contract.raw)
             for name, contract in bundle.surface.inputs.items()
             if isinstance(name, str) and isinstance(contract.raw, Mapping)
         })
@@ -97,7 +107,7 @@ def workflow_output_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[s
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is not None:
         return MappingProxyType({
-            name: contract.raw
+            name: _compatibility_value(contract.raw)
             for name, contract in bundle.surface.outputs.items()
             if isinstance(name, str) and isinstance(contract.raw, Mapping)
         })
@@ -118,22 +128,6 @@ def workflow_provenance(workflow_or_bundle: Any) -> Optional[WorkflowProvenance]
         provenance = workflow_or_bundle.get(LEGACY_TYPED_PROVENANCE_KEY)
         if isinstance(provenance, WorkflowProvenance):
             return provenance
-        workflow_path = workflow_or_bundle.get("__workflow_path")
-        source_root = workflow_or_bundle.get("__source_root")
-        managed_inputs = workflow_or_bundle.get("__managed_write_root_inputs", [])
-        if isinstance(workflow_path, str) and workflow_path:
-            return WorkflowProvenance(
-                workflow_path=Path(workflow_path).resolve(),
-                source_root=Path(source_root).resolve() if isinstance(source_root, str) and source_root else Path(workflow_path).resolve().parent,
-                managed_write_root_inputs=tuple(
-                    item for item in managed_inputs if isinstance(item, str)
-                ),
-                imported_aliases=tuple(
-                    alias
-                    for alias in workflow_or_bundle.get("__imports", {})
-                    if isinstance(alias, str)
-                ),
-            )
     return None
 
 
@@ -150,17 +144,6 @@ def workflow_import_metadata(workflow_or_bundle: Any, alias: str) -> Optional[Im
             metadata = imports.get(alias)
             if isinstance(metadata, ImportedWorkflowMetadata):
                 return metadata
-        imported = workflow_or_bundle.get("__imports", {}).get(alias) if isinstance(workflow_or_bundle.get("__imports"), dict) else None
-        provenance = workflow_provenance(imported)
-        if provenance is None:
-            return None
-        return ImportedWorkflowMetadata(
-            alias=alias,
-            workflow_path=provenance.workflow_path,
-            source_root=provenance.source_root,
-            managed_write_root_inputs=provenance.managed_write_root_inputs,
-            workflow_name=imported.get("name") if isinstance(imported, dict) and isinstance(imported.get("name"), str) else None,
-        )
     return None
 
 

@@ -20,16 +20,6 @@ def _step_name(step: Mapping[str, Any], index: int) -> str:
 
 def _legacy_step_kind(step: Mapping[str, Any]) -> str:
     """Return the compatibility step kind inferred from legacy lowered payloads."""
-    if "workflow_finalization" in step:
-        return "finally"
-    if "structured_if_branch" in step:
-        return "structured_if_branch"
-    if "structured_if_join" in step:
-        return "structured_if_join"
-    if "structured_match_case" in step:
-        return "structured_match_case"
-    if "structured_match_join" in step:
-        return "structured_match_join"
     if "repeat_until" in step:
         return "repeat_until"
     if "provider" in step:

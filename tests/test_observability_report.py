@@ -947,32 +947,41 @@ def test_snapshot_includes_finalization_progress_and_steps(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run-finally"
     (run_root / "logs").mkdir(parents=True)
 
-    workflow = {
-        "version": "2.3",
-        "name": "obs-finally",
-        "steps": [
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
             {
-                "name": "Body",
-                "command": ["bash", "-lc", "echo body"],
-            }
-        ],
-        "finally": {
-            "token": "cleanup",
-            "steps": [
-                {
-                    "name": "finally.ReleaseLock",
-                    "command": ["bash", "-lc", "echo cleanup"],
-                    "workflow_finalization": {"block_id": "cleanup"},
-                }
-            ],
-        },
-    }
+                "version": "2.3",
+                "name": "obs-finally",
+                "steps": [
+                    {
+                        "name": "Body",
+                        "id": "body",
+                        "command": ["bash", "-lc", "echo body"],
+                    }
+                ],
+                "finally": {
+                    "id": "cleanup",
+                    "steps": [
+                        {
+                            "name": "ReleaseLock",
+                            "id": "release_lock",
+                            "command": ["bash", "-lc", "echo cleanup"],
+                        }
+                    ],
+                },
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    workflow = WorkflowLoader(tmp_path).load(workflow_path)
     state = {
         "run_id": "run-finally",
         "status": "running",
         "started_at": "2026-02-27T00:00:00+00:00",
         "updated_at": datetime.now(timezone.utc).isoformat(),
-        "workflow_file": "workflows/test.yaml",
+        "workflow_file": str(workflow_path),
         "current_step": {
             "name": "finally.ReleaseLock",
             "status": "running",

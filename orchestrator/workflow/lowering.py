@@ -1476,8 +1476,6 @@ def render_legacy_compatible_workflow(
     surface: SurfaceWorkflow,
     ir: ExecutableWorkflow,
     projection: WorkflowStateProjection,
-    *,
-    imported_workflows: Optional[Mapping[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Render the narrow legacy lowered-dict adapter from the typed workflow bundle."""
     workflow = _thaw_mapping(surface.raw)
@@ -1490,11 +1488,6 @@ def render_legacy_compatible_workflow(
 
     if workflow.get("finally") is not None:
         workflow["finally"] = lower_finalization_block(workflow.get("finally"))
-
-    workflow["__workflow_path"] = str(surface.provenance.workflow_path)
-    workflow["__source_root"] = str(surface.provenance.source_root)
-    workflow["__imports"] = dict(imported_workflows or {})
-    workflow["__managed_write_root_inputs"] = list(surface.provenance.managed_write_root_inputs)
 
     _assert_legacy_adapter_matches_projection(workflow, ir, projection)
     return workflow

@@ -244,26 +244,15 @@ def _looks_like_goto_diamond(step: Mapping[str, Any]) -> bool:
 def _lint_import_output_collisions(workflow: Any) -> List[Dict[str, Any]]:
     owners: Dict[str, List[str]] = {}
     bundle = workflow_bundle(workflow)
-    if bundle is not None:
-        for alias, imported_bundle in bundle.imports.items():
-            if not isinstance(alias, str):
-                continue
-            for output_name in imported_bundle.surface.outputs:
-                if isinstance(output_name, str):
-                    owners.setdefault(output_name, []).append(f"import:{alias}")
-    else:
-        workflow_dict = workflow_legacy_dict(workflow)
-        imports = workflow_dict.get("__imports", {}) if isinstance(workflow_dict, dict) else {}
-        if isinstance(imports, dict):
-            for alias, imported in imports.items():
-                if not isinstance(alias, str) or not isinstance(imported, dict):
-                    continue
-                output_specs = imported.get("outputs")
-                if not isinstance(output_specs, dict):
-                    continue
-                for output_name in output_specs:
-                    if isinstance(output_name, str):
-                        owners.setdefault(output_name, []).append(f"import:{alias}")
+    if bundle is None:
+        return []
+
+    for alias, imported_bundle in bundle.imports.items():
+        if not isinstance(alias, str):
+            continue
+        for output_name in imported_bundle.surface.outputs:
+            if isinstance(output_name, str):
+                owners.setdefault(output_name, []).append(f"import:{alias}")
 
     warnings: List[Dict[str, Any]] = []
     for output_name, output_owners in sorted(owners.items()):
