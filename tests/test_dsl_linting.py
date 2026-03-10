@@ -19,6 +19,11 @@ def _load_workflow(tmp_path: Path, payload: dict) -> dict:
     return WorkflowLoader(tmp_path).load(workflow_path)
 
 
+def _load_workflow_bundle(tmp_path: Path, payload: dict):
+    workflow_path = _write_yaml(tmp_path / "workflow.yaml", payload)
+    return WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+
 def test_lint_warns_when_shell_gate_should_be_assert(tmp_path: Path):
     workflow = _load_workflow(
         tmp_path,
@@ -192,6 +197,120 @@ def test_lint_warns_when_imported_workflows_export_colliding_outputs(tmp_path: P
     )
 
     warnings = lint_workflow(workflow)
+
+    assert any(
+        warning["code"] == "import-output-collision" and warning["output"] == "approved"
+        for warning in warnings
+    )
+
+
+def test_lint_uses_surface_steps_when_bundle_legacy_steps_are_missing(tmp_path: Path):
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "1.4",
+            "name": "shell-gate-bundle",
+            "steps": [
+                {
+                    "name": "CheckReady",
+                    "command": ["bash", "-lc", "test -f state/ready.txt"],
+                }
+            ],
+        },
+    )
+    bundle.legacy_workflow["steps"] = []
+
+    warnings = lint_workflow(bundle)
+
+    assert any(
+        warning["code"] == "shell-gate-to-assert" and warning["step"] == "CheckReady"
+        for warning in warnings
+    )
+
+
+def test_lint_uses_typed_import_outputs_when_import_legacy_outputs_are_missing(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review.yaml",
+        {
+            "version": "2.5",
+            "name": "review-loop",
+            "artifacts": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "outputs": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.SetApproved.artifacts.approved"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetApproved",
+                    "id": "set_approved",
+                    "set_scalar": {
+                        "artifact": "approved",
+                        "value": True,
+                    },
+                }
+            ],
+        },
+    )
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "fix.yaml",
+        {
+            "version": "2.5",
+            "name": "fix-loop",
+            "artifacts": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                }
+            },
+            "outputs": {
+                "approved": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {"ref": "root.steps.SetApproved.artifacts.approved"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "SetApproved",
+                    "id": "set_approved",
+                    "set_scalar": {
+                        "artifact": "approved",
+                        "value": False,
+                    },
+                }
+            ],
+        },
+    )
+
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "2.5",
+            "name": "import-collision-bundle",
+            "imports": {
+                "review_loop": "workflows/library/review.yaml",
+                "fix_loop": "workflows/library/fix.yaml",
+            },
+            "steps": [
+                {
+                    "name": "Done",
+                    "command": ["echo", "done"],
+                }
+            ],
+        },
+    )
+    for imported_bundle in bundle.imports.values():
+        imported_bundle.legacy_workflow.pop("outputs", None)
+
+    warnings = lint_workflow(bundle)
 
     assert any(
         warning["code"] == "import-output-collision" and warning["output"] == "approved"

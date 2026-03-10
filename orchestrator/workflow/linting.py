@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from .loaded_bundle import workflow_bundle, workflow_legacy_dict
+from .surface_ast import SurfaceStep
 
 
 _STRINGLY_STEP_REF = re.compile(r"\$\{steps\.[^}]+\}")
@@ -21,13 +22,17 @@ _SHELL_WRAPPERS = {
 def lint_workflow(workflow: Any) -> List[Dict[str, Any]]:
     """Return advisory lint warnings for one already-loaded workflow."""
     warnings: List[Dict[str, Any]] = []
-    workflow_dict = workflow_legacy_dict(workflow)
-    if workflow_dict is None:
-        return warnings
+    bundle = workflow_bundle(workflow)
+    if bundle is not None:
+        _lint_surface_steps(bundle.surface.steps, warnings, "steps")
+    else:
+        workflow_dict = workflow_legacy_dict(workflow)
+        if workflow_dict is None:
+            return warnings
 
-    steps = workflow_dict.get("steps")
-    if isinstance(steps, list):
-        _lint_steps(steps, warnings, "steps")
+        steps = workflow_dict.get("steps")
+        if isinstance(steps, list):
+            _lint_steps(steps, warnings, "steps")
 
     warnings.extend(_lint_import_output_collisions(workflow))
     return warnings
@@ -61,52 +66,85 @@ def _lint_steps(steps: List[Any], warnings: List[Dict[str, Any]], path_prefix: s
             step_name = f"step_{index}"
         step_path = f"{path_prefix}[{index}]"
 
-        if _looks_like_shell_gate(step):
-            warnings.append(
-                _warning(
-                    code="shell-gate-to-assert",
-                    path=step_path,
-                    message=(
-                        f"Step '{step_name}' looks like a shell gate. Prefer `assert` "
-                        "so gate failures stay on the typed `assert_failed` path."
-                    ),
-                    step=step_name,
-                    suggestion="Replace the shell `test` gate with `assert`.",
-                )
-            )
-
-        if _looks_like_stringly_equals(step):
-            warnings.append(
-                _warning(
-                    code="stringly-when-equals",
-                    path=f"{step_path}.when.equals",
-                    message=(
-                        f"Step '{step_name}' uses stringly `when.equals` against a step reference. "
-                        "Prefer typed predicates with structured `ref:` operands."
-                    ),
-                    step=step_name,
-                    suggestion="Use `compare` or `artifact_bool` with `ref:` when migrating to v1.6+.",
-                )
-            )
-
-        if _looks_like_goto_diamond(step):
-            warnings.append(
-                _warning(
-                    code="goto-diamond-to-structured-control",
-                    path=f"{step_path}.on",
-                    message=(
-                        f"Step '{step_name}' routes both success and failure with raw `goto`. "
-                        "Prefer structured `if` or `match` when the workflow can opt into them."
-                    ),
-                    step=step_name,
-                    suggestion="Replace the hand-wired branch diamond with `if` or `match`.",
-                )
-            )
+        _lint_step_mapping(step, warnings, step_name=step_name, step_path=step_path)
 
         _lint_nested_steps(step, warnings, step_path)
 
 
-def _lint_nested_steps(step: Dict[str, Any], warnings: List[Dict[str, Any]], step_path: str) -> None:
+def _lint_surface_steps(
+    steps: Iterable[SurfaceStep],
+    warnings: List[Dict[str, Any]],
+    path_prefix: str,
+) -> None:
+    for index, step in enumerate(steps):
+        step_path = f"{path_prefix}[{index}]"
+        step_name = step.name or f"step_{index}"
+
+        _lint_step_mapping(step.raw, warnings, step_name=step_name, step_path=step_path)
+
+        if step.for_each_steps:
+            _lint_surface_steps(step.for_each_steps, warnings, f"{step_path}.for_each.steps")
+        if step.repeat_until is not None:
+            _lint_surface_steps(step.repeat_until.steps, warnings, f"{step_path}.repeat_until.steps")
+        if step.then_branch is not None:
+            _lint_surface_steps(step.then_branch.steps, warnings, f"{step_path}.then.steps")
+        if step.else_branch is not None:
+            _lint_surface_steps(step.else_branch.steps, warnings, f"{step_path}.else.steps")
+        for case_name, case_block in step.match_cases.items():
+            _lint_surface_steps(case_block.steps, warnings, f"{step_path}.match.cases.{case_name}.steps")
+
+
+def _lint_step_mapping(
+    step: Mapping[str, Any],
+    warnings: List[Dict[str, Any]],
+    *,
+    step_name: str,
+    step_path: str,
+) -> None:
+    if _looks_like_shell_gate(step):
+        warnings.append(
+            _warning(
+                code="shell-gate-to-assert",
+                path=step_path,
+                message=(
+                    f"Step '{step_name}' looks like a shell gate. Prefer `assert` "
+                    "so gate failures stay on the typed `assert_failed` path."
+                ),
+                step=step_name,
+                suggestion="Replace the shell `test` gate with `assert`.",
+            )
+        )
+
+    if _looks_like_stringly_equals(step):
+        warnings.append(
+            _warning(
+                code="stringly-when-equals",
+                path=f"{step_path}.when.equals",
+                message=(
+                    f"Step '{step_name}' uses stringly `when.equals` against a step reference. "
+                    "Prefer typed predicates with structured `ref:` operands."
+                ),
+                step=step_name,
+                suggestion="Use `compare` or `artifact_bool` with `ref:` when migrating to v1.6+.",
+            )
+        )
+
+    if _looks_like_goto_diamond(step):
+        warnings.append(
+            _warning(
+                code="goto-diamond-to-structured-control",
+                path=f"{step_path}.on",
+                message=(
+                    f"Step '{step_name}' routes both success and failure with raw `goto`. "
+                    "Prefer structured `if` or `match` when the workflow can opt into them."
+                ),
+                step=step_name,
+                suggestion="Replace the hand-wired branch diamond with `if` or `match`.",
+            )
+        )
+
+
+def _lint_nested_steps(step: Mapping[str, Any], warnings: List[Dict[str, Any]], step_path: str) -> None:
     for_each = step.get("for_each")
     if isinstance(for_each, dict):
         nested_steps = for_each.get("steps")
@@ -139,7 +177,7 @@ def _lint_nested_steps(step: Dict[str, Any], warnings: List[Dict[str, Any]], ste
                     _lint_steps(nested_steps, warnings, f"{step_path}.match.cases.{case_name}.steps")
 
 
-def _looks_like_shell_gate(step: Dict[str, Any]) -> bool:
+def _looks_like_shell_gate(step: Mapping[str, Any]) -> bool:
     if "command" not in step:
         return False
     if step.get("expected_outputs") or step.get("output_bundle") or step.get("publishes"):
@@ -149,7 +187,11 @@ def _looks_like_shell_gate(step: Dict[str, Any]) -> bool:
     if isinstance(command, str):
         return command.strip().startswith(_SHELL_GATE_PREFIXES)
 
-    if not isinstance(command, list) or not command:
+    if (
+        not isinstance(command, Sequence)
+        or isinstance(command, (str, bytes))
+        or not command
+    ):
         return False
 
     if len(command) >= 1 and isinstance(command[0], str) and command[0] in {"test", "[", "[["}:
@@ -164,13 +206,13 @@ def _looks_like_shell_gate(step: Dict[str, Any]) -> bool:
     return False
 
 
-def _looks_like_stringly_equals(step: Dict[str, Any]) -> bool:
+def _looks_like_stringly_equals(step: Mapping[str, Any]) -> bool:
     when = step.get("when")
-    if not isinstance(when, dict):
+    if not isinstance(when, Mapping):
         return False
 
     equals = when.get("equals")
-    if not isinstance(equals, dict):
+    if not isinstance(equals, Mapping):
         return False
 
     for key in ("left", "right"):
@@ -180,14 +222,14 @@ def _looks_like_stringly_equals(step: Dict[str, Any]) -> bool:
     return False
 
 
-def _looks_like_goto_diamond(step: Dict[str, Any]) -> bool:
+def _looks_like_goto_diamond(step: Mapping[str, Any]) -> bool:
     on = step.get("on")
-    if not isinstance(on, dict):
+    if not isinstance(on, Mapping):
         return False
 
     success = on.get("success")
     failure = on.get("failure")
-    if not isinstance(success, dict) or not isinstance(failure, dict):
+    if not isinstance(success, Mapping) or not isinstance(failure, Mapping):
         return False
 
     success_goto = success.get("goto")
@@ -204,13 +246,9 @@ def _lint_import_output_collisions(workflow: Any) -> List[Dict[str, Any]]:
     bundle = workflow_bundle(workflow)
     if bundle is not None:
         for alias, imported_bundle in bundle.imports.items():
-            imported = workflow_legacy_dict(imported_bundle)
-            if not isinstance(alias, str) or imported is None:
+            if not isinstance(alias, str):
                 continue
-            output_specs = imported.get("outputs")
-            if not isinstance(output_specs, dict):
-                continue
-            for output_name in output_specs:
+            for output_name in imported_bundle.surface.outputs:
                 if isinstance(output_name, str):
                     owners.setdefault(output_name, []).append(f"import:{alias}")
     else:
