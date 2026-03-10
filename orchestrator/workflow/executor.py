@@ -36,12 +36,13 @@ from .dataflow import DataflowManager
 from .finalization import FinalizationController
 from .identity import iteration_step_id, runtime_step_id
 from .loops import LoopExecutor
+from .outcomes import OutcomeRecorder
 from .predicates import PredicateEvaluationError, resolve_typed_operand
 from .prompting import PromptComposer
 from .references import ReferenceResolutionError, ReferenceResolver
 from .resume_planner import ResumePlanner
 from .runtime_context import RuntimeContext
-from .runtime_types import NormalizedStepOutcome, RoutingDecision, StepExecutionIdentity
+from .runtime_types import RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 
 logger = logging.getLogger(__name__)
@@ -365,6 +366,12 @@ class WorkflowExecutor:
         )
         self.loop_executor = LoopExecutor(self)
         self.call_executor = CallExecutor(self)
+        self.outcome_recorder = OutcomeRecorder(
+            state_manager=self.state_manager,
+            step_id_resolver=lambda step: self._step_id(step),
+            step_type_resolver=self._resolve_step_type,
+            summary_emitter=self._emit_step_summary,
+        )
 
         # Retry configuration
         self.max_retries = max_retries
@@ -1907,25 +1914,7 @@ class WorkflowExecutor:
     @staticmethod
     def _to_step_result(result: Dict[str, Any], fallback_name: str) -> StepResult:
         """Convert a persisted result payload into the runtime StepResult model."""
-        return StepResult(
-            status=result.get("status", "completed" if result.get("exit_code", 0) == 0 else "failed"),
-            name=result.get("name", fallback_name),
-            step_id=result.get("step_id"),
-            exit_code=result.get("exit_code", 0),
-            duration_ms=result.get("duration_ms", 0),
-            output=result.get("output"),
-            lines=result.get("lines"),
-            json=result.get("json"),
-            error=result.get("error"),
-            truncated=result.get("truncated", False),
-            artifacts=result.get("artifacts"),
-            skipped=result.get("skipped", False),
-            files=result.get("files"),
-            wait_duration_ms=result.get("wait_duration_ms"),
-            poll_count=result.get("poll_count"),
-            timed_out=result.get("timed_out"),
-            outcome=result.get("outcome"),
-        )
+        return OutcomeRecorder.to_step_result(result, fallback_name)
 
     def _build_loop_parent_scope_steps(
         self,
@@ -3196,44 +3185,15 @@ class WorkflowExecutor:
         class_hint: Optional[str] = None,
         retryable_hint: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        if 'steps' not in state:
-            state['steps'] = {}
-
-        finalized = self._attach_outcome(step, result, phase_hint, class_hint, retryable_hint)
-        finalized.setdefault('name', step_name)
-        finalized.setdefault('step_id', self._step_id(step))
-        step_visits = state.get('step_visits', {})
-        visit_count = step_visits.get(step_name) if isinstance(step_visits, dict) else None
-        if isinstance(visit_count, int):
-            finalized.setdefault('visit_count', visit_count)
-        state['steps'][step_name] = finalized
-
-        from ..state import StepResult
-
-        step_result = StepResult(
-            status=finalized.get('status', 'completed' if finalized.get('exit_code', 0) == 0 else 'failed'),
-            name=finalized.get('name'),
-            step_id=finalized.get('step_id'),
-            exit_code=finalized.get('exit_code'),
-            duration_ms=finalized.get('duration_ms', 0),
-            output=finalized.get('output'),
-            truncated=finalized.get('truncated', False),
-            lines=finalized.get('lines'),
-            json=finalized.get('json'),
-            error=finalized.get('error'),
-            debug=finalized.get('debug'),
-            artifacts=finalized.get('artifacts'),
-            skipped=finalized.get('skipped', False),
-            files=finalized.get('files'),
-            wait_duration_ms=finalized.get('wait_duration_ms'),
-            poll_count=finalized.get('poll_count'),
-            timed_out=finalized.get('timed_out'),
-            outcome=finalized.get('outcome'),
-            visit_count=finalized.get('visit_count'),
+        return self.outcome_recorder.persist_step_result(
+            state,
+            step_name,
+            step,
+            result,
+            phase_hint=phase_hint,
+            class_hint=class_hint,
+            retryable_hint=retryable_hint,
         )
-        self.state_manager.update_step(step_name, step_result)
-        self._emit_step_summary(step_name, step, finalized)
-        return finalized
 
     def _attach_outcome(
         self,
@@ -3243,80 +3203,13 @@ class WorkflowExecutor:
         class_hint: Optional[str] = None,
         retryable_hint: Optional[bool] = None,
     ) -> Dict[str, Any]:
-        finalized = dict(result)
-        status = finalized.get('status')
-        if status is None:
-            exit_code = finalized.get('exit_code', 0)
-            status = 'completed' if exit_code == 0 else 'failed'
-            finalized['status'] = status
-
-        if status == 'skipped':
-            finalized['outcome'] = NormalizedStepOutcome(
-                status='skipped',
-                phase='pre_execution',
-                outcome_class='skipped',
-                retryable=False,
-            ).to_dict()
-            return finalized
-
-        if status == 'completed':
-            finalized['outcome'] = NormalizedStepOutcome(
-                status='completed',
-                phase='execution',
-                outcome_class='completed',
-                retryable=False,
-            ).to_dict()
-            return finalized
-
-        error = finalized.get('error')
-        error_type = error.get('type') if isinstance(error, dict) else None
-        step_type = self._resolve_step_type(step)
-        normalized_class = class_hint
-        normalized_phase = phase_hint
-        retryable = retryable_hint
-
-        if normalized_class is None:
-            if error_type == 'assert_failed':
-                normalized_class = 'assert_failed'
-            elif error_type in {
-                'call_resume_checksum_mismatch',
-                'undefined_variables',
-                'missing_secrets',
-                'provider_not_found',
-                'provider_preparation_failed',
-                'substitution_error',
-                'validation_error',
-            }:
-                normalized_class = 'pre_execution_failed'
-            elif error_type == 'contract_violation':
-                normalized_class = 'contract_violation'
-            elif error_type == 'timeout' or finalized.get('timed_out') or finalized.get('exit_code') == 124:
-                normalized_class = 'timeout'
-            elif step_type == 'provider' and finalized.get('exit_code', 0) != 0:
-                normalized_class = 'provider_failed'
-            elif step_type == 'command' and finalized.get('exit_code', 0) != 0:
-                normalized_class = 'command_failed'
-            else:
-                normalized_class = 'pre_execution_failed'
-
-        if normalized_phase is None:
-            if normalized_class in {'assert_failed', 'command_failed', 'provider_failed', 'timeout'}:
-                normalized_phase = 'execution'
-            elif normalized_class == 'contract_violation':
-                normalized_phase = 'post_execution'
-            else:
-                normalized_phase = 'pre_execution'
-
-        if retryable is None:
-            retryable = normalized_class == 'provider_failed'
-
-        finalized['outcome'] = NormalizedStepOutcome(
-            status='failed',
-            phase=normalized_phase,
-            outcome_class=normalized_class,
-            retryable=retryable,
-        ).to_dict()
-        return finalized
+        return self.outcome_recorder.attach_outcome(
+            step,
+            result,
+            phase_hint=phase_hint,
+            class_hint=class_hint,
+            retryable_hint=retryable_hint,
+        )
 
     # Stub implementations for other step types
     def _execute_wait_for(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
