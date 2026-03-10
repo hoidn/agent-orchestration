@@ -1222,6 +1222,49 @@ def test_executor_uses_typed_scalar_leaf_when_cached_top_level_step_payload_drif
     assert persisted["steps"]["SetReady"]["artifacts"] == {"ready": True}
 
 
+def test_executor_uses_typed_command_leaf_when_ir_raw_payload_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-command-leaf-raw-drift",
+        "steps": [
+            {
+                "name": "WriteTyped",
+                "id": "write_typed",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'typed\\n' > state/result.txt",
+                ],
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    bundle = _replace_ir_node_raw(
+        bundle,
+        "root.write_typed",
+        {
+            **dict(bundle.ir.nodes["root.write_typed"].raw),
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p state && printf 'legacy\\n' > state/result.txt",
+            ],
+        },
+    )
+
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-command-leaf-raw-drift",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "result.txt").read_text(encoding="utf-8") == "typed\n"
+
+
 def test_executor_uses_typed_nested_leaf_when_cached_loop_body_step_payload_drifts(tmp_path: Path):
     workflow = {
         "version": "2.7",
@@ -1275,6 +1318,115 @@ def test_executor_uses_typed_nested_leaf_when_cached_loop_body_step_payload_drif
         "alpha",
         "beta",
     ]
+
+
+def test_executor_uses_typed_for_each_items_when_ir_raw_payload_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-loop-items-raw-drift",
+        "steps": [
+            {
+                "name": "ProcessItems",
+                "id": "process_items",
+                "for_each": {
+                    "items": ["alpha", "beta"],
+                    "steps": [
+                        {
+                            "name": "WriteItem",
+                            "id": "write_item",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf '%s\\n' '${item}' >> state/items.txt",
+                            ],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    loop_node = bundle.ir.nodes["root.process_items"]
+    loop_raw = dict(loop_node.raw)
+    loop_raw["for_each"] = {
+        **dict(loop_raw["for_each"]),
+        "items": ["legacy"],
+    }
+    bundle = _replace_ir_node_raw(bundle, "root.process_items", loop_raw)
+
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-loop-items-raw-drift",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-loop-items-raw-drift")
+
+    assert state["status"] == "completed"
+    assert persisted["for_each"]["ProcessItems"]["completed_indices"] == [0, 1]
+    assert (tmp_path / "state" / "items.txt").read_text(encoding="utf-8").splitlines() == [
+        "alpha",
+        "beta",
+    ]
+
+
+def test_executor_uses_typed_call_alias_when_ir_raw_payload_drifts(tmp_path: Path):
+    child_path = tmp_path / "workflows" / "library" / "child.yaml"
+    child_path.parent.mkdir(parents=True, exist_ok=True)
+    child_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.7",
+                "name": "child",
+                "steps": [
+                    {
+                        "name": "WriteChild",
+                        "id": "write_child",
+                        "command": ["bash", "-lc", "mkdir -p state && printf 'child\\n' > state/child.log"],
+                    }
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "2.7",
+            "name": "typed-call-alias-raw-drift",
+            "imports": {
+                "child": "workflows/library/child.yaml",
+            },
+            "steps": [
+                {
+                    "name": "RunChild",
+                    "id": "run_child",
+                    "call": "child",
+                }
+            ],
+        },
+    )
+    bundle = _replace_ir_node_raw(
+        bundle,
+        "root.run_child",
+        {
+            **dict(bundle.ir.nodes["root.run_child"].raw),
+            "call": "missing_child",
+        },
+    )
+
+    state_manager = StateManager(workspace=tmp_path, run_id="typed-call-alias-raw-drift")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunChild"]["status"] == "completed"
+    assert (tmp_path / "state" / "child.log").read_text(encoding="utf-8") == "child\n"
 
 
 def test_executor_uses_non_counting_ir_transfer_metadata_for_typed_call_return(tmp_path: Path):

@@ -6,12 +6,16 @@ import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import (
+    CallStepConfig,
     CallOutputAddress,
     ExecutableNodeKind,
+    ForEachStepConfig,
     LoopOutputAddress,
     MatchJoinNode,
     NodeResultAddress,
     RepeatUntilFrameNode,
+    RepeatUntilStepConfig,
+    SetScalarStepConfig,
 )
 from orchestrator.workflow import lowering
 
@@ -467,3 +471,28 @@ def test_ir_lowering_patches_for_each_body_fallthrough_and_iteration_owned_call_
     assert call_boundary.runtime_step_id(iteration_index=1) == (
         "root.process_items#1.run_review_loop_from_for_each"
     )
+
+
+def test_lowering_emits_typed_execution_configs_for_leaf_and_loop_nodes(tmp_path: Path):
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_ir_workflow(tmp_path))
+    for_each_bundle = WorkflowLoader(tmp_path).load_bundle(_write_for_each_call_ir_workflow(tmp_path))
+
+    set_ready = bundle.ir.nodes["root.set_ready"]
+    review_loop = bundle.ir.nodes["root.review_loop"]
+    process_items = for_each_bundle.ir.nodes["root.process_items"]
+    run_review_loop = for_each_bundle.ir.nodes["root.process_items.run_review_loop_from_for_each"]
+
+    assert isinstance(set_ready.execution_config, SetScalarStepConfig)
+    assert set_ready.execution_config.set_scalar["artifact"] == "ready"
+    assert set_ready.execution_config.set_scalar["value"] is True
+
+    assert isinstance(review_loop.execution_config, RepeatUntilStepConfig)
+    assert review_loop.execution_config.body_id == "iteration_body"
+    assert review_loop.execution_config.max_iterations == 3
+
+    assert isinstance(process_items.execution_config, ForEachStepConfig)
+    assert list(process_items.execution_config.items) == ["alpha", "beta"]
+    assert process_items.execution_config.item_name == "item"
+
+    assert isinstance(run_review_loop.execution_config, CallStepConfig)
+    assert run_review_loop.execution_config.call == "review_loop"

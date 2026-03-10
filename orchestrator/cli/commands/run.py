@@ -15,6 +15,7 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
+    workflow_bundle as loaded_workflow_bundle,
     workflow_context,
     workflow_input_contracts,
 )
@@ -271,14 +272,21 @@ def run_workflow(args: Namespace) -> int:
         logger.info(f"Loading workflow: {workflow_path}")
         loader = WorkflowLoader(workspace)
         try:
-            workflow_bundle = loader.load_bundle(workflow_path)
+            workflow = loader.load_bundle(workflow_path)
         except WorkflowValidationError as e:
             # Print validation errors to stderr
             for error in e.errors:
                 logger.error(f"Validation error: {error.message}")
             return e.exit_code
+        bundle = loaded_workflow_bundle(workflow)
         # Determine processed directory
-        processed_dir = workspace / str(workflow_bundle.surface.raw.get('processed_dir', 'processed'))
+        if bundle is not None:
+            processed_root = bundle.surface.processed_dir or 'processed'
+        elif isinstance(workflow, dict):
+            processed_root = workflow.get('processed_dir', 'processed')
+        else:
+            processed_root = 'processed'
+        processed_dir = workspace / str(processed_root)
 
         # Handle --clean-processed flag
         if args.clean_processed:
@@ -308,11 +316,11 @@ def run_workflow(args: Namespace) -> int:
         # Dry run mode - just validate
         raw_inputs = parse_inputs(args)
         bound_inputs = bind_workflow_inputs(
-            workflow_input_contracts(workflow_bundle),
+            workflow_input_contracts(workflow),
             raw_inputs,
             workspace=workspace,
         )
-        lint_warnings = lint_workflow(workflow_bundle)
+        lint_warnings = lint_workflow(workflow)
 
         if args.dry_run:
             for warning in lint_warnings:
@@ -326,7 +334,7 @@ def run_workflow(args: Namespace) -> int:
             return 0
 
         # Parse context
-        context = parse_context(args, workflow_context=dict(workflow_context(workflow_bundle)))
+        context = parse_context(args, workflow_context=dict(workflow_context(workflow)))
 
         observability = build_observability_config(args)
 
@@ -350,7 +358,7 @@ def run_workflow(args: Namespace) -> int:
 
         # Execute workflow
         executor = WorkflowExecutor(
-            workflow=workflow_bundle,
+            workflow=workflow,
             workspace=workspace,
             state_manager=state_manager,
             logs_dir=state_manager.logs_dir,

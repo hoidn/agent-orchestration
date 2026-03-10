@@ -8,7 +8,7 @@ import logging
 import threading
 from copy import deepcopy
 from contextlib import contextmanager
-from dataclasses import dataclass, is_dataclass
+from dataclasses import is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
@@ -50,6 +50,7 @@ from .executable_ir import (
     LoopOutputAddress,
     MatchCaseMarkerNode,
     MatchJoinNode,
+    materialize_execution_config,
     NodeResultAddress,
     RepeatUntilFrameNode,
     WorkflowInputAddress,
@@ -102,72 +103,6 @@ def _thaw_workflow_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_thaw_workflow_value(item) for item in value]
     return value
-
-
-def _thaw_workflow_mapping(value: Mapping[str, Any]) -> Dict[str, Any]:
-    """Convert one frozen workflow mapping into a plain mutable dict."""
-    return {str(key): _thaw_workflow_value(item) for key, item in value.items()}
-
-
-_TYPED_LEAF_EXECUTION_FIELDS: dict[ExecutableNodeKind, tuple[str, ...]] = {
-    ExecutableNodeKind.COMMAND: ("command",),
-    ExecutableNodeKind.PROVIDER: (
-        "provider",
-        "provider_params",
-        "input_file",
-        "asset_file",
-        "depends_on",
-        "asset_depends_on",
-        "inject_output_contract",
-        "inject_consumes",
-        "prompt_consumes",
-        "consumes_injection_position",
-    ),
-    ExecutableNodeKind.WAIT_FOR: ("wait_for",),
-    ExecutableNodeKind.ASSERT: (),
-    ExecutableNodeKind.SET_SCALAR: ("set_scalar",),
-    ExecutableNodeKind.INCREMENT_SCALAR: ("increment_scalar",),
-    ExecutableNodeKind.CALL_BOUNDARY: ("call",),
-}
-
-_TYPED_LEAF_COMMON_FIELDS: tuple[str, ...] = (
-    "when",
-    "assert",
-    "on",
-    "consumes",
-    "consume_bundle",
-    "publishes",
-    "expected_outputs",
-    "output_bundle",
-    "persist_artifacts_in_state",
-    "provider_session",
-    "max_visits",
-    "retries",
-    "env",
-    "secrets",
-    "timeout_sec",
-    "output_capture",
-    "output_file",
-    "allow_parse_error",
-)
-
-
-@dataclass(frozen=True)
-class _TypedLeafExecutionAdapter:
-    """Minimal IR-owned leaf adapter used by the legacy leaf executors."""
-
-    node_id: str
-    step_id: str
-    execution_kind: ExecutableNodeKind
-    presentation_name: str
-    payload: Mapping[str, Any]
-
-    def to_runtime_step(self) -> Dict[str, Any]:
-        """Render a fresh runtime step dict without reusing compatibility payloads."""
-        step = _thaw_workflow_mapping(self.payload)
-        step.setdefault("name", self.presentation_name)
-        step.setdefault("step_id", self.step_id)
-        return step
 
 
 class _CallFrameStateManager:
@@ -512,7 +447,6 @@ class WorkflowExecutor:
         self.finalization_start_index = len(self.executable_ir.body_region)
         self.steps = []
         self._step_by_node_id: Dict[str, Dict[str, Any]] = {}
-        self._typed_leaf_adapter_by_node_id: Dict[str, _TypedLeafExecutionAdapter] = {}
         self._execution_index_by_node_id = {
             node_id: index
             for index, node_id in enumerate(self._step_node_ids)
@@ -637,6 +571,47 @@ class WorkflowExecutor:
         )
         return materialized_step
 
+    def _runtime_step_for_node(
+        self,
+        node: ExecutableNode,
+        *,
+        region_name: str,
+        presentation_name: Optional[str] = None,
+        step_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Render one executable node into the mutable runtime step shape."""
+        resolved_name = presentation_name if isinstance(presentation_name, str) else node.presentation_name
+        resolved_step_id = step_id if isinstance(step_id, str) else node.step_id
+        nested_steps: Optional[List[Dict[str, Any]]] = None
+
+        if isinstance(node, ForEachNode):
+            nested_steps = self._materialize_loop_body_steps(
+                node.body_node_ids,
+                region_name=region_name,
+                loop_node_id=node.node_id,
+                loop_kind="for_each",
+            )
+        elif isinstance(node, RepeatUntilFrameNode):
+            nested_steps = self._materialize_loop_body_steps(
+                node.body_node_ids,
+                region_name=region_name,
+                loop_node_id=node.node_id,
+                loop_kind="repeat_until",
+            )
+
+        if node.execution_config is not None:
+            return materialize_execution_config(
+                node.execution_config,
+                step_name=resolved_name,
+                step_id=resolved_step_id,
+                nested_steps=nested_steps,
+            )
+
+        return {
+            "name": resolved_name,
+            "step_id": resolved_step_id,
+        }
+
     def _materialize_projection_step(
         self,
         node: ExecutableNode,
@@ -644,35 +619,10 @@ class WorkflowExecutor:
         region_name: str,
     ) -> Dict[str, Any]:
         """Convert one executable node into the runtime step payload used by the executor."""
-        if isinstance(node.raw, Mapping):
-            materialized_step = _thaw_workflow_mapping(node.raw)
-        else:
-            raise ValueError(
-                f"Typed workflow is missing {region_name} IR raw payload for '{node.node_id}'"
-            )
-
-        if isinstance(node, ForEachNode):
-            for_each = materialized_step.get("for_each")
-            if not isinstance(for_each, dict):
-                raise ValueError(f"Typed for_each node '{node.node_id}' is missing its loop payload")
-            for_each["steps"] = self._materialize_loop_body_steps(
-                node.body_node_ids,
-                region_name=region_name,
-                loop_node_id=node.node_id,
-                loop_kind="for_each",
-            )
-        elif isinstance(node, RepeatUntilFrameNode):
-            repeat_until = materialized_step.get("repeat_until")
-            if not isinstance(repeat_until, dict):
-                raise ValueError(f"Typed repeat_until node '{node.node_id}' is missing its loop payload")
-            repeat_until["steps"] = self._materialize_loop_body_steps(
-                node.body_node_ids,
-                region_name=region_name,
-                loop_node_id=node.node_id,
-                loop_kind="repeat_until",
-            )
-
-        return materialized_step
+        return self._runtime_step_for_node(
+            node,
+            region_name=region_name,
+        )
 
     def _materialize_loop_body_steps(
         self,
@@ -698,21 +648,21 @@ class WorkflowExecutor:
         materialized_steps: List[Dict[str, Any]] = []
         for node_id in node_ids:
             child_node = self.executable_ir.nodes.get(node_id)
-            if child_node is None or not isinstance(child_node.raw, Mapping):
+            if child_node is None:
                 raise ValueError(
-                    f"Typed {loop_kind} node '{loop_node_id}' is missing {region_name} child payload for '{node_id}'"
+                    f"Typed {loop_kind} node '{loop_node_id}' is missing {region_name} child node '{node_id}'"
                 )
-            child_step = _thaw_workflow_mapping(child_node.raw)
-            if not isinstance(child_step.get("step_id"), str) or not child_step["step_id"]:
-                child_step["step_id"] = child_node.step_id
-            if nested_names is not None and isinstance(nested_names.get(node_id), str):
-                child_step["name"] = nested_names[node_id]
-            elif not isinstance(child_step.get("name"), str) or not child_step["name"]:
-                child_step["name"] = (
-                    nested_names.get(node_id, child_node.presentation_name)
-                    if nested_names is not None
-                    else child_node.presentation_name
-                )
+            child_name = (
+                nested_names.get(node_id, child_node.presentation_name)
+                if nested_names is not None
+                else child_node.presentation_name
+            )
+            child_step = self._runtime_step_for_node(
+                child_node,
+                region_name=region_name,
+                presentation_name=child_name,
+                step_id=child_node.step_id,
+            )
             materialized_steps.append(child_step)
         return materialized_steps
 
@@ -951,60 +901,19 @@ class WorkflowExecutor:
             return None
         return node.kind
 
-    @staticmethod
-    def _leaf_execution_kind(node: ExecutableNode) -> ExecutableNodeKind:
-        """Return the effective leaf execution kind for one executable node."""
-        if isinstance(node, FinalizationStepNode):
-            return node.execution_kind
-        return node.kind
-
-    def _typed_leaf_execution_adapter_for_step(
-        self,
-        step: Dict[str, Any],
-    ) -> Optional[_TypedLeafExecutionAdapter]:
-        """Return the IR-owned leaf adapter for one typed runtime step."""
-        node = self._executable_node_for_step(step)
-        if node is None:
-            return None
-        adapter = self._typed_leaf_adapter_by_node_id.get(node.node_id)
-        if adapter is not None:
-            return adapter
-
-        execution_kind = self._leaf_execution_kind(node)
-        field_names = _TYPED_LEAF_EXECUTION_FIELDS.get(execution_kind)
-        if field_names is None:
-            return None
-
-        raw = node.raw if isinstance(node.raw, Mapping) else {}
-        payload: Dict[str, Any] = {}
-        for field_name in _TYPED_LEAF_COMMON_FIELDS + field_names:
-            if field_name not in raw:
-                continue
-            payload[field_name] = raw[field_name]
-
-        presentation_name = (
-            self.projection.presentation_key_by_node_id.get(node.node_id, node.presentation_name)
-            if self.projection is not None
-            else node.presentation_name
-        )
-        adapter = _TypedLeafExecutionAdapter(
-            node_id=node.node_id,
-            step_id=node.step_id,
-            execution_kind=execution_kind,
-            presentation_name=presentation_name,
-            payload=payload,
-        )
-        self._typed_leaf_adapter_by_node_id[node.node_id] = adapter
-        return adapter
-
     def _typed_execution_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Return the IR-owned runtime step payload for typed leaf execution when available."""
+        """Return a fresh IR-owned runtime step payload when executable topology is active."""
         if not self._use_ir_topology:
             return step
-        adapter = self._typed_leaf_execution_adapter_for_step(step)
-        if adapter is None:
+        node = self._executable_node_for_step(step)
+        if node is None:
             return step
-        return adapter.to_runtime_step()
+        return self._runtime_step_for_node(
+            node,
+            region_name=node.region.value,
+            presentation_name=step.get("name"),
+            step_id=step.get("step_id"),
+        )
 
     @staticmethod
     def _scoped_node_results(

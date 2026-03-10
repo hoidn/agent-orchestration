@@ -1,5 +1,6 @@
 """Tests for CLI safety features (AT-11, AT-12, AT-16)."""
 
+from dataclasses import replace
 import json
 import os
 import shutil
@@ -18,6 +19,7 @@ from orchestrator.cli.commands.run import (
     run_workflow
 )
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.surface_ast import freeze_mapping
 
 
 class TestCLISafety(TestCase):
@@ -531,6 +533,82 @@ steps:
         self.assertEqual(
             mock_validate.call_args.args[1],
             self.workspace / 'custom-processed',
+        )
+
+    @patch('orchestrator.cli.commands.run.WorkflowExecutor')
+    @patch('orchestrator.cli.commands.run.StateManager')
+    @patch('orchestrator.cli.commands.run.WorkflowLoader')
+    def test_run_workflow_uses_typed_processed_dir_when_surface_raw_drifts(
+        self,
+        mock_loader,
+        mock_state,
+        mock_executor,
+    ):
+        self.workflow_file.write_text(
+            """
+version: "2.1"
+name: typed-bundle-run
+processed_dir: typed-processed
+steps:
+  - name: Noop
+    command: ["bash", "-lc", "true"]
+""".strip()
+            + "\n"
+        )
+        bundle = WorkflowLoader(self.workspace).load_bundle(self.workflow_file)
+        drifted_surface = replace(
+            bundle.surface,
+            raw=freeze_mapping({
+                **dict(bundle.surface.raw),
+                "processed_dir": "raw-processed",
+            }),
+        )
+        mock_loader.return_value.load_bundle.return_value = replace(
+            bundle,
+            surface=drifted_surface,
+        )
+
+        mock_state_inst = MagicMock()
+        mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-processed' / 'logs'
+        mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-processed')
+        mock_state.return_value = mock_state_inst
+
+        mock_executor_inst = MagicMock()
+        mock_executor_inst.execute.return_value = True
+        mock_executor.return_value = mock_executor_inst
+
+        args = MagicMock()
+        args.workflow = str(self.workflow_file)
+        args.input = None
+        args.input_file = None
+        args.context = None
+        args.context_file = None
+        args.clean_processed = True
+        args.archive_processed = None
+        args.dry_run = True
+        args.debug = False
+        args.quiet = False
+        args.verbose = False
+        args.log_level = 'info'
+        args.backup_state = False
+        args.state_dir = None
+        args.on_error = 'stop'
+        args.max_retries = 0
+        args.retry_delay = 1000
+        args.stream_output = False
+        args.step_summaries = False
+        args.summary_mode = None
+        args.summary_provider = 'claude_sonnet_summary'
+        args.summary_timeout_sec = 120
+        args.summary_max_input_chars = 12000
+
+        with patch('orchestrator.cli.commands.run.validate_clean_processed') as mock_validate:
+            result = run_workflow(args)
+
+        self.assertEqual(result, 0)
+        self.assertEqual(
+            mock_validate.call_args.args[1],
+            self.workspace / 'typed-processed',
         )
 
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
