@@ -5,6 +5,22 @@ from enum import Enum
 from typing import Any, Dict, List, Optional
 
 
+_ESCAPED_DOLLAR_SENTINEL = "\x00"
+_ESCAPED_BRACED_DOLLAR_SENTINEL = "\x01{"
+
+
+def escape_provider_command_token(token: str) -> str:
+    """Apply command-template escape processing before placeholder validation."""
+    processed = token.replace("$$", _ESCAPED_DOLLAR_SENTINEL)
+    return processed.replace("$${", _ESCAPED_BRACED_DOLLAR_SENTINEL)
+
+
+def restore_provider_command_token(token: str) -> str:
+    """Restore command-template escaped literals after placeholder substitution."""
+    processed = token.replace(_ESCAPED_BRACED_DOLLAR_SENTINEL, "${")
+    return processed.replace(_ESCAPED_DOLLAR_SENTINEL, "$")
+
+
 class InputMode(str, Enum):
     """Provider input mode for prompt delivery."""
     ARGV = "argv"
@@ -128,7 +144,8 @@ class ProviderTemplate:
                 errors.append(
                     f"Provider '{self.name}': ${{PROMPT}} not allowed in stdin mode"
                 )
-            token_session_ids = token.count("${SESSION_ID}")
+            processed = escape_provider_command_token(token)
+            token_session_ids = processed.count("${SESSION_ID}")
             session_id_count += token_session_ids
             if token_session_ids and not allow_session_id:
                 errors.append(

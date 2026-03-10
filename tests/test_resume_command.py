@@ -1,10 +1,15 @@
 """Tests for the CLI resume command (AT-4)."""
 
+import os
 import json
 import pytest
 from pathlib import Path
+import signal
+import subprocess
+import sys
 import tempfile
 import shutil
+import time
 from unittest.mock import patch, MagicMock
 import hashlib
 import yaml
@@ -2379,6 +2384,142 @@ steps:
     assert metadata["step_status"] == "interrupted"
     assert metadata["publication_state"] == "quarantined_interrupted_visit"
     assert transport_spool_path.exists()
+
+    captured = capsys.readouterr()
+    assert "interrupted provider-session visit was quarantined" in captured.err
+
+
+def test_resume_quarantines_live_provider_session_with_retained_partial_spool(temp_workspace, capsys):
+    """Resume quarantine retains the bytes captured before a live provider-session run was interrupted."""
+    workflow_path = temp_workspace / "provider_session_resume_live.yaml"
+    session_script = "\n".join(
+        [
+            "python -u - <<'PY'",
+            "import sys, time",
+            "sys.stdout.write('{\"type\":\"session.started\",\"session_id\":\"sess-live\"}\\n')",
+            "sys.stdout.flush()",
+            "sys.stdout.write('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"partial\"}\\n')",
+            "sys.stdout.flush()",
+            "time.sleep(30)",
+            "sys.stdout.write('{\"type\":\"response.completed\",\"session_id\":\"sess-live\"}\\n')",
+            "sys.stdout.flush()",
+            "PY",
+        ]
+    )
+    workflow_content = {
+        "version": "2.10",
+        "name": "provider-session-live-resume",
+        "providers": {
+            "codex_session": {
+                "command": ["bash", "-lc", session_script],
+                "input_mode": "stdin",
+                "session_support": {
+                    "metadata_mode": "codex_exec_jsonl_stdout",
+                    "fresh_command": ["bash", "-lc", session_script],
+                    "resume_command": ["bash", "-lc", "echo should-not-run ${SESSION_ID}"],
+                },
+            }
+        },
+        "artifacts": {
+            "implementation_session_id": {
+                "kind": "scalar",
+                "type": "string",
+            }
+        },
+        "steps": [
+            {
+                "name": "StartImplementation",
+                "id": "start_implementation",
+                "provider": "codex_session",
+                "provider_session": {
+                    "mode": "fresh",
+                    "publish_artifact": "implementation_session_id",
+                },
+            }
+        ],
+    }
+    workflow_path.write_text(yaml.safe_dump(workflow_content, sort_keys=False), encoding="utf-8")
+
+    runs_root = temp_workspace / ".orchestrate" / "runs"
+    runs_root.mkdir(parents=True, exist_ok=True)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = str(Path(__file__).resolve().parents[1])
+
+    run_process = subprocess.Popen(
+        [
+            sys.executable,
+            "-m",
+            "orchestrator",
+            "run",
+            workflow_path.name,
+            "--state-dir",
+            str(runs_root),
+        ],
+        cwd=temp_workspace,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        start_new_session=True,
+    )
+
+    run_id = None
+    state_file = None
+    transport_spool_path = None
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        run_dirs = [path for path in runs_root.iterdir() if path.is_dir()]
+        if run_dirs:
+            run_id = run_dirs[0].name
+            state_file = run_dirs[0] / "state.json"
+            transport_candidates = list((run_dirs[0] / "provider_sessions").glob("*.transport.log"))
+            if state_file.exists():
+                snapshot = json.loads(state_file.read_text(encoding="utf-8"))
+                current_step = snapshot.get("current_step")
+                if (
+                    isinstance(current_step, dict)
+                    and current_step.get("name") == "StartImplementation"
+                    and transport_candidates
+                ):
+                    candidate = transport_candidates[0]
+                    if candidate.exists() and candidate.stat().st_size > 0:
+                        transport_spool_path = candidate
+                        break
+        time.sleep(0.05)
+
+    assert run_id is not None
+    assert state_file is not None and state_file.exists()
+    assert transport_spool_path is not None and transport_spool_path.exists()
+
+    os.killpg(run_process.pid, signal.SIGTERM)
+    try:
+        run_process.communicate(timeout=5)
+    except subprocess.TimeoutExpired:
+        os.killpg(run_process.pid, signal.SIGKILL)
+        run_process.communicate(timeout=5)
+
+    partial_spool = transport_spool_path.read_text(encoding="utf-8")
+    assert "session.started" in partial_spool
+    assert "partial" in partial_spool
+    assert "response.completed" not in partial_spool
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(run_id=run_id, state_dir=str(runs_root))
+
+    assert result == 1
+    persisted_state = json.loads(state_file.read_text(encoding="utf-8"))
+    error = persisted_state["error"]
+    metadata_path = Path(error["context"]["metadata_path"])
+    retained_spool_path = Path(error["context"]["transport_spool_path"])
+    metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+    assert persisted_state["status"] == "failed"
+    assert error["type"] == "provider_session_interrupted_visit_quarantined"
+    assert error["context"]["metadata_synthesized"] is False
+    assert retained_spool_path == transport_spool_path
+    assert retained_spool_path.read_text(encoding="utf-8") == partial_spool
+    assert metadata["step_status"] == "interrupted"
+    assert metadata["publication_state"] == "quarantined_interrupted_visit"
+    assert metadata["captured_transport_bytes"] > 0
 
     captured = capsys.readouterr()
     assert "interrupted provider-session visit was quarantined" in captured.err

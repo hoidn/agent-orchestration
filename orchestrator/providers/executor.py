@@ -2,12 +2,13 @@
 
 import json
 import logging
+import os
 import subprocess
 import sys
 import threading
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Callable, Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass
 
 from .types import (
@@ -18,6 +19,8 @@ from .types import (
     ProviderSessionMode,
     ProviderSessionRequest,
     ProviderTemplate,
+    escape_provider_command_token,
+    restore_provider_command_token,
 )
 from .registry import ProviderRegistry
 from ..security.secrets import SecretsManager
@@ -213,7 +216,6 @@ class ProviderExecutor:
         start_time = time.time()
 
         # Setup environment
-        import os
         process_env = os.environ.copy()
         if invocation.env:
             process_env.update(invocation.env)
@@ -352,6 +354,47 @@ class ProviderExecutor:
                 }
             )
 
+    def _capture_pipe(
+        self,
+        pipe: Optional[Any],
+        buffer: bytearray,
+        *,
+        out_stream: Any = None,
+        chunk_callback: Optional[Callable[[bytes], None]] = None,
+        read_mode: str = "chunks",
+    ) -> None:
+        """Capture bytes from a subprocess pipe with optional streaming and per-chunk hooks."""
+        if pipe is None:
+            return
+
+        output = out_stream.buffer if out_stream is not None and hasattr(out_stream, "buffer") else out_stream
+        try:
+            while True:
+                if read_mode == "lines":
+                    chunk = pipe.readline()
+                else:
+                    chunk = pipe.read(4096)
+                if not chunk:
+                    break
+                buffer.extend(chunk)
+                if chunk_callback is not None:
+                    try:
+                        chunk_callback(chunk)
+                    except Exception:
+                        pass
+                if output is not None:
+                    try:
+                        output.write(chunk)
+                        output.flush()
+                    except Exception:
+                        # Streaming should never break execution/capture path.
+                        pass
+        finally:
+            try:
+                pipe.close()
+            except Exception:
+                pass
+
     def _stream_pipe(
         self,
         pipe: Optional[Any],
@@ -359,27 +402,7 @@ class ProviderExecutor:
         out_stream: Any
     ) -> None:
         """Read bytes from a subprocess pipe, stream them to output, and buffer them."""
-        if pipe is None:
-            return
-
-        output = out_stream.buffer if hasattr(out_stream, "buffer") else out_stream
-        try:
-            while True:
-                chunk = pipe.read(4096)
-                if not chunk:
-                    break
-                buffer.extend(chunk)
-                try:
-                    output.write(chunk)
-                    output.flush()
-                except Exception:
-                    # Streaming should never break execution/capture path.
-                    pass
-        finally:
-            try:
-                pipe.close()
-            except Exception:
-                pass
+        self._capture_pipe(pipe, buffer, out_stream=out_stream)
 
     def _substitute_params(
         self,
@@ -452,8 +475,7 @@ class ProviderExecutor:
 
         for token in command_template:
             # Apply escapes first
-            processed = token.replace('$$', '\x00')  # Temp marker for literal $
-            processed = processed.replace('$${', '\x01{')  # Temp marker for literal ${
+            processed = escape_provider_command_token(token)
 
             # Check for ${PROMPT} before substituting other variables
             # AT-73: Prompt content is literal and should not be scanned for variables
@@ -493,8 +515,7 @@ class ProviderExecutor:
                 processed = processed.replace("${PROMPT}", prompt)
 
             # Restore escaped literals
-            processed = processed.replace('\x00', '$')
-            processed = processed.replace('\x01{', '${')
+            processed = restore_provider_command_token(processed)
 
             command.append(processed)
 
@@ -513,38 +534,74 @@ class ProviderExecutor:
     ) -> ProviderExecutionResult:
         """Execute one session-enabled provider invocation and normalize transport."""
         try:
-            result = subprocess.run(
+            process = subprocess.Popen(
                 invocation.command,
                 cwd=str(working_dir),
                 env=process_env,
-                input=stdin_input,
-                capture_output=True,
-                timeout=invocation.timeout_sec,
+                stdin=subprocess.PIPE if stdin_input is not None else subprocess.DEVNULL,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
             )
+
+            if stdin_input is not None and process.stdin is not None:
+                try:
+                    process.stdin.write(stdin_input)
+                    process.stdin.close()
+                except BrokenPipeError:
+                    pass
+
+            stdout_buf = bytearray()
+            stderr_buf = bytearray()
+
+            stdout_thread = threading.Thread(
+                target=self._capture_pipe,
+                args=(process.stdout, stdout_buf),
+                kwargs={
+                    "chunk_callback": lambda chunk: self._append_masked_transport(chunk, session_runtime),
+                    "read_mode": "lines",
+                },
+                daemon=True,
+            )
+            stderr_thread = threading.Thread(
+                target=self._capture_pipe,
+                args=(process.stderr, stderr_buf),
+                kwargs={"out_stream": sys.stderr if stream_output else None},
+                daemon=True,
+            )
+            stdout_thread.start()
+            stderr_thread.start()
+
+            try:
+                exit_code = process.wait(timeout=invocation.timeout_sec)
+                stdout_thread.join()
+                stderr_thread.join()
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+                stdout_thread.join()
+                stderr_thread.join()
+                duration_ms = int((time.time() - start_time) * 1000)
+                return ProviderExecutionResult(
+                    exit_code=124,
+                    stdout=b"",
+                    stderr=bytes(stderr_buf),
+                    duration_ms=duration_ms,
+                    raw_stdout=bytes(stdout_buf),
+                    error={
+                        "type": "timeout",
+                        "message": f"Provider timed out after {invocation.timeout_sec} seconds",
+                        "context": {"timeout_sec": invocation.timeout_sec},
+                    },
+                )
+
             duration_ms = int((time.time() - start_time) * 1000)
-            self._append_masked_transport(result.stdout, session_runtime)
             return self._finalize_session_result(
                 invocation=invocation,
-                exit_code=result.returncode,
-                raw_stdout=result.stdout,
-                stderr=result.stderr,
+                exit_code=exit_code,
+                raw_stdout=bytes(stdout_buf),
+                stderr=bytes(stderr_buf),
                 duration_ms=duration_ms,
                 stream_output=stream_output,
-            )
-        except subprocess.TimeoutExpired as e:
-            duration_ms = int((time.time() - start_time) * 1000)
-            self._append_masked_transport(e.stdout or b"", session_runtime)
-            return ProviderExecutionResult(
-                exit_code=124,
-                stdout=b"",
-                stderr=e.stderr or b"",
-                duration_ms=duration_ms,
-                raw_stdout=e.stdout or b"",
-                error={
-                    "type": "timeout",
-                    "message": f"Provider timed out after {invocation.timeout_sec} seconds",
-                    "context": {"timeout_sec": invocation.timeout_sec},
-                },
             )
         except Exception as exc:
             duration_ms = int((time.time() - start_time) * 1000)
@@ -579,6 +636,11 @@ class ProviderExecutor:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(masked_text)
+            handle.flush()
+            try:
+                os.fsync(handle.fileno())
+            except OSError:
+                pass
 
     def _finalize_session_result(
         self,

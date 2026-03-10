@@ -8,6 +8,7 @@ substitution, and error handling.
 import pytest
 import tempfile
 import time
+import threading
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import subprocess
@@ -108,6 +109,39 @@ class TestProviderRegistry:
         errors = invalid.validate()
 
         assert any("must contain exactly one ${SESSION_ID} placeholder" in error for error in errors)
+
+    def test_session_support_resume_command_ignores_escaped_session_placeholder(self):
+        """Escaped ${SESSION_ID} literals do not satisfy the reserved resume placeholder contract."""
+        escaped_only = ProviderTemplate(
+            name="escaped_only_resume",
+            command=["tool", "--model", "${model}"],
+            input_mode=InputMode.STDIN,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                fresh_command=["tool", "--json", "--model", "${model}"],
+                resume_command=["tool", "resume", "$${SESSION_ID}"],
+            ),
+        )
+
+        escaped_only_errors = escaped_only.validate()
+
+        assert any(
+            "must contain exactly one ${SESSION_ID} placeholder" in error
+            for error in escaped_only_errors
+        )
+
+        one_real_one_escaped = ProviderTemplate(
+            name="resume_with_literal",
+            command=["tool", "--model", "${model}"],
+            input_mode=InputMode.STDIN,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                fresh_command=["tool", "--json", "--model", "${model}"],
+                resume_command=["tool", "resume", "$${SESSION_ID}", "${SESSION_ID}"],
+            ),
+        )
+
+        assert one_real_one_escaped.validate() == []
 
     def test_session_id_placeholder_is_reserved_for_resume_command(self):
         """${SESSION_ID} is rejected outside session_support.resume_command."""
@@ -378,6 +412,35 @@ class TestProviderExecutor:
         assert "resume" in invocation.command
         assert "sess-123" in invocation.command
 
+    def test_prepare_invocation_preserves_escaped_session_id_literal(self):
+        """Escaped ${SESSION_ID} tokens remain literal while the unescaped token is bound."""
+        custom = ProviderTemplate(
+            name="custom_session",
+            command=["tool"],
+            input_mode=InputMode.STDIN,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                fresh_command=["tool", "--json"],
+                resume_command=["tool", "resume", "$${SESSION_ID}", "${SESSION_ID}"],
+            ),
+        )
+        self.registry.register(custom)
+
+        invocation, error = self.executor.prepare_invocation(
+            "custom_session",
+            ProviderParams(),
+            {},
+            "Test prompt",
+            session_request=ProviderSessionRequest(
+                mode=ProviderSessionMode.RESUME,
+                session_id="sess-123",
+            ),
+        )
+
+        assert error is None
+        assert invocation is not None
+        assert invocation.command == ["tool", "resume", "${SESSION_ID}", "sess-123"]
+
     @patch('subprocess.run')
     def test_provider_execution_success(self, mock_run):
         """Test successful provider execution."""
@@ -438,23 +501,17 @@ class TestProviderExecutor:
         assert result.stdout == b"Partial output"
         assert result.error["type"] == "timeout"
 
-    @patch('subprocess.run')
-    def test_session_execution_normalizes_codex_jsonl_stdout(self, mock_run):
+    def test_session_execution_normalizes_codex_jsonl_stdout(self):
         """Session-enabled Codex transport is parsed into normalized assistant stdout."""
-        raw_stdout = b'\n'.join([
-            b'{"type":"session.started","session_id":"sess-123"}',
-            b'{"type":"assistant.message","role":"assistant","text":"hello "}',
-            b'{"type":"assistant.message","role":"assistant","text":"world"}',
-            b'{"type":"response.completed","session_id":"sess-123"}',
-        ]) + b"\n"
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=raw_stdout,
-            stderr=b"",
+        raw_stdout = (
+            '{"type":"session.started","session_id":"sess-123"}\n'
+            '{"type":"assistant.message","role":"assistant","text":"hello "}\n'
+            '{"type":"assistant.message","role":"assistant","text":"world"}\n'
+            '{"type":"response.completed","session_id":"sess-123"}\n'
         )
-
+        raw_stdout_bytes = raw_stdout.encode("utf-8")
         invocation = ProviderInvocation(
-            command=["codex", "exec", "--json"],
+            command=["python", "-c", f"import sys; sys.stdout.write({raw_stdout!r})"],
             input_mode=InputMode.STDIN,
             prompt="Test prompt",
             command_variant="fresh_command",
@@ -466,29 +523,22 @@ class TestProviderExecutor:
 
         assert result.exit_code == 0
         assert result.stdout == b"hello world"
-        assert result.raw_stdout == raw_stdout
+        assert result.raw_stdout == raw_stdout_bytes
         assert result.provider_session == {
             "session_id": "sess-123",
             "normalized_stdout": "hello world",
             "event_count": 4,
         }
 
-    @patch('subprocess.run')
-    def test_session_execution_rejects_mismatched_resume_session_id(self, mock_run):
+    def test_session_execution_rejects_mismatched_resume_session_id(self):
         """Resume invocations fail when transport reports a different session id."""
-        raw_stdout = b'\n'.join([
-            b'{"type":"session.started","session_id":"sess-other"}',
-            b'{"type":"assistant.message","role":"assistant","text":"hello"}',
-            b'{"type":"response.completed","session_id":"sess-other"}',
-        ]) + b"\n"
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=raw_stdout,
-            stderr=b"",
+        raw_stdout = (
+            '{"type":"session.started","session_id":"sess-other"}\n'
+            '{"type":"assistant.message","role":"assistant","text":"hello"}\n'
+            '{"type":"response.completed","session_id":"sess-other"}\n'
         )
-
         invocation = ProviderInvocation(
-            command=["codex", "exec", "resume", "sess-123", "--json"],
+            command=["python", "-c", f"import sys; sys.stdout.write({raw_stdout!r})"],
             input_mode=InputMode.STDIN,
             prompt="Test prompt",
             command_variant="resume_command",
@@ -505,22 +555,15 @@ class TestProviderExecutor:
         assert result.error is not None
         assert result.error["type"] == "provider_session_transport_error"
 
-    @patch('subprocess.run')
-    def test_session_stream_output_emits_only_normalized_assistant_text(self, mock_run, capsys):
+    def test_session_stream_output_emits_only_normalized_assistant_text(self, capsys):
         """Session streaming surfaces assistant text, not raw JSONL metadata."""
-        raw_stdout = b'\n'.join([
-            b'{"type":"session.started","session_id":"sess-123"}',
-            b'{"type":"assistant.message","role":"assistant","text":"hello world"}',
-            b'{"type":"response.completed","session_id":"sess-123"}',
-        ]) + b"\n"
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=raw_stdout,
-            stderr=b"",
+        raw_stdout = (
+            '{"type":"session.started","session_id":"sess-123"}\n'
+            '{"type":"assistant.message","role":"assistant","text":"hello world"}\n'
+            '{"type":"response.completed","session_id":"sess-123"}\n'
         )
-
         invocation = ProviderInvocation(
-            command=["codex", "exec", "--json"],
+            command=["python", "-c", f"import sys; sys.stdout.write({raw_stdout!r})"],
             input_mode=InputMode.STDIN,
             prompt="Test prompt",
             command_variant="fresh_command",
@@ -535,24 +578,18 @@ class TestProviderExecutor:
         assert captured.out == "hello world"
         assert "{\"type\"" not in captured.out
 
-    @patch('subprocess.run')
-    def test_session_execution_writes_masked_transport_spool(self, mock_run):
+    def test_session_execution_writes_masked_transport_spool(self):
         """Session transport is masked and copied to the configured spool path."""
-        raw_stdout = b'\n'.join([
-            b'{"type":"session.started","session_id":"sess-123"}',
-            b'{"type":"assistant.message","role":"assistant","text":"secret-token"}',
-            b'{"type":"response.completed","session_id":"sess-123"}',
-        ]) + b"\n"
-        mock_run.return_value = MagicMock(
-            returncode=0,
-            stdout=raw_stdout,
-            stderr=b"",
+        raw_stdout = (
+            '{"type":"session.started","session_id":"sess-123"}\n'
+            '{"type":"assistant.message","role":"assistant","text":"secret-token"}\n'
+            '{"type":"response.completed","session_id":"sess-123"}\n'
         )
         transport_spool_path = self.workspace / "session.transport.log"
         self.executor.secrets_manager._masked_values.add("secret-token")
 
         invocation = ProviderInvocation(
-            command=["codex", "exec", "--json"],
+            command=["python", "-c", f"import sys; sys.stdout.write({raw_stdout!r})"],
             input_mode=InputMode.STDIN,
             prompt="Test prompt",
             command_variant="fresh_command",
@@ -570,6 +607,61 @@ class TestProviderExecutor:
         spool_text = transport_spool_path.read_text(encoding="utf-8")
         assert "***" in spool_text
         assert "secret-token" not in spool_text
+
+    def test_session_execution_appends_transport_spool_while_process_is_running(self):
+        """Session transport reaches the stable spool before the provider process exits."""
+        raw_stdout = (
+            '{"type":"session.started","session_id":"sess-123"}\n'
+            '{"type":"assistant.message","role":"assistant","text":"partial"}\n'
+            '{"type":"response.completed","session_id":"sess-123"}\n'
+        )
+        script = (
+            "import sys, time; "
+            f"payload = {raw_stdout!r}.splitlines(True); "
+            "sys.stdout.write(payload[0]); sys.stdout.flush(); "
+            "sys.stdout.write(payload[1]); sys.stdout.flush(); "
+            "time.sleep(0.8); "
+            "sys.stdout.write(payload[2]); sys.stdout.flush()"
+        )
+        transport_spool_path = self.workspace / "session-live.transport.log"
+        invocation = ProviderInvocation(
+            command=["python", "-c", script],
+            input_mode=InputMode.STDIN,
+            prompt="Test prompt",
+            command_variant="fresh_command",
+            metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+            session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        )
+
+        result_box = {}
+
+        worker = threading.Thread(
+            target=lambda: result_box.setdefault(
+                "result",
+                self.executor.execute(
+                    invocation,
+                    session_runtime={"transport_spool_path": transport_spool_path},
+                ),
+            ),
+        )
+        worker.start()
+
+        deadline = time.time() + 5
+        partial_text = ""
+        while time.time() < deadline:
+            if transport_spool_path.exists():
+                partial_text = transport_spool_path.read_text(encoding="utf-8")
+                if partial_text:
+                    break
+            time.sleep(0.02)
+
+        assert partial_text
+        assert "session.started" in partial_text
+        assert "response.completed" not in partial_text
+
+        worker.join(timeout=5)
+        assert not worker.is_alive()
+        assert result_box["result"].exit_code == 0
 
     def test_escape_sequences(self):
         """Test escape sequence handling ($$ and $${)."""
