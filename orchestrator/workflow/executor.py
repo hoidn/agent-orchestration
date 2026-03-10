@@ -8,9 +8,10 @@ import logging
 import threading
 from copy import deepcopy
 from contextlib import contextmanager
+from dataclasses import is_dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from ..state import ForEachState, RunState, StateManager, StepResult
 from ..exec.step_executor import StepExecutor
@@ -34,12 +35,36 @@ from ..observability.summary import SummaryObserver
 from .assets import WorkflowAssetResolver
 from .calls import CallExecutor
 from .dataflow import DataflowManager
+from .executable_ir import (
+    BlockOutputAddress,
+    CallBoundaryNode,
+    CallOutputAddress,
+    ExecutableContract,
+    IfBranchMarkerNode,
+    IfJoinNode,
+    LoopOutputAddress,
+    MatchCaseMarkerNode,
+    MatchJoinNode,
+    NodeResultAddress,
+    RepeatUntilFrameNode,
+    WorkflowInputAddress,
+)
 from .finalization import FinalizationController
 from .identity import iteration_step_id, runtime_step_id
 from .loaded_bundle import workflow_bundle, workflow_legacy_dict, workflow_provenance
 from .loops import LoopExecutor
 from .outcomes import OutcomeRecorder
-from .predicates import PredicateEvaluationError, resolve_typed_operand
+from .predicates import (
+    AllOfPredicateNode,
+    AnyOfPredicateNode,
+    ArtifactBoolPredicateNode,
+    ComparePredicateNode,
+    NotPredicateNode,
+    PredicateEvaluationError,
+    ScorePredicateNode,
+    is_numeric_predicate_value,
+    resolve_typed_operand,
+)
 from .prompting import PromptComposer
 from .references import ReferenceResolutionError, ReferenceResolver
 from .resume_planner import ResumePlanner, ResumeStateIntegrityError
@@ -515,6 +540,319 @@ class WorkflowExecutor:
             for entry in self.projection.entries_by_node_id.values()
             if isinstance(entry.compatibility_index, int)
         }
+
+    def _executable_node_for_step(self, step: Dict[str, Any]) -> Any:
+        """Return the typed executable node backing one legacy compatibility step."""
+        if self.executable_ir is None or not isinstance(step, dict):
+            return None
+        step_id = step.get("step_id")
+        if not isinstance(step_id, str) or not step_id:
+            return None
+        return self.executable_ir.nodes.get(step_id)
+
+    @staticmethod
+    def _static_step_id(step_id: str) -> str:
+        """Strip loop-iteration qualifiers from one runtime step id."""
+        if "#" not in step_id:
+            return step_id
+        loop_prefix, remainder = step_id.split("#", 1)
+        if "." not in remainder:
+            return loop_prefix
+        return f"{loop_prefix}.{remainder.split('.', 1)[1]}"
+
+    def _result_for_node_id(
+        self,
+        node_id: str,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        """Resolve one node id to the visible runtime result payload."""
+        presentation_key = (
+            self.projection.presentation_key_by_node_id.get(node_id)
+            if self.projection is not None
+            else None
+        )
+        candidate_maps: list[Mapping[str, Any]] = []
+        if isinstance(scope, dict):
+            for key in ("self_steps", "parent_steps", "root_steps"):
+                mapping = scope.get(key)
+                if isinstance(mapping, Mapping):
+                    candidate_maps.append(mapping)
+        steps_state = state.get("steps")
+        if isinstance(steps_state, Mapping):
+            candidate_maps.append(steps_state)
+
+        for mapping in candidate_maps:
+            if isinstance(presentation_key, str):
+                candidate = mapping.get(presentation_key)
+                if isinstance(candidate, dict):
+                    candidate_step_id = candidate.get("step_id")
+                    if (
+                        not isinstance(candidate_step_id, str)
+                        or self._static_step_id(candidate_step_id) == node_id
+                    ):
+                        return candidate
+            for candidate in mapping.values():
+                if not isinstance(candidate, dict):
+                    continue
+                candidate_step_id = candidate.get("step_id")
+                if isinstance(candidate_step_id, str) and self._static_step_id(candidate_step_id) == node_id:
+                    return candidate
+
+        raise ReferenceResolutionError(f"Bound address target step '{node_id}' is unavailable")
+
+    def _resolve_bound_address(
+        self,
+        address: Any,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Any:
+        """Resolve one lowered bound address against persisted runtime state."""
+        if isinstance(address, WorkflowInputAddress):
+            bound_inputs = (
+                scope.get("inputs")
+                if isinstance(scope, dict) and isinstance(scope.get("inputs"), dict)
+                else state.get("bound_inputs", {})
+            )
+            if not isinstance(bound_inputs, dict) or address.input_name not in bound_inputs:
+                raise ReferenceResolutionError(
+                    f"Bound workflow input '{address.input_name}' is unavailable"
+                )
+            return bound_inputs[address.input_name]
+
+        result = self._result_for_node_id(address.node_id, state, scope=scope)
+        if isinstance(address, NodeResultAddress):
+            if address.field == "exit_code":
+                if "exit_code" not in result:
+                    raise ReferenceResolutionError(
+                        f"Bound step field '{address.node_id}.{address.field}' is unavailable"
+                    )
+                return result["exit_code"]
+            container = result.get(address.field)
+            if not isinstance(container, dict) or address.member not in container:
+                raise ReferenceResolutionError(
+                    f"Bound step field '{address.node_id}.{address.field}' is unavailable"
+                )
+            return container[address.member]
+
+        if isinstance(address, (BlockOutputAddress, LoopOutputAddress, CallOutputAddress)):
+            artifacts = result.get("artifacts")
+            output_name = address.output_name
+            if not isinstance(artifacts, dict) or output_name not in artifacts:
+                raise ReferenceResolutionError(
+                    f"Bound step output '{address.node_id}.artifacts.{output_name}' is unavailable"
+                )
+            return artifacts[output_name]
+
+        raise ReferenceResolutionError(f"Unsupported bound address type '{type(address).__name__}'")
+
+    def _resolve_runtime_value(
+        self,
+        value: Any,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> Any:
+        """Resolve one runtime value that may be a bound address or legacy ref binding."""
+        if isinstance(
+            value,
+            (
+                WorkflowInputAddress,
+                NodeResultAddress,
+                BlockOutputAddress,
+                LoopOutputAddress,
+                CallOutputAddress,
+            ),
+        ):
+            return self._resolve_bound_address(value, state, scope=scope)
+        if isinstance(value, dict) and set(value.keys()) == {"ref"}:
+            return resolve_typed_operand(value, state, scope=scope)
+        return value
+
+    def _evaluate_bound_predicate(
+        self,
+        predicate: Any,
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> bool:
+        """Evaluate one lowered typed predicate node against runtime state."""
+        try:
+            if isinstance(predicate, ArtifactBoolPredicateNode):
+                value = self._resolve_runtime_value(predicate.ref, state, scope=scope)
+                if not isinstance(value, bool):
+                    raise PredicateEvaluationError("artifact_bool ref must resolve to a bool")
+                return value
+
+            if isinstance(predicate, ComparePredicateNode):
+                left = self._resolve_runtime_value(predicate.left, state, scope=scope)
+                right = self._resolve_runtime_value(predicate.right, state, scope=scope)
+                if predicate.op == "eq":
+                    return left == right
+                if predicate.op == "ne":
+                    return left != right
+                if predicate.op in {"lt", "lte", "gt", "gte"}:
+                    if not is_numeric_predicate_value(left) or not is_numeric_predicate_value(right):
+                        raise PredicateEvaluationError(
+                            "ordered compare operators require numeric operands"
+                        )
+                if predicate.op == "lt":
+                    return left < right
+                if predicate.op == "lte":
+                    return left <= right
+                if predicate.op == "gt":
+                    return left > right
+                if predicate.op == "gte":
+                    return left >= right
+                raise PredicateEvaluationError(f"Unsupported compare operator '{predicate.op}'")
+
+            if isinstance(predicate, ScorePredicateNode):
+                score_value = self._resolve_runtime_value(predicate.ref, state, scope=scope)
+                if not is_numeric_predicate_value(score_value):
+                    raise PredicateEvaluationError("score requires a numeric ref")
+                if predicate.gt is not None and not score_value > predicate.gt:
+                    return False
+                if predicate.gte is not None and not score_value >= predicate.gte:
+                    return False
+                if predicate.lt is not None and not score_value < predicate.lt:
+                    return False
+                if predicate.lte is not None and not score_value <= predicate.lte:
+                    return False
+                return True
+
+            if isinstance(predicate, AllOfPredicateNode):
+                return all(
+                    self._evaluate_bound_predicate(item, state, scope=scope)
+                    for item in predicate.items
+                )
+
+            if isinstance(predicate, AnyOfPredicateNode):
+                return any(
+                    self._evaluate_bound_predicate(item, state, scope=scope)
+                    for item in predicate.items
+                )
+
+            if isinstance(predicate, NotPredicateNode):
+                return not self._evaluate_bound_predicate(predicate.item, state, scope=scope)
+        except ReferenceResolutionError as exc:
+            raise PredicateEvaluationError(str(exc)) from exc
+
+        return self.condition_evaluator.evaluate(predicate, {}, state, scope=scope)
+
+    def _evaluate_condition_expression(
+        self,
+        condition: Any,
+        variables: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        scope: Optional[Dict[str, Dict[str, Any]]] = None,
+    ) -> bool:
+        """Evaluate either a legacy condition dict or one lowered predicate node."""
+        if isinstance(
+            condition,
+            (
+                ArtifactBoolPredicateNode,
+                ComparePredicateNode,
+                ScorePredicateNode,
+                AllOfPredicateNode,
+                AnyOfPredicateNode,
+                NotPredicateNode,
+            ),
+        ):
+            return self._evaluate_bound_predicate(condition, state, scope=scope)
+        return self.condition_evaluator.evaluate(condition, variables, state, scope=scope)
+
+    def _structured_guard_condition(self, step: Dict[str, Any]) -> tuple[Any, bool]:
+        """Return one structured guard condition, preferring the typed IR node."""
+        node = self._executable_node_for_step(step)
+        if isinstance(node, IfBranchMarkerNode):
+            return node.guard_condition, node.invert_guard
+        if isinstance(node, MatchCaseMarkerNode):
+            return ComparePredicateNode(
+                left=node.selector_address,
+                op="eq",
+                right=node.case_name,
+            ), False
+        guard = step.get("structured_if_guard", {})
+        condition = guard.get("condition") if isinstance(guard, dict) else None
+        invert = bool(guard.get("invert")) if isinstance(guard, dict) else False
+        return condition, invert
+
+    def _when_condition(self, step: Dict[str, Any]) -> Any:
+        """Return one step-level when condition, preferring the typed IR node."""
+        node = self._executable_node_for_step(step)
+        bound = getattr(node, "bound_when_predicate", None) if node is not None else None
+        return bound if bound is not None else step.get("when")
+
+    def _assert_condition(self, step: Dict[str, Any]) -> Any:
+        """Return one step-level assert condition, preferring the typed IR node."""
+        node = self._executable_node_for_step(step)
+        bound = getattr(node, "bound_assert_predicate", None) if node is not None else None
+        return bound if bound is not None else step.get("assert")
+
+    def _structured_output_contracts(
+        self,
+        step: Dict[str, Any],
+        selection_value: str,
+    ) -> Mapping[str, Any]:
+        """Return one structured statement's output contracts for the selected path."""
+        node = self._executable_node_for_step(step)
+        if isinstance(node, IfJoinNode):
+            return node.branch_outputs.get(selection_value, {})
+        if isinstance(node, MatchJoinNode):
+            return node.case_outputs.get(selection_value, {})
+        metadata = step.get("structured_if_join") or step.get("structured_match_join") or {}
+        selections = metadata.get("branches") or metadata.get("cases") or {}
+        if not isinstance(selections, Mapping):
+            return {}
+        selected = selections.get(selection_value, {})
+        outputs = selected.get("outputs") if isinstance(selected, Mapping) else {}
+        return outputs if isinstance(outputs, Mapping) else {}
+
+    def _repeat_until_condition(self, step: Dict[str, Any]) -> Any:
+        """Return one repeat_until stop condition, preferring the typed IR node."""
+        node = self._executable_node_for_step(step)
+        if isinstance(node, RepeatUntilFrameNode):
+            return node.condition
+        block = step.get("repeat_until", {})
+        return block.get("condition") if isinstance(block, dict) else None
+
+    def _repeat_until_output_contracts(self, step: Dict[str, Any]) -> Mapping[str, Any]:
+        """Return one repeat_until output contract map, preferring the typed IR node."""
+        node = self._executable_node_for_step(step)
+        if isinstance(node, RepeatUntilFrameNode):
+            return node.output_contracts
+        block = step.get("repeat_until", {})
+        outputs = block.get("outputs") if isinstance(block, dict) else {}
+        return outputs if isinstance(outputs, Mapping) else {}
+
+    def _call_input_bindings(self, step: Dict[str, Any]) -> Mapping[str, Any]:
+        """Return one call step's bound input bindings, preferring the typed IR node."""
+        node = self._executable_node_for_step(step)
+        if isinstance(node, CallBoundaryNode):
+            return node.bound_inputs
+        bindings = step.get("with", {})
+        return bindings if isinstance(bindings, Mapping) else {}
+
+    def _json_safe_runtime_value(self, value: Any) -> Any:
+        """Convert bound runtime metadata into a JSON-safe error/debug payload."""
+        if value is None or isinstance(value, (str, int, float, bool)):
+            return value
+        if isinstance(value, Mapping):
+            return {
+                str(key): self._json_safe_runtime_value(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, (list, tuple)):
+            return [self._json_safe_runtime_value(item) for item in value]
+        if is_dataclass(value):
+            return {
+                key: self._json_safe_runtime_value(item)
+                for key, item in vars(value).items()
+            }
+        return str(value)
 
     def _runtime_context(
         self,
@@ -994,18 +1332,20 @@ class WorkflowExecutor:
                 if 'structured_if_guard' in step:
                     runtime_context = self._runtime_context({}, state)
                     variables = runtime_context.build_variables(self.variable_substitutor, state)
-                    guard = step.get('structured_if_guard', {})
-                    condition = guard.get('condition') if isinstance(guard, dict) else None
-                    invert = bool(guard.get('invert')) if isinstance(guard, dict) else False
+                    condition, invert = self._structured_guard_condition(step)
                     try:
-                        should_execute = self.condition_evaluator.evaluate(condition, variables, state)
+                        should_execute = self._evaluate_condition_expression(
+                            condition,
+                            variables,
+                            state,
+                        )
                         if invert:
                             should_execute = not should_execute
                     except Exception as e:
                         error_info = {
                             'type': 'predicate_evaluation_failed',
                             'message': f"Condition evaluation failed: {e}",
-                            'context': {'condition': condition}
+                            'context': {'condition': self._json_safe_runtime_value(condition)}
                         }
                         result = {
                             'status': 'failed',
@@ -1085,20 +1425,25 @@ class WorkflowExecutor:
                         continue
 
                 # Check conditional execution (AT-37, AT-46, AT-47)
-                if 'when' in step:
+                when_condition = self._when_condition(step)
+                if when_condition is not None:
                     # Build variables for condition evaluation
                     runtime_context = self._runtime_context({}, state)
                     variables = runtime_context.build_variables(self.variable_substitutor, state)
 
                     # Evaluate condition
                     try:
-                        should_execute = self.condition_evaluator.evaluate(step['when'], variables, state)
+                        should_execute = self._evaluate_condition_expression(
+                            when_condition,
+                            variables,
+                            state,
+                        )
                     except Exception as e:
                         # Condition evaluation error - record and skip
                         error_info = {
                             'type': 'predicate_evaluation_failed',
                             'message': f"Condition evaluation failed: {e}",
-                            'context': {'condition': step['when']}
+                            'context': {'condition': self._json_safe_runtime_value(when_condition)}
                         }
                         result = {
                             'status': 'failed',
@@ -3157,8 +3502,14 @@ class WorkflowExecutor:
         variables = runtime_context.build_variables(self.variable_substitutor, state)
         if scope is None:
             scope = runtime_context.scope()
+        assert_condition = self._assert_condition(step)
         try:
-            passed = self.condition_evaluator.evaluate(step.get('assert'), variables, state, scope=scope)
+            passed = self._evaluate_condition_expression(
+                assert_condition,
+                variables,
+                state,
+                scope=scope,
+            )
         except Exception as exc:
             return {
                 'status': 'failed',
@@ -3167,7 +3518,7 @@ class WorkflowExecutor:
                 'error': {
                     'type': 'predicate_evaluation_failed',
                     'message': str(exc),
-                    'context': {'assert': step.get('assert')},
+                    'context': {'assert': self._json_safe_runtime_value(assert_condition)},
                 },
             }
 
@@ -3185,7 +3536,7 @@ class WorkflowExecutor:
             'error': {
                 'type': 'assert_failed',
                 'message': 'Assertion failed',
-                'context': {'assert': step.get('assert')},
+                'context': {'assert': self._json_safe_runtime_value(assert_condition)},
             },
         }
 
@@ -3342,7 +3693,7 @@ class WorkflowExecutor:
 
     def _resolve_structured_output_artifacts(
         self,
-        outputs: Dict[str, Any],
+        outputs: Mapping[str, Any],
         state: Dict[str, Any],
         *,
         failure_message: str,
@@ -3353,11 +3704,19 @@ class WorkflowExecutor:
         """Resolve one structured statement's declared outputs into validated artifacts."""
         artifacts: Dict[str, Any] = {}
         for output_name, spec in outputs.items():
-            if not isinstance(spec, dict):
+            validation_spec: Any = spec
+            source: Any = None
+            if isinstance(spec, ExecutableContract):
+                validation_spec = spec.raw
+                source = spec.source_address
+            elif isinstance(spec, dict):
+                binding = spec.get('from')
+                ref = binding.get('ref') if isinstance(binding, dict) else None
+                source = {"ref": ref} if isinstance(ref, str) and ref else None
+            else:
                 continue
-            binding = spec.get('from')
-            ref = binding.get('ref') if isinstance(binding, dict) else None
-            if not isinstance(ref, str) or not ref:
+
+            if source is None:
                 return self._contract_violation_result(
                     failure_message,
                     {
@@ -3367,20 +3726,24 @@ class WorkflowExecutor:
                     },
                 )
             try:
-                raw_value = resolve_typed_operand({"ref": ref}, state, scope=scope)
-            except PredicateEvaluationError as exc:
+                raw_value = self._resolve_runtime_value(source, state, scope=scope)
+            except (PredicateEvaluationError, ReferenceResolutionError) as exc:
                 return self._contract_violation_result(
                     failure_message,
                     {
                         "reason": "unresolved_output_ref",
                         "output": output_name,
                         selection_key: selection_value,
-                        "ref": ref,
+                        "ref": self._json_safe_runtime_value(source),
                         "error": str(exc),
                     },
                 )
             try:
-                artifacts[output_name] = validate_contract_value(raw_value, spec, workspace=self.workspace)
+                artifacts[output_name] = validate_contract_value(
+                    raw_value,
+                    validation_spec,
+                    workspace=self.workspace,
+                )
             except OutputContractError as exc:
                 return self._contract_violation_result(
                     failure_message,
@@ -3388,7 +3751,7 @@ class WorkflowExecutor:
                         "reason": "invalid_output_value",
                         "output": output_name,
                         selection_key: selection_value,
-                        "ref": ref,
+                        "ref": self._json_safe_runtime_value(source),
                         "violations": exc.violations,
                     },
                 )
@@ -3469,10 +3832,7 @@ class WorkflowExecutor:
                 },
             )
 
-        selected = branches.get(selected_branch, {})
-        outputs = selected.get('outputs', {}) if isinstance(selected, dict) else {}
-        if not isinstance(outputs, dict):
-            outputs = {}
+        outputs = self._structured_output_contracts(step, selected_branch)
 
         artifacts = self._resolve_structured_output_artifacts(
             outputs,
@@ -3573,10 +3933,7 @@ class WorkflowExecutor:
                 },
             )
 
-        selected = cases.get(selected_case, {})
-        outputs = selected.get('outputs', {}) if isinstance(selected, dict) else {}
-        if not isinstance(outputs, dict):
-            outputs = {}
+        outputs = self._structured_output_contracts(step, selected_case)
 
         artifacts = self._resolve_structured_output_artifacts(
             outputs,

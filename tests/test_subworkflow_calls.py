@@ -884,6 +884,57 @@ def test_call_repeat_until_provider_defaults_use_callee_context(tmp_path: Path):
     assert captured_commands == [["fake-reviewer", "--model", "gpt-5.4", "--effort", "high"]]
 
 
+def test_call_uses_bound_inputs_when_legacy_ref_is_corrupted(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        _library_workflow(version="2.7"),
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "bound-call-inputs",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "artifacts": {
+                "max_cycles": {
+                    "kind": "scalar",
+                    "type": "integer",
+                }
+            },
+            "steps": [
+                {
+                    "name": "WriteMaxCycles",
+                    "id": "write_max_cycles",
+                    "set_scalar": {
+                        "artifact": "max_cycles",
+                        "value": 3,
+                    },
+                },
+                {
+                    "name": "RunReviewLoop",
+                    "id": "run_review_loop",
+                    "call": "review_loop",
+                    "with": {
+                        "max_cycles": {"ref": "root.steps.WriteMaxCycles.artifacts.max_cycles"},
+                        "write_root": "state/review-loop",
+                    },
+                },
+            ],
+        },
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    bundle.legacy_workflow["steps"][1]["with"]["max_cycles"]["ref"] = (
+        "root.steps.Missing.artifacts.max_cycles"
+    )
+    state_manager = StateManager(tmp_path, run_id="bound-call-inputs")
+    state_manager.initialize("workflow.yaml")
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
+
+
 def test_call_frame_persists_internal_since_last_consume_bookkeeping(tmp_path: Path):
     _write_yaml(
         tmp_path / "workflows" / "library" / "review_fix_loop.yaml",

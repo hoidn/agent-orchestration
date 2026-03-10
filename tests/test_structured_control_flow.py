@@ -954,6 +954,37 @@ def test_if_else_branch_outputs_materialize_on_statement_and_skip_non_taken_bran
     assert state["steps"]["CheckRouteDecision"]["exit_code"] == 0
 
 
+def test_if_else_executes_from_bound_guard_and_join_outputs_when_legacy_refs_are_corrupted(tmp_path: Path):
+    workflow_path = _write_workflow(tmp_path, _structured_if_else_workflow())
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    for step in bundle.legacy_workflow["steps"]:
+        if not isinstance(step, dict):
+            continue
+        if step.get("name") == "RouteReview.then":
+            step["structured_if_guard"]["condition"]["artifact_bool"]["ref"] = (
+                "root.steps.Missing.artifacts.ready"
+            )
+        if step.get("name") == "RouteReview.else":
+            step["structured_if_guard"]["condition"]["artifact_bool"]["ref"] = (
+                "root.steps.Missing.artifacts.ready"
+            )
+        if step.get("name") == "RouteReview":
+            step["structured_if_join"]["branches"]["then"]["outputs"]["review_decision"]["from"]["ref"] = (
+                "root.steps.Missing.artifacts.review_decision"
+            )
+
+    state_manager = StateManager(workspace=tmp_path, run_id="structured-bound-refs")
+    state_manager.initialize("workflow.yaml")
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RouteReview.then.WriteApproved"]["status"] == "completed"
+    assert state["steps"]["RouteReview.else.WriteRevision"]["status"] == "skipped"
+    assert state["steps"]["RouteReview"]["artifacts"]["review_decision"] == "APPROVE"
+    assert state["steps"]["CheckRouteDecision"]["status"] == "completed"
+
+
 def test_if_else_branch_steps_are_not_visible_outside_statement(tmp_path: Path):
     workflow = _structured_if_else_workflow()
     workflow["steps"].append(
@@ -1092,6 +1123,32 @@ def test_repeat_until_materializes_loop_frame_outputs_and_iteration_results(tmp_
     ]
     assert state["steps"]["ReviewLoop[0].WriteDecision"]["artifacts"]["review_decision"] == "REVISE"
     assert state["steps"]["ReviewLoop[1].WriteDecision"]["artifacts"]["review_decision"] == "REVISE"
+    assert state["steps"]["ReviewLoop[2].WriteDecision"]["artifacts"]["review_decision"] == "APPROVE"
+
+
+def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corrupted(tmp_path: Path):
+    workflow_path = _write_workflow(tmp_path, _structured_repeat_until_workflow())
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    review_loop_step = next(
+        step
+        for step in bundle.legacy_workflow["steps"]
+        if isinstance(step, dict) and step.get("name") == "ReviewLoop"
+    )
+    review_loop = review_loop_step["repeat_until"]
+    review_loop["outputs"]["review_decision"]["from"]["ref"] = (
+        "self.steps.Missing.artifacts.review_decision"
+    )
+    review_loop["condition"]["compare"]["left"]["ref"] = (
+        "root.steps.Missing.artifacts.review_decision"
+    )
+
+    state_manager = StateManager(workspace=tmp_path, run_id="repeat-until-bound-refs")
+    state_manager.initialize("workflow.yaml")
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
     assert state["steps"]["ReviewLoop[2].WriteDecision"]["artifacts"]["review_decision"] == "APPROVE"
     assert state["steps"]["ReviewLoop[0].WriteDecision"]["step_id"] == (
         "root.review_loop#0.iteration_body.write_decision"

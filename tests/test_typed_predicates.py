@@ -183,6 +183,52 @@ def test_typed_when_can_branch_on_recovered_failure_outcome(tmp_path: Path):
     assert state["steps"]["OnlyOnFailure"]["status"] == "completed"
 
 
+def test_executor_uses_bound_when_predicates_when_legacy_ref_is_corrupted(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "bound-when-predicate",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "WriteReady",
+                "id": "write_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            },
+            {
+                "name": "OnlyWhenReady",
+                "id": "only_when_ready",
+                "command": ["bash", "-lc", "printf 'ok' > only-when-ready.txt"],
+                "when": {
+                    "artifact_bool": {
+                        "ref": "root.steps.WriteReady.artifacts.ready",
+                    }
+                },
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_file)
+    bundle.legacy_workflow["steps"][1]["when"]["artifact_bool"]["ref"] = (
+        "root.steps.Missing.artifacts.ready"
+    )
+    state_manager = StateManager(workspace=tmp_path, run_id="bound-when-predicate")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["OnlyWhenReady"]["status"] == "completed"
+
+
 def test_loader_rejects_bare_steps_refs_in_structured_predicates(tmp_path: Path):
     workflow = {
         "version": "1.6",

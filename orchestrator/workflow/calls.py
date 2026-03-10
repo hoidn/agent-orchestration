@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Mapping, Optional
 
 from ..contracts.output_contract import OutputContractError, validate_contract_value
 from .loaded_bundle import (
@@ -12,6 +12,7 @@ from .loaded_bundle import (
     workflow_managed_write_root_inputs,
     workflow_provenance,
 )
+from .predicates import PredicateEvaluationError
 from .references import ReferenceResolutionError
 
 
@@ -63,10 +64,10 @@ class CallExecutor:
         step_name_override: Optional[str] = None,
     ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Resolve call-site literal and structured-ref bindings into typed callee inputs."""
-        bindings = step.get("with", {})
+        bindings = self.executor._call_input_bindings(step)
         if bindings is None:
             bindings = {}
-        if not isinstance(bindings, dict):
+        if not isinstance(bindings, Mapping):
             return None, self.executor._contract_violation_result(
                 "Call input binding failed",
                 {
@@ -86,21 +87,19 @@ class CallExecutor:
 
             if input_name in bindings:
                 raw_value = bindings[input_name]
-                if isinstance(raw_value, dict):
-                    ref = raw_value.get("ref")
-                    try:
-                        raw_value = self.executor.reference_resolver.resolve(ref, state, scope=scope).value
-                    except ReferenceResolutionError as exc:
-                        return None, self.executor._contract_violation_result(
-                            "Call input binding failed",
-                            {
-                                "step": step_name_override or step.get("name", f"step_{self.executor.current_step}"),
-                                "input": input_name,
-                                "reason": "unresolved_ref",
-                                "ref": ref,
-                                "error": str(exc),
-                            },
-                        )
+                try:
+                    raw_value = self.executor._resolve_runtime_value(raw_value, state, scope=scope)
+                except (PredicateEvaluationError, ReferenceResolutionError) as exc:
+                    return None, self.executor._contract_violation_result(
+                        "Call input binding failed",
+                        {
+                            "step": step_name_override or step.get("name", f"step_{self.executor.current_step}"),
+                            "input": input_name,
+                            "reason": "unresolved_ref",
+                            "ref": self.executor._json_safe_runtime_value(raw_value),
+                            "error": str(exc),
+                        },
+                    )
                 try:
                     bound_inputs[input_name] = validate_contract_value(
                         raw_value,

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Mapping, Optional
 
 from ..state import ForEachState, StepResult
 from .pointers import PointerResolver
@@ -236,11 +236,11 @@ class LoopExecutor:
         step_name = step.get("name", f"step_{self.executor.current_step}")
         block = step.get("repeat_until", {})
         body_steps = block.get("steps", []) if isinstance(block, dict) else []
-        outputs = block.get("outputs", {}) if isinstance(block, dict) else {}
-        condition = block.get("condition") if isinstance(block, dict) else None
+        outputs = self.executor._repeat_until_output_contracts(step)
+        condition = self.executor._repeat_until_condition(step)
         max_iterations = block.get("max_iterations") if isinstance(block, dict) else None
 
-        if not isinstance(body_steps, list) or not isinstance(outputs, dict) or type(max_iterations) is not int:
+        if not isinstance(body_steps, list) or not isinstance(outputs, Mapping) or type(max_iterations) is not int:
             state["steps"][step_name] = self.executor._attach_outcome(
                 step,
                 self.build_repeat_until_frame_result(
@@ -385,21 +385,22 @@ class LoopExecutor:
 
                     loop_scope = self.build_loop_scope(state, iteration_state, parent_scope_steps)
                     result = None
-                    guard = nested_step.get("structured_if_guard")
-                    if isinstance(guard, dict) and isinstance(guard.get("condition"), dict):
+                    guard_condition, invert = self.executor._structured_guard_condition(nested_step)
+                    if guard_condition is not None:
                         result = self.evaluate_loop_body_condition(
                             nested_step,
-                            guard["condition"],
+                            guard_condition,
                             state,
                             loop_context=loop_context,
                             scope=loop_scope,
                             runtime_step_id=nested_runtime_step_id,
-                            invert=bool(guard.get("invert")),
+                            invert=invert,
                         )
-                    if result is None and isinstance(nested_step.get("when"), dict):
+                    when_condition = self.executor._when_condition(nested_step)
+                    if result is None and when_condition is not None:
                         result = self.evaluate_loop_body_condition(
                             nested_step,
-                            nested_step["when"],
+                            when_condition,
                             state,
                             loop_context=loop_context,
                             scope=loop_scope,
@@ -606,7 +607,11 @@ class LoopExecutor:
                 runtime_context = self.executor._runtime_context({}, state)
                 variables = runtime_context.build_variables(self.executor.variable_substitutor, state)
                 try:
-                    should_stop = self.executor.condition_evaluator.evaluate(condition, variables, state)
+                    should_stop = self.executor._evaluate_condition_expression(
+                        condition,
+                        variables,
+                        state,
+                    )
                 except Exception as exc:
                     failure_progress = {
                         "current_iteration": current_iteration,
@@ -625,7 +630,10 @@ class LoopExecutor:
                             error={
                                 "type": "predicate_evaluation_failed",
                                 "message": f"repeat_until condition evaluation failed: {exc}",
-                                "context": {"condition": condition, "iteration": current_iteration},
+                                "context": {
+                                    "condition": self.executor._json_safe_runtime_value(condition),
+                                    "iteration": current_iteration,
+                                },
                             },
                         ),
                         phase_hint="post_execution",
@@ -821,13 +829,14 @@ class LoopExecutor:
                 nested_name = nested_step.get("name", f"nested_{index}")
                 nested_runtime_step_id = iteration_step_id(loop_step_id, index, nested_step, nested_index)
 
-                if "when" in nested_step:
+                when_condition = self.executor._when_condition(nested_step)
+                if when_condition is not None:
                     nested_runtime_context = self.executor._runtime_context(loop_context, state, parent_steps=parent_scope_steps)
                     variables = nested_runtime_context.build_variables(self.executor.variable_substitutor, state)
 
                     try:
-                        should_execute = self.executor.condition_evaluator.evaluate(
-                            nested_step["when"],
+                        should_execute = self.executor._evaluate_condition_expression(
+                            when_condition,
                             variables,
                             state,
                             scope=nested_runtime_context.scope() | {"self_steps": iteration_state},
@@ -839,7 +848,11 @@ class LoopExecutor:
                             "error": {
                                 "type": "predicate_evaluation_failed",
                                 "message": f"Condition evaluation failed: {exc}",
-                                "context": {"condition": nested_step["when"]},
+                                "context": {
+                                    "condition": self.executor._json_safe_runtime_value(
+                                        when_condition
+                                    ),
+                                },
                             },
                         }
                         result.setdefault("name", nested_name)
@@ -1069,7 +1082,7 @@ class LoopExecutor:
         )
         variables = runtime_context.build_variables(self.executor.variable_substitutor, state)
         try:
-            should_execute = self.executor.condition_evaluator.evaluate(
+            should_execute = self.executor._evaluate_condition_expression(
                 condition,
                 variables,
                 state,
@@ -1088,7 +1101,9 @@ class LoopExecutor:
                     "error": {
                         "type": "predicate_evaluation_failed",
                         "message": f"Condition evaluation failed: {exc}",
-                        "context": {"condition": condition},
+                        "context": {
+                            "condition": self.executor._json_safe_runtime_value(condition),
+                        },
                     },
                 },
                 phase_hint="pre_execution",
