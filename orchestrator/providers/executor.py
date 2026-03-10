@@ -552,12 +552,17 @@ class ProviderExecutor:
 
             stdout_buf = bytearray()
             stderr_buf = bytearray()
+            stdout_callback = self._build_session_stdout_callback(
+                invocation=invocation,
+                stream_output=stream_output,
+                session_runtime=session_runtime,
+            )
 
             stdout_thread = threading.Thread(
                 target=self._capture_pipe,
                 args=(process.stdout, stdout_buf),
                 kwargs={
-                    "chunk_callback": lambda chunk: self._append_masked_transport(chunk, session_runtime),
+                    "chunk_callback": stdout_callback,
                     "read_mode": "lines",
                 },
                 daemon=True,
@@ -642,6 +647,79 @@ class ProviderExecutor:
             except OSError:
                 pass
 
+    def _build_session_stdout_callback(
+        self,
+        *,
+        invocation: ProviderInvocation,
+        stream_output: bool,
+        session_runtime: Optional[Dict[str, Any]],
+    ) -> Callable[[bytes], None]:
+        """Build the session stdout handler used during live pipe capture."""
+        expected_session_id = (
+            invocation.session_request.session_id
+            if invocation.session_request is not None
+            and invocation.session_request.mode == ProviderSessionMode.RESUME
+            else None
+        )
+        stream_state: Dict[str, Any] = {
+            "blocked": False,
+            "session_ids": set(),
+        }
+
+        def _handle_chunk(chunk: bytes) -> None:
+            self._append_masked_transport(chunk, session_runtime)
+            if not stream_output:
+                return
+            if invocation.metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value:
+                self._stream_codex_jsonl_chunk(
+                    chunk,
+                    expected_session_id=expected_session_id,
+                    stream_state=stream_state,
+                )
+
+        return _handle_chunk
+
+    def _stream_codex_jsonl_chunk(
+        self,
+        raw_chunk: bytes,
+        *,
+        expected_session_id: Optional[str],
+        stream_state: Dict[str, Any],
+    ) -> None:
+        """Emit assistant text from one JSONL stdout chunk while transport is still in flight."""
+        if stream_state.get("blocked"):
+            return
+
+        for raw_line in raw_chunk.decode("utf-8", errors="replace").splitlines():
+            if not raw_line.strip():
+                continue
+            try:
+                event = json.loads(raw_line)
+            except json.JSONDecodeError:
+                stream_state["blocked"] = True
+                return
+
+            if not isinstance(event, dict):
+                stream_state["blocked"] = True
+                return
+
+            session_id = event.get("session_id")
+            if isinstance(session_id, str) and session_id:
+                session_ids = stream_state["session_ids"]
+                session_ids.add(session_id)
+                if expected_session_id is not None and session_id != expected_session_id:
+                    stream_state["blocked"] = True
+                    return
+                if len(session_ids) > 1:
+                    stream_state["blocked"] = True
+                    return
+
+            assistant_text = self._extract_assistant_text(event)
+            if assistant_text:
+                output = sys.stdout.buffer if hasattr(sys.stdout, "buffer") else sys.stdout
+                output.write(assistant_text.encode("utf-8"))
+                output.flush()
+
     def _finalize_session_result(
         self,
         *,
@@ -668,16 +746,6 @@ class ProviderExecutor:
             )
             if error is None and provider_session is not None:
                 normalized_stdout = str(provider_session.get("normalized_stdout", "")).encode("utf-8")
-
-        if stream_output:
-            if normalized_stdout:
-                output = sys.stdout.buffer if hasattr(sys.stdout, "buffer") else sys.stdout
-                output.write(normalized_stdout)
-                output.flush()
-            if stderr:
-                err_output = sys.stderr.buffer if hasattr(sys.stderr, "buffer") else sys.stderr
-                err_output.write(stderr)
-                err_output.flush()
 
         if error is not None and exit_code == 0:
             exit_code = 2
@@ -738,17 +806,9 @@ class ProviderExecutor:
             if event.get("status") == "completed":
                 terminal_seen = True
 
-            if event.get("role") == "assistant":
-                if isinstance(event.get("text"), str):
-                    text_parts.append(event["text"])
-                elif isinstance(event.get("delta"), str):
-                    text_parts.append(event["delta"])
-                continue
-
-            if isinstance(event.get("text"), str) and isinstance(event_type, str) and "assistant" in event_type:
-                text_parts.append(event["text"])
-            elif isinstance(event.get("delta"), str) and isinstance(event_type, str) and "assistant" in event_type:
-                text_parts.append(event["delta"])
+            assistant_text = self._extract_assistant_text(event)
+            if assistant_text:
+                text_parts.append(assistant_text)
 
         if not terminal_seen:
             return None, {
@@ -787,3 +847,20 @@ class ProviderExecutor:
             "normalized_stdout": "".join(text_parts),
             "event_count": event_count,
         }, None
+
+    def _extract_assistant_text(self, event: Dict[str, Any]) -> Optional[str]:
+        """Extract assistant-visible text from one provider transport event."""
+        if event.get("role") == "assistant":
+            if isinstance(event.get("text"), str):
+                return event["text"]
+            if isinstance(event.get("delta"), str):
+                return event["delta"]
+            return None
+
+        event_type = event.get("type")
+        if isinstance(event_type, str) and "assistant" in event_type:
+            if isinstance(event.get("text"), str):
+                return event["text"]
+            if isinstance(event.get("delta"), str):
+                return event["delta"]
+        return None

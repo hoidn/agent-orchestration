@@ -27,6 +27,32 @@ from orchestrator.providers import (
 from orchestrator.providers.types import ProviderInvocation
 
 
+class _RecordingBinaryStream:
+    """Thread-safe binary stream recorder for live provider streaming assertions."""
+
+    def __init__(self):
+        self.buffer = self
+        self._chunks = []
+        self._lock = threading.Lock()
+        self.first_write_at = None
+
+    def write(self, data):
+        if isinstance(data, str):
+            data = data.encode("utf-8")
+        with self._lock:
+            if self.first_write_at is None:
+                self.first_write_at = time.time()
+            self._chunks.append(bytes(data))
+        return len(data)
+
+    def flush(self):
+        return None
+
+    def getvalue(self) -> bytes:
+        with self._lock:
+            return b"".join(self._chunks)
+
+
 class TestProviderRegistry:
     """Test provider registry functionality."""
 
@@ -577,6 +603,82 @@ class TestProviderExecutor:
         captured = capsys.readouterr()
         assert captured.out == "hello world"
         assert "{\"type\"" not in captured.out
+
+    def test_session_stream_output_emits_normalized_assistant_text_while_process_is_running(self):
+        """Session-enabled streaming should surface assistant text before the provider exits."""
+        script = (
+            "import sys, time; "
+            "sys.stdout.write('{\"type\":\"session.started\",\"session_id\":\"sess-123\"}\\n'); "
+            "sys.stdout.flush(); "
+            "time.sleep(0.1); "
+            "sys.stdout.write('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"hello\"}\\n'); "
+            "sys.stdout.flush(); "
+            "time.sleep(1.0); "
+            "sys.stdout.write('{\"type\":\"response.completed\",\"session_id\":\"sess-123\"}\\n'); "
+            "sys.stdout.flush()"
+        )
+        invocation = ProviderInvocation(
+            command=["python", "-c", script],
+            input_mode=InputMode.STDIN,
+            prompt="Test prompt",
+            command_variant="fresh_command",
+            metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+            session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        )
+        stdout_recorder = _RecordingBinaryStream()
+        stderr_recorder = _RecordingBinaryStream()
+        result_box = {}
+        started_at = time.time()
+
+        with patch("sys.stdout", stdout_recorder), patch("sys.stderr", stderr_recorder):
+            worker = threading.Thread(
+                target=lambda: result_box.setdefault(
+                    "result",
+                    self.executor.execute(invocation, stream_output=True),
+                ),
+                daemon=True,
+            )
+            worker.start()
+
+            deadline = time.time() + 0.6
+            while time.time() < deadline and stdout_recorder.first_write_at is None:
+                time.sleep(0.02)
+
+            first_write_at = stdout_recorder.first_write_at
+            worker.join(timeout=5)
+
+        assert first_write_at is not None
+        assert first_write_at - started_at < 0.6
+        assert result_box["result"].exit_code == 0
+        assert stdout_recorder.getvalue() == b"hello"
+
+    def test_session_stream_output_does_not_duplicate_stderr(self):
+        """Session-enabled streaming should emit provider stderr exactly once."""
+        script = (
+            "import sys; "
+            "sys.stderr.write('ERR\\n'); sys.stderr.flush(); "
+            "sys.stdout.write('{\"type\":\"session.started\",\"session_id\":\"sess-123\"}\\n'); "
+            "sys.stdout.write('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"hello\"}\\n'); "
+            "sys.stdout.write('{\"type\":\"response.completed\",\"session_id\":\"sess-123\"}\\n'); "
+            "sys.stdout.flush()"
+        )
+        invocation = ProviderInvocation(
+            command=["python", "-c", script],
+            input_mode=InputMode.STDIN,
+            prompt="Test prompt",
+            command_variant="fresh_command",
+            metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+            session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        )
+        stdout_recorder = _RecordingBinaryStream()
+        stderr_recorder = _RecordingBinaryStream()
+
+        with patch("sys.stdout", stdout_recorder), patch("sys.stderr", stderr_recorder):
+            result = self.executor.execute(invocation, stream_output=True)
+
+        assert result.exit_code == 0
+        assert stdout_recorder.getvalue() == b"hello"
+        assert stderr_recorder.getvalue() == b"ERR\n"
 
     def test_session_execution_writes_masked_transport_spool(self):
         """Session transport is masked and copied to the configured spool path."""
