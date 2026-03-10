@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from types import MappingProxyType
-from typing import Any, Mapping
+from typing import Any, Mapping, Protocol
 
 from .identity import assign_finalization_step_ids, assign_step_ids
 from .predicates import TYPED_PREDICATE_OPERATOR_KEYS, parse_typed_predicate
@@ -16,6 +16,7 @@ from .statements import (
     is_match_statement,
     is_repeat_until_statement,
     match_case_token,
+    STRUCTURED_FINALLY_VERSION,
     normalize_branch_block,
     normalize_finally_block,
     normalize_match_case_block,
@@ -37,21 +38,129 @@ from .surface_ast import (
 )
 
 
+class SurfaceWorkflowValidationBackend(Protocol):
+    """Validation hooks used during the surface elaboration phase."""
+
+    def error_count(self) -> int: ...
+    def add_error(self, message: str) -> None: ...
+    def version_at_least(self, version: str, minimum: str) -> bool: ...
+    def validate_top_level(self, workflow: dict[str, Any], version: str) -> None: ...
+    def build_finalization_catalog_steps(self, finalization: dict[str, Any] | None) -> list[dict[str, Any]]: ...
+    def build_root_ref_catalog(self, steps: list[dict[str, Any]], artifacts: Any) -> dict[str, Any]: ...
+    def validate_steps(
+        self,
+        steps: list[Any],
+        version: str,
+        artifacts_registry: Any,
+        *,
+        root_catalog: dict[str, Any],
+    ) -> None: ...
+    def validate_finally_block(
+        self,
+        finalization: dict[str, Any] | None,
+        version: str,
+        artifacts_registry: Any,
+        root_catalog: dict[str, Any],
+    ) -> None: ...
+    def validate_dataflow_cross_references(self, steps: list[dict[str, Any]], artifacts: Any) -> None: ...
+    def validate_workflow_outputs(
+        self,
+        outputs: Any,
+        version: str,
+        root_catalog: dict[str, Any],
+    ) -> None: ...
+    def validate_goto_targets(self, workflow: dict[str, Any]) -> None: ...
+    def analyze_reusable_write_roots(self, workflow: dict[str, Any]) -> tuple[set[str], list[str]]: ...
+    def validate_call_write_root_collisions(self, steps: Any, finally_block: Any) -> None: ...
+
+
 def elaborate_surface_workflow(
     workflow: Mapping[str, Any],
     *,
     workflow_path: Any,
     imported_bundles: Mapping[str, Any],
     managed_write_root_inputs: tuple[str, ...] = (),
-) -> SurfaceWorkflow:
+    validation_backend: SurfaceWorkflowValidationBackend | None = None,
+    workflow_is_imported: bool = False,
+) -> SurfaceWorkflow | None:
     """Elaborate one validated authored workflow into the immutable surface AST."""
-    mutable_workflow = deepcopy(dict(workflow))
-    steps = mutable_workflow.get("steps")
+    validation_workflow = deepcopy(dict(workflow))
+    surface_workflow = deepcopy(dict(workflow))
+    version = str(surface_workflow.get("version", ""))
+    managed_inputs = tuple(managed_write_root_inputs)
+
+    if validation_backend is not None:
+        validation_backend.validate_top_level(validation_workflow, version)
+
+        steps = validation_workflow.get("steps", [])
+        finalization_present = (
+            validation_backend.version_at_least(version, STRUCTURED_FINALLY_VERSION)
+            and "finally" in validation_workflow
+        )
+        normalized_finally = None
+        finally_catalog_steps: list[dict[str, Any]] = []
+        if finalization_present:
+            normalized_finally = normalize_finally_block(validation_workflow.get("finally"))
+            finally_catalog_steps = validation_backend.build_finalization_catalog_steps(normalized_finally)
+
+        root_catalog: dict[str, Any] = {}
+        if not steps:
+            validation_backend.add_error("'steps' field is required and must not be empty")
+        else:
+            root_catalog = validation_backend.build_root_ref_catalog(
+                list(steps) + finally_catalog_steps,
+                validation_workflow.get("artifacts"),
+            )
+            validation_backend.validate_steps(
+                steps,
+                version,
+                validation_workflow.get("artifacts"),
+                root_catalog=root_catalog,
+            )
+            if finalization_present:
+                validation_backend.validate_finally_block(
+                    normalized_finally,
+                    version,
+                    validation_workflow.get("artifacts"),
+                    root_catalog,
+                )
+            if version == "1.2":
+                validation_backend.validate_dataflow_cross_references(
+                    _collect_all_steps(steps),
+                    validation_workflow.get("artifacts"),
+                )
+
+        if "outputs" in validation_workflow:
+            validation_backend.validate_workflow_outputs(
+                validation_workflow["outputs"],
+                version,
+                root_catalog,
+            )
+
+        validation_backend.validate_goto_targets(validation_workflow)
+
+        if validation_backend.version_at_least(version, "2.5"):
+            if workflow_is_imported:
+                detected_inputs, detected_errors = validation_backend.analyze_reusable_write_roots(
+                    validation_workflow
+                )
+                managed_inputs = tuple(sorted(detected_inputs))
+                for message in detected_errors:
+                    validation_backend.add_error(message)
+            validation_backend.validate_call_write_root_collisions(
+                steps,
+                validation_workflow.get("finally"),
+            )
+
+        if validation_backend.error_count() > 0:
+            return None
+
+    steps = surface_workflow.get("steps")
     if isinstance(steps, list):
         assign_step_ids(steps)
 
-    finalization = assign_finalization_step_ids(mutable_workflow.get("finally"))
-    root_step_names = _step_names(mutable_workflow.get("steps"))
+    finalization = assign_finalization_step_ids(surface_workflow.get("finally"))
+    root_step_names = _step_names(surface_workflow.get("steps"))
     imports = MappingProxyType(
         {
             alias: ImportedWorkflowMetadata(
@@ -67,26 +176,26 @@ def elaborate_surface_workflow(
     provenance = WorkflowProvenance(
         workflow_path=workflow_path,
         source_root=workflow_path.parent,
-        managed_write_root_inputs=managed_write_root_inputs,
+        managed_write_root_inputs=managed_inputs,
         imported_aliases=tuple(imported_bundles.keys()),
     )
 
     return SurfaceWorkflow(
-        version=str(workflow.get("version", "")),
+        version=version,
         name=workflow.get("name") if isinstance(workflow.get("name"), str) else None,
         steps=_elaborate_steps(
-            mutable_workflow.get("steps"),
+            surface_workflow.get("steps"),
             root_step_names=root_step_names,
             self_step_names=root_step_names,
             parent_step_names=(),
         ),
         provenance=provenance,
-        artifacts=_parse_contracts(workflow.get("artifacts"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
-        inputs=_parse_contracts(workflow.get("inputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
-        outputs=_parse_contracts(workflow.get("outputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
+        artifacts=_parse_contracts(surface_workflow.get("artifacts"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
+        inputs=_parse_contracts(surface_workflow.get("inputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
+        outputs=_parse_contracts(surface_workflow.get("outputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
         imports=imports,
         finalization=_elaborate_finalization(finalization, root_step_names=root_step_names),
-        raw=freeze_mapping(workflow),
+        raw=freeze_mapping(surface_workflow),
     )
 
 
@@ -422,6 +531,41 @@ def _step_names(steps: Any) -> tuple[str, ...]:
         for step in steps
         if isinstance(step, Mapping) and isinstance(step.get("name"), str)
     )
+
+
+def _collect_all_steps(steps: list[Any]) -> list[dict[str, Any]]:
+    """Collect authored steps across nested control-flow blocks for validation hooks."""
+    collected: list[dict[str, Any]] = []
+    for step in steps:
+        if not isinstance(step, dict):
+            continue
+        collected.append(step)
+        if is_if_statement(step):
+            for branch_name in ("then", "else"):
+                branch = normalize_branch_block(step.get(branch_name), branch_name)
+                nested = branch.get("steps") if isinstance(branch, dict) else None
+                if isinstance(nested, list):
+                    collected.extend(_collect_all_steps(nested))
+        if is_match_statement(step):
+            match = step.get("match")
+            cases = match.get("cases") if isinstance(match, dict) else None
+            if isinstance(cases, dict):
+                for case_name, authored_case in cases.items():
+                    case_block = normalize_match_case_block(authored_case, str(case_name))
+                    nested = case_block.get("steps") if isinstance(case_block, dict) else None
+                    if isinstance(nested, list):
+                        collected.extend(_collect_all_steps(nested))
+        for_each = step.get("for_each")
+        if isinstance(for_each, dict):
+            nested = for_each.get("steps")
+            if isinstance(nested, list):
+                collected.extend(_collect_all_steps(nested))
+        repeat_until = step.get("repeat_until")
+        if isinstance(repeat_until, dict):
+            nested = repeat_until.get("steps")
+            if isinstance(nested, list):
+                collected.extend(_collect_all_steps(nested))
+    return collected
 
 
 def _surface_step_kind(step: Mapping[str, Any]) -> SurfaceStepKind:

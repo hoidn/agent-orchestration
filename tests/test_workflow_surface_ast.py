@@ -1,10 +1,12 @@
 """Tests for the typed surface workflow bundle and authored-shape AST."""
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import yaml
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import workflow_import_metadata, workflow_provenance
 from orchestrator.workflow.predicates import ComparePredicateNode
 from orchestrator.workflow.references import SelfOutputReference
@@ -177,6 +179,85 @@ def _write_surface_workflow(workspace: Path) -> Path:
     )
 
 
+@dataclass
+class _RecordingValidationBackend:
+    calls: list[str] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+    managed_inputs: tuple[set[str], list[str]] = field(default_factory=lambda: (set(), []))
+
+    def add_error(self, message: str) -> None:
+        self.errors.append(message)
+
+    def error_count(self) -> int:
+        return len(self.errors)
+
+    def version_at_least(self, version: str, minimum: str) -> bool:
+        order = [
+            "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
+            "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10",
+        ]
+        return order.index(version) >= order.index(minimum)
+
+    def validate_top_level(self, workflow: dict, version: str) -> None:
+        self.calls.append(f"validate_top_level:{version}")
+
+    def build_finalization_catalog_steps(self, finalization: dict | None) -> list[dict]:
+        self.calls.append("build_finalization_catalog_steps")
+        if not isinstance(finalization, dict):
+            return []
+        steps = finalization.get("steps")
+        if not isinstance(steps, list):
+            return []
+        prefixed = []
+        for step in steps:
+            if not isinstance(step, dict):
+                continue
+            copied = dict(step)
+            if isinstance(copied.get("name"), str):
+                copied["name"] = f"finally.{copied['name']}"
+            prefixed.append(copied)
+        return prefixed
+
+    def build_root_ref_catalog(self, steps: list[dict], artifacts: dict | None) -> dict:
+        self.calls.append("build_root_ref_catalog")
+        return {"artifacts": artifacts or {}, "multi_visit": set(), "non_step_results": set()}
+
+    def validate_steps(
+        self,
+        steps: list[dict],
+        version: str,
+        artifacts_registry: dict | None,
+        *,
+        root_catalog: dict,
+    ) -> None:
+        self.calls.append(f"validate_steps:{len(steps)}")
+
+    def validate_finally_block(
+        self,
+        finalization: dict | None,
+        version: str,
+        artifacts_registry: dict | None,
+        root_catalog: dict,
+    ) -> None:
+        self.calls.append("validate_finally_block")
+
+    def validate_dataflow_cross_references(self, steps: list[dict], artifacts: dict | None) -> None:
+        self.calls.append(f"validate_dataflow_cross_references:{len(steps)}")
+
+    def validate_workflow_outputs(self, outputs: dict, version: str, root_catalog: dict) -> None:
+        self.calls.append(f"validate_workflow_outputs:{len(outputs)}")
+
+    def validate_goto_targets(self, workflow: dict) -> None:
+        self.calls.append("validate_goto_targets")
+
+    def analyze_reusable_write_roots(self, workflow: dict) -> tuple[set[str], list[str]]:
+        self.calls.append("analyze_reusable_write_roots")
+        return self.managed_inputs
+
+    def validate_call_write_root_collisions(self, steps: list[dict], finalization: dict | None) -> None:
+        self.calls.append("validate_call_write_root_collisions")
+
+
 def test_loader_builds_surface_bundle_with_authored_structured_nodes(tmp_path: Path):
     """load_bundle exposes typed provenance/imports plus authored-shape structured nodes."""
     workflow_path = _write_surface_workflow(tmp_path)
@@ -232,3 +313,48 @@ def test_legacy_load_exposes_typed_provenance_adapter_metadata(tmp_path: Path):
     assert imported is not None
     assert imported.workflow_path == (tmp_path / "workflows" / "library" / "review_loop.yaml").resolve()
     assert imported.source_root == (tmp_path / "workflows" / "library").resolve()
+
+
+def test_elaboration_orchestrates_authored_shape_validation_before_ast_build(tmp_path: Path):
+    """Elaboration owns authored-shape validation orchestration before AST materialization."""
+    workflow_path = _write_surface_workflow(tmp_path)
+    backend = _RecordingValidationBackend(managed_inputs=({"write_root"}, []))
+    raw_workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+
+    surface = elaborate_surface_workflow(
+        raw_workflow,
+        workflow_path=workflow_path,
+        imported_bundles={},
+        validation_backend=backend,
+        workflow_is_imported=True,
+    )
+
+    assert surface is not None
+    assert backend.calls == [
+        "validate_top_level:2.7",
+        "build_finalization_catalog_steps",
+        "build_root_ref_catalog",
+        "validate_steps:3",
+        "validate_finally_block",
+        "validate_goto_targets",
+        "analyze_reusable_write_roots",
+        "validate_call_write_root_collisions",
+    ]
+    assert surface.provenance.managed_write_root_inputs == ("write_root",)
+
+
+def test_elaboration_returns_none_when_validation_backend_reports_errors(tmp_path: Path):
+    """Elaboration must stop before AST parsing if authored-shape validation already failed."""
+    workflow_path = _write_surface_workflow(tmp_path)
+    backend = _RecordingValidationBackend()
+    raw_workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    backend.errors.append("synthetic validation failure")
+
+    surface = elaborate_surface_workflow(
+        raw_workflow,
+        workflow_path=workflow_path,
+        imported_bundles={},
+        validation_backend=backend,
+    )
+
+    assert surface is None

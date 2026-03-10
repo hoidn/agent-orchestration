@@ -173,7 +173,6 @@ class WorkflowLoader:
                     f"(expected '{expected_version}', found '{version}')"
                 )
 
-            self._validate_top_level(workflow, version)
             imported_bundles = self._load_imports(workflow.get('imports'), version, resolved_workflow_path)
             imported_workflows = {
                 alias: bundle.legacy_workflow
@@ -181,56 +180,15 @@ class WorkflowLoader:
             }
             self._current_imports = imported_workflows
 
-            steps = workflow.get('steps', [])
-            finalization_present = self._version_at_least(version, STRUCTURED_FINALLY_VERSION) and 'finally' in workflow
-            normalized_finally = None
-            finally_catalog_steps: List[Dict[str, Any]] = []
-            if finalization_present:
-                normalized_finally = normalize_finally_block(workflow.get('finally'))
-                finally_catalog_steps = self._build_finalization_catalog_steps(normalized_finally)
-            root_catalog: Dict[str, Any] = {}
-            if not steps:
-                self._add_error("'steps' field is required and must not be empty")
-            else:
-                root_catalog = self._build_root_ref_catalog(
-                    list(steps) + finally_catalog_steps,
-                    workflow.get('artifacts'),
-                )
-                self._validate_steps(steps, version, workflow.get('artifacts'), root_catalog=root_catalog)
-                if finalization_present:
-                    self._validate_finally_block(
-                        normalized_finally,
-                        version,
-                        workflow.get('artifacts'),
-                        root_catalog,
-                    )
-                if version == "1.2":
-                    all_steps = self._collect_all_steps(steps)
-                    self._validate_dataflow_cross_references(all_steps, workflow.get('artifacts'))
-
-            if 'outputs' in workflow:
-                self._validate_workflow_outputs(workflow['outputs'], version, root_catalog)
-
-            self._validate_goto_targets(workflow)
-
-            managed_write_root_inputs: List[str] = []
-            if self._version_at_least(version, "2.5"):
-                if expected_version is not None:
-                    managed_inputs, managed_errors = self._analyze_reusable_write_roots(workflow)
-                    managed_write_root_inputs = sorted(managed_inputs)
-                    workflow['__managed_write_root_inputs'] = managed_write_root_inputs
-                    for message in managed_errors:
-                        self._add_error(message)
-                else:
-                    workflow['__managed_write_root_inputs'] = []
-                self._validate_call_write_root_collisions(steps, workflow.get('finally'))
-
             surface = elaborate_surface_workflow(
                 surface_source,
                 workflow_path=resolved_workflow_path,
                 imported_bundles=imported_bundles,
-                managed_write_root_inputs=tuple(managed_write_root_inputs),
+                validation_backend=self,
+                workflow_is_imported=expected_version is not None,
             )
+            if surface is None:
+                return {}
             ir, projection = lower_surface_workflow(surface)
             legacy_workflow = render_legacy_compatible_workflow(
                 surface,
@@ -314,6 +272,92 @@ class WorkflowLoader:
 
         if 'imports' in workflow and not self._version_at_least(version, "2.5"):
             self._add_error("imports requires version '2.5'")
+
+    def error_count(self) -> int:
+        """Return the current number of accumulated validation errors."""
+        return len(self.errors)
+
+    def add_error(self, message: str) -> None:
+        """Public validation hook used by the elaboration phase."""
+        self._add_error(message)
+
+    def version_at_least(self, version: str, minimum: str) -> bool:
+        """Public version comparison hook used by the elaboration phase."""
+        return self._version_at_least(version, minimum)
+
+    def validate_top_level(self, workflow: Dict[str, Any], version: str) -> None:
+        """Public validation hook used by the elaboration phase."""
+        self._validate_top_level(workflow, version)
+
+    def build_finalization_catalog_steps(
+        self,
+        finalization: Optional[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Public validation hook used by the elaboration phase."""
+        return self._build_finalization_catalog_steps(finalization)
+
+    def build_root_ref_catalog(
+        self,
+        steps: List[Any],
+        artifacts_registry: Optional[Any],
+    ) -> Dict[str, Any]:
+        """Public validation hook used by the elaboration phase."""
+        return self._build_root_ref_catalog(steps, artifacts_registry)
+
+    def validate_steps(
+        self,
+        steps: List[Any],
+        version: str,
+        artifacts_registry: Optional[Any] = None,
+        *,
+        root_catalog: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Public validation hook used by the elaboration phase."""
+        self._validate_steps(
+            steps,
+            version,
+            artifacts_registry,
+            root_catalog=root_catalog,
+        )
+
+    def validate_finally_block(
+        self,
+        finalization: Optional[Dict[str, Any]],
+        version: str,
+        artifacts_registry: Optional[Any],
+        root_catalog: Dict[str, Any],
+    ) -> None:
+        """Public validation hook used by the elaboration phase."""
+        self._validate_finally_block(finalization, version, artifacts_registry, root_catalog)
+
+    def validate_dataflow_cross_references(
+        self,
+        steps: List[Dict[str, Any]],
+        artifacts_registry: Optional[Any],
+    ) -> None:
+        """Public validation hook used by the elaboration phase."""
+        self._validate_dataflow_cross_references(steps, artifacts_registry)
+
+    def validate_workflow_outputs(
+        self,
+        outputs: Any,
+        version: str,
+        root_catalog: Dict[str, Any],
+    ) -> None:
+        """Public validation hook used by the elaboration phase."""
+        self._validate_workflow_outputs(outputs, version, root_catalog)
+
+    def validate_goto_targets(self, workflow: Dict[str, Any]) -> None:
+        """Public validation hook used by the elaboration phase."""
+        self._validate_goto_targets(workflow)
+
+    def analyze_reusable_write_roots(self, workflow: Dict[str, Any]) -> tuple[Set[str], List[str]]:
+        """Public validation hook used by the elaboration phase."""
+        return self._analyze_reusable_write_roots(workflow)
+
+    def validate_call_write_root_collisions(self, steps: Any, finally_block: Any) -> None:
+        """Public validation hook used by the elaboration phase."""
+        self._validate_call_write_root_collisions(steps, finally_block)
 
     def _load_imports(
         self,
