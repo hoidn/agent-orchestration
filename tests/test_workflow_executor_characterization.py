@@ -975,6 +975,72 @@ def test_executor_resolves_goto_against_projection_when_legacy_target_name_drift
     assert persisted["step_visits"] == {"Start": 1, "Final": 1}
 
 
+def test_executor_uses_ir_routed_transfer_when_materialized_on_target_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-goto-transfer",
+        "steps": [
+            {
+                "name": "Start",
+                "id": "start",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'start\\n' >> state/history.log",
+                ],
+                "on": {
+                    "success": {
+                        "goto": "Final",
+                    }
+                },
+            },
+            {
+                "name": "Skipped",
+                "id": "skipped",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'skipped\\n' >> state/history.log",
+                ],
+            },
+            {
+                "name": "Final",
+                "id": "final",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'final\\n' >> state/history.log",
+                ],
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-goto-transfer")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    step = executor._step_for_node_id("root.start")
+    step["on"]["success"]["goto"] = "LegacyFinal"
+
+    next_step = executor._handle_control_flow(
+        step,
+        {
+            "steps": {
+                "Start": {
+                    "status": "completed",
+                    "exit_code": 0,
+                }
+            }
+        },
+        "Start",
+        0,
+        "stop",
+        current_node_id="root.start",
+    )
+
+    assert next_step == "root.final"
+
+
 def test_executor_uses_ir_raw_step_payloads_when_legacy_adapter_payloads_drift(tmp_path: Path):
     workflow = {
         "version": "2.7",

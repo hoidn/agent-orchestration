@@ -768,6 +768,27 @@ class WorkflowExecutor:
             return transfer
         return None
 
+    def _typed_on_goto_transfer(
+        self,
+        current_node_id: str,
+        *,
+        exit_code: int,
+    ) -> Optional[ExecutableTransfer]:
+        """Return the explicit typed goto transfer selected by one step result."""
+        if self.executable_ir is None:
+            return None
+        node = self.executable_ir.nodes.get(current_node_id)
+        if node is None:
+            return None
+
+        selected = None
+        if exit_code == 0:
+            selected = node.routed_transfers.get("on_success_goto")
+        else:
+            selected = node.routed_transfers.get("on_failure_goto")
+        always = node.routed_transfers.get("on_always_goto")
+        return always if always is not None else selected
+
     def _counts_as_transition_for_typed_target(
         self,
         current_node_id: str,
@@ -2844,6 +2865,14 @@ class WorkflowExecutor:
             )
             return '_stop'
 
+        if self._use_ir_topology and isinstance(current_node_id, str):
+            goto_transfer = self._typed_on_goto_transfer(
+                current_node_id,
+                exit_code=exit_code,
+            )
+            if goto_transfer is not None:
+                return goto_transfer.target_node_id or "_end"
+
         # AT-58, AT-59: Check on.success/on.failure handlers first, then on.always (with precedence)
         if 'on' in step:
             handlers = step['on']
@@ -2864,7 +2893,7 @@ class WorkflowExecutor:
 
             # If we found a goto target, use it
             if goto_target:
-                return self._resolve_goto_target(goto_target, current_node_id=current_node_id)
+                return self._resolve_goto_target(goto_target)
 
         # AT-56, AT-57: Apply strict_flow and on_error behavior
         # Only if no goto handler was found
@@ -2885,7 +2914,7 @@ class WorkflowExecutor:
         # Default: continue to next step
         return None
 
-    def _resolve_goto_target(self, target: str, *, current_node_id: Optional[str] = None) -> Any:
+    def _resolve_goto_target(self, target: str) -> Any:
         """
         Resolve a goto target to a step index or special value.
 
@@ -2899,17 +2928,6 @@ class WorkflowExecutor:
         """
         if target == '_end':
             return '_end'
-
-        if self._use_ir_topology and isinstance(current_node_id, str) and self.executable_ir is not None:
-            node = self.executable_ir.nodes.get(current_node_id)
-            transfer = node.routed_transfers.get("goto") if node is not None else None
-            if transfer is not None:
-                return transfer.target_node_id
-            projected_index = self._projection_index_by_presentation_name.get(target)
-            if isinstance(projected_index, int):
-                return self._node_id_for_execution_index(projected_index)
-            logger.error(f"Typed goto target '{target}' is unavailable for node '{current_node_id}'")
-            return None
 
         projected_index = self._projection_index_by_presentation_name.get(target)
         if isinstance(projected_index, int):

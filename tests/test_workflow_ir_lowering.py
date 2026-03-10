@@ -326,7 +326,11 @@ def _write_goto_workflow(workspace: Path) -> Path:
                         "artifact": "ready",
                         "value": True,
                     },
-                    "goto": "Done",
+                    "on": {
+                        "success": {
+                            "goto": "Done",
+                        }
+                    },
                 },
                 {
                     "name": "SkippedStep",
@@ -425,7 +429,7 @@ def test_loader_bundle_legacy_workflow_is_rendered_from_ir_projection_adapter(tm
     assert rendered["finally"] == bundle.legacy_workflow["finally"]
 
 
-def test_ir_lowering_exposes_routed_transfers_for_goto_loop_call_and_finalization(tmp_path: Path):
+def test_ir_lowering_exposes_routed_transfers_for_on_goto_loop_call_and_finalization(tmp_path: Path):
     workflow_path = _write_ir_workflow(tmp_path)
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
@@ -446,8 +450,8 @@ def test_ir_lowering_exposes_routed_transfers_for_goto_loop_call_and_finalizatio
     goto_bundle = WorkflowLoader(tmp_path).load_bundle(goto_path)
     goto_node = goto_bundle.ir.nodes["root.route_to_done"]
 
-    assert goto_node.routed_transfers["goto"].target_node_id == "root.done"
-    assert goto_node.routed_transfers["goto"].counts_as_transition is True
+    assert goto_node.routed_transfers["on_success_goto"].target_node_id == "root.done"
+    assert goto_node.routed_transfers["on_success_goto"].counts_as_transition is True
 
 
 def test_ir_lowering_patches_for_each_body_fallthrough_and_iteration_owned_call_boundaries(

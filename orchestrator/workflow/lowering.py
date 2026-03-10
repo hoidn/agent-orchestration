@@ -1322,19 +1322,64 @@ def _surface_binding_targets(steps: tuple[SurfaceStep, ...]) -> Mapping[str, _Bi
     return targets
 
 
-def _leaf_goto_transfers(raw: Mapping[str, Any], root_targets: Mapping[str, _BindingTarget]) -> Mapping[str, ExecutableTransfer]:
-    goto_name = raw.get("goto") if isinstance(raw, Mapping) else None
-    if not isinstance(goto_name, str) or goto_name not in root_targets:
-        return MappingProxyType({})
-    return MappingProxyType(
-        {
-            "goto": ExecutableTransfer(
-                reason="goto",
-                target_node_id=root_targets[goto_name].node_id,
-                counts_as_transition=True,
-            )
-        }
+def _bind_goto_transfer(
+    reason: str,
+    goto_name: Any,
+    root_targets: Mapping[str, _BindingTarget],
+) -> Optional[ExecutableTransfer]:
+    if not isinstance(goto_name, str):
+        return None
+    if goto_name == "_end":
+        return ExecutableTransfer(
+            reason=reason,
+            target_node_id=None,
+            counts_as_transition=False,
+        )
+    target = root_targets.get(goto_name)
+    if target is None:
+        return None
+    return ExecutableTransfer(
+        reason=reason,
+        target_node_id=target.node_id,
+        counts_as_transition=True,
     )
+
+
+def _leaf_goto_transfers(raw: Mapping[str, Any], root_targets: Mapping[str, _BindingTarget]) -> Mapping[str, ExecutableTransfer]:
+    if not isinstance(raw, Mapping):
+        return MappingProxyType({})
+
+    routed_transfers: Dict[str, ExecutableTransfer] = {}
+    handlers = raw.get("on")
+    if isinstance(handlers, Mapping):
+        for handler_name, transfer_key in (
+            ("success", "on_success_goto"),
+            ("failure", "on_failure_goto"),
+            ("always", "on_always_goto"),
+        ):
+            handler = handlers.get(handler_name)
+            if not isinstance(handler, Mapping):
+                continue
+            transfer = _bind_goto_transfer(
+                transfer_key,
+                handler.get("goto"),
+                root_targets,
+            )
+            if transfer is not None:
+                routed_transfers[transfer_key] = transfer
+
+    # Preserve internal compatibility for any pre-IR raw payloads that still
+    # carry the old non-spec top-level goto field.
+    if "on_success_goto" not in routed_transfers:
+        legacy_transfer = _bind_goto_transfer(
+            "on_success_goto",
+            raw.get("goto"),
+            root_targets,
+        )
+        if legacy_transfer is not None:
+            routed_transfers["on_success_goto"] = legacy_transfer
+
+    return MappingProxyType(routed_transfers)
 
 
 def _bind_contracts(
