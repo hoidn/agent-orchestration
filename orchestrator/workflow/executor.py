@@ -570,16 +570,23 @@ class WorkflowExecutor:
                 node,
                 region_name=region_name,
             )
-            if not isinstance(materialized_step.get("step_id"), str) or not materialized_step["step_id"]:
-                materialized_step["step_id"] = node.step_id
-            if not isinstance(materialized_step.get("name"), str) or not materialized_step["name"]:
-                materialized_step["name"] = (
-                    self.projection.presentation_key_by_node_id.get(node_id, node.presentation_name)
-                    if self.projection is not None
-                    else node.presentation_name
-                )
+            self._apply_materialized_step_identity(materialized_step, node)
             ordered_steps.append(materialized_step)
         return ordered_steps
+
+    def _apply_materialized_step_identity(
+        self,
+        materialized_step: Dict[str, Any],
+        node: ExecutableNode,
+    ) -> Dict[str, Any]:
+        """Ensure one materialized IR payload carries its stable runtime identity."""
+        materialized_step["step_id"] = node.step_id
+        materialized_step["name"] = (
+            self.projection.presentation_key_by_node_id.get(node.node_id, node.presentation_name)
+            if self.projection is not None
+            else node.presentation_name
+        )
+        return materialized_step
 
     def _materialize_projection_step(
         self,
@@ -678,6 +685,7 @@ class WorkflowExecutor:
                 node,
                 region_name=node.region.value,
             )
+            step = self._apply_materialized_step_identity(step, node)
             self._step_by_node_id[node_id] = step
         if step is None:
             raise ValueError(f"Typed workflow is missing a top-level runtime step for node '{node_id}'")

@@ -84,10 +84,9 @@ class LoopExecutor:
     def _typed_loop_body_context(
         self,
         loop_step: Dict[str, Any],
-        body_steps: List[Dict[str, Any]],
         *,
         loop_kind: str,
-    ) -> Optional[tuple[str, tuple[str, ...], Dict[str, Dict[str, Any]], IterationStepKeyProjection]]:
+    ) -> Optional[tuple[str, tuple[str, ...], IterationStepKeyProjection]]:
         """Return typed loop-body metadata when this loop is backed by executable IR."""
         projection = getattr(self.executor, "projection", None)
         loop_node = self.executor._executable_node_for_step(loop_step)
@@ -114,16 +113,7 @@ class LoopExecutor:
             for node_id in getattr(loop_node, "body_node_ids", ())
             if isinstance(node_id, str) and node_id
         )
-        body_steps_by_node_id: Dict[str, Dict[str, Any]] = {}
-        for nested_step in body_steps:
-            node_id = nested_step.get("step_id") if isinstance(nested_step, dict) else None
-            if isinstance(node_id, str) and node_id:
-                body_steps_by_node_id[node_id] = nested_step
-
-        if any(node_id not in body_steps_by_node_id for node_id in body_node_ids):
-            return None
-
-        return loop_node.node_id, body_node_ids, body_steps_by_node_id, loop_projection
+        return loop_node.node_id, body_node_ids, loop_projection
 
     def _typed_loop_next_node_id(
         self,
@@ -157,7 +147,6 @@ class LoopExecutor:
         iteration_state: Dict[str, Any],
         current_node_id: str,
         body_node_ids: tuple[str, ...],
-        body_steps_by_node_id: Dict[str, Dict[str, Any]],
         loop_projection: IterationStepKeyProjection,
     ) -> None:
         """Persist skipped descendants for one skipped typed branch or case marker."""
@@ -168,9 +157,7 @@ class LoopExecutor:
             nested_name = loop_projection.nested_presentation_keys.get(node_id)
             if not isinstance(nested_name, str) or not nested_name or nested_name in iteration_state:
                 continue
-            nested_step = body_steps_by_node_id.get(node_id)
-            if not isinstance(nested_step, dict):
-                continue
+            nested_step = self.executor._step_for_node_id(node_id)
             skipped_result = self.executor._attach_outcome(
                 nested_step,
                 {
@@ -200,7 +187,6 @@ class LoopExecutor:
         iteration_state: Dict[str, Any],
         start_node_id: Optional[str],
         body_node_ids: tuple[str, ...],
-        body_steps_by_node_id: Dict[str, Dict[str, Any]],
         loop_projection: IterationStepKeyProjection,
         loop_context: Dict[str, Any],
         parent_scope_steps: Dict[str, Any],
@@ -209,8 +195,8 @@ class LoopExecutor:
     ) -> Optional[tuple[str, Dict[str, Any]]]:
         """Execute one typed loop body by IR node ids until the frame boundary or failure."""
         current_node_id = start_node_id
-        while isinstance(current_node_id, str) and current_node_id in body_steps_by_node_id:
-            nested_step = body_steps_by_node_id[current_node_id]
+        while isinstance(current_node_id, str) and current_node_id in body_node_ids:
+            nested_step = self.executor._step_for_node_id(current_node_id)
             nested_name = loop_projection.nested_presentation_keys.get(
                 current_node_id,
                 nested_step.get("name", current_node_id),
@@ -264,7 +250,6 @@ class LoopExecutor:
                         iteration_state=iteration_state,
                         current_node_id=current_node_id,
                         body_node_ids=body_node_ids,
-                        body_steps_by_node_id=body_steps_by_node_id,
                         loop_projection=loop_projection,
                     )
                     current_node_id = self._typed_loop_next_node_id(
@@ -331,7 +316,6 @@ class LoopExecutor:
                     iteration_state=iteration_state,
                     current_node_id=current_node_id,
                     body_node_ids=body_node_ids,
-                    body_steps_by_node_id=body_steps_by_node_id,
                     loop_projection=loop_projection,
                 )
             current_node_id = self._typed_loop_next_node_id(
@@ -341,6 +325,26 @@ class LoopExecutor:
             )
 
         return None
+
+    def _typed_iteration_resume_state(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        iteration: int,
+        body_node_ids: tuple[str, ...],
+        loop_projection: IterationStepKeyProjection,
+    ) -> tuple[Dict[str, Any], Optional[str], bool]:
+        """Return persisted typed-loop iteration state plus the first unfinished node id."""
+        iteration_state = self.collect_persisted_iteration_state(state, loop_name, iteration)
+        for node_id in body_node_ids:
+            nested_name = loop_projection.nested_presentation_keys.get(node_id)
+            if not isinstance(nested_name, str) or not nested_name:
+                continue
+            persisted = iteration_state.get(nested_name)
+            if self.executor._resume_entry_is_terminal(persisted):
+                continue
+            return iteration_state, node_id, False
+        return iteration_state, None, True
 
     def persist_for_each_progress(
         self,
@@ -447,6 +451,77 @@ class LoopExecutor:
                 all_steps_complete = True
                 for nested_step in loop_steps:
                     nested_name = nested_step.get("name", f"step_{i}")
+                    iteration_key = f"{loop_name}[{i}].{nested_name}"
+                    nested_result = steps_state.get(iteration_key)
+                    if not isinstance(nested_result, dict):
+                        all_steps_complete = False
+                        break
+                    if nested_result.get("status") not in ["completed", "failed", "skipped"]:
+                        all_steps_complete = False
+                        break
+                if not all_steps_complete:
+                    current_index = i
+                    break
+                completed_indices.append(i)
+
+        for index in completed_indices:
+            persisted_iteration = self.collect_persisted_iteration_state(state, loop_name, index)
+            if persisted_iteration:
+                self.store_loop_iteration_result(loop_results, index, persisted_iteration)
+
+        start_index = current_index if current_index is not None else 0
+        while start_index in completed_indices:
+            logger.info("Skipping completed iteration %s of %s", start_index, loop_name)
+            start_index += 1
+
+        return loop_results, sorted(set(completed_indices)), start_index
+
+    def typed_resume_for_each_state(
+        self,
+        state: Dict[str, Any],
+        loop_name: str,
+        body_node_ids: tuple[str, ...],
+        loop_projection: IterationStepKeyProjection,
+        items: List[Any],
+    ) -> tuple[List[Dict[str, Any]], List[int], int]:
+        """Load persisted loop progress for a typed for_each body without step-list scans."""
+        steps_state = state.get("steps", {})
+        if not isinstance(steps_state, dict):
+            steps_state = {}
+
+        loop_results: List[Dict[str, Any]] = []
+        existing_results = steps_state.get(loop_name)
+        if isinstance(existing_results, list):
+            loop_results = list(existing_results)
+
+        progress = state.get("for_each", {}).get(loop_name)
+        completed_indices: List[int] = []
+        current_index: Optional[int] = None
+        if isinstance(progress, dict):
+            completed_indices = [
+                index
+                for index in progress.get("completed_indices", [])
+                if isinstance(index, int) and 0 <= index < len(items)
+            ]
+            candidate_index = progress.get("current_index")
+            if isinstance(candidate_index, int) and 0 <= candidate_index < len(items):
+                current_index = candidate_index
+
+        if not completed_indices and isinstance(existing_results, list):
+            nested_names = [
+                loop_projection.nested_presentation_keys.get(node_id)
+                for node_id in body_node_ids
+            ]
+            nested_names = [
+                nested_name
+                for nested_name in nested_names
+                if isinstance(nested_name, str) and nested_name
+            ]
+            for i, iteration_result in enumerate(existing_results):
+                if not isinstance(iteration_result, dict):
+                    break
+                all_steps_complete = True
+                for nested_name in nested_names:
                     iteration_key = f"{loop_name}[{i}].{nested_name}"
                     nested_result = steps_state.get(iteration_key)
                     if not isinstance(nested_result, dict):
@@ -591,19 +666,25 @@ class LoopExecutor:
         loop_step_id = self.executor._step_id(step)
         parent_scope_steps = self.build_loop_parent_scope_steps(step, state)
         parent_scope_node_results = self.build_loop_parent_scope_node_results(step, state)
-        typed_body_context = self._typed_loop_body_context(
-            step,
-            body_steps,
-            loop_kind="repeat_until",
-        )
+        typed_body_context = self._typed_loop_body_context(step, loop_kind="repeat_until")
 
         if resume and current_iteration not in completed_iterations:
-            _, _, body_complete = self.repeat_until_iteration_resume_state(
-                state,
-                step_name,
-                current_iteration,
-                body_steps,
-            )
+            if typed_body_context is not None:
+                _loop_node_id, body_node_ids, loop_projection = typed_body_context
+                _, _start_node_id, body_complete = self._typed_iteration_resume_state(
+                    state,
+                    step_name,
+                    current_iteration,
+                    body_node_ids,
+                    loop_projection,
+                )
+            else:
+                _, _, body_complete = self.repeat_until_iteration_resume_state(
+                    state,
+                    step_name,
+                    current_iteration,
+                    body_steps,
+                )
             if condition_evaluated_for_iteration == current_iteration:
                 if last_condition_result is True:
                     completed_iterations = sorted(set(completed_iterations + [current_iteration]))
@@ -647,12 +728,22 @@ class LoopExecutor:
             )
             self.persist_repeat_until_progress(state, step_name, progress, running_frame)
 
-            iteration_state, start_nested_index, body_complete = self.repeat_until_iteration_resume_state(
-                state,
-                step_name,
-                current_iteration,
-                body_steps,
-            )
+            if typed_body_context is not None:
+                _loop_node_id, body_node_ids, loop_projection = typed_body_context
+                iteration_state, start_node_id, body_complete = self._typed_iteration_resume_state(
+                    state,
+                    step_name,
+                    current_iteration,
+                    body_node_ids,
+                    loop_projection,
+                )
+            else:
+                iteration_state, start_nested_index, body_complete = self.repeat_until_iteration_resume_state(
+                    state,
+                    step_name,
+                    current_iteration,
+                    body_steps,
+                )
             loop_context = {
                 "loop": {
                     "index": current_iteration,
@@ -664,12 +755,7 @@ class LoopExecutor:
                 failure_name = None
                 failure_result = None
                 if typed_body_context is not None:
-                    _loop_node_id, body_node_ids, body_steps_by_node_id, loop_projection = typed_body_context
-                    start_node_id = None
-                    if start_nested_index < len(body_steps):
-                        candidate_node_id = body_steps[start_nested_index].get("step_id")
-                        if isinstance(candidate_node_id, str):
-                            start_node_id = candidate_node_id
+                    _loop_node_id, body_node_ids, loop_projection = typed_body_context
                     typed_failure = self._execute_typed_loop_body(
                         state=state,
                         loop_step=step,
@@ -678,7 +764,6 @@ class LoopExecutor:
                         iteration_state=iteration_state,
                         start_node_id=start_node_id,
                         body_node_ids=body_node_ids,
-                        body_steps_by_node_id=body_steps_by_node_id,
                         loop_projection=loop_projection,
                         loop_context=loop_context,
                         parent_scope_steps=parent_scope_steps,
@@ -1104,12 +1189,25 @@ class LoopExecutor:
 
         start_index = 0
         if resume:
-            loop_results, completed_indices, start_index = self.resume_for_each_state(
-                state,
-                step_name,
-                loop_steps,
-                items,
-            )
+            typed_body_context = self._typed_loop_body_context(step, loop_kind="for_each")
+            if typed_body_context is not None:
+                _loop_node_id, body_node_ids, loop_projection = typed_body_context
+                loop_results, completed_indices, start_index = self.typed_resume_for_each_state(
+                    state,
+                    step_name,
+                    body_node_ids,
+                    loop_projection,
+                    items,
+                )
+            else:
+                loop_results, completed_indices, start_index = self.resume_for_each_state(
+                    state,
+                    step_name,
+                    loop_steps,
+                    items,
+                )
+        else:
+            typed_body_context = self._typed_loop_body_context(step, loop_kind="for_each")
 
         self.persist_for_each_progress(
             state,
@@ -1123,11 +1221,6 @@ class LoopExecutor:
         loop_step_id = self.executor._step_id(step)
         parent_scope_steps = self.build_loop_parent_scope_steps(step, state)
         parent_scope_node_results = self.build_loop_parent_scope_node_results(step, state)
-        typed_body_context = self._typed_loop_body_context(
-            step,
-            loop_steps,
-            loop_kind="for_each",
-        )
         for index in range(start_index, len(items)):
             item = items[index]
             self.persist_for_each_progress(
@@ -1149,23 +1242,31 @@ class LoopExecutor:
             }
 
             if resume and index == start_index:
-                iteration_state, start_nested_index, _ = self.repeat_until_iteration_resume_state(
-                    state,
-                    step_name,
-                    index,
-                    loop_steps,
-                )
+                if typed_body_context is not None:
+                    _loop_node_id, body_node_ids, loop_projection = typed_body_context
+                    iteration_state, start_node_id, _ = self._typed_iteration_resume_state(
+                        state,
+                        step_name,
+                        index,
+                        body_node_ids,
+                        loop_projection,
+                    )
+                else:
+                    iteration_state, start_nested_index, _ = self.repeat_until_iteration_resume_state(
+                        state,
+                        step_name,
+                        index,
+                        loop_steps,
+                    )
             else:
                 iteration_state = {}
                 start_nested_index = 0
+                start_node_id = None
 
             if typed_body_context is not None:
-                _loop_node_id, body_node_ids, body_steps_by_node_id, loop_projection = typed_body_context
-                start_node_id = None
-                if start_nested_index < len(loop_steps):
-                    candidate_node_id = loop_steps[start_nested_index].get("step_id")
-                    if isinstance(candidate_node_id, str):
-                        start_node_id = candidate_node_id
+                _loop_node_id, body_node_ids, loop_projection = typed_body_context
+                if start_node_id is None:
+                    start_node_id = body_node_ids[0] if body_node_ids else None
                 self._execute_typed_loop_body(
                     state=state,
                     loop_step=step,
@@ -1174,7 +1275,6 @@ class LoopExecutor:
                     iteration_state=iteration_state,
                     start_node_id=start_node_id,
                     body_node_ids=body_node_ids,
-                    body_steps_by_node_id=body_steps_by_node_id,
                     loop_projection=loop_projection,
                     loop_context=loop_context,
                     parent_scope_steps=parent_scope_steps,

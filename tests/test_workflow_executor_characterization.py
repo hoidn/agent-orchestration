@@ -1,7 +1,9 @@
 """Characterization tests for workflow executor seam behavior."""
 
 import json
+from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 import yaml
@@ -11,6 +13,7 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.executable_ir import NodeResultAddress
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.references import ReferenceResolutionError
+from orchestrator.workflow.surface_ast import freeze_mapping
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -367,6 +370,252 @@ def test_executor_uses_ir_raw_repeat_until_payloads_when_legacy_adapter_payload_
     }
     assert persisted["repeat_until"]["ReviewLoop"]["completed_iterations"] == [0]
     assert persisted["repeat_until"]["ReviewLoop"]["current_iteration"] is None
+
+
+def test_executor_uses_typed_for_each_body_nodes_when_loop_raw_steps_are_missing(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-for-each-typed-body",
+        "steps": [
+            {
+                "name": "ProcessItems",
+                "id": "process_items",
+                "for_each": {
+                    "items": ["alpha", "beta"],
+                    "steps": [
+                        {
+                            "name": "WriteItem",
+                            "id": "write_item",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf '%s\\n' '${item}' >> state/items.txt",
+                            ],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    loop_node = bundle.ir.nodes["root.process_items"]
+    loop_raw = dict(loop_node.raw)
+    for_each_raw = dict(loop_raw["for_each"])
+    for_each_raw.pop("steps", None)
+    loop_raw["for_each"] = for_each_raw
+    new_nodes = dict(bundle.ir.nodes)
+    new_nodes["root.process_items"] = replace(loop_node, raw=freeze_mapping(loop_raw))
+    bundle = replace(
+        bundle,
+        ir=replace(bundle.ir, nodes=MappingProxyType(new_nodes)),
+    )
+
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-for-each-typed-body",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-for-each-typed-body")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ProcessItems"][0]["WriteItem"]["status"] == "completed"
+    assert state["steps"]["ProcessItems"][1]["WriteItem"]["status"] == "completed"
+    assert persisted["for_each"]["ProcessItems"]["completed_indices"] == [0, 1]
+    assert (tmp_path / "state" / "items.txt").read_text(encoding="utf-8").splitlines() == [
+        "alpha",
+        "beta",
+    ]
+
+
+def test_executor_uses_typed_for_each_body_nodes_when_cached_loop_payload_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-for-each-cached-body",
+        "steps": [
+            {
+                "name": "ProcessItems",
+                "id": "process_items",
+                "for_each": {
+                    "items": ["alpha", "beta"],
+                    "steps": [
+                        {
+                            "name": "WriteItem",
+                            "id": "write_item",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf '%s\\n' '${item}' >> state/items.txt",
+                            ],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-for-each-cached-body",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    loop_step = executor._step_for_node_id("root.process_items")
+    loop_step["for_each"]["steps"] = []
+
+    state = executor.execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-for-each-cached-body")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ProcessItems"][0]["WriteItem"]["status"] == "completed"
+    assert state["steps"]["ProcessItems"][1]["WriteItem"]["status"] == "completed"
+    assert persisted["for_each"]["ProcessItems"]["completed_indices"] == [0, 1]
+    assert (tmp_path / "state" / "items.txt").read_text(encoding="utf-8").splitlines() == [
+        "alpha",
+        "beta",
+    ]
+
+
+def test_executor_uses_typed_repeat_until_body_nodes_when_loop_raw_steps_are_missing(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-repeat-until-typed-body",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "ready": {
+                            "kind": "scalar",
+                            "type": "bool",
+                            "from": {
+                                "ref": "self.steps.MarkReady.artifacts.ready",
+                            },
+                        }
+                    },
+                    "condition": {
+                        "artifact_bool": {
+                            "ref": "self.outputs.ready",
+                        }
+                    },
+                    "max_iterations": 3,
+                    "steps": [
+                        {
+                            "name": "MarkReady",
+                            "id": "mark_ready",
+                            "set_scalar": {
+                                "artifact": "ready",
+                                "value": True,
+                            },
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    loop_node = bundle.ir.nodes["root.review_loop"]
+    loop_raw = dict(loop_node.raw)
+    repeat_until_raw = dict(loop_raw["repeat_until"])
+    repeat_until_raw.pop("steps", None)
+    loop_raw["repeat_until"] = repeat_until_raw
+    new_nodes = dict(bundle.ir.nodes)
+    new_nodes["root.review_loop"] = replace(loop_node, raw=freeze_mapping(loop_raw))
+    bundle = replace(
+        bundle,
+        ir=replace(bundle.ir, nodes=MappingProxyType(new_nodes)),
+    )
+
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-repeat-until-typed-body",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-repeat-until-typed-body")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"ready": True}
+    assert persisted["repeat_until"]["ReviewLoop"]["completed_iterations"] == [0]
+
+
+def test_executor_uses_typed_repeat_until_body_nodes_when_cached_loop_payload_drifts(
+    tmp_path: Path,
+):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-repeat-until-cached-body",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "ready": {
+                            "kind": "scalar",
+                            "type": "bool",
+                            "from": {
+                                "ref": "self.steps.MarkReady.artifacts.ready",
+                            },
+                        }
+                    },
+                    "condition": {
+                        "artifact_bool": {
+                            "ref": "self.outputs.ready",
+                        }
+                    },
+                    "max_iterations": 3,
+                    "steps": [
+                        {
+                            "name": "MarkReady",
+                            "id": "mark_ready",
+                            "set_scalar": {
+                                "artifact": "ready",
+                                "value": True,
+                            },
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-repeat-until-cached-body",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    loop_step = executor._step_for_node_id("root.review_loop")
+    loop_step["repeat_until"]["steps"] = []
+
+    state = executor.execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-repeat-until-cached-body")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"ready": True}
+    assert persisted["repeat_until"]["ReviewLoop"]["completed_iterations"] == [0]
 
 
 def test_executor_for_each_nested_provider_pre_execution_failures_normalize_outcomes(tmp_path: Path):
