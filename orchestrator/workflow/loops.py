@@ -197,6 +197,7 @@ class LoopExecutor:
         current_node_id = start_node_id
         while isinstance(current_node_id, str) and current_node_id in body_node_ids:
             nested_step = self.executor._step_for_node_id(current_node_id)
+            nested_step = self.executor._typed_execution_step(nested_step)
             nested_name = loop_projection.nested_presentation_keys.get(
                 current_node_id,
                 nested_step.get("name", current_node_id),

@@ -1117,6 +1117,148 @@ def test_executor_uses_ir_raw_step_payloads_when_legacy_adapter_payloads_drift(t
     assert persisted["step_visits"] == {"Start": 1, "Final": 1}
 
 
+def test_executor_uses_typed_provider_leaf_when_cached_top_level_step_payload_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.10",
+        "name": "projection-executor-provider-leaf-cache",
+        "context": {
+            "greeting": "ok",
+        },
+        "providers": {
+            "echoer": {
+                "command": [
+                    "python",
+                    "-c",
+                    "import sys; sys.stdout.write(sys.argv[1])",
+                    "${value}",
+                ],
+            }
+        },
+        "steps": [
+            {
+                "name": "AskProvider",
+                "id": "ask_provider",
+                "provider": "echoer",
+                "provider_params": {
+                    "value": "${context.greeting}",
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-provider-leaf-cache",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    cached_step = executor._step_for_node_id("root.ask_provider")
+    cached_step["provider_params"]["value"] = "legacy"
+
+    state = executor.execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-provider-leaf-cache")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["AskProvider"]["output"] == "ok"
+    assert persisted["steps"]["AskProvider"]["output"] == "ok"
+
+
+def test_executor_uses_typed_scalar_leaf_when_cached_top_level_step_payload_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-scalar-leaf-cache",
+        "artifacts": {
+            "ready": {
+                "kind": "scalar",
+                "type": "bool",
+            }
+        },
+        "steps": [
+            {
+                "name": "SetReady",
+                "id": "set_ready",
+                "set_scalar": {
+                    "artifact": "ready",
+                    "value": True,
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-scalar-leaf-cache",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    cached_step = executor._step_for_node_id("root.set_ready")
+    cached_step["set_scalar"]["value"] = False
+
+    state = executor.execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-scalar-leaf-cache")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["SetReady"]["artifacts"] == {"ready": True}
+    assert persisted["steps"]["SetReady"]["artifacts"] == {"ready": True}
+
+
+def test_executor_uses_typed_nested_leaf_when_cached_loop_body_step_payload_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-loop-leaf-cache",
+        "steps": [
+            {
+                "name": "ProcessItems",
+                "id": "process_items",
+                "for_each": {
+                    "items": ["alpha", "beta"],
+                    "steps": [
+                        {
+                            "name": "WriteItem",
+                            "id": "write_item",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf '%s\\n' '${item}' >> state/items.txt",
+                            ],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    loop_node = bundle.ir.nodes["root.process_items"]
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-loop-leaf-cache",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    nested_node_id = loop_node.body_node_ids[0]
+    cached_step = executor._step_for_node_id(nested_node_id)
+    cached_step["command"] = [
+        "bash",
+        "-lc",
+        "mkdir -p state && printf 'legacy\\n' >> state/items.txt",
+    ]
+
+    state = executor.execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-loop-leaf-cache")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ProcessItems"][0]["WriteItem"]["status"] == "completed"
+    assert state["steps"]["ProcessItems"][1]["WriteItem"]["status"] == "completed"
+    assert persisted["for_each"]["ProcessItems"]["completed_indices"] == [0, 1]
+    assert (tmp_path / "state" / "items.txt").read_text(encoding="utf-8").splitlines() == [
+        "alpha",
+        "beta",
+    ]
+
+
 def test_executor_uses_non_counting_ir_transfer_metadata_for_typed_call_return(tmp_path: Path):
     child_path = tmp_path / "workflows" / "library" / "child.yaml"
     child_path.parent.mkdir(parents=True, exist_ok=True)
