@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
-from .loaded_bundle import workflow_bundle, workflow_legacy_dict
+from .loaded_bundle import workflow_bundle
 from .surface_ast import SurfaceStep
 
 
@@ -26,7 +26,7 @@ def lint_workflow(workflow: Any) -> List[Dict[str, Any]]:
     if bundle is not None:
         _lint_surface_steps(bundle.surface.steps, warnings, "steps")
     else:
-        workflow_dict = workflow_legacy_dict(workflow)
+        workflow_dict = workflow if isinstance(workflow, Mapping) else None
         if workflow_dict is None:
             return warnings
 

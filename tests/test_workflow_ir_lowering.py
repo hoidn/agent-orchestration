@@ -13,7 +13,7 @@ from orchestrator.workflow.executable_ir import (
     NodeResultAddress,
     RepeatUntilFrameNode,
 )
-from orchestrator.workflow.lowering import render_legacy_compatible_workflow
+from orchestrator.workflow import lowering
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -411,22 +411,13 @@ def test_ir_lowering_binds_structured_refs_to_durable_node_addresses(tmp_path: P
     )
 
 
-def test_loader_bundle_legacy_workflow_is_rendered_from_ir_projection_adapter(tmp_path: Path):
+def test_loader_bundle_exposes_no_legacy_workflow_projection_adapter(tmp_path: Path):
     workflow_path = _write_ir_workflow(tmp_path)
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    rendered = render_legacy_compatible_workflow(
-        bundle.surface,
-        bundle.ir,
-        bundle.projection,
-        imported_workflows={
-            alias: imported.legacy_workflow
-            for alias, imported in bundle.imports.items()
-        },
-    )
 
-    assert rendered["steps"] == bundle.legacy_workflow["steps"]
-    assert rendered["finally"] == bundle.legacy_workflow["finally"]
+    assert not hasattr(bundle, "legacy_workflow")
+    assert not hasattr(lowering, "render_legacy_compatible_workflow")
 
 
 def test_ir_lowering_exposes_routed_transfers_for_on_goto_loop_call_and_finalization(tmp_path: Path):

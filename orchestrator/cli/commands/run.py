@@ -17,7 +17,6 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import (
     workflow_context,
     workflow_input_contracts,
-    workflow_legacy_dict,
 )
 from orchestrator.workflow.linting import lint_workflow
 from orchestrator.workflow.signatures import bind_workflow_inputs
@@ -278,10 +277,8 @@ def run_workflow(args: Namespace) -> int:
             for error in e.errors:
                 logger.error(f"Validation error: {error.message}")
             return e.exit_code
-        legacy_workflow = workflow_legacy_dict(workflow_bundle) or {}
-
         # Determine processed directory
-        processed_dir = workspace / (legacy_workflow.get('processed_dir', 'processed'))
+        processed_dir = workspace / str(workflow_bundle.get('processed_dir', 'processed'))
 
         # Handle --clean-processed flag
         if args.clean_processed:

@@ -6,6 +6,10 @@ import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.surface_ast import SurfaceStepKind
+from tests.workflow_bundle_helpers import (
+    materialize_projection_body_steps,
+    materialize_projection_finalization_steps,
+)
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -14,9 +18,9 @@ def _write_yaml(path: Path, payload: dict) -> Path:
     return path
 
 
-def _load_workflow(workspace: Path, workflow: dict) -> dict:
+def _load_workflow(workspace: Path, workflow: dict):
     workflow_path = _write_yaml(workspace / "workflow.yaml", workflow)
-    return WorkflowLoader(workspace).load(workflow_path)
+    return WorkflowLoader(workspace).load_bundle(workflow_path)
 
 
 def _write_review_loop_library(workspace: Path) -> None:
@@ -521,7 +525,10 @@ def test_structured_top_level_lowering_preserves_order_presentation_names_and_st
         _top_level_structured_workflow(include_inserted_sibling=True),
     )
 
-    assert [step["name"] for step in loaded_a["steps"]] == [
+    body_steps_a = materialize_projection_body_steps(loaded_a)
+    body_steps_b = materialize_projection_body_steps(loaded_b)
+
+    assert [step["name"] for step in body_steps_a] == [
         "SetReady",
         "RouteReview.then",
         "RouteReview.then.WriteApproved",
@@ -538,8 +545,8 @@ def test_structured_top_level_lowering_preserves_order_presentation_names_and_st
         "CheckRouteAction",
     ]
 
-    steps_a = {step["name"]: step["step_id"] for step in loaded_a["steps"]}
-    steps_b = {step["name"]: step["step_id"] for step in loaded_b["steps"]}
+    steps_a = {step["name"]: step["step_id"] for step in body_steps_a}
+    steps_b = {step["name"]: step["step_id"] for step in body_steps_b}
 
     assert steps_a["RouteReview.then"] == "root.route_review.approve_path"
     assert steps_a["RouteReview.then.WriteApproved"] == "root.route_review.approve_path.write_approved"
@@ -570,8 +577,8 @@ def test_repeat_until_nested_call_and_match_surfaces_keep_stable_body_step_ids(t
         _repeat_until_structured_workflow(include_inserted_sibling=True),
     )
 
-    steps_a = {step["name"]: step for step in loaded_a["steps"]}
-    steps_b = {step["name"]: step for step in loaded_b["steps"]}
+    steps_a = {step["name"]: step for step in materialize_projection_body_steps(loaded_a)}
+    steps_b = {step["name"]: step for step in materialize_projection_body_steps(loaded_b)}
 
     body_a = {
         step["name"]: step["step_id"]
@@ -599,8 +606,8 @@ def test_for_each_nested_step_ids_stay_stable_when_siblings_shift(tmp_path: Path
     loaded_a = _load_workflow(tmp_path / "a", _for_each_workflow())
     loaded_b = _load_workflow(tmp_path / "b", _for_each_workflow(include_inserted_sibling=True))
 
-    steps_a = {step["name"]: step for step in loaded_a["steps"]}
-    steps_b = {step["name"]: step for step in loaded_b["steps"]}
+    steps_a = {step["name"]: step for step in materialize_projection_body_steps(loaded_a)}
+    steps_b = {step["name"]: step for step in materialize_projection_body_steps(loaded_b)}
     nested_a = {
         step["name"]: step["step_id"]
         for step in steps_a["ProcessItems"]["for_each"]["steps"]
@@ -621,16 +628,18 @@ def test_finalization_steps_use_prefixed_presentation_names_and_stable_ids(tmp_p
     loaded_a = _load_workflow(tmp_path / "a", _finalization_workflow())
     loaded_b = _load_workflow(tmp_path / "b", _finalization_workflow(include_inserted_sibling=True))
 
-    final_steps_a = loaded_a["finally"]["steps"]
-    final_steps_b = loaded_b["finally"]["steps"]
+    body_steps_a = materialize_projection_body_steps(loaded_a)
+    body_steps_b = materialize_projection_body_steps(loaded_b)
+    final_steps_a = materialize_projection_finalization_steps(loaded_a)
+    final_steps_b = materialize_projection_finalization_steps(loaded_b)
 
     assert [step["name"] for step in final_steps_a] == [
         "finally.ObserveOutputsPending",
         "finally.WriteCleanupMarker",
     ]
 
-    steps_a = {step["name"]: step["step_id"] for step in loaded_a["steps"] + final_steps_a}
-    steps_b = {step["name"]: step["step_id"] for step in loaded_b["steps"] + final_steps_b}
+    steps_a = {step["name"]: step["step_id"] for step in body_steps_a + final_steps_a}
+    steps_b = {step["name"]: step["step_id"] for step in body_steps_b + final_steps_b}
 
     assert steps_a["finally.ObserveOutputsPending"] == "root.finally.cleanup.observe_outputs_pending"
     assert steps_a["finally.WriteCleanupMarker"] == "root.finally.cleanup.write_cleanup_marker"
@@ -638,7 +647,7 @@ def test_finalization_steps_use_prefixed_presentation_names_and_stable_ids(tmp_p
     assert steps_b["finally.WriteCleanupMarker"] == steps_a["finally.WriteCleanupMarker"]
 
 
-def test_surface_ast_step_ids_match_legacy_lowered_compatibility_ids(tmp_path: Path):
+def test_surface_ast_step_ids_match_projection_compatibility_ids(tmp_path: Path):
     _write_review_loop_library(tmp_path)
 
     workflow = _top_level_structured_workflow()
@@ -656,24 +665,27 @@ def test_surface_ast_step_ids_match_legacy_lowered_compatibility_ids(tmp_path: P
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     surface_steps = {step.name: step for step in bundle.surface.steps}
-    lowered_steps = {step["name"]: step["step_id"] for step in bundle.legacy_workflow["steps"]}
+    projection_steps = {
+        step["name"]: step["step_id"]
+        for step in materialize_projection_body_steps(bundle)
+    }
 
     assert surface_steps["RouteReview"].kind is SurfaceStepKind.IF
     assert surface_steps["RouteReview"].then_branch is not None
     assert (
         surface_steps["RouteReview"].then_branch.steps[0].step_id
-        == lowered_steps["RouteReview.then.WriteApproved"]
+        == projection_steps["RouteReview.then.WriteApproved"]
     )
-    assert surface_steps["RouteReview"].step_id == lowered_steps["RouteReview"]
+    assert surface_steps["RouteReview"].step_id == projection_steps["RouteReview"]
 
     assert surface_steps["RouteDecision"].kind is SurfaceStepKind.MATCH
     assert surface_steps["RouteDecision"].match_cases["APPROVE"].steps[0].step_id == (
-        lowered_steps["RouteDecision.APPROVE.WriteApproved"]
+        projection_steps["RouteDecision.APPROVE.WriteApproved"]
     )
 
     assert surface_steps["RunReviewLoop"].kind is SurfaceStepKind.CALL
-    assert surface_steps["RunReviewLoop"].step_id == lowered_steps["RunReviewLoop"]
+    assert surface_steps["RunReviewLoop"].step_id == projection_steps["RunReviewLoop"]
 
     assert bundle.surface.finalization is not None
     final_step = bundle.surface.finalization.steps[0]
-    assert final_step.step_id == bundle.legacy_workflow["finally"]["steps"][0]["step_id"]
+    assert final_step.step_id == materialize_projection_finalization_steps(bundle)[0]["step_id"]

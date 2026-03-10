@@ -7,7 +7,8 @@ from pathlib import Path
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.workflow.loaded_bundle import workflow_provenance
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_provenance
+from tests.workflow_bundle_helpers import materialize_projection_body_steps
 
 
 class TestLoaderValidation:
@@ -555,11 +556,11 @@ class TestLoaderValidation:
         }
 
         path = self.write_workflow(workflow)
-        loaded = self.loader.load(path)
+        loaded = self.loader.load_bundle(path)
 
         body_steps = {
             step["name"]: step["step_id"]
-            for step in loaded["steps"][0]["repeat_until"]["steps"]
+            for step in materialize_projection_body_steps(loaded)[0]["repeat_until"]["steps"]
         }
         assert (
             body_steps["PrepareCallInputs"]
@@ -3058,8 +3059,8 @@ class TestLoaderValidation:
         assert result["version"] == "1.4"
         assert result["steps"][0]["consume_bundle"]["path"] == "state/consumes/review.json"
 
-    def test_load_preserves_legacy_dict_shape_without_legacy_magic_metadata(self):
-        """The compatibility loader still returns a dict while exposing typed metadata only."""
+    def test_load_returns_typed_bundle_without_legacy_adapter(self):
+        """load() now returns the typed bundle and no longer exposes a legacy adapter."""
         workflow = {
             "version": "2.5",
             "name": "typed-provenance-adapter",
@@ -3074,11 +3075,9 @@ class TestLoaderValidation:
 
         provenance = workflow_provenance(loaded)
 
-        assert isinstance(loaded, dict)
-        assert "__workflow_path" not in loaded
-        assert "__source_root" not in loaded
-        assert "__imports" not in loaded
-        assert "__managed_write_root_inputs" not in loaded
+        assert isinstance(loaded, LoadedWorkflowBundle)
+        assert not hasattr(loaded, "legacy_workflow")
+        assert loaded["name"] == "typed-provenance-adapter"
         assert provenance.workflow_path == path.resolve()
         assert provenance.source_root == path.parent.resolve()
 

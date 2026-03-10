@@ -1,6 +1,8 @@
 """Tests for structured if/else lowering and runtime semantics."""
 
+from dataclasses import replace
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 import yaml
@@ -9,6 +11,11 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.surface_ast import freeze_mapping
+from tests.workflow_bundle_helpers import (
+    materialize_projection_body_steps,
+    materialize_projection_finalization_steps,
+)
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -912,9 +919,9 @@ def _structured_finally_workflow(
     }
 
 
-def _load_workflow(tmp_path: Path, workflow: dict) -> dict:
+def _load_workflow(tmp_path: Path, workflow: dict):
     workflow_path = _write_workflow(tmp_path, workflow)
-    return WorkflowLoader(tmp_path).load(workflow_path)
+    return WorkflowLoader(tmp_path).load_bundle(workflow_path)
 
 
 def _run_workflow(tmp_path: Path, workflow: dict) -> dict:
@@ -932,8 +939,8 @@ def test_if_else_lowered_step_ids_stay_stable_when_siblings_shift(tmp_path: Path
     loaded_a = _load_workflow(tmp_path / "a", workflow_a)
     loaded_b = _load_workflow(tmp_path / "b", workflow_b)
 
-    steps_a = {step["name"]: step["step_id"] for step in loaded_a["steps"]}
-    steps_b = {step["name"]: step["step_id"] for step in loaded_b["steps"]}
+    steps_a = {step["name"]: step["step_id"] for step in materialize_projection_body_steps(loaded_a)}
+    steps_b = {step["name"]: step["step_id"] for step in materialize_projection_body_steps(loaded_b)}
 
     assert steps_a["RouteReview.then.WriteApproved"] == "root.route_review.approve_path.write_approved"
     assert steps_a["RouteReview.else.WriteRevision"] == "root.route_review.revise_path.write_revision"
@@ -957,22 +964,41 @@ def test_if_else_branch_outputs_materialize_on_statement_and_skip_non_taken_bran
 def test_if_else_executes_from_bound_guard_and_join_outputs_when_legacy_refs_are_corrupted(tmp_path: Path):
     workflow_path = _write_workflow(tmp_path, _structured_if_else_workflow())
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-
-    for step in bundle.legacy_workflow["steps"]:
-        if not isinstance(step, dict):
-            continue
-        if step.get("name") == "RouteReview.then":
-            step["structured_if_guard"]["condition"]["artifact_bool"]["ref"] = (
-                "root.steps.Missing.artifacts.ready"
-            )
-        if step.get("name") == "RouteReview.else":
-            step["structured_if_guard"]["condition"]["artifact_bool"]["ref"] = (
-                "root.steps.Missing.artifacts.ready"
-            )
-        if step.get("name") == "RouteReview":
-            step["structured_if_join"]["branches"]["then"]["outputs"]["review_decision"]["from"]["ref"] = (
-                "root.steps.Missing.artifacts.review_decision"
-            )
+    route_review_node = bundle.ir.nodes["root.route_review"]
+    corrupted_raw = {
+        **dict(route_review_node.raw),
+        "if": {
+            "artifact_bool": {
+                "ref": "root.steps.Missing.artifacts.ready",
+            }
+        },
+        "then": {
+            **dict(route_review_node.raw.get("then", {})),
+            "outputs": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                    "from": {
+                        "ref": "root.steps.Missing.artifacts.review_decision",
+                    },
+                }
+            },
+        },
+    }
+    bundle = replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType({
+                **bundle.ir.nodes,
+                "root.route_review": replace(
+                    route_review_node,
+                    raw=freeze_mapping(corrupted_raw),
+                ),
+            }),
+        ),
+    )
 
     state_manager = StateManager(workspace=tmp_path, run_id="structured-bound-refs")
     state_manager.initialize("workflow.yaml")
@@ -1049,8 +1075,8 @@ def test_match_lowered_step_ids_stay_stable_when_siblings_shift(tmp_path: Path):
     loaded_a = _load_workflow(tmp_path / "a", workflow_a)
     loaded_b = _load_workflow(tmp_path / "b", workflow_b)
 
-    steps_a = {step["name"]: step["step_id"] for step in loaded_a["steps"]}
-    steps_b = {step["name"]: step["step_id"] for step in loaded_b["steps"]}
+    steps_a = {step["name"]: step["step_id"] for step in materialize_projection_body_steps(loaded_a)}
+    steps_b = {step["name"]: step["step_id"] for step in materialize_projection_body_steps(loaded_b)}
 
     assert steps_a["RouteReviewDecision.APPROVE.WriteApproved"] == (
         "root.route_review_decision.approve_path.write_approved"
@@ -1093,8 +1119,8 @@ def test_repeat_until_body_step_ids_stay_stable_when_siblings_shift(tmp_path: Pa
     loaded_a = _load_workflow(tmp_path / "a", workflow_a)
     loaded_b = _load_workflow(tmp_path / "b", workflow_b)
 
-    steps_a = {step["name"]: step for step in loaded_a["steps"]}
-    steps_b = {step["name"]: step for step in loaded_b["steps"]}
+    steps_a = {step["name"]: step for step in materialize_projection_body_steps(loaded_a)}
+    steps_b = {step["name"]: step for step in materialize_projection_body_steps(loaded_b)}
 
     body_a = {
         step["name"]: step["step_id"]
@@ -1129,18 +1155,44 @@ def test_repeat_until_materializes_loop_frame_outputs_and_iteration_results(tmp_
 def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corrupted(tmp_path: Path):
     workflow_path = _write_workflow(tmp_path, _structured_repeat_until_workflow())
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-
-    review_loop_step = next(
-        step
-        for step in bundle.legacy_workflow["steps"]
-        if isinstance(step, dict) and step.get("name") == "ReviewLoop"
-    )
-    review_loop = review_loop_step["repeat_until"]
-    review_loop["outputs"]["review_decision"]["from"]["ref"] = (
-        "self.steps.Missing.artifacts.review_decision"
-    )
-    review_loop["condition"]["compare"]["left"]["ref"] = (
-        "root.steps.Missing.artifacts.review_decision"
+    review_loop_node = bundle.ir.nodes["root.review_loop"]
+    corrupted_raw = {
+        **dict(review_loop_node.raw),
+        "repeat_until": {
+            **dict(review_loop_node.raw.get("repeat_until", {})),
+            "outputs": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                    "from": {
+                        "ref": "self.steps.Missing.artifacts.review_decision",
+                    },
+                }
+            },
+            "condition": {
+                "compare": {
+                    "left": {
+                        "ref": "root.steps.Missing.artifacts.review_decision",
+                    },
+                    "op": "eq",
+                    "right": "APPROVE",
+                }
+            },
+        },
+    }
+    bundle = replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType({
+                **bundle.ir.nodes,
+                "root.review_loop": replace(
+                    review_loop_node,
+                    raw=freeze_mapping(corrupted_raw),
+                ),
+            }),
+        ),
     )
 
     state_manager = StateManager(workspace=tmp_path, run_id="repeat-until-bound-refs")
@@ -1173,8 +1225,8 @@ def test_repeat_until_nested_call_and_match_step_ids_stay_stable_when_siblings_s
     loaded_a = _load_workflow(tmp_path / "a", workflow_a)
     loaded_b = _load_workflow(tmp_path / "b", workflow_b)
 
-    steps_a = {step["name"]: step for step in loaded_a["steps"]}
-    steps_b = {step["name"]: step for step in loaded_b["steps"]}
+    steps_a = {step["name"]: step for step in materialize_projection_body_steps(loaded_a)}
+    steps_b = {step["name"]: step for step in materialize_projection_body_steps(loaded_b)}
 
     body_a = {
         step["name"]: step["step_id"]
@@ -1238,11 +1290,11 @@ def test_finally_step_ids_stay_stable_when_body_siblings_shift(tmp_path: Path):
 
     steps_a = {
         step["name"]: step["step_id"]
-        for step in loaded_a["steps"] + loaded_a["finally"]["steps"]
+        for step in materialize_projection_body_steps(loaded_a) + materialize_projection_finalization_steps(loaded_a)
     }
     steps_b = {
         step["name"]: step["step_id"]
-        for step in loaded_b["steps"] + loaded_b["finally"]["steps"]
+        for step in materialize_projection_body_steps(loaded_b) + materialize_projection_finalization_steps(loaded_b)
     }
 
     assert steps_a["finally.ObserveOutputsPending"] == "root.finally.cleanup.observe_outputs_pending"

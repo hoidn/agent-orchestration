@@ -37,6 +37,19 @@ def _persisted_state(workspace: Path, run_id: str) -> dict:
     return json.loads(state_file.read_text(encoding="utf-8"))
 
 
+def _replace_ir_node_raw(bundle, node_id: str, raw_payload: dict):
+    return replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType({
+                **bundle.ir.nodes,
+                node_id: replace(bundle.ir.nodes[node_id], raw=freeze_mapping(raw_payload)),
+            }),
+        ),
+    )
+
+
 def _structured_finally_resume_workflow() -> dict:
     return {
         "version": "2.3",
@@ -277,7 +290,6 @@ def test_executor_uses_ir_raw_for_each_payloads_when_legacy_adapter_payload_is_m
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle.legacy_workflow["steps"] = []
 
     state_manager = StateManager(
         workspace=tmp_path,
@@ -347,7 +359,6 @@ def test_executor_uses_ir_raw_repeat_until_payloads_when_legacy_adapter_payload_
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle.legacy_workflow["steps"] = []
 
     state_manager = StateManager(
         workspace=tmp_path,
@@ -747,8 +758,6 @@ def test_executor_uses_surface_workflow_config_when_legacy_root_metadata_drifts(
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle.legacy_workflow["providers"] = {}
-    bundle.legacy_workflow["context"] = {}
 
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-root-config")
     state_manager.initialize("workflow.yaml")
@@ -892,10 +901,16 @@ def test_executor_uses_projection_order_and_presentation_names_over_legacy_adapt
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    legacy_steps = bundle.legacy_workflow["steps"]
-    legacy_steps[0]["name"] = "LegacyWriteOne"
-    legacy_steps[1]["name"] = "LegacyWriteTwo"
-    bundle.legacy_workflow["steps"] = [legacy_steps[1], legacy_steps[0]]
+    write_one = {
+        **dict(bundle.ir.nodes["root.write_one"].raw),
+        "name": "LegacyWriteOne",
+    }
+    write_two = {
+        **dict(bundle.ir.nodes["root.write_two"].raw),
+        "name": "LegacyWriteTwo",
+    }
+    bundle = _replace_ir_node_raw(bundle, "root.write_one", write_one)
+    bundle = _replace_ir_node_raw(bundle, "root.write_two", write_two)
 
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-order")
     state_manager.initialize("workflow.yaml")
@@ -956,7 +971,14 @@ def test_executor_resolves_goto_against_projection_when_legacy_target_name_drift
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle.legacy_workflow["steps"][2]["name"] = "LegacyFinal"
+    bundle = _replace_ir_node_raw(
+        bundle,
+        "root.final",
+        {
+            **dict(bundle.ir.nodes["root.final"].raw),
+            "name": "LegacyFinal",
+        },
+    )
 
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-goto")
     state_manager.initialize("workflow.yaml")
@@ -1082,24 +1104,6 @@ def test_executor_uses_ir_raw_step_payloads_when_legacy_adapter_payloads_drift(t
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    legacy_steps = bundle.legacy_workflow["steps"]
-    legacy_steps[0]["command"] = [
-        "bash",
-        "-lc",
-        "mkdir -p state && printf 'legacy-start\\n' >> state/history.log",
-    ]
-    legacy_steps[0]["on"] = {"success": {"goto": "LegacyFinal"}}
-    legacy_steps[1]["command"] = [
-        "bash",
-        "-lc",
-        "mkdir -p state && printf 'legacy-skipped\\n' >> state/history.log",
-    ]
-    legacy_steps[2]["name"] = "LegacyFinal"
-    legacy_steps[2]["command"] = [
-        "bash",
-        "-lc",
-        "mkdir -p state && printf 'legacy-final\\n' >> state/history.log",
-    ]
 
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-raw-payload")
     state_manager.initialize("workflow.yaml")
@@ -1353,7 +1357,14 @@ def test_executor_uses_projection_names_for_finalization_bookkeeping_when_legacy
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle.legacy_workflow["finally"]["steps"][0]["name"] = "LegacyCleanup"
+    bundle = _replace_ir_node_raw(
+        bundle,
+        "root.finally.cleanup.write_cleanup_marker",
+        {
+            **dict(bundle.ir.nodes["root.finally.cleanup.write_cleanup_marker"].raw),
+            "name": "LegacyCleanup",
+        },
+    )
 
     state_manager = StateManager(workspace=tmp_path, run_id="projection-finalization-names")
     state_manager.initialize("workflow.yaml")
@@ -1575,11 +1586,6 @@ def test_executor_uses_typed_if_nodes_when_legacy_helper_keys_are_removed(tmp_pa
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    for step in bundle.legacy_workflow["steps"]:
-        if step.get("step_id") in {"root.route_ready.approve_path", "root.route_ready.revise_path"}:
-            step.pop("structured_if_branch", None)
-        if step.get("step_id") == "root.route_ready":
-            step.pop("structured_if_join", None)
 
     state_manager = StateManager(workspace=tmp_path, run_id="projection-if-helpers")
     state_manager.initialize("workflow.yaml")
@@ -1679,11 +1685,6 @@ def test_executor_uses_typed_match_nodes_when_legacy_helper_keys_are_removed(tmp
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    for step in bundle.legacy_workflow["steps"]:
-        if step.get("step_id") in {"root.route_decision.approve_path", "root.route_decision.revise_path"}:
-            step.pop("structured_match_case", None)
-        if step.get("step_id") == "root.route_decision":
-            step.pop("structured_match_join", None)
 
     state_manager = StateManager(workspace=tmp_path, run_id="projection-match-helpers")
     state_manager.initialize("workflow.yaml")
@@ -1719,8 +1720,15 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_top_level_dis
     state_manager = StateManager(workspace=tmp_path, run_id="typed-top-level-dispatch")
     state_manager.initialize("workflow.yaml")
 
+    bundle = _replace_ir_node_raw(
+        bundle,
+        "root.run_command",
+        {
+            **dict(bundle.ir.nodes["root.run_command"].raw),
+            "structured_if_join": {"branches": {}},
+        },
+    )
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    bundle.legacy_workflow["steps"][0]["structured_if_join"] = {"branches": {}}
 
     state = executor.execute()
 
@@ -1759,8 +1767,17 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_nested_dispat
     state_manager = StateManager(workspace=tmp_path, run_id="typed-nested-dispatch")
     state_manager.initialize("workflow.yaml")
 
+    loop_node = bundle.ir.nodes["root.process_items"]
+    child_node_id = loop_node.body_node_ids[0]
+    bundle = _replace_ir_node_raw(
+        bundle,
+        child_node_id,
+        {
+            **dict(bundle.ir.nodes[child_node_id].raw),
+            "structured_match_join": {"cases": {}},
+        },
+    )
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    bundle.legacy_workflow["steps"][0]["for_each"]["steps"][0]["structured_match_join"] = {"cases": {}}
 
     state = executor.execute()
 

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
 from orchestrator.workflow.executable_ir import ExecutableNodeKind
-from orchestrator.workflow.loaded_bundle import workflow_bundle, workflow_legacy_dict
+from orchestrator.workflow.loaded_bundle import workflow_bundle
 
 
 _PREVIEW_LIMIT = 200
@@ -64,9 +64,9 @@ def _step_kind(step: Mapping[str, Any], node_kind: Optional[ExecutableNodeKind] 
 
 
 def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Mapping[str, Any], Optional[str]]], Mapping[str, Any]]:
-    workflow_dict = workflow_legacy_dict(workflow) or {}
     bundle = workflow_bundle(workflow)
     if bundle is None:
+        workflow_dict = workflow if isinstance(workflow, Mapping) else {}
         steps = list(workflow_dict.get("steps", []))
         finally_block = workflow_dict.get("finally") if isinstance(workflow_dict.get("finally"), dict) else None
         if isinstance(finally_block, dict) and isinstance(finally_block.get("steps"), list):

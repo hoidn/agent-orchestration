@@ -15,6 +15,7 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.surface_ast import freeze_mapping
+from tests.workflow_bundle_helpers import materialize_projection_body_steps
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -289,10 +290,9 @@ def test_call_executes_from_loaded_bundle_without_legacy_import_magic(tmp_path: 
     )
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    bundle.legacy_workflow.pop("__imports", None)
 
     state_manager = StateManager(tmp_path, run_id="bundle-call")
-    state_manager.initialize("workflow.yaml", context=bundle.legacy_workflow.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle.get("context", {}))
     final_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
 
     assert final_state["status"] == "completed"
@@ -320,12 +320,9 @@ def test_call_uses_typed_import_contracts_when_legacy_specs_are_missing(tmp_path
     )
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    imported_bundle = bundle.imports["review_loop"]
-    imported_bundle.legacy_workflow.pop("inputs", None)
-    imported_bundle.legacy_workflow.pop("outputs", None)
 
     state_manager = StateManager(tmp_path, run_id="bundle-call-typed-contracts")
-    state_manager.initialize("workflow.yaml", context=bundle.legacy_workflow.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle.get("context", {}))
     final_state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
     persisted = state_manager.load().to_dict()
 
@@ -508,18 +505,9 @@ def test_call_rejects_colliding_write_root_bindings_without_imported_legacy_magi
     )
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    for imported in bundle.imports.values():
-        for key in (
-            "__typed_bundle",
-            "__typed_provenance",
-            "__workflow_path",
-            "__source_root",
-            "__managed_write_root_inputs",
-        ):
-            imported.legacy_workflow.pop(key, None)
 
     state_manager = StateManager(tmp_path, run_id="for-each-call-collision-typed-imports")
-    state_manager.initialize("workflow.yaml", context=bundle.legacy_workflow.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle.get("context", {}))
     state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
     persisted = state_manager.load().to_dict()
 
@@ -1044,8 +1032,26 @@ def test_call_uses_bound_inputs_when_legacy_ref_is_corrupted(tmp_path: Path):
     )
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    bundle.legacy_workflow["steps"][1]["with"]["max_cycles"]["ref"] = (
-        "root.steps.Missing.artifacts.max_cycles"
+    call_node = bundle.ir.nodes["root.run_review_loop"]
+    corrupted_raw = {
+        **dict(call_node.raw),
+        "with": {
+            **dict(call_node.raw.get("with", {})),
+            "max_cycles": {"ref": "root.steps.Missing.artifacts.max_cycles"},
+        },
+    }
+    bundle = replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType({
+                **bundle.ir.nodes,
+                "root.run_review_loop": replace(
+                    call_node,
+                    raw=freeze_mapping(corrupted_raw),
+                ),
+            }),
+        ),
     )
     state_manager = StateManager(tmp_path, run_id="bound-call-inputs")
     state_manager.initialize("workflow.yaml")
@@ -1095,7 +1101,7 @@ def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corru
     corrupted_bundle = replace(imported_bundle, surface=corrupted_surface)
 
     state_manager = StateManager(tmp_path, run_id="bound-call-output-provenance")
-    state_manager.initialize("workflow.yaml", context=bundle.legacy_workflow.get("context", {}))
+    state_manager.initialize("workflow.yaml", context=bundle.get("context", {}))
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
     state = executor.execute()
     persisted = state_manager.load().to_dict()
@@ -1103,7 +1109,7 @@ def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corru
 
     debug_payload = executor.call_executor.build_debug_payload(
         frame_id=frame_id,
-        step=bundle.legacy_workflow["steps"][0],
+        step=materialize_projection_body_steps(bundle)[0],
         imported_workflow=corrupted_bundle,
         child_state=frame["state"],
     )

@@ -20,15 +20,11 @@ from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.identity import STEP_ID_PATTERN
 from orchestrator.workflow.loaded_bundle import (
     LoadedWorkflowBundle,
-    attach_legacy_workflow_metadata,
     workflow_input_contracts,
     workflow_managed_write_root_inputs,
     workflow_output_contracts,
 )
-from orchestrator.workflow.lowering import (
-    lower_surface_workflow,
-    render_legacy_compatible_workflow,
-)
+from orchestrator.workflow.lowering import lower_surface_workflow
 from orchestrator.workflow.predicates import (
     SCORE_PREDICATE_BOUND_KEYS,
     TYPED_PREDICATE_OPERATOR_KEYS,
@@ -104,9 +100,9 @@ class WorkflowLoader:
         self._provider_registry = ProviderRegistry()
         self._current_workflow_is_imported = False
 
-    def load(self, workflow_path: Path) -> Dict[str, Any]:
-        """Load and validate workflow YAML through the legacy dict compatibility path."""
-        return self.load_bundle(workflow_path).legacy_workflow
+    def load(self, workflow_path: Path) -> LoadedWorkflowBundle:
+        """Load and validate workflow YAML into the typed bundle surface."""
+        return self.load_bundle(workflow_path)
 
     def load_bundle(self, workflow_path: Path) -> LoadedWorkflowBundle:
         """Load and validate workflow YAML into the typed surface bundle."""
@@ -192,16 +188,13 @@ class WorkflowLoader:
             if surface is None:
                 return {}
             ir, projection = lower_surface_workflow(surface)
-            legacy_workflow = render_legacy_compatible_workflow(surface, ir, projection)
             bundle = LoadedWorkflowBundle(
                 surface=surface,
                 ir=ir,
                 projection=projection,
-                legacy_workflow=legacy_workflow,
                 imports=MappingProxyType(dict(imported_bundles)),
                 provenance=surface.provenance,
             )
-            attach_legacy_workflow_metadata(legacy_workflow, bundle)
             return bundle
         finally:
             self._load_stack.pop()

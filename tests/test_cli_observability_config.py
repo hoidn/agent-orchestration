@@ -311,7 +311,6 @@ steps:
 """.strip() + "\n"
     workflow_path.write_text(workflow_text, encoding='utf-8')
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    bundle.legacy_workflow.pop('context', None)
     mock_loader.return_value.load_bundle.return_value = bundle
 
     run_dir = tmp_path / '.orchestrate' / 'runs' / run_id
@@ -325,7 +324,7 @@ steps:
         observability=None,
         status='running',
         steps={},
-        bound_inputs={'max_cycles': 5},
+        bound_inputs={},
     )
     existing_manager = MagicMock()
     existing_manager.load.return_value = loaded_state
@@ -347,4 +346,4 @@ steps:
     assert result == 0
     init_kwargs = restarted_manager.initialize.call_args.kwargs
     assert init_kwargs['context'] == {'max_review_cycles': '3'}
-    assert init_kwargs['bound_inputs'] == {'max_cycles': 5}
+    assert init_kwargs['bound_inputs'] == {}

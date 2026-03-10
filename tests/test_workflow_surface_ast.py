@@ -7,10 +7,15 @@ import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
-from orchestrator.workflow.loaded_bundle import workflow_import_metadata, workflow_provenance
+from orchestrator.workflow.loaded_bundle import (
+    LoadedWorkflowBundle,
+    workflow_import_metadata,
+    workflow_provenance,
+)
 from orchestrator.workflow.predicates import ComparePredicateNode
 from orchestrator.workflow.references import SelfOutputReference
 from orchestrator.workflow.surface_ast import SurfaceStepKind
+from tests.workflow_bundle_helpers import materialize_projection_body_steps
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -293,13 +298,13 @@ def test_loader_builds_surface_bundle_with_authored_structured_nodes(tmp_path: P
     assert bundle.surface.finalization.step_id == "root.finally.cleanup"
     assert bundle.surface.finalization.steps[0].step_id == "root.finally.cleanup.write_cleanup_marker"
 
-    lowered_step_names = [step["name"] for step in bundle.legacy_workflow["steps"]]
-    assert "RouteReview.then" in lowered_step_names
-    assert "RouteReview" in lowered_step_names
+    projection_step_names = [step["name"] for step in materialize_projection_body_steps(bundle)]
+    assert "RouteReview.then" in projection_step_names
+    assert "RouteReview" in projection_step_names
 
 
-def test_legacy_load_exposes_typed_provenance_adapter_metadata(tmp_path: Path):
-    """load() stays dict-compatible while surfacing typed provenance/import adapters."""
+def test_load_exposes_typed_provenance_bundle_metadata(tmp_path: Path):
+    """load() returns the typed bundle and surfaces provenance/import metadata directly."""
     workflow_path = _write_surface_workflow(tmp_path)
 
     loaded = WorkflowLoader(tmp_path).load(workflow_path)
@@ -307,7 +312,8 @@ def test_legacy_load_exposes_typed_provenance_adapter_metadata(tmp_path: Path):
     provenance = workflow_provenance(loaded)
     imported = workflow_import_metadata(loaded, "review_loop")
 
-    assert isinstance(loaded, dict)
+    assert isinstance(loaded, LoadedWorkflowBundle)
+    assert not hasattr(loaded, "legacy_workflow")
     assert provenance.workflow_path == workflow_path.resolve()
     assert provenance.source_root == workflow_path.parent.resolve()
     assert imported is not None

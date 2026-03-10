@@ -59,7 +59,6 @@ from .identity import iteration_step_id, runtime_step_id
 from .loaded_bundle import (
     workflow_bundle,
     workflow_context,
-    workflow_legacy_dict,
     workflow_output_contracts,
     workflow_provenance,
 )
@@ -410,18 +409,16 @@ class WorkflowExecutor:
             stream_output: Stream provider stdout/stderr live without enabling debug mode
         """
         self.loaded_bundle = workflow_bundle(workflow)
-        legacy_workflow = workflow_legacy_dict(workflow)
-        if legacy_workflow is None and self.loaded_bundle is None:
+        if self.loaded_bundle is None and not isinstance(workflow, Mapping):
             raise TypeError(f"Unsupported workflow type for execution: {type(workflow).__name__}")
-        self.legacy_workflow = legacy_workflow
         if (
             self.loaded_bundle is not None
             and isinstance(self.loaded_bundle.surface.raw, Mapping)
         ):
             self.workflow = _thaw_workflow_mapping(self.loaded_bundle.surface.raw)
         else:
-            assert legacy_workflow is not None
-            self.workflow = legacy_workflow
+            assert isinstance(workflow, Mapping)
+            self.workflow = _thaw_workflow_mapping(workflow)
         self.projection = self.loaded_bundle.projection if self.loaded_bundle is not None else None
         self.executable_ir = self.loaded_bundle.ir if self.loaded_bundle is not None else None
         self.workspace = workspace

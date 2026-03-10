@@ -448,8 +448,6 @@ def test_snapshot_uses_ir_node_metadata_when_bundle_legacy_steps_are_missing(tmp
         encoding="utf-8",
     )
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    bundle.legacy_workflow["steps"] = []
-    bundle.legacy_workflow["finally"]["steps"] = []
 
     snapshot = build_status_snapshot(
         bundle,
@@ -530,8 +528,6 @@ def test_snapshot_uses_projection_metadata_when_bundle_ir_raw_and_legacy_steps_a
         encoding="utf-8",
     )
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    bundle.legacy_workflow["steps"] = []
-    bundle.legacy_workflow["finally"]["steps"] = []
     mutated_nodes = {
         node_id: replace(node, raw=MappingProxyType({}))
         for node_id, node in bundle.ir.nodes.items()

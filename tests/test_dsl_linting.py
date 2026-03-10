@@ -206,7 +206,7 @@ def test_lint_warns_when_imported_workflows_export_colliding_outputs(tmp_path: P
     )
 
 
-def test_lint_uses_surface_steps_when_bundle_legacy_steps_are_missing(tmp_path: Path):
+def test_lint_uses_surface_steps_from_typed_bundle(tmp_path: Path):
     bundle = _load_workflow_bundle(
         tmp_path,
         {
@@ -220,7 +220,6 @@ def test_lint_uses_surface_steps_when_bundle_legacy_steps_are_missing(tmp_path: 
             ],
         },
     )
-    bundle.legacy_workflow["steps"] = []
 
     warnings = lint_workflow(bundle)
 
@@ -230,7 +229,7 @@ def test_lint_uses_surface_steps_when_bundle_legacy_steps_are_missing(tmp_path: 
     )
 
 
-def test_lint_uses_typed_import_outputs_when_import_legacy_outputs_are_missing(tmp_path: Path):
+def test_lint_uses_typed_import_outputs_from_imported_bundles(tmp_path: Path):
     _write_yaml(
         tmp_path / "workflows" / "library" / "review.yaml",
         {
@@ -309,8 +308,6 @@ def test_lint_uses_typed_import_outputs_when_import_legacy_outputs_are_missing(t
             ],
         },
     )
-    for imported_bundle in bundle.imports.values():
-        imported_bundle.legacy_workflow.pop("outputs", None)
 
     warnings = lint_workflow(bundle)
 

@@ -7,6 +7,10 @@ import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.resume_planner import ResumePlanner, ResumeStateIntegrityError
+from tests.workflow_bundle_helpers import (
+    materialize_projection_body_steps,
+    materialize_projection_finalization_steps,
+)
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -305,15 +309,16 @@ def test_projection_preserves_existing_lowered_order_and_presentation_keys(tmp_p
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     projection = bundle.projection
+    body_steps = materialize_projection_body_steps(bundle)
+    final_steps = materialize_projection_finalization_steps(bundle)
 
-    for index, step in enumerate(bundle.legacy_workflow["steps"]):
+    for index, step in enumerate(body_steps):
         node_id = step["step_id"]
         assert projection.node_id_by_compatibility_index[index] == node_id
         assert projection.compatibility_index_by_node_id[node_id] == index
         assert projection.presentation_key_by_node_id[node_id] == step["name"]
         assert projection.node_id_by_step_id[node_id] == node_id
 
-    final_steps = bundle.legacy_workflow["finally"]["steps"]
     for index, step in enumerate(final_steps):
         node_id = step["step_id"]
         assert projection.finalization_node_id_by_index[index] == node_id
@@ -381,6 +386,7 @@ def test_resume_planner_uses_projection_step_id_mapping_for_running_current_step
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
+    body_steps = materialize_projection_body_steps(bundle)
     restart_index = planner.determine_restart_index(
         {
             "steps": {},
@@ -390,7 +396,7 @@ def test_resume_planner_uses_projection_step_id_mapping_for_running_current_step
                 "step_id": "root.route_ready",
             },
         },
-        bundle.legacy_workflow["steps"],
+        body_steps,
         projection=bundle.projection,
     )
 
@@ -402,7 +408,9 @@ def test_resume_planner_maps_finalization_current_step_step_ids_to_execution_ord
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
-    steps = list(bundle.legacy_workflow["steps"]) + list(bundle.legacy_workflow["finally"]["steps"])
+    body_steps = materialize_projection_body_steps(bundle)
+    final_steps = materialize_projection_finalization_steps(bundle)
+    steps = list(body_steps) + list(final_steps)
     restart_index = planner.determine_restart_index(
         {
             "steps": {
@@ -414,7 +422,7 @@ def test_resume_planner_maps_finalization_current_step_step_ids_to_execution_ord
             },
             "current_step": {
                 "name": "finally.WriteCleanupMarker",
-                "index": len(bundle.legacy_workflow["steps"]),
+                "index": len(body_steps),
                 "status": "running",
                 "step_id": "root.finally.cleanup.write_cleanup_marker",
             },
@@ -423,15 +431,16 @@ def test_resume_planner_maps_finalization_current_step_step_ids_to_execution_ord
         projection=bundle.projection,
     )
 
-    assert restart_index == len(bundle.legacy_workflow["steps"])
+    assert restart_index == len(body_steps)
 
 
 def test_resume_planner_uses_projection_ordering_when_legacy_step_names_drift(tmp_path: Path):
     workflow_path = _write_projection_workflow(tmp_path)
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    bundle.legacy_workflow["steps"][0]["name"] = "LegacySetReady"
-    bundle.legacy_workflow["steps"][1]["name"] = "LegacyRouteReady"
+    body_steps = materialize_projection_body_steps(bundle)
+    body_steps[0]["name"] = "LegacySetReady"
+    body_steps[1]["name"] = "LegacyRouteReady"
     planner = ResumePlanner()
 
     restart_index = planner.determine_restart_index(
@@ -441,7 +450,7 @@ def test_resume_planner_uses_projection_ordering_when_legacy_step_names_drift(tm
                 "RouteReady": {"status": "pending"},
             },
         },
-        bundle.legacy_workflow["steps"],
+        body_steps,
         projection=bundle.projection,
     )
 
@@ -466,6 +475,7 @@ def test_resume_planner_rejects_inconsistent_projection_compatibility_fields(
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
+    body_steps = materialize_projection_body_steps(bundle)
     current_step = {
         "name": "RouteReady",
         "index": bundle.projection.compatibility_index_by_node_id["root.route_ready"],
@@ -480,7 +490,7 @@ def test_resume_planner_rejects_inconsistent_projection_compatibility_fields(
                 "steps": {},
                 "current_step": current_step,
             },
-            bundle.legacy_workflow["steps"],
+            body_steps,
             projection=bundle.projection,
         )
 
@@ -493,6 +503,7 @@ def test_resume_planner_quarantines_provider_session_visits_without_current_step
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
+    body_steps = materialize_projection_body_steps(bundle)
     guard = planner.detect_interrupted_provider_session_visit(
         {
             "steps": {
@@ -512,7 +523,7 @@ def test_resume_planner_quarantines_provider_session_visits_without_current_step
                 "visit_count": 2,
             },
         },
-        bundle.legacy_workflow["steps"],
+        body_steps,
         projection=bundle.projection,
     )
 
@@ -531,13 +542,13 @@ def test_resume_planner_quarantines_provider_session_visits_when_legacy_step_ord
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     planner = ResumePlanner()
-    bundle.legacy_workflow["steps"] = [
+    body_steps = [
         {
             "name": "LegacyDrift",
             "step_id": "root.legacy_drift",
             "command": ["bash", "-lc", "echo drift"],
         },
-        *bundle.legacy_workflow["steps"],
+        *materialize_projection_body_steps(bundle),
     ]
 
     guard = planner.detect_interrupted_provider_session_visit(
@@ -550,7 +561,7 @@ def test_resume_planner_quarantines_provider_session_visits_when_legacy_step_ord
                 "visit_count": 2,
             },
         },
-        bundle.legacy_workflow["steps"],
+        body_steps,
         projection=bundle.projection,
     )
 
