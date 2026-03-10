@@ -42,7 +42,7 @@ from .outcomes import OutcomeRecorder
 from .predicates import PredicateEvaluationError, resolve_typed_operand
 from .prompting import PromptComposer
 from .references import ReferenceResolutionError, ReferenceResolver
-from .resume_planner import ResumePlanner
+from .resume_planner import ResumePlanner, ResumeStateIntegrityError
 from .runtime_context import RuntimeContext
 from .runtime_types import RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
@@ -444,6 +444,22 @@ class WorkflowExecutor:
             projection=self.projection,
         )
 
+    def _fail_resume_state_integrity(
+        self,
+        error_type: str,
+        message: str,
+        context: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        error = {
+            "type": error_type,
+            "message": message,
+            "context": context,
+        }
+        self.state_manager.fail_run(error)
+        persisted = self.state_manager.load().to_dict()
+        persisted["status"] = "failed"
+        return persisted
+
     def _resume_for_each_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
         """Return True when persisted loop bookkeeping shows unfinished iterations."""
         return self.resume_planner.for_each_has_pending_work(state, step_name)
@@ -774,19 +790,18 @@ class WorkflowExecutor:
                 if session_guard.get("kind") == "quarantine":
                     return self._quarantine_provider_session_resume_guard(state, session_guard)
                 if session_guard.get("kind") == "integrity_error":
-                    error = {
-                        "type": "provider_session_resume_state_integrity_error",
-                        "message": str(session_guard.get("message", "Provider-session resume state is invalid.")),
-                        "context": {
+                    context = session_guard.get("context")
+                    if not isinstance(context, dict):
+                        context = {
                             "step_name": session_guard.get("step_name"),
                             "step_id": session_guard.get("step_id"),
                             "visit_count": session_guard.get("visit_count"),
-                        },
-                    }
-                    self.state_manager.fail_run(error)
-                    persisted = self.state_manager.load().to_dict()
-                    persisted['status'] = 'failed'
-                    return persisted
+                        }
+                    return self._fail_resume_state_integrity(
+                        "provider_session_resume_state_integrity_error",
+                        str(session_guard.get("message", "Provider-session resume state is invalid.")),
+                        context,
+                    )
         state.pop('error', None)
         if state.get('status') != 'running':
             self.state_manager.update_status('running')
@@ -795,7 +810,14 @@ class WorkflowExecutor:
 
         try:
             # Execute steps with control flow support
-            resume_restart_index = self._determine_resume_restart_index(state) if resume else None
+            try:
+                resume_restart_index = self._determine_resume_restart_index(state) if resume else None
+            except ResumeStateIntegrityError as exc:
+                return self._fail_resume_state_integrity(
+                    "resume_state_integrity_error",
+                    str(exc),
+                    dict(exc.context),
+                )
             step_index = 0
             while step_index < len(self.steps):
                 step = self.steps[step_index]

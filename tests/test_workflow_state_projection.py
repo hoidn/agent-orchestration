@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
-from orchestrator.workflow.resume_planner import ResumePlanner
+from orchestrator.workflow.resume_planner import ResumePlanner, ResumeStateIntegrityError
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -309,3 +310,41 @@ def test_resume_planner_uses_projection_step_id_mapping_for_running_current_step
     )
 
     assert restart_index == bundle.projection.compatibility_index_by_node_id["root.route_ready"]
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("name", "SetReady"),
+        ("index", 0),
+    ],
+)
+def test_resume_planner_rejects_inconsistent_projection_compatibility_fields(
+    tmp_path: Path,
+    field: str,
+    value: object,
+):
+    workflow_path = _write_projection_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    planner = ResumePlanner()
+    current_step = {
+        "name": "RouteReady",
+        "index": bundle.projection.compatibility_index_by_node_id["root.route_ready"],
+        "status": "running",
+        "step_id": "root.route_ready",
+    }
+    current_step[field] = value
+
+    with pytest.raises(ResumeStateIntegrityError) as exc_info:
+        planner.determine_restart_index(
+            {
+                "steps": {},
+                "current_step": current_step,
+            },
+            bundle.legacy_workflow["steps"],
+            projection=bundle.projection,
+        )
+
+    assert exc_info.value.context["step_id"] == "root.route_ready"
+    assert exc_info.value.context["field"] == field

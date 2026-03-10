@@ -91,6 +91,27 @@ class WorkflowStateProjection:
     for_each_nodes: Mapping[str, IterationStepKeyProjection] = field(default_factory=empty_frozen_mapping)
     call_boundaries: Mapping[str, CallBoundaryProjection] = field(default_factory=empty_frozen_mapping)
 
+    def node_id_for_step_id(self, step_id: str) -> Optional[str]:
+        """Return the executable node id for a persisted step id."""
+        return self.node_id_by_step_id.get(step_id)
+
+    def entry_for_step_id(self, step_id: str) -> Optional[CompatibilityNodeProjection]:
+        """Return projection metadata for a persisted step id."""
+        node_id = self.node_id_for_step_id(step_id)
+        if node_id is None:
+            return None
+        return self.entries_by_node_id.get(node_id)
+
+    def presentation_key_for_step_id(self, step_id: str) -> Optional[str]:
+        """Return the persisted/reporting presentation key for a step id."""
+        entry = self.entry_for_step_id(step_id)
+        return entry.presentation_key if entry is not None else None
+
+    def compatibility_index_for_step_id(self, step_id: str) -> Optional[int]:
+        """Return the top-level compatibility index for a step id when one exists."""
+        entry = self.entry_for_step_id(step_id)
+        return entry.compatibility_index if entry is not None else None
+
     def repeat_until_step_key(self, loop_node_id: str, iteration_index: int, nested_node_id: str) -> str:
         """Format the persisted/reporting key for one repeat-until iteration node."""
         projection = self.repeat_until_nodes.get(loop_node_id)

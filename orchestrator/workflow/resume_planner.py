@@ -2,9 +2,25 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
 
 from .state_projection import WorkflowStateProjection
+
+
+class ResumeStateIntegrityError(RuntimeError):
+    """Raised when persisted compatibility surfaces disagree during resume."""
+
+    def __init__(self, message: str, *, context: Dict[str, Any]):
+        super().__init__(message)
+        self.context = context
+
+
+@dataclass(frozen=True)
+class _ProjectedCurrentStep:
+    node_id: str
+    presentation_key: str
+    compatibility_index: int
 
 
 class ResumePlanner:
@@ -38,11 +54,11 @@ class ResumePlanner:
 
         current_step = state.get("current_step")
         if isinstance(current_step, dict):
-            projected_index = self._projected_step_index(current_step, projection)
-            if projected_index is not None:
-                current_result = steps_state.get(current_step.get("name"))
+            projected_current_step = self._projected_current_step(current_step, projection)
+            if projected_current_step is not None:
+                current_result = steps_state.get(projected_current_step.presentation_key)
                 if not self.entry_is_terminal(current_result):
-                    return projected_index
+                    return projected_current_step.compatibility_index
             current_index = current_step.get("index")
             current_status = current_step.get("status")
             if isinstance(current_index, int) and current_status == "running":
@@ -70,20 +86,106 @@ class ResumePlanner:
 
         return None
 
-    def _projected_step_index(
+    def _projected_current_step(
         self,
         current_step: Dict[str, Any],
         projection: Optional[WorkflowStateProjection],
-    ) -> Optional[int]:
+    ) -> Optional[_ProjectedCurrentStep]:
         if projection is None:
             return None
         step_id = current_step.get("step_id")
         if not isinstance(step_id, str) or not step_id:
             return None
-        node_id = projection.node_id_by_step_id.get(step_id)
-        if node_id is None:
-            return None
-        return projection.compatibility_index_by_node_id.get(node_id)
+        entry = projection.entry_for_step_id(step_id)
+        if entry is None:
+            raise ResumeStateIntegrityError(
+                f"Persisted current_step.step_id '{step_id}' is not present in the current workflow projection.",
+                context={
+                    "step_id": step_id,
+                    "field": "step_id",
+                    "expected": "known projection step_id",
+                    "actual": step_id,
+                },
+            )
+        compatibility_index = entry.compatibility_index
+        if not isinstance(compatibility_index, int):
+            raise ResumeStateIntegrityError(
+                f"Persisted current_step.step_id '{step_id}' does not map to a resumable top-level workflow node.",
+                context={
+                    "step_id": step_id,
+                    "field": "step_id",
+                    "expected": "top-level compatibility index",
+                    "actual": None,
+                },
+            )
+        presentation_key = entry.presentation_key
+        current_name = current_step.get("name")
+        if isinstance(current_name, str) and current_name and current_name != presentation_key:
+            raise ResumeStateIntegrityError(
+                "Persisted current_step.name does not match the projection entry for current_step.step_id.",
+                context={
+                    "step_id": step_id,
+                    "field": "name",
+                    "expected": presentation_key,
+                    "actual": current_name,
+                },
+            )
+        current_index = current_step.get("index")
+        if isinstance(current_index, int) and current_index != compatibility_index:
+            raise ResumeStateIntegrityError(
+                "Persisted current_step.index does not match the projection entry for current_step.step_id.",
+                context={
+                    "step_id": step_id,
+                    "field": "index",
+                    "expected": compatibility_index,
+                    "actual": current_index,
+                },
+            )
+        return _ProjectedCurrentStep(
+            node_id=entry.node_id,
+            presentation_key=presentation_key,
+            compatibility_index=compatibility_index,
+        )
+
+    def _resolve_provider_session_step(
+        self,
+        current_step: Dict[str, Any],
+        steps: List[Dict[str, Any]],
+        projection: Optional[WorkflowStateProjection],
+    ) -> Optional[Dict[str, Any]]:
+        if projection is not None:
+            step_id = current_step.get("step_id")
+            if isinstance(step_id, str) and step_id:
+                projected_index = projection.compatibility_index_for_step_id(step_id)
+                if isinstance(projected_index, int) and 0 <= projected_index < len(steps):
+                    candidate = steps[projected_index]
+                    if isinstance(candidate, dict):
+                        return candidate
+        current_index = current_step.get("index")
+        if isinstance(current_index, int) and 0 <= current_index < len(steps):
+            candidate = steps[current_index]
+            if isinstance(candidate, dict):
+                return candidate
+        step_name = current_step.get("name")
+        if isinstance(step_name, str) and step_name:
+            for candidate in steps:
+                if isinstance(candidate, dict) and candidate.get("name") == step_name:
+                    return candidate
+        return None
+
+    def _projection_integrity_error(
+        self,
+        current_step: Dict[str, Any],
+        exc: ResumeStateIntegrityError,
+    ) -> Dict[str, Any]:
+        return {
+            "kind": "integrity_error",
+            "message": str(exc),
+            "step_name": current_step.get("name"),
+            "step_id": current_step.get("step_id"),
+            "visit_count": current_step.get("visit_count"),
+            "context": dict(exc.context),
+        }
 
     def detect_interrupted_provider_session_visit(
         self,
@@ -100,34 +202,16 @@ class ResumePlanner:
         if not isinstance(current_step, dict) or current_step.get("status") != "running":
             return None
 
-        current_index = current_step.get("index")
         step_name = current_step.get("name")
         if not isinstance(step_name, str) or not step_name:
             return None
 
-        step: Optional[Dict[str, Any]] = None
-        if isinstance(current_index, int) and 0 <= current_index < len(steps):
-            candidate = steps[current_index]
-            if isinstance(candidate, dict):
-                step = candidate
-        elif projection is not None:
-            step_id = current_step.get("step_id")
-            if isinstance(step_id, str):
-                node_id = projection.node_id_by_step_id.get(step_id)
-                projected_index = (
-                    projection.compatibility_index_by_node_id.get(node_id)
-                    if node_id is not None
-                    else None
-                )
-                if isinstance(projected_index, int) and 0 <= projected_index < len(steps):
-                    candidate = steps[projected_index]
-                    if isinstance(candidate, dict):
-                        step = candidate
-        if step is None:
-            for candidate in steps:
-                if isinstance(candidate, dict) and candidate.get("name") == step_name:
-                    step = candidate
-                    break
+        try:
+            step = self._resolve_provider_session_step(current_step, steps, projection)
+            if isinstance(step, dict) and isinstance(step.get("provider_session"), dict):
+                self._projected_current_step(current_step, projection)
+        except ResumeStateIntegrityError as exc:
+            return self._projection_integrity_error(current_step, exc)
         if not isinstance(step, dict):
             return None
 

@@ -1030,6 +1030,45 @@ def test_structured_if_else_smoke_resume_does_not_replay_completed_lowered_steps
     assert loaded_state.steps["RouteReview"]["artifacts"] == {"route_result": True}
 
 
+def test_resume_fails_closed_on_projection_current_step_integrity_mismatch(temp_workspace, capsys):
+    """Resume should reject corrupted current_step compatibility fields when step_id disagrees."""
+    run_id = "if-else-resume-integrity-error"
+    workflow_path, state_manager = _seed_structured_if_else_failure(temp_workspace, run_id=run_id)
+    bundle = WorkflowLoader(temp_workspace).load_bundle(workflow_path)
+
+    loaded_state = state_manager.load()
+    loaded_state.status = "failed"
+    loaded_state.current_step = {
+        "name": "SetReady",
+        "index": 0,
+        "type": "structured_if_join",
+        "status": "running",
+        "step_id": "root.route_review",
+    }
+    state_manager._write_state()
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 1
+    persisted_state = state_manager.load().to_dict()
+    error = persisted_state["error"]
+
+    assert persisted_state["status"] == "failed"
+    assert error["type"] == "resume_state_integrity_error"
+    assert error["context"]["step_id"] == "root.route_review"
+    assert error["context"]["field"] == "name"
+    assert error["context"]["expected"] == bundle.projection.presentation_key_by_node_id["root.route_review"]
+    assert error["context"]["actual"] == "SetReady"
+
+    captured = capsys.readouterr()
+    assert "current_step.name" in captured.err
+
+
 def test_repeat_until_smoke_resume_restarts_unfinished_iteration_without_replaying_completed_nested_steps(
     temp_workspace,
 ):

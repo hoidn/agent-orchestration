@@ -99,6 +99,20 @@ def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Dict[str, Any], Opt
     return ordered_steps, workflow_dict
 
 
+def _resolved_current_step_name(workflow: Any, current_step: Optional[Dict[str, Any]]) -> Optional[str]:
+    if not isinstance(current_step, dict):
+        return None
+    bundle = workflow_bundle(workflow)
+    if bundle is not None:
+        step_id = current_step.get("step_id")
+        if isinstance(step_id, str) and step_id:
+            projected_name = bundle.projection.presentation_key_for_step_id(step_id)
+            if isinstance(projected_name, str) and projected_name:
+                return projected_name
+    name = current_step.get("name")
+    return name if isinstance(name, str) and name else None
+
+
 def _normalize_output_preview(step_result: Dict[str, Any]) -> str:
     for key in ("text", "output"):
         value = step_result.get(key)
@@ -207,6 +221,7 @@ def build_status_snapshot(
     steps_state = state.get("steps") if isinstance(state.get("steps"), dict) else {}
     step_visits = state.get("step_visits") if isinstance(state.get("step_visits"), dict) else {}
     current_step = state.get("current_step") if isinstance(state.get("current_step"), dict) else None
+    current_step_name = _resolved_current_step_name(workflow, current_step)
 
     step_entries = []
     for idx, (step, node_id) in enumerate(ordered_steps):
@@ -217,7 +232,7 @@ def build_status_snapshot(
         )
         result = steps_state.get(name, {}) if isinstance(steps_state, dict) else {}
         prompt_text = _read_prompt_audit(run_root, name)
-        is_current_step = isinstance(current_step, dict) and current_step.get("name") == name
+        is_current_step = current_step_name == name
         node_kind = bundle.ir.nodes[node_id].kind if bundle is not None and isinstance(node_id, str) else None
 
         status = _coerce_step_status(result) or "pending"
