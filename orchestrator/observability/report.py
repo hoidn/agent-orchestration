@@ -18,25 +18,8 @@ def _step_name(step: Mapping[str, Any], index: int) -> str:
     return str(step.get("name", f"step_{index}"))
 
 
-def _step_kind(step: Mapping[str, Any], node_kind: Optional[ExecutableNodeKind] = None) -> str:
-    if node_kind is not None:
-        kind_map = {
-            ExecutableNodeKind.IF_BRANCH_MARKER: "structured_if_branch",
-            ExecutableNodeKind.IF_JOIN: "structured_if_join",
-            ExecutableNodeKind.MATCH_CASE_MARKER: "structured_match_case",
-            ExecutableNodeKind.MATCH_JOIN: "structured_match_join",
-            ExecutableNodeKind.REPEAT_UNTIL_FRAME: "repeat_until",
-            ExecutableNodeKind.FOR_EACH: "for_each",
-            ExecutableNodeKind.CALL_BOUNDARY: "call",
-            ExecutableNodeKind.FINALIZATION_STEP: "finally",
-            ExecutableNodeKind.PROVIDER: "provider",
-            ExecutableNodeKind.COMMAND: "command",
-            ExecutableNodeKind.WAIT_FOR: "wait_for",
-            ExecutableNodeKind.ASSERT: "assert",
-            ExecutableNodeKind.SET_SCALAR: "set_scalar",
-            ExecutableNodeKind.INCREMENT_SCALAR: "increment_scalar",
-        }
-        return kind_map.get(node_kind, "unknown")
+def _legacy_step_kind(step: Mapping[str, Any]) -> str:
+    """Return the compatibility step kind inferred from legacy lowered payloads."""
     if "workflow_finalization" in step:
         return "finally"
     if "structured_if_branch" in step:
@@ -68,6 +51,28 @@ def _step_kind(step: Mapping[str, Any], node_kind: Optional[ExecutableNodeKind] 
     return "unknown"
 
 
+def _step_kind(step: Mapping[str, Any], node_kind: Optional[ExecutableNodeKind] = None) -> str:
+    if node_kind is not None:
+        kind_map = {
+            ExecutableNodeKind.IF_BRANCH_MARKER: "structured_if_branch",
+            ExecutableNodeKind.IF_JOIN: "structured_if_join",
+            ExecutableNodeKind.MATCH_CASE_MARKER: "structured_match_case",
+            ExecutableNodeKind.MATCH_JOIN: "structured_match_join",
+            ExecutableNodeKind.REPEAT_UNTIL_FRAME: "repeat_until",
+            ExecutableNodeKind.FOR_EACH: "for_each",
+            ExecutableNodeKind.CALL_BOUNDARY: "call",
+            ExecutableNodeKind.FINALIZATION_STEP: "finally",
+            ExecutableNodeKind.PROVIDER: "provider",
+            ExecutableNodeKind.COMMAND: "command",
+            ExecutableNodeKind.WAIT_FOR: "wait_for",
+            ExecutableNodeKind.ASSERT: "assert",
+            ExecutableNodeKind.SET_SCALAR: "set_scalar",
+            ExecutableNodeKind.INCREMENT_SCALAR: "increment_scalar",
+        }
+        return kind_map.get(node_kind, "unknown")
+    return _legacy_step_kind(step)
+
+
 def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Mapping[str, Any], Optional[str]]], Mapping[str, Any]]:
     workflow_dict = workflow_legacy_dict(workflow) or {}
     bundle = workflow_bundle(workflow)
@@ -79,7 +84,7 @@ def _ordered_step_entries(workflow: Any) -> tuple[list[tuple[Mapping[str, Any], 
         return [(step, step.get("step_id") if isinstance(step, dict) else None) for step in steps], workflow_dict
 
     ordered_steps: list[tuple[Mapping[str, Any], Optional[str]]] = []
-    for node_id in bundle.ir.body_region + bundle.ir.finalization_region:
+    for node_id in bundle.projection.ordered_execution_node_ids():
         node = bundle.ir.nodes.get(node_id)
         if node is None:
             continue
@@ -249,7 +254,7 @@ def build_status_snapshot(
                 if isinstance(result, dict)
                 else typed_node.step_id if typed_node is not None else step.get("step_id")
             ),
-            "kind": _step_kind(step, node_kind=node_kind),
+            "kind": _step_kind(step, node_kind=node_kind) if bundle is None or node_kind is not None else "unknown",
             "status": status,
             "consumes": _report_compatible_value(step.get("consumes", [])),
             "expected_outputs": _report_compatible_value(step.get("expected_outputs", [])),

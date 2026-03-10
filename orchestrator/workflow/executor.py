@@ -354,9 +354,17 @@ class WorkflowExecutor:
         """
         self.loaded_bundle = workflow_bundle(workflow)
         legacy_workflow = workflow_legacy_dict(workflow)
-        if legacy_workflow is None:
+        if legacy_workflow is None and self.loaded_bundle is None:
             raise TypeError(f"Unsupported workflow type for execution: {type(workflow).__name__}")
-        self.workflow = legacy_workflow
+        self.legacy_workflow = legacy_workflow
+        if (
+            self.loaded_bundle is not None
+            and isinstance(self.loaded_bundle.surface.raw, Mapping)
+        ):
+            self.workflow = _thaw_workflow_mapping(self.loaded_bundle.surface.raw)
+        else:
+            assert legacy_workflow is not None
+            self.workflow = legacy_workflow
         self.projection = self.loaded_bundle.projection if self.loaded_bundle is not None else None
         self.executable_ir = self.loaded_bundle.ir if self.loaded_bundle is not None else None
         self.workspace = workspace
@@ -507,33 +515,26 @@ class WorkflowExecutor:
 
     def _ordered_top_level_steps(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Optional[str]]]:
         """Return top-level body/finalization adapter steps ordered by projection when available."""
-        body_steps = self.workflow.get("steps", [])
-        if not isinstance(body_steps, list):
-            body_steps = []
-        finalization_steps = (
-            self.finalization.get("steps", [])
-            if isinstance(self.finalization, dict) and isinstance(self.finalization.get("steps"), list)
-            else []
-        )
         if self.loaded_bundle is None or self.executable_ir is None:
+            body_steps = self.workflow.get("steps", [])
+            if not isinstance(body_steps, list):
+                body_steps = []
+            finalization_steps = (
+                self.finalization.get("steps", [])
+                if isinstance(self.finalization, dict) and isinstance(self.finalization.get("steps"), list)
+                else []
+            )
             step_node_ids = [
                 step.get("step_id") if isinstance(step, dict) and isinstance(step.get("step_id"), str) else None
                 for step in list(body_steps) + list(finalization_steps)
             ]
             return list(body_steps), list(finalization_steps), step_node_ids
 
-        steps_by_node_id: Dict[str, Dict[str, Any]] = {}
-        for step in list(body_steps) + list(finalization_steps):
-            if isinstance(step, dict) and isinstance(step.get("step_id"), str):
-                steps_by_node_id[step["step_id"]] = step
-
         ordered_body_steps = self._ordered_projection_steps(
-            steps_by_node_id,
             self.executable_ir.body_region,
             region_name="body",
         )
         ordered_finalization_steps = self._ordered_projection_steps(
-            steps_by_node_id,
             self.executable_ir.finalization_region,
             region_name="finalization",
         )
@@ -542,15 +543,13 @@ class WorkflowExecutor:
 
     def _ordered_projection_steps(
         self,
-        steps_by_node_id: Dict[str, Dict[str, Any]],
         node_ids: tuple[str, ...],
         *,
         region_name: str,
     ) -> List[Dict[str, Any]]:
-        """Materialize top-level runtime steps from IR raw payloads, with a narrow adapter fallback."""
+        """Materialize top-level runtime steps from executable IR payloads."""
         ordered_steps: List[Dict[str, Any]] = []
         for node_id in node_ids:
-            legacy_step = steps_by_node_id.get(node_id)
             if self.executable_ir is None:
                 raise ValueError("Typed top-level ordering requires executable IR")
             node = self.executable_ir.nodes.get(node_id)
@@ -558,7 +557,6 @@ class WorkflowExecutor:
                 raise ValueError(f"Executable IR is missing {region_name} node '{node_id}'")
             materialized_step = self._materialize_projection_step(
                 node,
-                legacy_step=legacy_step,
                 region_name=region_name,
             )
             if not isinstance(materialized_step.get("step_id"), str) or not materialized_step["step_id"]:
@@ -576,17 +574,14 @@ class WorkflowExecutor:
         self,
         node: ExecutableNode,
         *,
-        legacy_step: Optional[Dict[str, Any]],
         region_name: str,
     ) -> Dict[str, Any]:
         """Convert one executable node into the runtime step payload used by the executor."""
         if isinstance(node.raw, Mapping):
             materialized_step = _thaw_workflow_mapping(node.raw)
-        elif legacy_step is not None:
-            materialized_step = _thaw_workflow_mapping(legacy_step)
         else:
             raise ValueError(
-                f"Typed workflow is missing both {region_name} IR raw payload and adapter step for '{node.node_id}'"
+                f"Typed workflow is missing {region_name} IR raw payload for '{node.node_id}'"
             )
 
         if isinstance(node, ForEachNode):
@@ -1070,7 +1065,7 @@ class WorkflowExecutor:
         return self.condition_evaluator.evaluate(condition, variables, state, scope=scope)
 
     def _structured_if_branches(self, step: Dict[str, Any]) -> Mapping[str, Any]:
-        """Return typed structured-if branch metadata with legacy fallback."""
+        """Return structured-if branch metadata sourced from typed IR when available."""
         node = self._executable_node_for_step(step)
         if isinstance(node, IfJoinNode) and self.executable_ir is not None and self.projection is not None:
             branches: Dict[str, Any] = {}
@@ -1098,12 +1093,14 @@ class WorkflowExecutor:
                     "outputs": node.branch_outputs.get(marker.branch_name, {}),
                 }
             return branches
+        if self._use_ir_topology:
+            return {}
         metadata = step.get("structured_if_join", {})
         branches = metadata.get("branches") if isinstance(metadata, dict) else {}
         return branches if isinstance(branches, Mapping) else {}
 
     def _structured_match_cases(self, step: Dict[str, Any]) -> Mapping[str, Any]:
-        """Return typed structured-match case metadata with legacy fallback."""
+        """Return structured-match case metadata sourced from typed IR when available."""
         node = self._executable_node_for_step(step)
         if isinstance(node, MatchJoinNode) and self.executable_ir is not None and self.projection is not None:
             cases: Dict[str, Any] = {}
@@ -1131,6 +1128,8 @@ class WorkflowExecutor:
                     "outputs": node.case_outputs.get(marker.case_name, {}),
                 }
             return cases
+        if self._use_ir_topology:
+            return {}
         metadata = step.get("structured_match_join", {})
         cases = metadata.get("cases") if isinstance(metadata, dict) else {}
         return cases if isinstance(cases, Mapping) else {}
@@ -1146,6 +1145,8 @@ class WorkflowExecutor:
                 op="eq",
                 right=node.case_name,
             ), False
+        if self._use_ir_topology:
+            return None, False
         guard = step.get("structured_if_guard", {})
         condition = guard.get("condition") if isinstance(guard, dict) else None
         invert = bool(guard.get("invert")) if isinstance(guard, dict) else False
@@ -1174,6 +1175,8 @@ class WorkflowExecutor:
             return node.branch_outputs.get(selection_value, {})
         if isinstance(node, MatchJoinNode):
             return node.case_outputs.get(selection_value, {})
+        if self._use_ir_topology:
+            return {}
         metadata = step.get("structured_if_join") or step.get("structured_match_join") or {}
         selections = metadata.get("branches") or metadata.get("cases") or {}
         if not isinstance(selections, Mapping):
@@ -2209,6 +2212,8 @@ class WorkflowExecutor:
             return 'for_each'
         if execution_kind is ExecutableNodeKind.REPEAT_UNTIL_FRAME:
             return 'repeat_until'
+        if self._use_ir_topology:
+            return 'unknown'
         if 'structured_if_branch' in step:
             return 'structured_if_branch'
         if 'structured_if_join' in step:
@@ -2940,9 +2945,10 @@ class WorkflowExecutor:
     ) -> Optional[Dict[str, Any]]:
         """Execute one top-level step and persist its result when applicable."""
         execution_kind = self._execution_kind_for_step(step)
+        allow_legacy_fallback = not self._use_ir_topology
 
         if execution_kind is ExecutableNodeKind.FOR_EACH or (
-            execution_kind is None and "for_each" in step
+            allow_legacy_fallback and execution_kind is None and "for_each" in step
         ):
             self._execute_for_each(step, state, resume=resume_current_step)
             if step_name in state["steps"]:
@@ -2954,7 +2960,7 @@ class WorkflowExecutor:
             return result
 
         if execution_kind is ExecutableNodeKind.REPEAT_UNTIL_FRAME or (
-            execution_kind is None and "repeat_until" in step
+            allow_legacy_fallback and execution_kind is None and "repeat_until" in step
         ):
             self._execute_repeat_until(step, state, resume=resume_current_step)
             result = state.get("steps", {}).get(step_name, {"status": "completed"})
@@ -2962,31 +2968,31 @@ class WorkflowExecutor:
             return result
 
         if execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER or (
-            execution_kind is None and "structured_if_branch" in step
+            allow_legacy_fallback and execution_kind is None and "structured_if_branch" in step
         ):
             result = self._execute_structured_if_branch(step)
             return self._persist_step_result(state, step_name, step, result)
 
         if execution_kind is ExecutableNodeKind.IF_JOIN or (
-            execution_kind is None and "structured_if_join" in step
+            allow_legacy_fallback and execution_kind is None and "structured_if_join" in step
         ):
             result = self._execute_structured_if_join(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
         if execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER or (
-            execution_kind is None and "structured_match_case" in step
+            allow_legacy_fallback and execution_kind is None and "structured_match_case" in step
         ):
             result = self._execute_structured_match_case(step)
             return self._persist_step_result(state, step_name, step, result)
 
         if execution_kind is ExecutableNodeKind.MATCH_JOIN or (
-            execution_kind is None and "structured_match_join" in step
+            allow_legacy_fallback and execution_kind is None and "structured_match_join" in step
         ):
             result = self._execute_structured_match_join(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
         if execution_kind is ExecutableNodeKind.WAIT_FOR or (
-            execution_kind is None and "wait_for" in step
+            allow_legacy_fallback and execution_kind is None and "wait_for" in step
         ):
             result = self._execute_wait_for_result(step)
             phase_hint = None
@@ -3008,13 +3014,13 @@ class WorkflowExecutor:
             )
 
         if execution_kind is ExecutableNodeKind.ASSERT or (
-            execution_kind is None and "assert" in step
+            allow_legacy_fallback and execution_kind is None and "assert" in step
         ):
             result = self._execute_assert(step, state)
             return self._persist_step_result(state, step_name, step, result)
 
         if execution_kind is ExecutableNodeKind.SET_SCALAR or (
-            execution_kind is None and "set_scalar" in step
+            allow_legacy_fallback and execution_kind is None and "set_scalar" in step
         ):
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -3024,7 +3030,7 @@ class WorkflowExecutor:
             )
 
         if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR or (
-            execution_kind is None and "increment_scalar" in step
+            allow_legacy_fallback and execution_kind is None and "increment_scalar" in step
         ):
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -3034,7 +3040,7 @@ class WorkflowExecutor:
             )
 
         if execution_kind is ExecutableNodeKind.CALL_BOUNDARY or (
-            execution_kind is None and "call" in step
+            allow_legacy_fallback and execution_kind is None and "call" in step
         ):
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -3044,7 +3050,7 @@ class WorkflowExecutor:
             )
 
         if execution_kind is ExecutableNodeKind.PROVIDER or (
-            execution_kind is None and "provider" in step
+            allow_legacy_fallback and execution_kind is None and "provider" in step
         ):
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -3054,7 +3060,7 @@ class WorkflowExecutor:
             )
 
         if execution_kind is ExecutableNodeKind.COMMAND or (
-            execution_kind is None and "command" in step
+            allow_legacy_fallback and execution_kind is None and "command" in step
         ):
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -3091,13 +3097,14 @@ class WorkflowExecutor:
         )
         step_name_override = step.get("name")
         execution_kind = self._execution_kind_for_step(step)
+        allow_legacy_fallback = not self._use_ir_topology
 
         if execution_kind is ExecutableNodeKind.COMMAND or (
-            execution_kind is None and "command" in step
+            allow_legacy_fallback and execution_kind is None and "command" in step
         ):
             result = self._execute_command_with_context(step, context, state)
         elif execution_kind is ExecutableNodeKind.PROVIDER or (
-            execution_kind is None and "provider" in step
+            allow_legacy_fallback and execution_kind is None and "provider" in step
         ):
             result = self._execute_provider_with_context(
                 step,
@@ -3106,39 +3113,39 @@ class WorkflowExecutor:
                 runtime_step_id=runtime_step_id,
             )
         elif execution_kind is ExecutableNodeKind.ASSERT or (
-            execution_kind is None and "assert" in step
+            allow_legacy_fallback and execution_kind is None and "assert" in step
         ):
             result = self._execute_assert(step, state, context=context, scope=scope)
         elif execution_kind is ExecutableNodeKind.SET_SCALAR or (
-            execution_kind is None and "set_scalar" in step
+            allow_legacy_fallback and execution_kind is None and "set_scalar" in step
         ):
             result = self._execute_set_scalar(step)
         elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR or (
-            execution_kind is None and "increment_scalar" in step
+            allow_legacy_fallback and execution_kind is None and "increment_scalar" in step
         ):
             result = self._execute_increment_scalar(step, state)
         elif execution_kind is ExecutableNodeKind.WAIT_FOR or (
-            execution_kind is None and "wait_for" in step
+            allow_legacy_fallback and execution_kind is None and "wait_for" in step
         ):
             result = self._execute_wait_for_result(step)
         elif execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER or (
-            execution_kind is None and "structured_if_branch" in step
+            allow_legacy_fallback and execution_kind is None and "structured_if_branch" in step
         ):
             result = self._execute_structured_if_branch(step)
         elif execution_kind is ExecutableNodeKind.IF_JOIN or (
-            execution_kind is None and "structured_if_join" in step
+            allow_legacy_fallback and execution_kind is None and "structured_if_join" in step
         ):
             result = self._execute_structured_if_join(step, state, scope=scope)
         elif execution_kind is ExecutableNodeKind.MATCH_CASE_MARKER or (
-            execution_kind is None and "structured_match_case" in step
+            allow_legacy_fallback and execution_kind is None and "structured_match_case" in step
         ):
             result = self._execute_structured_match_case(step)
         elif execution_kind is ExecutableNodeKind.MATCH_JOIN or (
-            execution_kind is None and "structured_match_join" in step
+            allow_legacy_fallback and execution_kind is None and "structured_match_join" in step
         ):
             result = self._execute_structured_match_join(step, state, scope=scope)
         elif execution_kind is ExecutableNodeKind.CALL_BOUNDARY or (
-            execution_kind is None and "call" in step
+            allow_legacy_fallback and execution_kind is None and "call" in step
         ):
             result = self._execute_call(
                 step,
@@ -4073,7 +4080,13 @@ class WorkflowExecutor:
             },
             'context': context.get(
                 'context',
-                run_state.context if isinstance(run_state.context, dict) else self.variables,
+                run_state.context
+                if isinstance(run_state.context, dict) and run_state.context
+                else (
+                    self.workflow.get("context", {})
+                    if isinstance(self.workflow.get("context"), dict)
+                    else {}
+                ),
             ),
             'inputs': run_state.bound_inputs,
             'steps': steps_namespace,
@@ -4684,10 +4697,12 @@ class WorkflowExecutor:
 
     def _execute_provider(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute provider step without loop context."""
-        context = {'context': state.get('context', {})}
+        state_context = state.get('context')
+        context = {'context': state_context} if isinstance(state_context, dict) and state_context else {}
         return self._execute_provider_with_context(step, context, state)
 
     def _execute_command(self, step: Dict[str, Any], state: Dict[str, Any]) -> Dict[str, Any]:
         """Execute command step without loop context."""
-        context = {'context': state.get('context', {})}
+        state_context = state.get('context')
+        context = {'context': state_context} if isinstance(state_context, dict) and state_context else {}
         return self._execute_command_with_context(step, context, state)

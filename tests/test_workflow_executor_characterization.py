@@ -468,6 +468,50 @@ def test_executor_top_level_provider_step_persists_result_shape_and_clears_curre
     assert persisted.get("current_step") is None
 
 
+def test_executor_uses_surface_workflow_config_when_legacy_root_metadata_drifts(tmp_path: Path):
+    workflow = {
+        "version": "2.10",
+        "name": "projection-executor-root-config",
+        "context": {
+            "greeting": "ok",
+        },
+        "providers": {
+            "echoer": {
+                "command": [
+                    "python",
+                    "-c",
+                    "import sys; sys.stdout.write(sys.argv[1])",
+                    "${value}",
+                ],
+            }
+        },
+        "steps": [
+            {
+                "name": "AskProvider",
+                "id": "ask_provider",
+                "provider": "echoer",
+                "provider_params": {
+                    "value": "${context.greeting}",
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    bundle.legacy_workflow["providers"] = {}
+    bundle.legacy_workflow["context"] = {}
+
+    state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-root-config")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "projection-executor-root-config")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["AskProvider"]["output"] == "ok"
+    assert persisted["steps"]["AskProvider"]["output"] == "ok"
+
+
 def test_executor_provider_session_fresh_clears_current_step_after_atomic_publication(tmp_path: Path):
     session_script = "\n".join(
         [

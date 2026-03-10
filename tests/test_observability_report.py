@@ -1,5 +1,7 @@
 """Tests for deterministic workflow status reporting."""
 
+from dataclasses import replace
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -338,6 +340,70 @@ def test_snapshot_accepts_loaded_bundle_and_uses_projection_ordering(tmp_path: P
     ]
     assert snapshot["steps"][1]["kind"] == "structured_if_branch"
     assert snapshot["steps"][-1]["kind"] == "finally"
+
+
+def test_snapshot_uses_projection_execution_order_when_ir_and_projection_order_diverge(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "bundle-projection-order"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow_path = tmp_path / "workflow.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(
+            {
+                "version": "2.10",
+                "name": "bundle-projection-order",
+                "steps": [
+                    {
+                        "name": "WriteOne",
+                        "id": "write_one",
+                        "command": ["bash", "-lc", "printf 'one\\n'"],
+                    },
+                    {
+                        "name": "WriteTwo",
+                        "id": "write_two",
+                        "command": ["bash", "-lc", "printf 'two\\n'"],
+                    },
+                ],
+            },
+            sort_keys=False,
+        ),
+        encoding="utf-8",
+    )
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    original_node_ids = tuple(bundle.ir.body_region)
+    reversed_node_ids = tuple(reversed(original_node_ids))
+    mutated_projection = replace(
+        bundle.projection,
+        node_id_by_compatibility_index={
+            index: node_id for index, node_id in enumerate(reversed_node_ids)
+        },
+        compatibility_index_by_node_id={
+            node_id: index for index, node_id in enumerate(reversed_node_ids)
+        },
+    )
+    mutated_bundle = replace(bundle, projection=mutated_projection)
+
+    snapshot = build_status_snapshot(
+        mutated_bundle,
+        {
+            "run_id": "bundle-projection-order",
+            "status": "running",
+            "started_at": "2026-03-10T00:00:00+00:00",
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "workflow_file": str(workflow_path),
+            "steps": {},
+        },
+        run_root,
+    )
+
+    assert [step["name"] for step in snapshot["steps"]] == [
+        mutated_bundle.projection.presentation_key_by_node_id[node_id]
+        for node_id in mutated_bundle.projection.ordered_execution_node_ids()
+    ]
+    assert [step["name"] for step in snapshot["steps"]] != [
+        mutated_bundle.projection.presentation_key_by_node_id[node_id]
+        for node_id in original_node_ids
+    ]
 
 
 def test_snapshot_uses_ir_node_metadata_when_bundle_legacy_steps_are_missing(tmp_path: Path):

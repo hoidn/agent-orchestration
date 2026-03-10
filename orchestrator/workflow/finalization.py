@@ -37,6 +37,15 @@ class FinalizationController:
         self.persist_state = persist_state
         self.finalization_failure_error = finalization_failure_error
 
+    def _block_id(self) -> str:
+        """Return the stable persisted block id for workflow finalization."""
+        if isinstance(self.finalization, dict):
+            for key in ("token", "id"):
+                value = self.finalization.get(key)
+                if isinstance(value, str) and value:
+                    return value
+        return "finally"
+
     def _configured_step_names(self) -> List[str]:
         """Return projected finalization presentation keys when available."""
         if self.projection is not None and self.finalization_node_ids:
@@ -69,9 +78,8 @@ class FinalizationController:
         if not self.finalization_steps:
             return None
         output_status = "pending" if self.has_workflow_outputs else "not_configured"
-        block_token = self.finalization.get("token") if isinstance(self.finalization, dict) else None
         return {
-            "block_id": block_token or "finally",
+            "block_id": self._block_id(),
             "status": "pending",
             "body_status": None,
             "current_index": None,
@@ -88,10 +96,7 @@ class FinalizationController:
         if not isinstance(finalization, dict):
             finalization = self.initial_state() or {}
             state["finalization"] = finalization
-        finalization.setdefault(
-            "block_id",
-            self.finalization.get("token") if isinstance(self.finalization, dict) else "finally",
-        )
+        finalization.setdefault("block_id", self._block_id())
         finalization.setdefault("status", "pending")
         finalization.setdefault("body_status", None)
         finalization.setdefault("current_index", None)
