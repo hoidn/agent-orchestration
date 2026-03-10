@@ -1216,6 +1216,49 @@ def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corr
     ]
 
 
+def test_repeat_until_uses_typed_output_contract_definition_when_legacy_contract_raw_drifts(
+    tmp_path: Path,
+):
+    workflow_path = _write_workflow(tmp_path, _structured_repeat_until_workflow())
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    review_loop_node = bundle.ir.nodes["root.review_loop"]
+    drifted_output = replace(
+        review_loop_node.output_contracts["review_decision"],
+        raw=freeze_mapping({
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["BLOCKED"],
+            "from": {
+                "ref": "self.steps.WriteDecision.artifacts.review_decision",
+            },
+        }),
+    )
+    bundle = replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType({
+                **bundle.ir.nodes,
+                "root.review_loop": replace(
+                    review_loop_node,
+                    output_contracts=MappingProxyType({
+                        **review_loop_node.output_contracts,
+                        "review_decision": drifted_output,
+                    }),
+                ),
+            }),
+        ),
+    )
+
+    state_manager = StateManager(workspace=tmp_path, run_id="repeat-until-bound-contract")
+    state_manager.initialize("workflow.yaml")
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert state["steps"]["AssertApproved"]["status"] == "completed"
+
+
 def test_repeat_until_nested_call_and_match_step_ids_stay_stable_when_siblings_shift(tmp_path: Path):
     _write_repeat_until_call_library(tmp_path / "a")
     _write_repeat_until_call_library(tmp_path / "b")

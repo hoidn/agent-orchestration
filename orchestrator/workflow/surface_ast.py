@@ -76,6 +76,7 @@ class SurfaceContract:
     name: str
     kind: Optional[str]
     value_type: Optional[str]
+    definition: Mapping[str, Any]
     raw: Mapping[str, Any]
     from_ref: Any = None
 

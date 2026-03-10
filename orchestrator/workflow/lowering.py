@@ -267,6 +267,7 @@ class _IRBuilder:
                         name=contract.name,
                         kind=contract.kind,
                         value_type=contract.value_type,
+                        definition=contract.definition,
                         raw=contract.raw,
                         source_address=None,
                     )
@@ -1059,6 +1060,7 @@ def _bind_contracts(
                 name=contract.name,
                 kind=contract.kind,
                 value_type=contract.value_type,
+                definition=contract.definition,
                 raw=contract.raw,
                 source_address=_bind_surface_ref(contract.from_ref, context),
             )

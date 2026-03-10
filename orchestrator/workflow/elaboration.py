@@ -526,6 +526,7 @@ def _parse_contracts(
             name=name,
             kind=spec.get("kind") if isinstance(spec.get("kind"), str) else None,
             value_type=spec.get("type") if isinstance(spec.get("type"), str) else None,
+            definition=freeze_mapping(spec),
             raw=freeze_mapping(spec),
             from_ref=from_ref,
         )

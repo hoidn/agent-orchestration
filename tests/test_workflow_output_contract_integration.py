@@ -1,7 +1,7 @@
 """Integration tests for expected_outputs enforcement in workflow execution."""
 
 from dataclasses import replace
-from types import SimpleNamespace
+from types import MappingProxyType, SimpleNamespace
 from pathlib import Path
 
 import yaml
@@ -9,6 +9,8 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.loaded_bundle import workflow_input_contracts
+from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.workflow.surface_ast import freeze_mapping
 from tests.workflow_bundle_helpers import thaw_surface_workflow
 
@@ -199,6 +201,60 @@ def test_workflow_signature_preserves_exact_string_inputs_and_outputs(tmp_path: 
     }
 
 
+def test_workflow_input_binding_uses_typed_contract_definition_when_legacy_contract_raw_drifts(
+    tmp_path: Path,
+):
+    """Workflow input binding should use the typed contract definition, not mutable raw payloads."""
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "task-a.md").write_text("# task\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.1",
+        "name": "workflow-signature-bound-input-contract",
+        "inputs": {
+            "task_path": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "docs/tasks",
+                "must_exist_target": True,
+            },
+        },
+        "steps": [{
+            "name": "Noop",
+            "command": ["bash", "-lc", "true"],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load_bundle(workflow_file)
+    drifted_input = replace(
+        loaded.surface.inputs["task_path"],
+        raw=freeze_mapping({
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "docs/other",
+            "must_exist_target": True,
+        }),
+    )
+    loaded = replace(
+        loaded,
+        surface=replace(
+            loaded.surface,
+            inputs=MappingProxyType({"task_path": drifted_input}),
+        ),
+    )
+
+    bound_inputs = bind_workflow_inputs(
+        workflow_input_contracts(loaded),
+        {"task_path": "docs/tasks/task-a.md"},
+        tmp_path,
+    )
+
+    assert bound_inputs == {
+        "task_path": "docs/tasks/task-a.md",
+    }
+
+
 def test_workflow_output_export_uses_bound_ir_contracts_when_legacy_refs_are_corrupted(tmp_path: Path):
     """Workflow output export should follow lowered IR bindings, not mutated legacy refs."""
     (tmp_path / "docs" / "tasks").mkdir(parents=True)
@@ -255,6 +311,91 @@ def test_workflow_output_export_uses_bound_ir_contracts_when_legacy_refs_are_cor
     loaded = replace(
         loaded,
         surface=replace(loaded.surface, raw=freeze_mapping(corrupted_surface)),
+    )
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={
+            "task_path": "docs/tasks/task-a.md",
+        },
+    )
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "report_path": "artifacts/reports/report.md",
+    }
+
+
+def test_workflow_output_export_uses_typed_contract_definition_when_legacy_contract_raw_drifts(
+    tmp_path: Path,
+):
+    """Workflow output export should validate against the typed contract definition, not raw payload drift."""
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "task-a.md").write_text("# task\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.1",
+        "name": "workflow-signature-bound-output-contract",
+        "inputs": {
+            "task_path": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "docs/tasks",
+                "must_exist_target": True,
+            },
+        },
+        "outputs": {
+            "report_path": {
+                "kind": "relpath",
+                "type": "relpath",
+                "under": "artifacts/reports",
+                "must_exist_target": True,
+                "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
+            },
+        },
+        "steps": [{
+            "name": "GenerateReport",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p state artifacts/reports && "
+                "cp \"${inputs.task_path}\" artifacts/reports/report.md && "
+                "printf 'artifacts/reports/report.md\\n' > state/report_path.txt",
+            ],
+            "expected_outputs": [
+                {
+                    "name": "report_path",
+                    "path": "state/report_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/reports",
+                    "must_exist_target": True,
+                },
+            ],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    drifted_output = replace(
+        loaded.ir.outputs["report_path"],
+        raw=freeze_mapping({
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "docs/export",
+            "must_exist_target": True,
+            "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
+        }),
+    )
+    loaded = replace(
+        loaded,
+        ir=replace(
+            loaded.ir,
+            outputs=MappingProxyType({"report_path": drifted_output}),
+        ),
     )
 
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")

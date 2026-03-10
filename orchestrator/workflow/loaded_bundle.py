@@ -57,9 +57,9 @@ def workflow_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[st
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is not None:
         return MappingProxyType({
-            name: _compatibility_value(contract.raw)
+            name: _compatibility_value(contract.definition)
             for name, contract in bundle.surface.inputs.items()
-            if isinstance(name, str) and isinstance(contract.raw, Mapping)
+            if isinstance(name, str) and isinstance(contract.definition, Mapping)
         })
     if isinstance(workflow_or_bundle, Mapping):
         inputs = workflow_or_bundle.get("inputs")
@@ -73,9 +73,9 @@ def workflow_output_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[s
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is not None:
         return MappingProxyType({
-            name: _compatibility_value(contract.raw)
+            name: _compatibility_value(contract.definition)
             for name, contract in bundle.surface.outputs.items()
-            if isinstance(name, str) and isinstance(contract.raw, Mapping)
+            if isinstance(name, str) and isinstance(contract.definition, Mapping)
         })
     if isinstance(workflow_or_bundle, Mapping):
         outputs = workflow_or_bundle.get("outputs")

@@ -504,6 +504,58 @@ def test_executor_uses_typed_for_each_body_nodes_when_cached_loop_payload_drifts
     ]
 
 
+def test_executor_uses_typed_context_defaults_when_loop_state_context_is_missing(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-context-defaults",
+        "context": {
+            "project": "typed-pipeline",
+        },
+        "steps": [
+            {
+                "name": "ProcessItems",
+                "id": "process_items",
+                "for_each": {
+                    "items": ["alpha"],
+                    "steps": [
+                        {
+                            "name": "WriteContext",
+                            "id": "write_context",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf '%s\\n' '${context.project}' >> state/context.txt",
+                            ],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    bundle = replace(
+        bundle,
+        surface=replace(bundle.surface, raw=freeze_mapping({})),
+    )
+
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-context-defaults",
+    )
+    state_manager.initialize("workflow.yaml")
+    assert state_manager.state is not None
+    state_manager.state.context = None
+    state_manager._write_state()
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "context.txt").read_text(encoding="utf-8").splitlines() == [
+        "typed-pipeline",
+    ]
+
+
 def test_executor_uses_typed_repeat_until_body_nodes_when_loop_raw_steps_are_missing(tmp_path: Path):
     workflow = {
         "version": "2.7",

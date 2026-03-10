@@ -359,8 +359,6 @@ class WorkflowExecutor:
             if isinstance(workflow_context_defaults, dict)
             else {}
         )
-        workflow_variables = _thaw_workflow_value(self.loaded_bundle.surface.raw.get("variables", {}))
-        self.workflow_variables = workflow_variables if isinstance(workflow_variables, dict) else {}
         global_secrets = _thaw_workflow_value(self.loaded_bundle.surface.secrets)
         self.global_secrets = (
             list(global_secrets)
@@ -372,7 +370,7 @@ class WorkflowExecutor:
         workflow_providers = _thaw_workflow_value(self.loaded_bundle.surface.providers)
         self.workflow_providers = workflow_providers if isinstance(workflow_providers, dict) else {}
         self.workflow_artifacts = {
-            name: _thaw_workflow_value(contract.raw)
+            name: _thaw_workflow_value(contract.definition)
             for name, contract in self.loaded_bundle.surface.artifacts.items()
             if isinstance(name, str)
         }
@@ -454,7 +452,7 @@ class WorkflowExecutor:
         }
         self._top_level_step_count = len(self._step_node_ids)
         self._projection_index_by_presentation_name = self._build_projection_index_by_presentation_name()
-        self.variables = self.workflow_variables
+        self.variables = dict(self.workflow_context_defaults)
         self.resume_planner = ResumePlanner()
         self.finalization_controller = FinalizationController(
             finalization=self.finalization,
@@ -4309,7 +4307,7 @@ class WorkflowExecutor:
             validation_spec: Any = spec
             source: Any = None
             if isinstance(spec, ExecutableContract):
-                validation_spec = spec.raw
+                validation_spec = spec.definition
                 source = spec.source_address
             elif isinstance(spec, dict):
                 binding = spec.get('from')

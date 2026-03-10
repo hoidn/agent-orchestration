@@ -95,7 +95,7 @@ def resolve_workflow_outputs(
     resolver = ReferenceResolver()
     resolved_outputs: Dict[str, Any] = {}
     for name, spec in specs.items():
-        validation_spec: Any = spec.raw if isinstance(spec, ExecutableContract) else spec
+        validation_spec: Any = spec.definition if isinstance(spec, ExecutableContract) else spec
         binding = validation_spec.get("from") if isinstance(validation_spec, Mapping) else None
         ref = binding.get("ref") if isinstance(binding, Mapping) else None
         source = spec.source_address if isinstance(spec, ExecutableContract) else None
