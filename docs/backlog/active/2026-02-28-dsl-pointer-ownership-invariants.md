@@ -1,9 +1,12 @@
 # Backlog Item: Prewritten Output Pointer Mode Follow-On
 
-- Status: active
+- Status: parked
 - Created on: 2026-02-28
 - Prior plan: `docs/plans/2026-02-28-dsl-pointer-ownership-invariants-implementation.md` (superseded in part by `docs/plans/2026-03-02-v14-consumes-read-only-pointer-semantics.md`)
 - Plan: none yet
+
+## Reactivation Rule
+Do not reactivate this item unless a concrete workflow or example demonstrates that `v1.4` read-only consume semantics are still insufficient and that an explicit prewritten-output-pointer contract would remove real prompt discipline or shell-glue burden.
 
 ## Scope
 Reframe the old pointer-ownership backlog around the narrower feature that still appears useful after the `v1.4` consume-semantics change: an optional authored way to declare that an `expected_outputs.path` file is prewritten before step execution and must remain unchanged across the step.

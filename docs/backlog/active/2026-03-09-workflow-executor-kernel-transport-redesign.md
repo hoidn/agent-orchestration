@@ -1,11 +1,14 @@
 # Backlog Item: Workflow Executor Kernel / Transport Redesign
 
-- Status: active
+- Status: deferred
 - Created on: 2026-03-09
 - Plan: `docs/plans/2026-03-09-workflow-executor-kiss-refactor-plan.md` (precursor; follow-on redesign plan still needed)
+- Blocked on: `docs/backlog/active/2026-03-09-typed-workflow-ast-ir-pipeline.md`
 
 ## Scope
-Follow the completed KISS consolidation with a narrower but deeper redesign of the remaining `executor.py` hot spots: the top-level execution kernel, provider/command transport seam, and the integration boundary between routing authority and step-kind execution. The goal is not to split the file further for its own sake, but to reduce real conceptual load by making the kernel smaller, making transport execution more self-contained, and preserving explicit authority over run status, cursor movement, routing, and persistence. Any follow-on work should stay concrete, avoid framework-style abstractions, and preserve external workflow/state behavior unless a deliberate contract change is separately designed and reviewed.
+Follow the completed KISS consolidation with a narrower but deeper redesign of the remaining `executor.py` hot spots: the top-level execution kernel, provider/command transport seam, and the integration boundary between routing authority and step-kind execution.
+
+This item is deferred because the repo now also has an active follow-on for a typed surface AST plus lowered executable IR. Until that direction is planned concretely, another round of dict-shaped executor cleanup risks churn or duplicated work. If this item is reactivated before the AST/IR item lands, it should be narrowed to transport/kernel work that will clearly survive an AST/IR migration.
 
 ## Why This Is Still Backlog-Worthy
 The KISS consolidation removed obvious non-paying abstractions and made outcome recording explicit, but it did not materially shrink the core orchestration nexus. `executor.py` still carries too much of:
@@ -15,6 +18,9 @@ The KISS consolidation removed obvious non-paying abstractions and made outcome 
 - kernel-to-collaborator reshaping code
 
 That means the file is still harder to reason about than it should be, even though the current authority boundaries are better than before. The remaining problem is no longer simple extraction hygiene; it is that some of the last high-LOC clusters are still real architectural seams that deserve a more principled redesign.
+
+## Why This Is Deferred
+The newer typed AST / executable IR backlog item is a better umbrella for the next architectural step. That work explicitly changes the loader/lowering/executor boundary, while this item assumes the current dict-shaped runtime model. Doing this redesign first would likely produce one more cleanup pass that the AST/IR work would later need to revisit.
 
 ## Desired Outcome
 This follow-on should leave the runtime with:
@@ -62,6 +68,7 @@ This backlog item should not be used as justification for:
 - DSL changes
 - `StateManager` storage redesign
 - speculative cleanup outside the remaining executor/kernel/transport seams
+- broad loader/lowering representation redesign before the AST/IR direction is decided
 
 ## Entry Criteria For A Follow-On Plan
 Before implementation starts, the follow-on plan should:
