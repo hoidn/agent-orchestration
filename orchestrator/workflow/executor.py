@@ -2824,28 +2824,6 @@ class WorkflowExecutor:
             if goto_transfer is not None:
                 return goto_transfer.target_node_id or "_end"
 
-        # AT-58, AT-59: Check on.success/on.failure handlers first, then on.always (with precedence)
-        if 'on' in step:
-            handlers = step['on']
-            goto_target = None
-
-            # Determine which handler applies based on exit code
-            if exit_code == 0 and 'success' in handlers:
-                if 'goto' in handlers['success']:
-                    goto_target = handlers['success']['goto']
-            elif exit_code != 0 and 'failure' in handlers:
-                if 'goto' in handlers['failure']:
-                    goto_target = handlers['failure']['goto']
-
-            # AT-59: on.always evaluated after success/failure and overrides them
-            if 'always' in handlers:
-                if 'goto' in handlers['always']:
-                    goto_target = handlers['always']['goto']
-
-            # If we found a goto target, use it
-            if goto_target:
-                return self._resolve_goto_target(goto_target)
-
         # AT-56, AT-57: Apply strict_flow and on_error behavior
         # Only if no goto handler was found
         if exit_code != 0:

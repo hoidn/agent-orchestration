@@ -1,11 +1,14 @@
 """Tests for advisory DSL linting and normalization hints."""
 
+from dataclasses import replace
+
 from pathlib import Path
 
 import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.linting import lint_workflow
+from orchestrator.workflow.surface_ast import freeze_mapping
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -196,7 +199,7 @@ def test_lint_warns_when_imported_workflows_export_colliding_outputs(tmp_path: P
         },
     )
 
-    assert "__imports" not in workflow
+    assert "__imports" not in workflow.surface.raw
 
     warnings = lint_workflow(workflow)
 
@@ -227,6 +230,63 @@ def test_lint_uses_surface_steps_from_typed_bundle(tmp_path: Path):
         warning["code"] == "shell-gate-to-assert" and warning["step"] == "CheckReady"
         for warning in warnings
     )
+
+
+def test_lint_uses_typed_surface_leaf_fields_when_step_raw_drifts(tmp_path: Path):
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "1.4",
+            "name": "typed-lint-raw-drift",
+            "steps": [
+                {
+                    "name": "CheckReady",
+                    "command": ["bash", "-lc", "test -f state/ready.txt"],
+                    "on": {
+                        "success": {"goto": "Approved"},
+                        "failure": {"goto": "Revise"},
+                    },
+                },
+                {
+                    "name": "Approved",
+                    "command": ["echo", "approved"],
+                },
+                {
+                    "name": "Revise",
+                    "command": ["echo", "revise"],
+                },
+            ],
+        },
+    )
+    drifted_bundle = replace(
+        bundle,
+        surface=replace(
+            bundle.surface,
+            steps=(
+                replace(
+                    bundle.surface.steps[0],
+                    raw=freeze_mapping(
+                        {
+                            **dict(bundle.surface.steps[0].raw),
+                            "command": ["echo", "ready"],
+                            "on": {},
+                        }
+                    ),
+                ),
+                *bundle.surface.steps[1:],
+            ),
+        ),
+    )
+
+    warnings = lint_workflow(drifted_bundle)
+    warning_codes = {
+        warning["code"]
+        for warning in warnings
+        if warning.get("step") == "CheckReady"
+    }
+
+    assert "shell-gate-to-assert" in warning_codes
+    assert "goto-diamond-to-structured-control" in warning_codes
 
 
 def test_lint_uses_typed_import_outputs_from_imported_bundles(tmp_path: Path):

@@ -28,8 +28,11 @@ from .surface_ast import (
     SurfaceContract,
     SurfaceFinallyBlock,
     SurfaceMatchCaseBlock,
+    SurfaceOnConfig,
+    SurfaceOnHandler,
     SurfaceRepeatUntilBlock,
     SurfaceStep,
+    SurfaceStepCommonConfig,
     SurfaceStepKind,
     SurfaceWorkflow,
     WorkflowProvenance,
@@ -270,6 +273,7 @@ def _elaborate_step(
     kind = _surface_step_kind(step)
     call_bindings = {}
     references = []
+    common = _parse_surface_common_config(step)
 
     when_predicate = _parse_predicate(step.get("when"), catalog)
     assert_predicate = _parse_predicate(step.get("assert"), catalog)
@@ -353,6 +357,7 @@ def _elaborate_step(
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
             raw=freeze_mapping(step),
+            common=common,
             repeat_until=repeat_until,
         )
 
@@ -360,14 +365,30 @@ def _elaborate_step(
         for_each = step.get("for_each")
         nested_steps = for_each.get("steps") if isinstance(for_each, Mapping) else None
         nested_names = _step_names(nested_steps)
+        items_from = (
+            for_each.get("items_from")
+            if isinstance(for_each, Mapping) and isinstance(for_each.get("items_from"), str)
+            else None
+        )
+        items = ()
+        if isinstance(for_each, Mapping) and items_from is None:
+            items = _frozen_sequence(for_each.get("items"))
         return SurfaceStep(
             name=str(step.get("name", "")),
             step_id=str(step.get("step_id", "")),
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
             raw=freeze_mapping(step),
+            common=common,
             when_predicate=when_predicate,
             assert_predicate=assert_predicate,
+            for_each_items=items,
+            for_each_items_from=items_from,
+            for_each_item_name=(
+                for_each.get("as")
+                if isinstance(for_each, Mapping) and isinstance(for_each.get("as"), str)
+                else "item"
+            ),
             for_each_steps=_elaborate_steps(
                 nested_steps,
                 root_step_names=root_step_names,
@@ -382,9 +403,40 @@ def _elaborate_step(
         kind=kind,
         authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
         raw=freeze_mapping(step),
+        common=common,
         when_predicate=when_predicate,
         assert_predicate=assert_predicate,
         references=tuple(references),
+        command=_frozen_sequence(step.get("command")) if kind is SurfaceStepKind.COMMAND else (),
+        provider=step.get("provider") if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("provider"), str) else None,
+        provider_params=freeze_value(step["provider_params"]) if kind is SurfaceStepKind.PROVIDER and "provider_params" in step else None,
+        input_file=freeze_value(step["input_file"]) if kind is SurfaceStepKind.PROVIDER and "input_file" in step else None,
+        asset_file=freeze_value(step["asset_file"]) if kind is SurfaceStepKind.PROVIDER and "asset_file" in step else None,
+        depends_on=_frozen_sequence(step.get("depends_on")) if kind is SurfaceStepKind.PROVIDER else (),
+        asset_depends_on=_frozen_sequence(step.get("asset_depends_on")) if kind is SurfaceStepKind.PROVIDER else (),
+        inject_output_contract=(
+            step.get("inject_output_contract")
+            if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("inject_output_contract"), bool)
+            else None
+        ),
+        inject_consumes=(
+            step.get("inject_consumes")
+            if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("inject_consumes"), bool)
+            else None
+        ),
+        prompt_consumes=_frozen_sequence(step.get("prompt_consumes")) if kind is SurfaceStepKind.PROVIDER else (),
+        consumes_injection_position=(
+            step.get("consumes_injection_position")
+            if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("consumes_injection_position"), str)
+            else None
+        ),
+        wait_for=freeze_mapping(step.get("wait_for")) if kind is SurfaceStepKind.WAIT_FOR else freeze_mapping(None),
+        set_scalar=freeze_mapping(step.get("set_scalar")) if kind is SurfaceStepKind.SET_SCALAR else freeze_mapping(None),
+        increment_scalar=(
+            freeze_mapping(step.get("increment_scalar"))
+            if kind is SurfaceStepKind.INCREMENT_SCALAR
+            else freeze_mapping(None)
+        ),
         call_alias=step.get("call") if kind is SurfaceStepKind.CALL and isinstance(step.get("call"), str) else None,
         call_bindings=MappingProxyType(call_bindings),
     )
@@ -507,6 +559,63 @@ def _parse_predicate(node: Any, catalog: SurfaceRefScopeCatalog) -> Any:
     return parse_typed_predicate(dict(node), catalog)
 
 
+def _parse_surface_common_config(step: Mapping[str, Any]) -> SurfaceStepCommonConfig:
+    return SurfaceStepCommonConfig(
+        on=_parse_surface_on_config(step.get("on")),
+        consumes=_frozen_sequence(step.get("consumes")),
+        consume_bundle=freeze_value(step["consume_bundle"]) if "consume_bundle" in step else None,
+        publishes=_frozen_sequence(step.get("publishes")),
+        expected_outputs=_frozen_sequence(step.get("expected_outputs")),
+        output_bundle=freeze_value(step["output_bundle"]) if "output_bundle" in step else None,
+        persist_artifacts_in_state=(
+            step.get("persist_artifacts_in_state")
+            if isinstance(step.get("persist_artifacts_in_state"), bool)
+            else None
+        ),
+        provider_session=(
+            freeze_mapping(step.get("provider_session"))
+            if isinstance(step.get("provider_session"), Mapping)
+            else None
+        ),
+        max_visits=step.get("max_visits") if isinstance(step.get("max_visits"), int) else None,
+        retries=freeze_value(step["retries"]) if "retries" in step else None,
+        env=freeze_mapping(step.get("env")) if isinstance(step.get("env"), Mapping) else None,
+        secrets=_string_tuple(step.get("secrets")),
+        timeout_sec=(
+            step.get("timeout_sec")
+            if isinstance(step.get("timeout_sec"), (int, float))
+            else None
+        ),
+        output_capture=freeze_value(step["output_capture"]) if "output_capture" in step else None,
+        output_file=freeze_value(step["output_file"]) if "output_file" in step else None,
+        allow_parse_error=(
+            step.get("allow_parse_error")
+            if isinstance(step.get("allow_parse_error"), bool)
+            else None
+        ),
+    )
+
+
+def _parse_surface_on_config(node: Any) -> SurfaceOnConfig | None:
+    if not isinstance(node, Mapping):
+        return None
+    success = _parse_surface_on_handler(node.get("success"))
+    failure = _parse_surface_on_handler(node.get("failure"))
+    always = _parse_surface_on_handler(node.get("always"))
+    if success is None and failure is None and always is None:
+        return None
+    return SurfaceOnConfig(success=success, failure=failure, always=always)
+
+
+def _parse_surface_on_handler(node: Any) -> SurfaceOnHandler | None:
+    if not isinstance(node, Mapping):
+        return None
+    goto = node.get("goto")
+    if not isinstance(goto, str):
+        return None
+    return SurfaceOnHandler(goto=goto)
+
+
 def _parse_contracts(
     specs: Any,
     catalog: SurfaceRefScopeCatalog,
@@ -537,6 +646,12 @@ def _optional_string(value: Any) -> str | None:
     if isinstance(value, str):
         return value
     return None
+
+
+def _frozen_sequence(value: Any) -> tuple[Any, ...]:
+    if not isinstance(value, (list, tuple)):
+        return ()
+    return tuple(freeze_value(item) for item in value)
 
 
 def _string_tuple(value: Any) -> tuple[str, ...]:

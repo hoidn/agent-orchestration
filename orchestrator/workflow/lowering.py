@@ -50,7 +50,9 @@ from .state_projection import (
 from .statements import branch_token, match_case_token
 from .surface_ast import (
     SurfaceContract,
+    SurfaceOnConfig,
     SurfaceStep,
+    SurfaceStepCommonConfig,
     SurfaceStepKind,
     SurfaceWorkflow,
     freeze_mapping,
@@ -400,7 +402,7 @@ class _IRBuilder:
             "execution_config": _execution_config_for_step(step),
             "raw": step.raw,
         }
-        routed_transfers = _leaf_goto_transfers(step.raw, context.root_targets)
+        routed_transfers = _leaf_goto_transfers(step.common.on, context.root_targets)
         if step.kind is SurfaceStepKind.CALL:
             call_transfers = dict(routed_transfers)
             call_transfers["call_return"] = ExecutableTransfer(
@@ -795,124 +797,90 @@ def _frozen_sequence(value: Any) -> tuple[Any, ...]:
     return tuple(freeze_value(item) for item in value)
 
 
-def _common_execution_config(raw: Mapping[str, Any]) -> StepCommonConfig:
+def _surface_on_mapping(on: SurfaceOnConfig | None) -> Mapping[str, Any]:
+    if on is None:
+        return freeze_mapping(None)
+
+    payload: dict[str, Any] = {}
+    for handler_name in ("success", "failure", "always"):
+        handler = getattr(on, handler_name)
+        if handler is None or not isinstance(handler.goto, str):
+            continue
+        payload[handler_name] = {"goto": handler.goto}
+    return freeze_mapping(payload)
+
+
+def _common_execution_config(common: SurfaceStepCommonConfig) -> StepCommonConfig:
     return StepCommonConfig(
-        on=freeze_mapping(raw.get("on")),
-        consumes=_frozen_sequence(raw.get("consumes")),
-        consume_bundle=freeze_value(raw["consume_bundle"]) if "consume_bundle" in raw else None,
-        publishes=_frozen_sequence(raw.get("publishes")),
-        expected_outputs=_frozen_sequence(raw.get("expected_outputs")),
-        output_bundle=freeze_value(raw["output_bundle"]) if "output_bundle" in raw else None,
-        persist_artifacts_in_state=(
-            raw.get("persist_artifacts_in_state")
-            if isinstance(raw.get("persist_artifacts_in_state"), bool)
-            else None
-        ),
-        provider_session=(
-            freeze_mapping(raw.get("provider_session"))
-            if isinstance(raw.get("provider_session"), Mapping)
-            else None
-        ),
-        max_visits=raw.get("max_visits") if isinstance(raw.get("max_visits"), int) else None,
-        retries=freeze_value(raw["retries"]) if "retries" in raw else None,
-        env=freeze_mapping(raw.get("env")) if isinstance(raw.get("env"), Mapping) else None,
-        secrets=tuple(item for item in raw.get("secrets", []) if isinstance(item, str))
-        if isinstance(raw.get("secrets"), list)
-        else (),
-        timeout_sec=(
-            raw.get("timeout_sec")
-            if isinstance(raw.get("timeout_sec"), (int, float))
-            else None
-        ),
-        output_capture=freeze_value(raw["output_capture"]) if "output_capture" in raw else None,
-        output_file=freeze_value(raw["output_file"]) if "output_file" in raw else None,
-        allow_parse_error=(
-            raw.get("allow_parse_error")
-            if isinstance(raw.get("allow_parse_error"), bool)
-            else None
-        ),
+        on=_surface_on_mapping(common.on),
+        consumes=common.consumes,
+        consume_bundle=common.consume_bundle,
+        publishes=common.publishes,
+        expected_outputs=common.expected_outputs,
+        output_bundle=common.output_bundle,
+        persist_artifacts_in_state=common.persist_artifacts_in_state,
+        provider_session=common.provider_session,
+        max_visits=common.max_visits,
+        retries=common.retries,
+        env=common.env,
+        secrets=common.secrets,
+        timeout_sec=common.timeout_sec,
+        output_capture=common.output_capture,
+        output_file=common.output_file,
+        allow_parse_error=common.allow_parse_error,
     )
 
 
 def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConfig]:
-    raw = step.raw if isinstance(step.raw, Mapping) else {}
-    common = _common_execution_config(raw)
+    common = _common_execution_config(step.common)
 
     if step.kind is SurfaceStepKind.COMMAND:
         return CommandStepConfig(
             common=common,
-            command=freeze_value(raw.get("command", ())),
+            command=step.command,
         )
     if step.kind is SurfaceStepKind.PROVIDER:
         return ProviderStepConfig(
             common=common,
-            provider=raw.get("provider") if isinstance(raw.get("provider"), str) else "",
-            provider_params=freeze_value(raw["provider_params"]) if "provider_params" in raw else None,
-            input_file=freeze_value(raw["input_file"]) if "input_file" in raw else None,
-            asset_file=freeze_value(raw["asset_file"]) if "asset_file" in raw else None,
-            depends_on=_frozen_sequence(raw.get("depends_on")),
-            asset_depends_on=_frozen_sequence(raw.get("asset_depends_on")),
-            inject_output_contract=(
-                raw.get("inject_output_contract")
-                if isinstance(raw.get("inject_output_contract"), bool)
-                else None
-            ),
-            inject_consumes=(
-                raw.get("inject_consumes")
-                if isinstance(raw.get("inject_consumes"), bool)
-                else None
-            ),
-            prompt_consumes=_frozen_sequence(raw.get("prompt_consumes")),
-            consumes_injection_position=(
-                raw.get("consumes_injection_position")
-                if isinstance(raw.get("consumes_injection_position"), str)
-                else None
-            ),
+            provider=step.provider or "",
+            provider_params=step.provider_params,
+            input_file=step.input_file,
+            asset_file=step.asset_file,
+            depends_on=step.depends_on,
+            asset_depends_on=step.asset_depends_on,
+            inject_output_contract=step.inject_output_contract,
+            inject_consumes=step.inject_consumes,
+            prompt_consumes=step.prompt_consumes,
+            consumes_injection_position=step.consumes_injection_position,
         )
     if step.kind is SurfaceStepKind.WAIT_FOR:
         return WaitForStepConfig(
             common=common,
-            wait_for=freeze_mapping(raw.get("wait_for")),
+            wait_for=step.wait_for,
         )
     if step.kind is SurfaceStepKind.ASSERT:
         return AssertStepConfig(common=common)
     if step.kind is SurfaceStepKind.SET_SCALAR:
         return SetScalarStepConfig(
             common=common,
-            set_scalar=freeze_mapping(raw.get("set_scalar")),
+            set_scalar=step.set_scalar,
         )
     if step.kind is SurfaceStepKind.INCREMENT_SCALAR:
         return IncrementScalarStepConfig(
             common=common,
-            increment_scalar=freeze_mapping(raw.get("increment_scalar")),
+            increment_scalar=step.increment_scalar,
         )
     if step.kind is SurfaceStepKind.CALL:
         return CallStepConfig(
             common=common,
-            call=step.call_alias or (raw.get("call") if isinstance(raw.get("call"), str) else ""),
+            call=step.call_alias or "",
         )
     if step.kind is SurfaceStepKind.FOR_EACH:
-        authored_for_each = raw.get("for_each")
-        items_from = (
-            authored_for_each.get("items_from")
-            if isinstance(authored_for_each, Mapping)
-            and isinstance(authored_for_each.get("items_from"), str)
-            else None
-        )
-        item_name = (
-            authored_for_each.get("as")
-            if isinstance(authored_for_each, Mapping)
-            and isinstance(authored_for_each.get("as"), str)
-            else "item"
-        )
-        items = ()
-        if isinstance(authored_for_each, Mapping) and items_from is None:
-            items = _frozen_sequence(authored_for_each.get("items"))
         return ForEachStepConfig(
             common=common,
-            items=items,
-            items_from=items_from,
-            item_name=item_name,
+            items=step.for_each_items,
+            items_from=step.for_each_items_from,
+            item_name=step.for_each_item_name,
         )
     if step.kind is SurfaceStepKind.REPEAT_UNTIL and step.repeat_until is not None:
         return RepeatUntilStepConfig(
@@ -1024,28 +992,27 @@ def _bind_goto_transfer(
     )
 
 
-def _leaf_goto_transfers(raw: Mapping[str, Any], root_targets: Mapping[str, _BindingTarget]) -> Mapping[str, ExecutableTransfer]:
-    if not isinstance(raw, Mapping):
+def _leaf_goto_transfers(
+    on: SurfaceOnConfig | None,
+    root_targets: Mapping[str, _BindingTarget],
+) -> Mapping[str, ExecutableTransfer]:
+    if on is None:
         return MappingProxyType({})
 
     routed_transfers: Dict[str, ExecutableTransfer] = {}
-    handlers = raw.get("on")
-    if isinstance(handlers, Mapping):
-        for handler_name, transfer_key in (
-            ("success", "on_success_goto"),
-            ("failure", "on_failure_goto"),
-            ("always", "on_always_goto"),
-        ):
-            handler = handlers.get(handler_name)
-            if not isinstance(handler, Mapping):
-                continue
-            transfer = _bind_goto_transfer(
-                transfer_key,
-                handler.get("goto"),
-                root_targets,
-            )
-            if transfer is not None:
-                routed_transfers[transfer_key] = transfer
+    for handler_name, transfer_key in (
+        ("success", "on_success_goto"),
+        ("failure", "on_failure_goto"),
+        ("always", "on_always_goto"),
+    ):
+        handler = getattr(on, handler_name)
+        transfer = _bind_goto_transfer(
+            transfer_key,
+            handler.goto if handler is not None else None,
+            root_targets,
+        )
+        if transfer is not None:
+            routed_transfers[transfer_key] = transfer
 
     return MappingProxyType(routed_transfers)
 

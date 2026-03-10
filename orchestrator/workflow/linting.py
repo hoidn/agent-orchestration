@@ -6,7 +6,7 @@ import re
 from typing import Any, Dict, Iterable, List, Mapping, Sequence
 
 from .loaded_bundle import workflow_bundle
-from .surface_ast import SurfaceStep
+from .surface_ast import SurfaceOnConfig, SurfaceStep, SurfaceStepKind
 
 
 _STRINGLY_STEP_REF = re.compile(r"\$\{steps\.[^}]+\}")
@@ -80,7 +80,7 @@ def _lint_surface_steps(
         step_path = f"{path_prefix}[{index}]"
         step_name = step.name or f"step_{index}"
 
-        _lint_step_mapping(step.raw, warnings, step_name=step_name, step_path=step_path)
+        _lint_surface_step(step, warnings, step_name=step_name, step_path=step_path)
 
         if step.for_each_steps:
             _lint_surface_steps(step.for_each_steps, warnings, f"{step_path}.for_each.steps")
@@ -144,6 +144,56 @@ def _lint_step_mapping(
         )
 
 
+def _lint_surface_step(
+    step: SurfaceStep,
+    warnings: List[Dict[str, Any]],
+    *,
+    step_name: str,
+    step_path: str,
+) -> None:
+    if _looks_like_surface_shell_gate(step):
+        warnings.append(
+            _warning(
+                code="shell-gate-to-assert",
+                path=step_path,
+                message=(
+                    f"Step '{step_name}' looks like a shell gate. Prefer `assert` "
+                    "so gate failures stay on the typed `assert_failed` path."
+                ),
+                step=step_name,
+                suggestion="Replace the shell `test` gate with `assert`.",
+            )
+        )
+
+    if _looks_like_stringly_equals(step.raw):
+        warnings.append(
+            _warning(
+                code="stringly-when-equals",
+                path=f"{step_path}.when.equals",
+                message=(
+                    f"Step '{step_name}' uses stringly `when.equals` against a step reference. "
+                    "Prefer typed predicates with structured `ref:` operands."
+                ),
+                step=step_name,
+                suggestion="Use `compare` or `artifact_bool` with `ref:` when migrating to v1.6+.",
+            )
+        )
+
+    if _looks_like_surface_goto_diamond(step.common.on):
+        warnings.append(
+            _warning(
+                code="goto-diamond-to-structured-control",
+                path=f"{step_path}.on",
+                message=(
+                    f"Step '{step_name}' routes both success and failure with raw `goto`. "
+                    "Prefer structured `if` or `match` when the workflow can opt into them."
+                ),
+                step=step_name,
+                suggestion="Replace the hand-wired branch diamond with `if` or `match`.",
+            )
+        )
+
+
 def _lint_nested_steps(step: Mapping[str, Any], warnings: List[Dict[str, Any]], step_path: str) -> None:
     for_each = step.get("for_each")
     if isinstance(for_each, dict):
@@ -183,7 +233,18 @@ def _looks_like_shell_gate(step: Mapping[str, Any]) -> bool:
     if step.get("expected_outputs") or step.get("output_bundle") or step.get("publishes"):
         return False
 
-    command = step.get("command")
+    return _looks_like_shell_command(step.get("command"))
+
+
+def _looks_like_surface_shell_gate(step: SurfaceStep) -> bool:
+    if step.kind is not SurfaceStepKind.COMMAND:
+        return False
+    if step.common.expected_outputs or step.common.output_bundle or step.common.publishes:
+        return False
+    return _looks_like_shell_command(step.command)
+
+
+def _looks_like_shell_command(command: Any) -> bool:
     if isinstance(command, str):
         return command.strip().startswith(_SHELL_GATE_PREFIXES)
 
@@ -238,6 +299,16 @@ def _looks_like_goto_diamond(step: Mapping[str, Any]) -> bool:
         isinstance(success_goto, str)
         and isinstance(failure_goto, str)
         and success_goto != failure_goto
+    )
+
+
+def _looks_like_surface_goto_diamond(on: SurfaceOnConfig | None) -> bool:
+    if on is None or on.success is None or on.failure is None:
+        return False
+    return (
+        isinstance(on.success.goto, str)
+        and isinstance(on.failure.goto, str)
+        and on.success.goto != on.failure.goto
     )
 
 

@@ -1,5 +1,7 @@
 """Characterization tests for typed executable IR lowering."""
 
+from dataclasses import replace
+
 from pathlib import Path
 
 import yaml
@@ -18,6 +20,7 @@ from orchestrator.workflow.executable_ir import (
     SetScalarStepConfig,
 )
 from orchestrator.workflow import lowering
+from orchestrator.workflow.surface_ast import freeze_mapping
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -447,6 +450,34 @@ def test_ir_lowering_exposes_routed_transfers_for_on_goto_loop_call_and_finaliza
 
     assert goto_node.routed_transfers["on_success_goto"].target_node_id == "root.done"
     assert goto_node.routed_transfers["on_success_goto"].counts_as_transition is True
+
+
+def test_ir_lowering_uses_typed_surface_goto_when_legacy_step_raw_drifts(tmp_path: Path):
+    goto_path = _write_goto_workflow(tmp_path)
+    bundle = WorkflowLoader(tmp_path).load_bundle(goto_path)
+    route_to_done = bundle.surface.steps[0]
+    drifted_surface = replace(
+        bundle.surface,
+        steps=(
+            replace(
+                route_to_done,
+                raw=freeze_mapping(
+                    {
+                        **dict(route_to_done.raw),
+                        "on": {},
+                    }
+                ),
+            ),
+            *bundle.surface.steps[1:],
+        ),
+    )
+
+    ir, _ = lowering.lower_surface_workflow(drifted_surface)
+    goto_node = ir.nodes["root.route_to_done"]
+
+    assert goto_node.execution_config is not None
+    assert goto_node.execution_config.common.on["success"]["goto"] == "Done"
+    assert goto_node.routed_transfers["on_success_goto"].target_node_id == "root.done"
 
 
 def test_ir_lowering_patches_for_each_body_fallthrough_and_iteration_owned_call_boundaries(

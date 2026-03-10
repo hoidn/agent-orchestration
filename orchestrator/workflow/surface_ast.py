@@ -49,6 +49,44 @@ class SurfaceStepKind(str, Enum):
 
 
 @dataclass(frozen=True)
+class SurfaceOnHandler:
+    """Typed authored control-flow handler."""
+
+    goto: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class SurfaceOnConfig:
+    """Typed authored `on` routing configuration."""
+
+    success: Optional[SurfaceOnHandler] = None
+    failure: Optional[SurfaceOnHandler] = None
+    always: Optional[SurfaceOnHandler] = None
+
+
+@dataclass(frozen=True)
+class SurfaceStepCommonConfig:
+    """Typed authored step fields shared across executable step kinds."""
+
+    on: Optional[SurfaceOnConfig] = None
+    consumes: tuple[Any, ...] = ()
+    consume_bundle: Any = None
+    publishes: tuple[Any, ...] = ()
+    expected_outputs: tuple[Any, ...] = ()
+    output_bundle: Any = None
+    persist_artifacts_in_state: Optional[bool] = None
+    provider_session: Optional[Mapping[str, Any]] = None
+    max_visits: Optional[int] = None
+    retries: Any = None
+    env: Optional[Mapping[str, Any]] = None
+    secrets: tuple[str, ...] = ()
+    timeout_sec: Any = None
+    output_capture: Any = None
+    output_file: Any = None
+    allow_parse_error: Optional[bool] = None
+
+
+@dataclass(frozen=True)
 class WorkflowProvenance:
     """Typed workflow-path and source-root metadata."""
 
@@ -137,14 +175,32 @@ class SurfaceStep:
     kind: SurfaceStepKind
     authored_id: Optional[str] = None
     raw: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    common: SurfaceStepCommonConfig = field(default_factory=SurfaceStepCommonConfig)
     when_predicate: Any = None
     assert_predicate: Any = None
     references: tuple[Any, ...] = ()
+    command: tuple[Any, ...] = ()
+    provider: Optional[str] = None
+    provider_params: Any = None
+    input_file: Any = None
+    asset_file: Any = None
+    depends_on: tuple[Any, ...] = ()
+    asset_depends_on: tuple[Any, ...] = ()
+    inject_output_contract: Optional[bool] = None
+    inject_consumes: Optional[bool] = None
+    prompt_consumes: tuple[Any, ...] = ()
+    consumes_injection_position: Optional[str] = None
+    wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    increment_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     if_condition: Any = None
     then_branch: Optional[SurfaceBranchBlock] = None
     else_branch: Optional[SurfaceBranchBlock] = None
     match_ref: Any = None
     match_cases: Mapping[str, SurfaceMatchCaseBlock] = field(default_factory=empty_frozen_mapping)
+    for_each_items: tuple[Any, ...] = ()
+    for_each_items_from: Optional[str] = None
+    for_each_item_name: str = "item"
     for_each_steps: tuple["SurfaceStep", ...] = ()
     repeat_until: Optional[SurfaceRepeatUntilBlock] = None
     call_alias: Optional[str] = None

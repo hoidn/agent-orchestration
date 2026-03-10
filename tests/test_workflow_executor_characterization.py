@@ -1129,6 +1129,71 @@ def test_executor_uses_ir_routed_transfer_when_materialized_on_target_drifts(tmp
     assert next_step == "root.final"
 
 
+def test_executor_does_not_fallback_to_materialized_goto_when_ir_transfer_is_missing(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-no-legacy-goto-fallback",
+        "steps": [
+            {
+                "name": "Start",
+                "id": "start",
+                "command": ["bash", "-lc", "exit 0"],
+                "on": {
+                    "success": {
+                        "goto": "Final",
+                    }
+                },
+            },
+            {
+                "name": "Final",
+                "id": "final",
+                "command": ["bash", "-lc", "printf 'final\\n'"],
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    start_node = bundle.ir.nodes["root.start"]
+    bundle = replace(
+        bundle,
+        ir=replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **bundle.ir.nodes,
+                    "root.start": replace(start_node, routed_transfers=MappingProxyType({})),
+                }
+            ),
+        ),
+    )
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-no-legacy-goto-fallback",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    step = executor._step_for_node_id("root.start")
+
+    next_step = executor._handle_control_flow(
+        step,
+        {
+            "steps": {
+                "Start": {
+                    "status": "completed",
+                    "exit_code": 0,
+                }
+            }
+        },
+        "Start",
+        0,
+        "stop",
+        current_node_id="root.start",
+    )
+
+    assert step["on"]["success"]["goto"] == "Final"
+    assert next_step is None
+
+
 def test_executor_uses_ir_raw_step_payloads_when_legacy_adapter_payloads_drift(tmp_path: Path):
     workflow = {
         "version": "2.7",
