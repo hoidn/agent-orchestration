@@ -17,6 +17,7 @@ from ..exec.step_executor import StepExecutor
 from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
 from ..providers.registry import ProviderRegistry
+from ..providers.types import ProviderSessionMode, ProviderSessionRequest
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
 from ..contracts.output_contract import (
@@ -377,6 +378,7 @@ class WorkflowExecutor:
         self.max_retries = max_retries
         self.retry_delay_ms = retry_delay_ms
         self.step_heartbeat_interval_sec = step_heartbeat_interval_sec
+        self._active_provider_sessions: Dict[str, Dict[str, Any]] = {}
 
     def _step_id(self, step: Dict[str, Any], fallback_index: Optional[int] = None) -> str:
         """Return the durable identity for a top-level step."""
@@ -433,6 +435,156 @@ class WorkflowExecutor:
     def _resume_repeat_until_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
         """Return True when persisted repeat_until bookkeeping shows unfinished iterations."""
         return self.resume_planner.repeat_until_has_pending_work(state, step_name)
+
+    @staticmethod
+    def _provider_session_config(step: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Return the authored provider_session block when present."""
+        provider_session = step.get("provider_session")
+        return provider_session if isinstance(provider_session, dict) else None
+
+    def _prepare_provider_session_visit(
+        self,
+        step: Dict[str, Any],
+        *,
+        step_name: str,
+        step_id: str,
+        visit_count: int,
+    ) -> None:
+        """Create the canonical session metadata and spool before current_step is persisted."""
+        provider_session = self._provider_session_config(step)
+        if provider_session is None:
+            return
+
+        visit_info = self.state_manager.initialize_provider_session_visit(
+            provider_name=str(step.get("provider", "")),
+            step_name=step_name,
+            step_id=step_id,
+            visit_count=visit_count,
+            mode=str(provider_session.get("mode", "")),
+        )
+        visit_info.update(
+            {
+                "mode": provider_session.get("mode"),
+                "step_id": step_id,
+                "visit_count": visit_count,
+            }
+        )
+        self._active_provider_sessions[step_name] = visit_info
+
+    def _active_provider_session(self, step_name: str) -> Optional[Dict[str, Any]]:
+        """Return the current provider-session visit metadata for one top-level step."""
+        session_info = self._active_provider_sessions.get(step_name)
+        return session_info if isinstance(session_info, dict) else None
+
+    def _update_active_provider_session_metadata(
+        self,
+        step_name: str,
+        **updates: Any,
+    ) -> Optional[Dict[str, Any]]:
+        """Merge updates into the active provider-session metadata record."""
+        session_info = self._active_provider_session(step_name)
+        if session_info is None:
+            return None
+        metadata_path = session_info.get("metadata_path")
+        if not isinstance(metadata_path, str) or not metadata_path:
+            return None
+        metadata = self.state_manager.update_provider_session_metadata(metadata_path, updates)
+        session_info.update(updates)
+        return metadata
+
+    def _finalize_active_provider_session(
+        self,
+        step_name: str,
+        *,
+        step_status: str,
+        publication_state: str,
+        session_id: Optional[str],
+        metadata_mode: Optional[str],
+        command_variant: Optional[str],
+        parser_summary: Optional[Dict[str, Any]] = None,
+        retain_transport_spool: bool,
+    ) -> None:
+        """Finalize visit-scoped provider-session metadata after state publication."""
+        session_info = self._active_provider_session(step_name)
+        if session_info is None:
+            return
+
+        transport_spool_path = session_info.get("transport_spool_path")
+        spool_path = Path(transport_spool_path) if isinstance(transport_spool_path, str) else None
+        captured_transport_bytes = 0
+        if spool_path is not None and spool_path.exists():
+            try:
+                captured_transport_bytes = spool_path.stat().st_size
+            except OSError:
+                captured_transport_bytes = 0
+
+        retained_spool_path: Optional[str] = None
+        if retain_transport_spool and spool_path is not None and spool_path.exists():
+            retained_spool_path = str(spool_path)
+        elif spool_path is not None and spool_path.exists():
+            spool_path.unlink()
+
+        self._update_active_provider_session_metadata(
+            step_name,
+            step_status=step_status,
+            publication_state=publication_state,
+            session_id=session_id,
+            metadata_mode=metadata_mode,
+            command_variant=command_variant,
+            parser_summary=parser_summary or {},
+            captured_transport_bytes=captured_transport_bytes,
+            transport_spool_path=retained_spool_path,
+        )
+        self._active_provider_sessions.pop(step_name, None)
+
+    def _quarantine_provider_session_resume_guard(
+        self,
+        state: Dict[str, Any],
+        guard: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Project an interrupted provider-session visit into durable run-level failure state."""
+        step_name = guard["step_name"]
+        step_id = guard["step_id"]
+        visit_count = guard["visit_count"]
+        metadata_path, transport_spool_path = self.state_manager.provider_session_paths(step_id, visit_count)
+        metadata_synthesized = not metadata_path.exists()
+        if not transport_spool_path.exists():
+            transport_spool_path.write_text("", encoding="utf-8")
+
+        metadata_updates = {
+            "provider": guard.get("provider"),
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": visit_count,
+            "mode": guard.get("mode"),
+            "step_status": "interrupted",
+            "publication_state": "quarantined_interrupted_visit",
+            "captured_transport_bytes": transport_spool_path.stat().st_size if transport_spool_path.exists() else 0,
+            "transport_spool_path": str(transport_spool_path),
+        }
+        self.state_manager.update_provider_session_metadata(metadata_path, metadata_updates)
+
+        error = {
+            "type": "provider_session_interrupted_visit_quarantined",
+            "message": "An interrupted provider-session visit was quarantined.",
+            "context": {
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+                "metadata_path": str(metadata_path),
+                "transport_spool_path": str(transport_spool_path),
+                "metadata_synthesized": metadata_synthesized,
+            },
+        }
+        self.state_manager.fail_run(
+            error,
+            clear_current_step=True,
+            expected_step_id=step_id,
+            expected_visit_count=visit_count,
+        )
+        persisted = self.state_manager.load().to_dict()
+        persisted["status"] = "failed"
+        return persisted
 
     def _uses_qualified_identities(self) -> bool:
         """Return True when this workflow uses the post-Task-6 state model."""
@@ -591,8 +743,30 @@ class WorkflowExecutor:
         initial_finalization = self._initial_finalization_state()
         if initial_finalization is not None:
             state.setdefault('finalization', initial_finalization)
-        state.pop('error', None)
         state['_resolved_consumes'] = {}
+        if resume:
+            session_guard = self.resume_planner.detect_interrupted_provider_session_visit(state, self.steps)
+            if session_guard is not None:
+                if session_guard.get("kind") == "existing_quarantine":
+                    state['status'] = 'failed'
+                    return state
+                if session_guard.get("kind") == "quarantine":
+                    return self._quarantine_provider_session_resume_guard(state, session_guard)
+                if session_guard.get("kind") == "integrity_error":
+                    error = {
+                        "type": "provider_session_resume_state_integrity_error",
+                        "message": str(session_guard.get("message", "Provider-session resume state is invalid.")),
+                        "context": {
+                            "step_name": session_guard.get("step_name"),
+                            "step_id": session_guard.get("step_id"),
+                            "visit_count": session_guard.get("visit_count"),
+                        },
+                    }
+                    self.state_manager.fail_run(error)
+                    persisted = self.state_manager.load().to_dict()
+                    persisted['status'] = 'failed'
+                    return persisted
+        state.pop('error', None)
         if state.get('status') != 'running':
             self.state_manager.update_status('running')
             state['status'] = 'running'
@@ -948,6 +1122,14 @@ class WorkflowExecutor:
                         self._increment_transition_count(state)
                         step_index = target_index
                     continue
+
+                if isinstance(visit_count, int):
+                    self._prepare_provider_session_visit(
+                        step,
+                        step_name=identity.name,
+                        step_id=identity.step_id,
+                        visit_count=visit_count,
+                    )
 
                 self.state_manager.start_step(
                     identity.name,
@@ -1405,6 +1587,8 @@ class WorkflowExecutor:
         result: Dict[str, Any],
         state: Dict[str, Any],
         runtime_step_id: Optional[str] = None,
+        additional_publishes: Optional[List[Dict[str, str]]] = None,
+        persist: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """Record artifact publications for successful steps."""
         return self.dataflow_manager.record_published_artifacts(
@@ -1413,6 +1597,8 @@ class WorkflowExecutor:
             result,
             state,
             runtime_step_id=runtime_step_id,
+            additional_publishes=additional_publishes,
+            persist=persist,
         )
 
     def _enforce_consumes_contract(
@@ -1870,10 +2056,125 @@ class WorkflowExecutor:
         state: Dict[str, Any],
         result: Dict[str, Any],
     ) -> Dict[str, Any]:
-        publish_error = self._record_published_artifacts(step, step_name, result, state)
+        provider_session = step.get("provider_session")
+        if not isinstance(provider_session, dict):
+            publish_error = self._record_published_artifacts(step, step_name, result, state)
+            if publish_error is not None:
+                result = publish_error
+            return self._persist_step_result(state, step_name, step, result)
+
+        session_info = self._active_provider_session(step_name)
+        additional_publishes: List[Dict[str, str]] = []
+        if provider_session.get("mode") == "fresh" and result.get("exit_code", 0) == 0:
+            session_id = (
+                result.get("debug", {})
+                .get("provider_session", {})
+                .get("session_id")
+                if isinstance(result.get("debug"), dict)
+                else None
+            )
+            publish_artifact = provider_session.get("publish_artifact")
+            if not isinstance(session_id, str) or not session_id:
+                result = self._contract_violation_result(
+                    "Provider execution failed",
+                    {
+                        "step": step_name,
+                        "reason": "missing_provider_session_id",
+                        "artifact": publish_artifact,
+                    },
+                )
+            elif isinstance(publish_artifact, str):
+                artifacts = result.setdefault("artifacts", {})
+                if isinstance(artifacts, dict):
+                    artifacts[publish_artifact] = session_id
+                else:
+                    result["artifacts"] = {publish_artifact: session_id}
+                additional_publishes.append({"artifact": publish_artifact, "from": publish_artifact})
+
+        publish_error = self._record_published_artifacts(
+            step,
+            step_name,
+            result,
+            state,
+            additional_publishes=additional_publishes or None,
+            persist=False,
+        )
         if publish_error is not None:
             result = publish_error
-        return self._persist_step_result(state, step_name, step, result)
+
+        finalized = self._attach_outcome(step, result)
+        finalized.setdefault("name", step_name)
+        finalized.setdefault("step_id", self._step_id(step))
+        step_visits = state.get("step_visits", {})
+        visit_count = step_visits.get(step_name) if isinstance(step_visits, dict) else None
+        if isinstance(visit_count, int):
+            finalized.setdefault("visit_count", visit_count)
+        provider_debug = None
+        if session_info is not None:
+            debug_payload = finalized.setdefault("debug", {})
+            if isinstance(debug_payload, dict):
+                provider_debug = debug_payload.setdefault("provider_session", {})
+            if isinstance(provider_debug, dict):
+                provider_debug.setdefault("mode", provider_session.get("mode"))
+                provider_debug.setdefault("metadata_path", session_info.get("metadata_path"))
+                provider_debug.setdefault("transport_spool_path", session_info.get("transport_spool_path"))
+                provider_debug.setdefault("session_id", None)
+                publication_state = (
+                    "published"
+                    if provider_session.get("mode") == "fresh"
+                    and finalized.get("exit_code", 0) == 0
+                    and isinstance(finalized.get("artifacts"), dict)
+                    and provider_session.get("publish_artifact") in finalized.get("artifacts", {})
+                    else "suppressed_failure"
+                )
+                provider_debug["publication_state"] = publication_state
+        state.setdefault("steps", {})[step_name] = finalized
+
+        artifact_versions = state.get("artifact_versions", {})
+        artifact_consumes = state.get("artifact_consumes", {})
+        self.state_manager.finalize_step_with_dataflow(
+            step_name,
+            self._to_step_result(finalized, step_name),
+            artifact_versions=artifact_versions if isinstance(artifact_versions, dict) else {},
+            artifact_consumes=artifact_consumes if isinstance(artifact_consumes, dict) else {},
+            expected_step_id=finalized.get("step_id"),
+            expected_visit_count=visit_count if isinstance(visit_count, int) else None,
+        )
+        if session_info is not None:
+            retain_transport_spool = self.debug or finalized.get("exit_code", 0) != 0
+            parser_summary = {}
+            if isinstance(provider_debug, dict):
+                event_count = provider_debug.get("event_count")
+                if isinstance(event_count, int):
+                    parser_summary["event_count"] = event_count
+            self._finalize_active_provider_session(
+                step_name,
+                step_status=str(finalized.get("status", "failed")),
+                publication_state=(
+                    provider_debug.get("publication_state")
+                    if isinstance(provider_debug, dict)
+                    else "suppressed_failure"
+                ),
+                session_id=(
+                    provider_debug.get("session_id")
+                    if isinstance(provider_debug, dict) and isinstance(provider_debug.get("session_id"), str)
+                    else None
+                ),
+                metadata_mode=(
+                    provider_debug.get("metadata_mode")
+                    if isinstance(provider_debug, dict) and isinstance(provider_debug.get("metadata_mode"), str)
+                    else None
+                ),
+                command_variant=(
+                    provider_debug.get("command_variant")
+                    if isinstance(provider_debug, dict) and isinstance(provider_debug.get("command_variant"), str)
+                    else None
+                ),
+                parser_summary=parser_summary,
+                retain_transport_spool=retain_transport_spool,
+            )
+        self._emit_step_summary(step_name, step, finalized)
+        return finalized
 
     @staticmethod
     def _to_step_result(result: Dict[str, Any], fallback_name: str) -> StepResult:
@@ -2077,6 +2378,7 @@ class WorkflowExecutor:
         """
         # Initialize debug info dict for injection metadata
         debug_info = {}
+        step_name = step.get('name', f'step_{self.current_step}')
         runtime_context = self._runtime_context(context, state)
         variables = runtime_context.build_variables(self.variable_substitutor, state)
 
@@ -2170,9 +2472,20 @@ class WorkflowExecutor:
         if self.debug and prompt:
             self._write_prompt_audit(step.get('name', 'provider'), prompt, step.get('secrets'), step.get('env'))
 
+        session_request, session_error = self._build_provider_session_request(
+            step,
+            state,
+            step_name=step_name,
+            consume_identity=runtime_step_id or self._step_id(step),
+        )
+        if session_error is not None:
+            return session_error
+
         # Create retry policy for provider steps (AT-21)
         # Providers use global max_retries or step-specific retries
-        if 'retries' in step:
+        if session_request is not None:
+            retry_policy = RetryPolicy.for_command(0)
+        elif 'retries' in step:
             retry_policy = RetryPolicy.for_command(step['retries'])
         else:
             retry_policy = RetryPolicy.for_provider(
@@ -2205,6 +2518,7 @@ class WorkflowExecutor:
                 params=params,
                 context=provider_context,
                 prompt_content=prompt,
+                session_request=session_request,
                 env=step.get('env'),
                 secrets=step.get('secrets'),
                 timeout_sec=step.get('timeout_sec')
@@ -2221,8 +2535,21 @@ class WorkflowExecutor:
                     }
                 }
 
+            session_runtime = self._active_provider_session(step_name)
+            if session_runtime is not None:
+                resolved_command = self.secrets_manager.mask_text(" ".join(invocation.command))
+                self._update_active_provider_session_metadata(
+                    step_name,
+                    metadata_mode=invocation.metadata_mode,
+                    command_variant=invocation.command_variant,
+                    resolved_command=resolved_command,
+                )
+
             # Execute the prepared invocation
-            exec_result = self._execute_provider_invocation(invocation)
+            exec_result = self._execute_provider_invocation(
+                invocation,
+                session_runtime=session_runtime,
+            )
 
             # Capture output according to specified mode
             capture_mode = step.get('output_capture', 'text')
@@ -2297,6 +2624,33 @@ class WorkflowExecutor:
                     }
                 }
 
+            provider_session_payload = getattr(exec_result, "provider_session", None)
+            if not isinstance(provider_session_payload, dict):
+                provider_session_payload = None
+
+            if provider_session_payload:
+                debug_info.setdefault('provider_session', {}).update({
+                    'mode': session_request.mode.value if session_request is not None else None,
+                    'session_id': provider_session_payload.get('session_id'),
+                    'event_count': provider_session_payload.get('event_count'),
+                    'command_variant': invocation.command_variant,
+                    'metadata_mode': invocation.metadata_mode,
+                    'metadata_path': session_runtime.get('metadata_path') if isinstance(session_runtime, dict) else None,
+                    'transport_spool_path': (
+                        session_runtime.get('transport_spool_path')
+                        if isinstance(session_runtime, dict)
+                        else None
+                    ),
+                })
+            elif isinstance(session_runtime, dict):
+                debug_info.setdefault('provider_session', {}).update({
+                    'mode': session_request.mode.value if session_request is not None else None,
+                    'command_variant': invocation.command_variant,
+                    'metadata_mode': invocation.metadata_mode,
+                    'metadata_path': session_runtime.get('metadata_path'),
+                    'transport_spool_path': session_runtime.get('transport_spool_path'),
+                })
+
             # Check if should retry
             if retry_policy.should_retry(exec_result.exit_code, attempt):
                 if self.debug:
@@ -2322,6 +2676,63 @@ class WorkflowExecutor:
 
         return self._apply_expected_outputs_contract(step, result, state)
 
+    def _build_provider_session_request(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+        consume_identity: str,
+    ) -> tuple[Optional[ProviderSessionRequest], Optional[Dict[str, Any]]]:
+        """Resolve the optional provider_session request for one provider step."""
+        provider_session = step.get("provider_session")
+        if not isinstance(provider_session, dict):
+            return None, None
+
+        mode = provider_session.get("mode")
+        if mode == "fresh":
+            publish_artifact = provider_session.get("publish_artifact")
+            return ProviderSessionRequest(
+                mode=ProviderSessionMode.FRESH,
+                publish_artifact=publish_artifact if isinstance(publish_artifact, str) else None,
+            ), None
+
+        if mode != "resume":
+            return None, self._contract_violation_result(
+                "Provider execution failed",
+                {
+                    "step": step_name,
+                    "reason": "invalid_provider_session_mode",
+                },
+            )
+
+        session_artifact = provider_session.get("session_id_from")
+        resolved_consumes = state.get("_resolved_consumes", {})
+        if not isinstance(resolved_consumes, dict):
+            resolved_consumes = {}
+        step_consumes = resolved_consumes.get(step_name, {})
+        if not isinstance(step_consumes, dict) or not step_consumes:
+            step_consumes = resolved_consumes.get(consume_identity, {})
+        if not isinstance(step_consumes, dict):
+            step_consumes = {}
+
+        session_id = step_consumes.get(session_artifact) if isinstance(session_artifact, str) else None
+        if not isinstance(session_id, str) or not session_id:
+            return None, self._contract_violation_result(
+                "Provider execution failed",
+                {
+                    "step": step_name,
+                    "reason": "missing_provider_session_id",
+                    "artifact": session_artifact,
+                },
+            )
+
+        return ProviderSessionRequest(
+            mode=ProviderSessionMode.RESUME,
+            session_id=session_id,
+            session_id_from=session_artifact if isinstance(session_artifact, str) else None,
+        ), None
+
     def _execute_call(
         self,
         step: Dict[str, Any],
@@ -2340,13 +2751,30 @@ class WorkflowExecutor:
             step_name_override=step_name_override,
         )
 
-    def _execute_provider_invocation(self, invocation: Any) -> Any:
+    def _execute_provider_invocation(
+        self,
+        invocation: Any,
+        *,
+        session_runtime: Optional[Dict[str, Any]] = None,
+    ) -> Any:
         """Execute provider invocation with backward-compatible call shape."""
         execute_fn = self.provider_executor.execute
         try:
-            return execute_fn(invocation, stream_output=(self.debug or self.stream_output))
+            return execute_fn(
+                invocation,
+                stream_output=(self.debug or self.stream_output),
+                session_runtime=session_runtime,
+            )
         except TypeError as exc:
-            if "unexpected keyword argument 'stream_output'" not in str(exc):
+            message = str(exc)
+            if "unexpected keyword argument 'session_runtime'" in message:
+                try:
+                    return execute_fn(invocation, stream_output=(self.debug or self.stream_output))
+                except TypeError as nested_exc:
+                    if "unexpected keyword argument 'stream_output'" not in str(nested_exc):
+                        raise
+                    return execute_fn(invocation)
+            if "unexpected keyword argument 'stream_output'" not in message:
                 raise
             return execute_fn(invocation)
 
@@ -2730,6 +3158,10 @@ class WorkflowExecutor:
                 or not isinstance(allowed, list)
                 or candidate_value not in allowed
             ):
+                return self._invalid_scalar_value_result(artifact_name, artifact_type, candidate_value)
+            return candidate_value
+        if artifact_type == 'string':
+            if not isinstance(candidate_value, str):
                 return self._invalid_scalar_value_result(artifact_name, artifact_type, candidate_value)
             return candidate_value
 

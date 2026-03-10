@@ -63,6 +63,9 @@ class TypedPredicateEvaluator:
                 return left == right
             if op == "ne":
                 return left != right
+            if op in {"lt", "lte", "gt", "gte"}:
+                if not is_numeric_predicate_value(left) or not is_numeric_predicate_value(right):
+                    raise PredicateEvaluationError("ordered compare operators require numeric operands")
             if op == "lt":
                 return left < right
             if op == "lte":

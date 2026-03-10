@@ -233,3 +233,68 @@ steps:
     out = capsys.readouterr().out
     assert "## Advisory Lint" in out
     assert "CheckReady" in out
+
+
+def test_report_markdown_surfaces_provider_session_quarantine_context(tmp_path, capsys, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    runs_root = tmp_path / ".orchestrate" / "runs"
+    run_id = "20260227T000008Z-hhhhhh"
+    run_dir = _write_run(
+        runs_root,
+        run_id,
+        workflow_text="""
+version: "2.10"
+name: report-provider-session
+steps:
+  - name: AskProvider
+    provider: codex
+    provider_session:
+      mode: fresh
+      publish_artifact: implementation_session_id
+artifacts:
+  implementation_session_id:
+    kind: scalar
+    type: string
+""",
+    )
+    state_file = run_dir / "state.json"
+    state = json.loads(state_file.read_text(encoding="utf-8"))
+    metadata_path = run_dir / "provider_sessions" / "root.askprovider__v1.json"
+    transport_spool_path = run_dir / "provider_sessions" / "root.askprovider__v1.transport.log"
+    metadata_path.parent.mkdir(parents=True)
+    metadata_path.write_text("{}", encoding="utf-8")
+    transport_spool_path.write_text("", encoding="utf-8")
+    state["status"] = "failed"
+    state["error"] = {
+        "type": "provider_session_interrupted_visit_quarantined",
+        "message": "An interrupted provider-session visit was quarantined.",
+        "context": {
+            "metadata_path": str(metadata_path),
+            "transport_spool_path": str(transport_spool_path),
+        },
+    }
+    state["steps"] = {
+        "AskProvider": {
+            "status": "failed",
+            "exit_code": 2,
+            "debug": {
+                "provider_session": {
+                    "mode": "fresh",
+                    "metadata_path": str(metadata_path),
+                    "publication_state": "suppressed_failure",
+                }
+            },
+        }
+    }
+    state_file.write_text(json.dumps(state, indent=2), encoding="utf-8")
+
+    result = report_workflow(
+        run_id=run_id,
+        runs_root=str(runs_root),
+        format="md",
+    )
+
+    assert result == 0
+    out = capsys.readouterr().out
+    assert "provider_session_interrupted_visit_quarantined" in out
+    assert str(metadata_path) in out

@@ -8,6 +8,12 @@ import yaml
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
 from orchestrator.exceptions import ValidationError, WorkflowValidationError
+from orchestrator.providers import (
+    ProviderRegistry,
+    ProviderSessionMetadataMode,
+    ProviderSessionSupport,
+    ProviderTemplate,
+)
 from orchestrator.workflow.assets import AssetResolutionError, WorkflowAssetResolver
 from orchestrator.workflow.identity import STEP_ID_PATTERN, assign_step_ids
 from orchestrator.workflow.lowering import (
@@ -67,14 +73,15 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10",
     }
-    SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath"}
+    SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath", "string"}
+    STRING_CONTRACT_VERSION = "2.10"
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10",
     ]
 
     def __init__(self, workspace: Path):
@@ -86,12 +93,15 @@ class WorkflowLoader:
         self._current_source_root: Optional[Path] = None
         self._current_imports: Dict[str, Dict[str, Any]] = {}
         self._load_stack: List[Path] = []
+        self._provider_registry = ProviderRegistry()
+        self._current_workflow_is_imported = False
 
     def load(self, workflow_path: Path) -> Dict[str, Any]:
         """Load and validate workflow YAML."""
         self.errors = []
         self._workflow_input_specs = {}
         self._current_imports = {}
+        self._provider_registry = ProviderRegistry()
         workflow = self._load_workflow(Path(workflow_path).resolve())
         if self.errors:
             self._raise_validation_errors()
@@ -117,12 +127,14 @@ class WorkflowLoader:
         previous_workflow_path = self._current_workflow_path
         previous_source_root = self._current_source_root
         previous_imports = self._current_imports
+        previous_workflow_is_imported = self._current_workflow_is_imported
 
         self._load_stack.append(resolved_workflow_path)
         self._workflow_input_specs = {}
         self._current_workflow_path = resolved_workflow_path
         self._current_source_root = resolved_workflow_path.parent
         self._current_imports = {}
+        self._current_workflow_is_imported = expected_version is not None
 
         try:
             try:
@@ -217,6 +229,7 @@ class WorkflowLoader:
             self._current_workflow_path = previous_workflow_path
             self._current_source_root = previous_source_root
             self._current_imports = previous_imports
+            self._current_workflow_is_imported = previous_workflow_is_imported
 
     def _validate_top_level(self, workflow: Dict[str, Any], version: str):
         """Validate top-level workflow fields."""
@@ -235,7 +248,7 @@ class WorkflowLoader:
 
         # Validate providers if present
         if 'providers' in workflow:
-            self._validate_providers(workflow['providers'])
+            self._validate_providers(workflow['providers'], version)
 
         # Validate secrets if present
         if 'secrets' in workflow:
@@ -250,7 +263,7 @@ class WorkflowLoader:
             if not self._version_at_least(version, "1.2"):
                 self._add_error("artifacts requires version '1.2'")
             else:
-                self._validate_artifacts_registry(workflow['artifacts'])
+                self._validate_artifacts_registry(workflow['artifacts'], version)
 
         if 'max_transitions' in workflow:
             if not self._version_at_least(version, "1.8"):
@@ -266,7 +279,7 @@ class WorkflowLoader:
             if not self._version_at_least(version, WORKFLOW_SIGNATURE_VERSION):
                 self._add_error(f"inputs requires version '{WORKFLOW_SIGNATURE_VERSION}'")
             else:
-                self._validate_workflow_inputs(workflow['inputs'])
+                self._validate_workflow_inputs(workflow['inputs'], version)
 
         if 'outputs' in workflow and not self._version_at_least(version, WORKFLOW_SIGNATURE_VERSION):
             self._add_error(f"outputs requires version '{WORKFLOW_SIGNATURE_VERSION}'")
@@ -341,7 +354,7 @@ class WorkflowLoader:
             ) from exc
         return resolved
 
-    def _validate_workflow_inputs(self, inputs: Any) -> None:
+    def _validate_workflow_inputs(self, inputs: Any, version: str) -> None:
         """Validate top-level workflow input contracts."""
         if not isinstance(inputs, dict):
             self._add_error("'inputs' must be a dictionary")
@@ -354,7 +367,7 @@ class WorkflowLoader:
                 self._add_error(f"{context}: input name must be a non-empty string")
                 continue
 
-            self._validate_workflow_signature_contract(spec, context, allow_from=False)
+            self._validate_workflow_signature_contract(spec, context, version, allow_from=False)
             if isinstance(spec, dict):
                 self._workflow_input_specs[input_name] = spec
 
@@ -379,7 +392,7 @@ class WorkflowLoader:
                 self._add_error(f"{context}: output name must be a non-empty string")
                 continue
 
-            self._validate_workflow_signature_contract(spec, context, allow_from=True)
+            self._validate_workflow_signature_contract(spec, context, version, allow_from=True)
             if not isinstance(spec, dict):
                 continue
 
@@ -418,6 +431,7 @@ class WorkflowLoader:
         self,
         spec: Any,
         context: str,
+        version: str,
         *,
         allow_from: bool,
     ) -> None:
@@ -448,7 +462,7 @@ class WorkflowLoader:
             self._add_error(f"{context} missing required 'type'")
         elif not isinstance(output_type, str):
             self._add_error(f"{context}.type must be a string")
-        elif output_type not in self.SUPPORTED_OUTPUT_TYPES:
+        elif output_type not in self._supported_output_types(version):
             self._add_error(f"{context}.type invalid type '{output_type}'")
 
         if 'description' in spec and not isinstance(spec['description'], str):
@@ -468,9 +482,9 @@ class WorkflowLoader:
             if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
                 self._add_error(f"{context}.must_exist_target must be a boolean")
         elif kind == 'scalar':
-            if output_type not in {'enum', 'integer', 'float', 'bool'}:
+            if output_type not in self._supported_scalar_types(version):
                 self._add_error(
-                    f"{context}: kind 'scalar' requires type one of enum|integer|float|bool"
+                    f"{context}: kind 'scalar' requires type one of {self._scalar_type_list(version)}"
                 )
             if 'under' in spec:
                 self._add_error(f"{context}: kind 'scalar' forbids 'under'")
@@ -513,13 +527,14 @@ class WorkflowLoader:
             elif not secret:
                 self._add_error(f"'secrets[{i}]' cannot be empty")
 
-    def _validate_providers(self, providers: Dict[str, Any]):
+    def _validate_providers(self, providers: Dict[str, Any], version: str):
         """Validate provider templates."""
         if not isinstance(providers, dict):
             self._add_error("'providers' must be a dictionary")
             return
 
         for name, config in providers.items():
+            error_count = len(self.errors)
             if not isinstance(config, dict):
                 self._add_error(f"Provider '{name}' must be a dictionary")
                 continue
@@ -541,6 +556,82 @@ class WorkflowLoader:
             if 'input_mode' in config:
                 if config['input_mode'] not in ['argv', 'stdin']:
                     self._add_error(f"Provider '{name}' input_mode must be 'argv' or 'stdin'")
+
+            session_support_node = config.get("session_support")
+            session_support: Optional[ProviderSessionSupport] = None
+            if session_support_node is not None:
+                if not self._version_at_least(version, self.STRING_CONTRACT_VERSION):
+                    self._add_error(
+                        f"Provider '{name}': session_support requires version '{self.STRING_CONTRACT_VERSION}'"
+                    )
+                elif not isinstance(session_support_node, dict):
+                    self._add_error(f"Provider '{name}': session_support must be a dictionary")
+                else:
+                    metadata_mode = session_support_node.get("metadata_mode")
+                    fresh_command = session_support_node.get("fresh_command")
+                    resume_command = session_support_node.get("resume_command")
+                    if not isinstance(metadata_mode, str) or not metadata_mode:
+                        self._add_error(
+                            f"Provider '{name}': session_support.metadata_mode must be a non-empty string"
+                        )
+                    elif metadata_mode != ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value:
+                        self._add_error(
+                            f"Provider '{name}': unsupported session_support.metadata_mode '{metadata_mode}'"
+                        )
+                    if not isinstance(fresh_command, list) or not fresh_command:
+                        self._add_error(
+                            f"Provider '{name}': session_support.fresh_command must be a non-empty list"
+                        )
+                    elif any(not isinstance(token, str) for token in fresh_command):
+                        self._add_error(
+                            f"Provider '{name}': session_support.fresh_command entries must be strings"
+                        )
+                    if resume_command is not None:
+                        if not isinstance(resume_command, list) or not resume_command:
+                            self._add_error(
+                                f"Provider '{name}': session_support.resume_command must be a non-empty list"
+                            )
+                        elif any(not isinstance(token, str) for token in resume_command):
+                            self._add_error(
+                                f"Provider '{name}': session_support.resume_command entries must be strings"
+                            )
+
+                    if (
+                        isinstance(metadata_mode, str)
+                        and isinstance(fresh_command, list)
+                        and (resume_command is None or isinstance(resume_command, list))
+                    ):
+                        session_support = ProviderSessionSupport(
+                            metadata_mode=metadata_mode,
+                            fresh_command=fresh_command,
+                            resume_command=resume_command,
+                        )
+
+            if len(self.errors) != error_count:
+                continue
+
+            try:
+                template = ProviderTemplate(
+                    name=name,
+                    command=config.get("command", []),
+                    defaults=config.get("defaults", {}),
+                    input_mode=config.get("input_mode", "argv"),
+                    session_support=session_support,
+                )
+            except Exception as exc:
+                self._add_error(f"Provider '{name}': {exc}")
+                continue
+
+            for error in template.validate():
+                self._add_error(error)
+
+            if len(self.errors) != error_count:
+                continue
+
+            try:
+                self._provider_registry.register(template)
+            except ValueError as exc:
+                self._add_error(str(exc))
 
     def _validate_steps(
         self,
@@ -789,13 +880,13 @@ class WorkflowLoader:
 
             # Validate deterministic artifact contracts
             if 'expected_outputs' in step:
-                self._validate_expected_outputs(step['expected_outputs'], name)
+                self._validate_expected_outputs(step['expected_outputs'], name, version)
 
             if 'output_bundle' in step:
                 if not self._version_at_least(version, "1.3"):
                     self._add_error(f"Step '{name}': output_bundle requires version '1.3'")
                 else:
-                    self._validate_output_bundle(step['output_bundle'], name)
+                    self._validate_output_bundle(step['output_bundle'], name, version)
 
             if 'expected_outputs' in step and 'output_bundle' in step:
                 self._add_error(
@@ -879,6 +970,15 @@ class WorkflowLoader:
                     self._add_error(f"Step '{name}': consume_bundle requires version '1.3'")
                 else:
                     self._validate_consume_bundle(step['consume_bundle'], name, step.get('consumes'))
+
+            if 'provider_session' in step:
+                self._validate_provider_session(
+                    step=step,
+                    step_name=name,
+                    version=version,
+                    artifacts_registry=artifacts_registry,
+                    top_level=top_level,
+                )
 
             # Validate wait_for exclusivity (AT-36)
             if 'wait_for' in step:
@@ -1252,7 +1352,7 @@ class WorkflowLoader:
 
         for output_name, spec in outputs.items():
             context = f"Step '{statement_name}': {branch_name}.outputs.{output_name}"
-            self._validate_workflow_signature_contract(spec, context, allow_from=True)
+            self._validate_workflow_signature_contract(spec, context, version, allow_from=True)
             if not isinstance(spec, dict):
                 continue
 
@@ -1470,7 +1570,7 @@ class WorkflowLoader:
 
         for output_name, spec in outputs.items():
             context = f"Step '{statement_name}': match.cases.{case_name}.outputs.{output_name}"
-            self._validate_workflow_signature_contract(spec, context, allow_from=True)
+            self._validate_workflow_signature_contract(spec, context, version, allow_from=True)
             if not isinstance(spec, dict):
                 continue
 
@@ -1607,7 +1707,7 @@ class WorkflowLoader:
         normalized_outputs: Dict[str, Dict[str, Any]] = {}
         for output_name, spec in outputs.items():
             context = f"Step '{step_name}': repeat_until.outputs.{output_name}"
-            self._validate_workflow_signature_contract(spec, context, allow_from=True)
+            self._validate_workflow_signature_contract(spec, context, version, allow_from=True)
             if not isinstance(spec, dict):
                 continue
 
@@ -2184,7 +2284,7 @@ class WorkflowLoader:
         if conflicts:
             self._add_error(f"Step '{name}': wait_for cannot be combined with {conflicts}")
 
-    def _validate_expected_outputs(self, expected_outputs: Any, step_name: str):
+    def _validate_expected_outputs(self, expected_outputs: Any, step_name: str, version: str):
         """Validate expected_outputs contract entries."""
         if not isinstance(expected_outputs, list):
             self._add_error(f"Step '{step_name}': expected_outputs must be a list")
@@ -2219,7 +2319,7 @@ class WorkflowLoader:
                 self._add_error(f"{context} missing required 'type'")
             elif not isinstance(spec['type'], str):
                 self._add_error(f"{context} 'type' must be a string")
-            elif spec['type'] not in self.SUPPORTED_OUTPUT_TYPES:
+            elif spec['type'] not in self._supported_output_types(version):
                 self._add_error(
                     f"{context} invalid expected_outputs type '{spec['type']}'"
                 )
@@ -2247,7 +2347,7 @@ class WorkflowLoader:
                 if guidance_key in spec and not isinstance(spec[guidance_key], str):
                     self._add_error(f"{context} '{guidance_key}' must be a string")
 
-    def _validate_output_bundle(self, output_bundle: Any, step_name: str):
+    def _validate_output_bundle(self, output_bundle: Any, step_name: str, version: str):
         """Validate output_bundle contract entries (v1.3)."""
         context = f"Step '{step_name}': output_bundle"
         if not isinstance(output_bundle, dict):
@@ -2297,7 +2397,7 @@ class WorkflowLoader:
                 self._add_error(f"{field_context} missing required 'type'")
             elif not isinstance(spec['type'], str):
                 self._add_error(f"{field_context} 'type' must be a string")
-            elif spec['type'] not in self.SUPPORTED_OUTPUT_TYPES:
+            elif spec['type'] not in self._supported_output_types(version):
                 self._add_error(
                     f"{field_context} invalid output_bundle field type '{spec['type']}'"
                 )
@@ -2357,6 +2457,168 @@ class WorkflowLoader:
                         self._add_error(
                             f"Step '{step_name}': consume_bundle.include artifact '{name}' must appear in consumes"
                         )
+
+    def _validate_provider_session(
+        self,
+        *,
+        step: Dict[str, Any],
+        step_name: str,
+        version: str,
+        artifacts_registry: Optional[Any],
+        top_level: bool,
+    ) -> None:
+        """Validate the step-local provider_session contract."""
+        context = f"Step '{step_name}': provider_session"
+        if not self._version_at_least(version, self.STRING_CONTRACT_VERSION):
+            self._add_error(f"{context} requires version '{self.STRING_CONTRACT_VERSION}'")
+            return
+        if not top_level or self._current_workflow_is_imported:
+            self._add_error(
+                f"{context} is only supported on provider steps authored directly under the root workflow steps list"
+            )
+            return
+        if 'provider' not in step:
+            self._add_error(f"{context} requires a provider step")
+            return
+        if 'retries' in step:
+            self._add_error(f"{context} forbids retries")
+
+        node = step.get('provider_session')
+        if not isinstance(node, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        mode = node.get('mode')
+        if mode not in {'fresh', 'resume'}:
+            self._add_error(f"{context}.mode must be 'fresh' or 'resume'")
+            return
+
+        provider_name = step.get('provider')
+        provider_template = self._provider_registry.get(provider_name) if isinstance(provider_name, str) else None
+        if provider_template is None:
+            self._add_error(f"{context} requires a known provider template")
+            return
+        if provider_template.session_support is None:
+            self._add_error(f"{context} requires provider '{provider_name}' to declare session_support")
+            return
+
+        registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
+
+        if mode == 'fresh':
+            publish_artifact = node.get('publish_artifact')
+            if not isinstance(publish_artifact, str) or not publish_artifact.strip():
+                self._add_error(f"{context}.publish_artifact must be a non-empty string")
+                return
+            if 'session_id_from' in node:
+                self._add_error(f"{context}.session_id_from is not allowed in fresh mode")
+            if step.get('persist_artifacts_in_state') is False:
+                self._add_error(f"{context} requires persist_artifacts_in_state to be true")
+            self._validate_provider_session_artifact(registry, publish_artifact, context)
+            self._validate_provider_session_publish_collisions(step, publish_artifact, context)
+            return
+
+        session_id_from = node.get('session_id_from')
+        if not isinstance(session_id_from, str) or not session_id_from.strip():
+            self._add_error(f"{context}.session_id_from must be a non-empty string")
+            return
+        if 'publish_artifact' in node:
+            self._add_error(f"{context}.publish_artifact is not allowed in resume mode")
+        if provider_template.session_support.resume_command is None:
+            self._add_error(
+                f"{context} requires provider '{provider_name}' to declare session_support.resume_command"
+            )
+        self._validate_provider_session_artifact(registry, session_id_from, context)
+
+        consumes = step.get('consumes')
+        matching_consumes = []
+        if isinstance(consumes, list):
+            matching_consumes = [
+                consume for consume in consumes
+                if isinstance(consume, dict) and consume.get('artifact') == session_id_from
+            ]
+        if len(matching_consumes) != 1:
+            self._add_error(
+                f"{context}.session_id_from must match exactly one consumes entry"
+            )
+        else:
+            freshness = matching_consumes[0].get('freshness', 'any')
+            if freshness == 'since_last_consume':
+                self._add_error(
+                    f"{context}.session_id_from consume must omit freshness or set freshness to 'any'"
+                )
+
+        prompt_consumes = step.get('prompt_consumes')
+        if isinstance(prompt_consumes, list) and session_id_from in prompt_consumes:
+            self._add_error(
+                f"{context}.session_id_from consume cannot be re-included through prompt_consumes"
+            )
+
+        consume_bundle = step.get('consume_bundle')
+        non_session_consumes = []
+        if isinstance(consumes, list):
+            non_session_consumes = [
+                consume for consume in consumes
+                if isinstance(consume, dict) and consume.get('artifact') != session_id_from
+            ]
+        if isinstance(consume_bundle, dict):
+            include = consume_bundle.get('include')
+            if isinstance(include, list) and session_id_from in include:
+                self._add_error(
+                    f"{context}.session_id_from consume cannot be re-included through consume_bundle.include"
+                )
+            if not non_session_consumes:
+                self._add_error(
+                    f"{context} requires at least one non-session consume when consume_bundle is declared"
+                )
+
+    def _validate_provider_session_artifact(
+        self,
+        registry: Dict[str, Any],
+        artifact_name: str,
+        context: str,
+    ) -> None:
+        """Validate that one provider-session artifact is a declared string scalar."""
+        artifact_spec = registry.get(artifact_name)
+        if not isinstance(artifact_spec, dict):
+            self._add_error(f"{context} references unknown artifact '{artifact_name}'")
+            return
+        if artifact_spec.get('kind') != 'scalar' or artifact_spec.get('type') != 'string':
+            self._add_error(
+                f"{context} artifact '{artifact_name}' must be declared as kind 'scalar' with type 'string'"
+            )
+
+    def _validate_provider_session_publish_collisions(
+        self,
+        step: Dict[str, Any],
+        publish_artifact: str,
+        context: str,
+    ) -> None:
+        """Reject authored surfaces that collide with a runtime-owned publish_artifact key."""
+        expected_outputs = step.get('expected_outputs')
+        if isinstance(expected_outputs, list):
+            for spec in expected_outputs:
+                if isinstance(spec, dict) and spec.get('name') == publish_artifact:
+                    self._add_error(
+                        f"{context}.publish_artifact '{publish_artifact}' collides with expected_outputs"
+                    )
+
+        output_bundle = step.get('output_bundle')
+        if isinstance(output_bundle, dict):
+            for spec in output_bundle.get('fields', []):
+                if isinstance(spec, dict) and spec.get('name') == publish_artifact:
+                    self._add_error(
+                        f"{context}.publish_artifact '{publish_artifact}' collides with output_bundle.fields"
+                    )
+
+        publishes = step.get('publishes')
+        if isinstance(publishes, list):
+            for publish in publishes:
+                if not isinstance(publish, dict):
+                    continue
+                if publish.get('artifact') == publish_artifact or publish.get('from') == publish_artifact:
+                    self._add_error(
+                        f"{context}.publish_artifact '{publish_artifact}' is runtime-owned and cannot be reused by publishes"
+                    )
 
     def _validate_when_condition(
         self,
@@ -2558,6 +2820,16 @@ class WorkflowLoader:
                         'type': artifact_type,
                         'persisted': True,
                         'allowed': deepcopy(artifact_spec.get('allowed')) if isinstance(artifact_spec.get('allowed'), list) else None,
+                    }
+
+            provider_session = step.get('provider_session')
+            if isinstance(provider_session, dict) and provider_session.get('mode') == 'fresh':
+                artifact_name = provider_session.get('publish_artifact')
+                if isinstance(artifact_name, str):
+                    outputs[artifact_name] = {
+                        'type': 'string',
+                        'persisted': step.get('persist_artifacts_in_state', True) is not False,
+                        'allowed': None,
                     }
 
             if 'call' in step:
@@ -2967,6 +3239,24 @@ class WorkflowLoader:
         if lower_value == upper_value and (lower_key == 'gt' or upper_key == 'lt'):
             self._add_error(f"Step '{step_name}': score bounds describe an empty range")
 
+    def _supported_output_types(self, version: str) -> Set[str]:
+        """Return the output contract types available at one DSL version."""
+        if self._version_at_least(version, self.STRING_CONTRACT_VERSION):
+            return set(self.SUPPORTED_OUTPUT_TYPES)
+        return self.SUPPORTED_OUTPUT_TYPES - {"string"}
+
+    def _supported_scalar_types(self, version: str) -> Set[str]:
+        """Return the scalar contract types available at one DSL version."""
+        scalar_types = {"enum", "integer", "float", "bool"}
+        if self._version_at_least(version, self.STRING_CONTRACT_VERSION):
+            scalar_types.add("string")
+        return scalar_types
+
+    def _scalar_type_list(self, version: str) -> str:
+        """Render a deterministic scalar-type list for validation errors."""
+        order = ("enum", "integer", "float", "bool", "string")
+        return "|".join(type_name for type_name in order if type_name in self._supported_scalar_types(version))
+
     def _validate_structured_ref(
         self,
         ref: Any,
@@ -3208,7 +3498,7 @@ class WorkflowLoader:
         if '..' in Path(path).parts:
             self._add_error(f"{context}: parent directory traversal ('..') not allowed")
 
-    def _validate_artifacts_registry(self, artifacts: Any):
+    def _validate_artifacts_registry(self, artifacts: Any, version: str):
         """Validate top-level artifacts registry (v1.2)."""
         if not isinstance(artifacts, dict):
             self._add_error("'artifacts' must be a dictionary")
@@ -3236,7 +3526,7 @@ class WorkflowLoader:
                 self._add_error(f"{context} missing required 'type'")
             elif not isinstance(output_type, str):
                 self._add_error(f"{context} 'type' must be a string")
-            elif output_type not in self.SUPPORTED_OUTPUT_TYPES:
+            elif output_type not in self._supported_output_types(version):
                 self._add_error(f"{context} invalid type '{output_type}'")
 
             if kind == 'relpath':
@@ -3261,9 +3551,9 @@ class WorkflowLoader:
                     self._add_error(f"{context} 'must_exist_target' must be a boolean")
 
             elif kind == 'scalar':
-                if output_type not in {'enum', 'integer', 'float', 'bool'}:
+                if output_type not in self._supported_scalar_types(version):
                     self._add_error(
-                        f"{context}: kind 'scalar' requires type one of enum|integer|float|bool"
+                        f"{context}: kind 'scalar' requires type one of {self._scalar_type_list(version)}"
                     )
                 if 'pointer' in spec:
                     self._add_error(f"{context}: kind 'scalar' forbids 'pointer'")

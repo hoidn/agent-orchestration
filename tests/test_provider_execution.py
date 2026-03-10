@@ -18,6 +18,10 @@ from orchestrator.providers import (
     ProviderRegistry,
     ProviderExecutor,
     InputMode,
+    ProviderSessionMetadataMode,
+    ProviderSessionMode,
+    ProviderSessionRequest,
+    ProviderSessionSupport,
 )
 from orchestrator.providers.types import ProviderInvocation
 
@@ -51,6 +55,9 @@ class TestProviderRegistry:
         command_str = " ".join(codex.command)
         assert "--config" in command_str
         assert "reasoning_effort=${reasoning_effort}" in command_str
+        assert codex.session_support is not None
+        assert codex.session_support.metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+        assert "${SESSION_ID}" in " ".join(codex.session_support.resume_command or [])
 
     def test_register_custom_provider(self):
         """Test registering a custom provider."""
@@ -84,6 +91,40 @@ class TestProviderRegistry:
         errors = invalid.validate()
         assert len(errors) > 0
         assert "${PROMPT} not allowed in stdin mode" in errors[0]
+
+    def test_session_support_resume_command_requires_exactly_one_session_placeholder(self):
+        """Resume-capable provider templates must bind exactly one ${SESSION_ID}."""
+        invalid = ProviderTemplate(
+            name="invalid_resume",
+            command=["tool", "--model", "${model}"],
+            input_mode=InputMode.STDIN,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                fresh_command=["tool", "--json", "--model", "${model}"],
+                resume_command=["tool", "resume", "--model", "${model}"],
+            ),
+        )
+
+        errors = invalid.validate()
+
+        assert any("must contain exactly one ${SESSION_ID} placeholder" in error for error in errors)
+
+    def test_session_id_placeholder_is_reserved_for_resume_command(self):
+        """${SESSION_ID} is rejected outside session_support.resume_command."""
+        invalid = ProviderTemplate(
+            name="invalid_placeholder_scope",
+            command=["tool", "resume", "${SESSION_ID}"],
+            input_mode=InputMode.STDIN,
+            session_support=ProviderSessionSupport(
+                metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                fresh_command=["tool", "--json", "${SESSION_ID}"],
+                resume_command=["tool", "resume", "${SESSION_ID}"],
+            ),
+        )
+
+        errors = invalid.validate()
+
+        assert any("${SESSION_ID} is only allowed in session_support.resume_command" in error for error in errors)
 
     def test_merge_params(self):
         """Test parameter merging (step params override defaults)."""
@@ -300,6 +341,43 @@ class TestProviderExecutor:
         assert "20250115T120000Z" in command_str
         assert "/workspace/output.txt" in command_str
 
+    def test_prepare_invocation_uses_fresh_command_for_provider_session(self):
+        """Session-enabled fresh invocations compile the provider fresh_command variant."""
+        params = ProviderParams(params={"model": "test-model"})
+        invocation, error = self.executor.prepare_invocation(
+            "codex",
+            params,
+            {},
+            "Test prompt",
+            session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        )
+
+        assert error is None
+        assert invocation is not None
+        assert invocation.command_variant == "fresh_command"
+        assert invocation.metadata_mode == ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value
+        assert "--json" in invocation.command
+
+    def test_prepare_invocation_uses_resume_command_and_binds_session_id(self):
+        """Session-enabled resume invocations bind ${SESSION_ID} through resume_command only."""
+        params = ProviderParams(params={"model": "test-model"})
+        invocation, error = self.executor.prepare_invocation(
+            "codex",
+            params,
+            {},
+            "Test prompt",
+            session_request=ProviderSessionRequest(
+                mode=ProviderSessionMode.RESUME,
+                session_id="sess-123",
+            ),
+        )
+
+        assert error is None
+        assert invocation is not None
+        assert invocation.command_variant == "resume_command"
+        assert "resume" in invocation.command
+        assert "sess-123" in invocation.command
+
     @patch('subprocess.run')
     def test_provider_execution_success(self, mock_run):
         """Test successful provider execution."""
@@ -359,6 +437,139 @@ class TestProviderExecutor:
         assert result.exit_code == 124  # Timeout exit code
         assert result.stdout == b"Partial output"
         assert result.error["type"] == "timeout"
+
+    @patch('subprocess.run')
+    def test_session_execution_normalizes_codex_jsonl_stdout(self, mock_run):
+        """Session-enabled Codex transport is parsed into normalized assistant stdout."""
+        raw_stdout = b'\n'.join([
+            b'{"type":"session.started","session_id":"sess-123"}',
+            b'{"type":"assistant.message","role":"assistant","text":"hello "}',
+            b'{"type":"assistant.message","role":"assistant","text":"world"}',
+            b'{"type":"response.completed","session_id":"sess-123"}',
+        ]) + b"\n"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=raw_stdout,
+            stderr=b"",
+        )
+
+        invocation = ProviderInvocation(
+            command=["codex", "exec", "--json"],
+            input_mode=InputMode.STDIN,
+            prompt="Test prompt",
+            command_variant="fresh_command",
+            metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+            session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        )
+
+        result = self.executor.execute(invocation)
+
+        assert result.exit_code == 0
+        assert result.stdout == b"hello world"
+        assert result.raw_stdout == raw_stdout
+        assert result.provider_session == {
+            "session_id": "sess-123",
+            "normalized_stdout": "hello world",
+            "event_count": 4,
+        }
+
+    @patch('subprocess.run')
+    def test_session_execution_rejects_mismatched_resume_session_id(self, mock_run):
+        """Resume invocations fail when transport reports a different session id."""
+        raw_stdout = b'\n'.join([
+            b'{"type":"session.started","session_id":"sess-other"}',
+            b'{"type":"assistant.message","role":"assistant","text":"hello"}',
+            b'{"type":"response.completed","session_id":"sess-other"}',
+        ]) + b"\n"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=raw_stdout,
+            stderr=b"",
+        )
+
+        invocation = ProviderInvocation(
+            command=["codex", "exec", "resume", "sess-123", "--json"],
+            input_mode=InputMode.STDIN,
+            prompt="Test prompt",
+            command_variant="resume_command",
+            metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+            session_request=ProviderSessionRequest(
+                mode=ProviderSessionMode.RESUME,
+                session_id="sess-123",
+            ),
+        )
+
+        result = self.executor.execute(invocation)
+
+        assert result.exit_code == 2
+        assert result.error is not None
+        assert result.error["type"] == "provider_session_transport_error"
+
+    @patch('subprocess.run')
+    def test_session_stream_output_emits_only_normalized_assistant_text(self, mock_run, capsys):
+        """Session streaming surfaces assistant text, not raw JSONL metadata."""
+        raw_stdout = b'\n'.join([
+            b'{"type":"session.started","session_id":"sess-123"}',
+            b'{"type":"assistant.message","role":"assistant","text":"hello world"}',
+            b'{"type":"response.completed","session_id":"sess-123"}',
+        ]) + b"\n"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=raw_stdout,
+            stderr=b"",
+        )
+
+        invocation = ProviderInvocation(
+            command=["codex", "exec", "--json"],
+            input_mode=InputMode.STDIN,
+            prompt="Test prompt",
+            command_variant="fresh_command",
+            metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+            session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        )
+
+        result = self.executor.execute(invocation, stream_output=True)
+
+        assert result.exit_code == 0
+        captured = capsys.readouterr()
+        assert captured.out == "hello world"
+        assert "{\"type\"" not in captured.out
+
+    @patch('subprocess.run')
+    def test_session_execution_writes_masked_transport_spool(self, mock_run):
+        """Session transport is masked and copied to the configured spool path."""
+        raw_stdout = b'\n'.join([
+            b'{"type":"session.started","session_id":"sess-123"}',
+            b'{"type":"assistant.message","role":"assistant","text":"secret-token"}',
+            b'{"type":"response.completed","session_id":"sess-123"}',
+        ]) + b"\n"
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=raw_stdout,
+            stderr=b"",
+        )
+        transport_spool_path = self.workspace / "session.transport.log"
+        self.executor.secrets_manager._masked_values.add("secret-token")
+
+        invocation = ProviderInvocation(
+            command=["codex", "exec", "--json"],
+            input_mode=InputMode.STDIN,
+            prompt="Test prompt",
+            command_variant="fresh_command",
+            metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+            session_request=ProviderSessionRequest(mode=ProviderSessionMode.FRESH),
+        )
+
+        result = self.executor.execute(
+            invocation,
+            session_runtime={"transport_spool_path": transport_spool_path},
+        )
+
+        assert result.exit_code == 0
+        assert transport_spool_path.exists()
+        spool_text = transport_spool_path.read_text(encoding="utf-8")
+        assert "***" in spool_text
+        assert "secret-token" not in spool_text
 
     def test_escape_sequences(self):
         """Test escape sequence handling ($$ and $${)."""

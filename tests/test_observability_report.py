@@ -339,6 +339,65 @@ def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: P
     assert snapshot["run"]["status_reason"] == "stale_running_without_current_step"
 
 
+def test_snapshot_surfaces_provider_session_quarantine_and_metadata_paths(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-session"
+    (run_root / "logs").mkdir(parents=True)
+    metadata_path = run_root / "provider_sessions" / "root.askprovider__v1.json"
+    transport_spool_path = run_root / "provider_sessions" / "root.askprovider__v1.transport.log"
+
+    workflow = {
+        "version": "2.10",
+        "name": "obs-provider-session",
+        "steps": [
+            {
+                "name": "AskProvider",
+                "provider": "codex",
+                "provider_session": {
+                    "mode": "fresh",
+                    "publish_artifact": "implementation_session_id",
+                },
+            }
+        ],
+    }
+    state = {
+        "run_id": "run-session",
+        "status": "failed",
+        "started_at": "2026-02-27T00:00:00+00:00",
+        "updated_at": "2026-02-27T00:00:05+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "error": {
+            "type": "provider_session_interrupted_visit_quarantined",
+            "message": "An interrupted provider-session visit was quarantined.",
+            "context": {
+                "metadata_path": str(metadata_path),
+                "transport_spool_path": str(transport_spool_path),
+            },
+        },
+        "steps": {
+            "AskProvider": {
+                "status": "failed",
+                "exit_code": 2,
+                "debug": {
+                    "provider_session": {
+                        "mode": "fresh",
+                        "session_id": "sess-123",
+                        "metadata_path": str(metadata_path),
+                        "publication_state": "suppressed_failure",
+                    }
+                },
+            }
+        },
+    }
+
+    snapshot = build_status_snapshot(workflow, state, run_root)
+    md = render_status_markdown(snapshot)
+
+    assert snapshot["run"]["error"]["type"] == "provider_session_interrupted_visit_quarantined"
+    assert snapshot["steps"][0]["output"]["provider_session"]["metadata_path"] == str(metadata_path)
+    assert "provider_session_interrupted_visit_quarantined" in md
+    assert str(metadata_path) in md
+
+
 def test_snapshot_exposes_looped_resume_current_and_last_completed_visit_counts(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "looped-resume"
     (run_root / "logs").mkdir(parents=True)

@@ -43,9 +43,14 @@ class DataflowManager:
         state: Dict[str, Any],
         *,
         runtime_step_id: Optional[str] = None,
+        additional_publishes: Optional[list[Dict[str, str]]] = None,
+        persist: bool = True,
     ) -> Optional[Dict[str, Any]]:
         """Record artifact publications for successful steps."""
         publishes = step.get("publishes")
+        if additional_publishes:
+            base_publishes = publishes if isinstance(publishes, list) else []
+            publishes = [*base_publishes, *additional_publishes]
         if not publishes:
             return None
         if result.get("exit_code", 0) != 0:
@@ -151,7 +156,8 @@ class DataflowManager:
 
             versions.append(entry)
 
-        self.persist_state(state)
+        if persist:
+            self.persist_state(state)
         return None
 
     def enforce_consumes_contract(
@@ -330,6 +336,8 @@ class DataflowManager:
                         and isinstance(allowed, list)
                         and selected_value in allowed
                     )
+                elif artifact_type == "string":
+                    valid_scalar_value = isinstance(selected_value, str)
                 else:
                     valid_scalar_value = isinstance(selected_value, (int, float, bool, str))
 
@@ -361,11 +369,18 @@ class DataflowManager:
 
         consume_bundle = step.get("consume_bundle")
         if consume_bundle:
+            reserved_artifact = None
+            provider_session = step.get("provider_session")
+            if isinstance(provider_session, dict) and provider_session.get("mode") == "resume":
+                session_id_from = provider_session.get("session_id_from")
+                if isinstance(session_id_from, str) and session_id_from:
+                    reserved_artifact = session_id_from
             write_error = self.write_consume_bundle(
                 consume_bundle=consume_bundle,
                 step_name=step_name,
                 state=state,
                 resolved_values=step_resolved_consumes,
+                reserved_artifact=reserved_artifact,
             )
             if write_error is not None:
                 return write_error
@@ -380,6 +395,7 @@ class DataflowManager:
         step_name: str,
         state: Dict[str, Any],
         resolved_values: Dict[str, Any],
+        reserved_artifact: Optional[str] = None,
     ) -> Optional[Dict[str, Any]]:
         """Materialize resolved consumes into a deterministic JSON bundle file."""
         if not isinstance(consume_bundle, dict):
@@ -425,7 +441,11 @@ class DataflowManager:
         include = consume_bundle.get("include")
         selected_values: Dict[str, Any]
         if include is None:
-            selected_values = dict(resolved_values)
+            selected_values = {
+                artifact_name: value
+                for artifact_name, value in resolved_values.items()
+                if artifact_name != reserved_artifact
+            }
         elif isinstance(include, list):
             selected_values = {}
             for artifact_name in include:
@@ -435,6 +455,15 @@ class DataflowManager:
                         {
                             "step": step_name,
                             "reason": "invalid_consume_bundle_include",
+                        },
+                    )
+                if reserved_artifact is not None and artifact_name == reserved_artifact:
+                    return self.contract_violation_result(
+                        "Consume contract failed",
+                        {
+                            "step": step_name,
+                            "reason": "consume_bundle_include_reserved_artifact",
+                            "artifact": artifact_name,
                         },
                     )
                 if artifact_name not in resolved_values:

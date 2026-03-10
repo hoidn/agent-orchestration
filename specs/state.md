@@ -14,6 +14,7 @@
   - `workflow_outputs`: v2.1+ typed workflow outputs exported after successful workflow completion
   - `finalization`: v2.3+ workflow finalization bookkeeping (`status`, `body_status`, `current_index`, `completed_indices`, `workflow_outputs_status`, optional `failure`)
   - `error`: optional run-level error object for workflow-boundary failures such as output export contract violations
+    - v2.10 also uses this surface for provider-session quarantine failures (`type: "provider_session_interrupted_visit_quarantined"`)
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
   - `repeat_until`: loop bookkeeping: `current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, `last_condition_result`
@@ -30,6 +31,10 @@
     - `steps.<PresentationKey>.name`: human-facing display name retained for reports and compatibility views
     - `current_step.step_id`: durable identity for the currently running top-level step
     - `current_step.visit_count`: visit ordinal for the in-flight top-level step visit, when the runtime has already incremented `step_visits`
+  - v2.10 provider-session observability:
+    - canonical visit metadata records live under `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.json`
+    - stable masked transport spools live under `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.transport.log`
+    - successful fresh session steps may expose `steps.<Step>.debug.provider_session = {mode, session_id, metadata_path, publication_state, ...}`
   - v2.2 structured-control additions:
     - lowered branch markers and lowered branch-body steps are recorded as ordinary top-level step entries under presentation keys such as `RouteReview.then` and `RouteReview.then.WriteApproved`
     - the lowered join node keeps the authored statement presentation key (for example `RouteReview`) and materializes branch outputs there
@@ -62,6 +67,7 @@
     - `class`: normalized failure/success classification (for example `completed`, `assert_failed`, `command_failed`, `provider_failed`, `timeout`, `contract_violation`, `pre_execution_failed`)
     - `retryable`: boolean
   - `artifacts` is a map of typed values parsed from `expected_outputs` and is available at `steps.<Step>.artifacts` when `persist_artifacts_in_state` is not set to `false`.
+  - v2.10 fresh provider-session steps publish their runtime-owned session handle on that same `steps.<Step>.artifacts.<publish_artifact>` surface only after the exact visit's atomic state finalization succeeds.
   - v1.7 `set_scalar` / `increment_scalar` reuse that same `steps.<Step>.artifacts` surface for local produced scalar values; successful publication still advances `artifact_versions` only through `publishes.from`.
   - v1.8 cycle-guard failures use `error.type: "cycle_guard_exceeded"` with `outcome.phase: "pre_execution"` and `outcome.class: "pre_execution_failed"`.
   - Tasks 1-5 of the DSL evolution roadmap were additive under schema `1.1.1`; v2.0 is the explicit stable-ID migration boundary.
@@ -87,6 +93,7 @@
   - Atomic writes: write temp file then rename.
   - Include workflow checksum to detect modifications.
   - On corruption: `resume --repair` attempts recovery from latest valid backup; `resume --force-restart` creates a new run.
+  - v2.10 interrupted session-enabled visits are quarantined instead of replayed on resume; quarantine clears the matching `current_step`, preserves older same-name terminal results, and records a durable run-level error that points to the canonical metadata and transport-spool paths.
 
 - State backups and cleanup
   - When `--backup-state` is enabled or `--debug` is set, copy `state.json` to `state.json.step_<Step>.bak` before each step (keep last 3).

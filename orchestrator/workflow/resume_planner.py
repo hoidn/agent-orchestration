@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional
 class ResumePlanner:
     """Determine where a resumed run should re-enter top-level execution."""
 
+    QUARANTINE_ERROR_TYPE = "provider_session_interrupted_visit_quarantined"
+
     def entry_is_terminal(self, entry: Any) -> bool:
         """Return True when persisted step state is fully completed/skipped."""
         if isinstance(entry, dict):
@@ -59,6 +61,80 @@ class ResumePlanner:
                 return step_index
 
         return None
+
+    def detect_interrupted_provider_session_visit(
+        self,
+        state: Dict[str, Any],
+        steps: List[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Detect whether resume must quarantine an interrupted provider-session visit."""
+        error = state.get("error")
+        if isinstance(error, dict) and error.get("type") == self.QUARANTINE_ERROR_TYPE:
+            return {"kind": "existing_quarantine", "error": error}
+
+        current_step = state.get("current_step")
+        if not isinstance(current_step, dict) or current_step.get("status") != "running":
+            return None
+
+        current_index = current_step.get("index")
+        step_name = current_step.get("name")
+        if not isinstance(step_name, str) or not step_name:
+            return None
+
+        step: Optional[Dict[str, Any]] = None
+        if isinstance(current_index, int) and 0 <= current_index < len(steps):
+            candidate = steps[current_index]
+            if isinstance(candidate, dict):
+                step = candidate
+        if step is None:
+            for candidate in steps:
+                if isinstance(candidate, dict) and candidate.get("name") == step_name:
+                    step = candidate
+                    break
+        if not isinstance(step, dict):
+            return None
+
+        provider_session = step.get("provider_session")
+        if not isinstance(provider_session, dict):
+            return None
+
+        step_id = current_step.get("step_id")
+        visit_count = current_step.get("visit_count")
+        if not isinstance(step_id, str) or not step_id:
+            return {
+                "kind": "integrity_error",
+                "message": "Interrupted provider-session visit is missing current_step.step_id",
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+            }
+        if not isinstance(visit_count, int):
+            return {
+                "kind": "integrity_error",
+                "message": "Interrupted provider-session visit is missing an integer current_step.visit_count",
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+            }
+
+        steps_state = state.get("steps", {})
+        step_result = steps_state.get(step_name) if isinstance(steps_state, dict) else None
+        if (
+            isinstance(step_result, dict)
+            and step_result.get("step_id") == step_id
+            and step_result.get("visit_count") == visit_count
+            and self.entry_is_terminal(step_result)
+        ):
+            return None
+
+        return {
+            "kind": "quarantine",
+            "step_name": step_name,
+            "step_id": step_id,
+            "visit_count": visit_count,
+            "provider": step.get("provider"),
+            "mode": provider_session.get("mode"),
+        }
 
     def for_each_has_pending_work(self, state: Dict[str, Any], step_name: str) -> bool:
         """Return True when persisted loop bookkeeping shows unfinished iterations."""

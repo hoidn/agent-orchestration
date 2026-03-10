@@ -347,3 +347,153 @@ class TestProviderStatePersistence:
                 if 'debug' in provider_result:
                     assert 'debug' in persisted_result
                     assert persisted_result['debug'] == provider_result['debug']
+
+    def test_provider_session_success_persists_metadata_and_published_handle(self):
+        """Fresh provider-session visits finalize metadata after state publication."""
+        session_script = "\n".join(
+            [
+                "python - <<'PY'",
+                "print('{\"type\":\"session.started\",\"session_id\":\"sess-123\"}')",
+                "print('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"hello\"}')",
+                "print('{\"type\":\"response.completed\",\"session_id\":\"sess-123\"}')",
+                "PY",
+            ]
+        )
+        workflow_data = {
+            "version": "2.10",
+            "providers": {
+                "codex_session": {
+                    "command": ["bash", "-lc", session_script],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["bash", "-lc", session_script],
+                        "resume_command": ["bash", "-lc", session_script + " # ${SESSION_ID}"],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [
+                {
+                    "name": "AskProvider",
+                    "provider": "codex_session",
+                    "provider_session": {
+                        "mode": "fresh",
+                        "publish_artifact": "implementation_session_id",
+                    },
+                }
+            ],
+        }
+
+        workflow_file = self.test_workspace / "provider_session_workflow.yaml"
+        with open(workflow_file, 'w') as f:
+            import yaml
+            yaml.dump(workflow_data, f)
+
+        workflow = WorkflowLoader(self.test_workspace).load(workflow_file)
+        state_manager = StateManager(workspace=self.test_workspace, run_id="test-run")
+        state_manager.initialize(str(workflow_file))
+
+        result_state = WorkflowExecutor(
+            workflow=workflow,
+            workspace=self.test_workspace,
+            state_manager=state_manager,
+        ).execute()
+
+        persisted_state = StateManager(
+            workspace=self.test_workspace,
+            run_id="test-run",
+        ).load().to_dict()
+        provider_debug = persisted_state["steps"]["AskProvider"]["debug"]["provider_session"]
+        metadata_path = Path(provider_debug["metadata_path"])
+        transport_spool_path = metadata_path.with_suffix(".transport.log")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+        assert result_state["steps"]["AskProvider"]["artifacts"] == {
+            "implementation_session_id": "sess-123"
+        }
+        assert provider_debug["publication_state"] == "published"
+        assert metadata["step_status"] == "completed"
+        assert metadata["publication_state"] == "published"
+        assert metadata["session_id"] == "sess-123"
+        assert metadata["command_variant"] == "fresh_command"
+        assert metadata["metadata_mode"] == "codex_exec_jsonl_stdout"
+        assert metadata["transport_spool_path"] is None
+        assert metadata["captured_transport_bytes"] > 0
+        assert not transport_spool_path.exists()
+
+    def test_provider_session_debug_mode_retains_transport_spool(self):
+        """Debug mode keeps the masked per-visit transport spool on successful completion."""
+        session_script = "\n".join(
+            [
+                "python - <<'PY'",
+                "print('{\"type\":\"session.started\",\"session_id\":\"sess-123\"}')",
+                "print('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"hello\"}')",
+                "print('{\"type\":\"response.completed\",\"session_id\":\"sess-123\"}')",
+                "PY",
+            ]
+        )
+        workflow_data = {
+            "version": "2.10",
+            "providers": {
+                "codex_session": {
+                    "command": ["bash", "-lc", session_script],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["bash", "-lc", session_script],
+                        "resume_command": ["bash", "-lc", session_script + " # ${SESSION_ID}"],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [
+                {
+                    "name": "AskProvider",
+                    "provider": "codex_session",
+                    "provider_session": {
+                        "mode": "fresh",
+                        "publish_artifact": "implementation_session_id",
+                    },
+                }
+            ],
+        }
+
+        workflow_file = self.test_workspace / "provider_session_debug_workflow.yaml"
+        with open(workflow_file, 'w') as f:
+            import yaml
+            yaml.dump(workflow_data, f)
+
+        workflow = WorkflowLoader(self.test_workspace).load(workflow_file)
+        state_manager = StateManager(workspace=self.test_workspace, run_id="test-run", debug=True)
+        state_manager.initialize(str(workflow_file))
+
+        WorkflowExecutor(
+            workflow=workflow,
+            workspace=self.test_workspace,
+            state_manager=state_manager,
+            debug=True,
+        ).execute()
+
+        persisted_state = StateManager(
+            workspace=self.test_workspace,
+            run_id="test-run",
+        ).load().to_dict()
+        provider_debug = persisted_state["steps"]["AskProvider"]["debug"]["provider_session"]
+        metadata_path = Path(provider_debug["metadata_path"])
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        transport_spool_path = Path(metadata["transport_spool_path"])
+
+        assert metadata["publication_state"] == "published"
+        assert transport_spool_path.exists()
+        assert transport_spool_path.read_text(encoding="utf-8")

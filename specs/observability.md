@@ -7,6 +7,7 @@
 
 - Execution logs
   - Under `RUN_ROOT/logs/`: `orchestrator.log`, `StepName.stdout` (>8 KiB or JSON parse error), `StepName.stderr` (when non-empty), `StepName.debug` (when enabled).
+  - v2.10 provider-session visits also create visit-scoped metadata and optional retained transport spools under `RUN_ROOT/provider_sessions/`.
 
 - Error context (normative)
   - On step failure, record message, exit code, tails of stdout/stderr, and error context details (undefined variables, missing deps, substituted command, missing secrets, etc.).
@@ -39,6 +40,9 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - `last_result_visit_count`: visit ordinal recorded on the latest persisted result at `steps.<StepName>`
   - v2.0 status/report snapshots may expose `step_id` alongside display `name`; display names remain the human-facing label, while `step_id` is the durable lineage/resume identity.
   - v2.1 status/report snapshots may expose `bound_inputs`, `workflow_outputs`, and any run-level workflow-boundary `error` object.
+  - v2.10 status/report snapshots may expose:
+    - `run.error` quarantine context for interrupted provider-session visits
+    - `output.provider_session` step summaries including `mode`, `session_id`, `metadata_path`, and `publication_state`
   - v2.2 lowered structured-control nodes appear in snapshots as ordinary top-level entries:
     - branch markers use kind `structured_if_branch`
     - statement join nodes use kind `structured_if_join`

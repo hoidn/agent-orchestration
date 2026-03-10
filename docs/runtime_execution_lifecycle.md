@@ -15,6 +15,7 @@ Normative behavior is defined by `specs/`. This file is explanatory.
    a) apply workflow/step cycle guards for the routed target (`max_transitions`, then `max_visits`)
    b) evaluate `when` (may skip)
    c) enforce consumes preflight (if configured)
+   c1) for v2.10 session-enabled provider steps, create the canonical provider-session metadata + transport-spool artifacts before persisting `current_step`
    d) execute step body (`assert`/command/provider/wait_for/for_each/call)
    e) validate deterministic outputs (`expected_outputs` or `output_bundle`)
    f) record published artifacts (if configured)
@@ -34,9 +35,13 @@ Identity note:
 - v2.5 `call` keeps the authored outer step as the caller-visible node and persists nested callee execution under `state.call_frames[call_frame_id]`.
 - v2.7 `repeat_until` keeps the authored loop frame as the caller-visible node, derives per-iteration nested identities such as `root.review_loop#1.iteration_body.run_review_loop` or `root.review_loop#1.iteration_body.route_decision.revise_path.write_revision`, and persists resume bookkeeping under `state.repeat_until`.
 - `resume` uses persisted run position only to choose the initial top-level restart point. After execution reaches that point, normal control-flow semantics resume, so a later `goto` may revisit the same top-level step name without being auto-skipped.
+- v2.10 provider-session resume is distinct from workflow resume:
+  - workflow `resume` restarts the orchestrator run
+  - `provider_session.mode: resume` resumes one provider-native session inside a later step
 - When finalization is partially complete, `resume` restarts at the first unfinished cleanup step instead of replaying completed cleanup.
 - When a run stops inside a `call`, `resume` reuses the unfinished `call_frame_id` and restarts the callee from its first unfinished nested step instead of replaying completed nested work.
 - When a run stops inside `repeat_until`, `resume` uses `state.repeat_until` plus indexed nested step results to restart from the first unfinished nested step in the current iteration; if that iteration's condition already evaluated, resume advances without replaying the settled iteration.
+- When a run stops mid-visit on a v2.10 session-enabled provider step, `resume` quarantines that exact visit instead of replaying the provider and records the canonical metadata/spool paths in the run-level error.
 - During such revisits, `state.steps.<StepName>` still stores the latest completed/skipped/failed result for that top-level name, while `current_step` may refer to a later in-flight visit of the same step. The visit ordinals distinguish them: `current_step.visit_count` is the active visit, and `steps.<StepName>.visit_count` is the last persisted result visit.
 
 ## Run Artifacts
@@ -90,6 +95,12 @@ capture stdout/stderr
 
 validate deterministic outputs if declared
 ```
+
+For v2.10 session-enabled provider steps, runtime behavior adds:
+- select `command`, `session_support.fresh_command`, or `session_support.resume_command`
+- bind `${SESSION_ID}` only from the reserved `session_id_from` consume
+- normalize provider transport before `output_capture`
+- publish fresh session handles only after the exact visit's terminal step result, same-visit lineage appends, and matching `current_step` clearance are committed together
 
 Prompt composition details are normative in `specs/providers.md`.
 

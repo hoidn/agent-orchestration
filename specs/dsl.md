@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", or "2.9"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", or "2.10"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -11,7 +11,7 @@
     - Separate contract family from the v1.2+ artifact registry; no pointer semantics.
     - Keys are input names; values reuse typed contract fields:
       - `kind: relpath|scalar` (optional; default `relpath`)
-      - `type: enum|integer|float|bool|relpath` (required)
+      - `type: enum|integer|float|bool|string|relpath` (required)
       - `allowed: string[]` (enum only)
       - `under`, `must_exist_target` (relpath only)
       - `required: boolean` (optional; default true)
@@ -37,13 +37,13 @@
       - workflow outputs remain unmaterialized until finalization succeeds and are suppressed on finalization failure
   - `artifacts`: map of named artifact contracts (v1.2+).
     - `kind: relpath|scalar` (optional; default `relpath`)
-    - `type: enum|integer|float|bool|relpath` (required)
+    - `type: enum|integer|float|bool|string|relpath` (required)
     - `kind: relpath`:
       - requires `type: relpath`
       - requires `pointer: string` (canonical pointer file path, usually under `state/`)
       - optional constraints: `under`, `must_exist_target`
     - `kind: scalar`:
-      - supports only `type: enum|integer|float|bool`
+      - supports only `type: enum|integer|float|bool|string`
       - forbids `pointer`, `under`, and `must_exist_target`
     - `allowed: string[]` required for enum artifacts
   - `steps`: ordered list of step objects.
@@ -124,7 +124,7 @@
     - `expected_outputs: ExpectedOutput[]` (optional deterministic artifact contracts)
       - `name: string` (required artifact key; exposed at `steps.<Step>.artifacts.<name>` when artifact persistence is enabled)
       - `path: string` (required, relative file written by the step)
-      - `type: enum|integer|float|bool|relpath` (required)
+      - `type: enum|integer|float|bool|string|relpath` (required)
       - `bool` token policy: case-insensitive `true|false|1|0|yes|no`
       - `allowed: string[]` (required when `type: enum`)
       - `under: string` (optional root for `relpath` target validation)
@@ -158,7 +158,7 @@
       - `OutputBundleField`:
         - `name: string` (required artifact key; unique within `fields`)
         - `json_pointer: string` (required RFC 6901 pointer; `""` allowed for root)
-        - `type: enum|integer|float|bool|relpath` (required)
+        - `type: enum|integer|float|bool|string|relpath` (required)
         - `allowed: string[]` (required when `type: enum`)
         - `under: string` (optional root for `relpath` target validation)
         - `must_exist_target: boolean` (optional, `relpath` only)
@@ -170,6 +170,17 @@
       - `include: string[]` (optional subset of consumed artifact names; default all resolved consumes)
       - Requires step `consumes`; `include` must be subset of `consumes[*].artifact`.
       - Written only after consume preflight succeeds.
+    - `provider_session` (optional; v2.10+; provider steps only)
+      - valid only on provider steps authored directly under the root workflow `steps:` list
+      - `mode: fresh|resume`
+      - `mode: fresh` requires `publish_artifact: string`
+      - `mode: resume` requires `session_id_from: string`
+      - `publish_artifact` and `session_id_from` must name declared top-level scalar `type: string` artifacts
+      - `publish_artifact` is a runtime-owned local artifact key and must not collide with `expected_outputs.name`, `output_bundle.fields[*].name`, or `publishes.from`
+      - `session_id_from` must match exactly one `consumes[*].artifact`; that reserved consume must omit `freshness` or set it to `any`
+      - the reserved `session_id_from` consume is excluded from automatic prompt injection and `consume_bundle`
+      - authored `retries` are invalid on session-enabled steps
+      - `persist_artifacts_in_state: false` is invalid on fresh session steps
   # Future (post-v1.3): additional JSON stdout validation (opt-in, version-gated)
   # Only valid when enabled in a future version AND `output_capture: json` AND `allow_parse_error` is false
   - `output_schema?: string`                         # Path to JSON Schema under WORKSPACE; variables allowed
@@ -199,6 +210,7 @@
           - `version: "1.2"` / `"1.3"`: materialize selected value to canonical pointer file
           - `version: "1.4"`: read-only consume resolution (no pointer-file mutation)
         - `kind: scalar` artifacts skip pointer-file writes and use typed value directly
+        - v2.10 `provider_session.mode: resume` reserves one consume for runtime `${SESSION_ID}` binding rather than prompt or consume-bundle output
         - fail with `contract_violation` (exit 2) when missing/stale/type-invalid
   - Control:
     - `timeout_sec: number` (applies to provider/command; exit 124 on timeout)
@@ -263,6 +275,7 @@
     - Typed predicates and structured `ref:` require `version: "1.6"` or higher.
     - `set_scalar` and `increment_scalar` require `version: "1.7"` or higher.
     - `max_transitions` and `max_visits` require `version: "1.8"` or higher.
+    - scalar `string`, `provider_session`, and provider `session_support` require `version: "2.10"` or higher.
   - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.
@@ -342,7 +355,7 @@ imports: { [alias: string]: string }        # v2.5 reusable workflow aliases (wo
 artifacts:                      # Optional
   <artifact-name>:
     kind: relpath|scalar        # Optional, default relpath
-    type: string                # enum|integer|float|bool|relpath
+    type: string                # enum|integer|float|bool|string|relpath
     pointer: string             # Required for kind=relpath; forbidden for kind=scalar
     allowed: string[]           # enum only
     under: string               # kind=relpath only (optional)
@@ -354,6 +367,10 @@ providers:                      # Optional
     command: string[]           # May include ${PROMPT} in argv mode
     input_mode: argv|stdin      # Default: argv
     defaults: { [key: string]: any }
+    session_support:            # v2.10+ optional provider-session command variants
+      metadata_mode: string
+      fresh_command: string[]
+      resume_command: string[]  # Optional unless a resume-capable step uses this provider
 
 # Directory configuration (all paths relative to WORKSPACE)
 inbox_dir: string               # Default: "inbox"

@@ -13,6 +13,7 @@ from orchestrator.exceptions import WorkflowValidationError
 
 
 logger = logging.getLogger(__name__)
+PROVIDER_SESSION_QUARANTINE_ERROR = "provider_session_interrupted_visit_quarantined"
 
 
 def _merge_observability_overrides(base: Optional[Dict[str, Any]], **overrides: Any) -> Optional[Dict[str, Any]]:
@@ -161,6 +162,22 @@ def resume_workflow(
         )
         print("Use --force-restart to start a new run on the current schema.", file=sys.stderr)
         return 1
+    if (
+        not force_restart
+        and isinstance(state.error, dict)
+        and state.error.get("type") == PROVIDER_SESSION_QUARANTINE_ERROR
+    ):
+        print(f"Error: {state.error.get('message')}", file=sys.stderr)
+        context = state.error.get("context", {})
+        if isinstance(context, dict):
+            metadata_path = context.get("metadata_path")
+            transport_spool_path = context.get("transport_spool_path")
+            if metadata_path:
+                print(f"Metadata: {metadata_path}", file=sys.stderr)
+            if transport_spool_path:
+                print(f"Transport spool: {transport_spool_path}", file=sys.stderr)
+        print("Use --force-restart to start a new run.", file=sys.stderr)
+        return 1
 
     workflow_file = state.workflow_file
     if not workflow_file:
@@ -281,6 +298,21 @@ def resume_workflow(
         )
 
         final_status = result.get('status', 'unknown')
+        run_error = result.get('error') if isinstance(result, dict) else None
+        if isinstance(run_error, dict) and run_error.get("type") == PROVIDER_SESSION_QUARANTINE_ERROR:
+            print(f"Error: {run_error.get('message')}", file=sys.stderr)
+            context = run_error.get("context", {})
+            if isinstance(context, dict):
+                metadata_path = context.get("metadata_path")
+                transport_spool_path = context.get("transport_spool_path")
+                if metadata_path:
+                    print(f"Metadata: {metadata_path}", file=sys.stderr)
+                if transport_spool_path:
+                    print(f"Transport spool: {transport_spool_path}", file=sys.stderr)
+        elif final_status == 'failed' and isinstance(run_error, dict):
+            message = run_error.get("message")
+            if isinstance(message, str) and message:
+                print(f"Error: {message}", file=sys.stderr)
         if final_status == 'completed':
             print("Workflow resumed and completed successfully")
             return 0

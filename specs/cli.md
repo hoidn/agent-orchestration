@@ -4,8 +4,10 @@
   - `orchestrate run <workflow.yaml> [--context k=v ...] [--context-file path] [--input name=value ...] [--input-file path] [--clean-processed] [--archive-processed <dst>]`
     - `--dry-run` validates the workflow and may emit advisory lint warnings; warnings do not change the exit code for an otherwise valid workflow.
   - `orchestrate resume <run_id>`
+    - v2.10: if the persisted run stopped mid-visit on a session-enabled provider step, resume quarantines that exact visit instead of replaying the provider. Later resume attempts fail fast from the persisted quarantine marker until the operator chooses `--force-restart` or starts a new run.
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
     - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
+    - v2.10 report output may surface provider-session metadata paths and quarantine context from the persisted run-level error.
   - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <file>`, `orchestrate watch <workflow.yaml>`
 
 - Debugging and recovery flags

@@ -5,9 +5,15 @@
     - `command: string[]` may reference `${PROMPT}` in argv mode.
     - `input_mode: 'argv' | 'stdin'` (default: 'argv').
   - `defaults`: map of provider parameters (e.g., `model`).
+  - v2.10 session-capable templates may also declare `session_support`:
+    - `metadata_mode`
+    - `fresh_command`
+    - optional `resume_command`
+  - `${SESSION_ID}` is legal only inside `session_support.resume_command`, which must contain exactly one placeholder when present.
 
 - Step usage
   - `provider: <name>` uses the template; merge `defaults` overlaid by `provider_params` (step wins).
+  - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
   - In argv mode, `${PROMPT}` is replaced by the composed prompt (see below).
   - In stdin mode, the composed prompt is piped to the child stdin; provider templates MUST NOT include `${PROMPT}`.
   - Reusable-workflow prompt assets:
@@ -27,6 +33,7 @@
     - `prompt_consumes: []` suppresses the consumed-artifacts block entirely.
     - Optional `consumes` guidance annotations (`description`, `format_hint`, `example`) are included per injected artifact when present.
     - These annotations are prompt guidance only and do not change runtime consume enforcement semantics.
+    - v2.10 resume steps reserve the `session_id_from` consume for runtime `${SESSION_ID}` binding; that consume is excluded from prompt injection and `consume_bundle`.
   - If the step defines `expected_outputs` and `inject_output_contract` is not `false`, append a deterministic `Output Contract` suffix describing required artifacts (`name`, `path`, `type`, optional constraints).
     - Optional `expected_outputs` guidance annotations (`description`, `format_hint`, `example`) are included in this suffix when present.
     - These annotations are prompt guidance only and do not change runtime contract validation semantics.
@@ -44,7 +51,7 @@
     1) Compose prompt from the selected base prompt source (`input_file` today; `asset_file` once the reusable-call surface lands) plus any source/workspace dependency injection.
     2) Merge `providers.<name>.defaults` overlaid by `step.provider_params` (step wins).
     3) Substitute inside `provider_params` values (strings only; recursively visit arrays/objects; non-strings unchanged).
-    4) Substitute template tokens: `${PROMPT}` (argv mode only), `${<provider_param>}`, and `${run|context|loop|steps.*}`.
+    4) Substitute template tokens: `${PROMPT}` (argv mode only), `${SESSION_ID}` (resume-command only), `${<provider_param>}`, and `${run|context|loop|steps.*}`.
     5) Apply escapes before substitution: `$$` → `$`, `$${` → `${`.
     6) Any unresolved `${...}` after substitution fails validation (exit 2) and records `error.context.missing_placeholders` (bare keys) or `invalid_prompt_placeholder` when `${PROMPT}` appears in stdin mode.
 
@@ -65,6 +72,7 @@
 - Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-opus-4-6" }`.
 - Claude summary alias: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-sonnet-4-6" }`.
 - Codex CLI: `command: ["codex","exec","--model","${model}","--config","reasoning_effort=${reasoning_effort}"]`, `input_mode: 'stdin'` (prompt via stdin).
+- Codex session-capable CLI (v2.10): `session_support.fresh_command: ["codex","exec","--json",...]`, `session_support.resume_command: ["codex","exec","resume","${SESSION_ID}","--json",...]`.
 
 ## Direct CLI Integration (details)
 

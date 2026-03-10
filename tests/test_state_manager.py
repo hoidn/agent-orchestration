@@ -182,6 +182,51 @@ steps:
         assert frame["import_alias"] == "review_loop"
         assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
 
+    def test_finalize_step_with_dataflow_persists_atomically_for_matching_visit(self, temp_workspace, workflow_file):
+        """Session-style finalization writes step result, lineage, and current_step clearance together."""
+        manager = StateManager(temp_workspace, run_id="provider-session-finalize")
+        manager.initialize(workflow_file)
+        manager.start_step(
+            "StartImplementation",
+            0,
+            "provider",
+            step_id="root.startimplementation",
+            visit_count=1,
+        )
+
+        manager.finalize_step_with_dataflow(
+            "StartImplementation",
+            StepResult(
+                status="completed",
+                name="StartImplementation",
+                step_id="root.startimplementation",
+                exit_code=0,
+                artifacts={"implementation_session_id": "sess-123"},
+                visit_count=1,
+            ),
+            artifact_versions={
+                "implementation_session_id": [
+                    {
+                        "version": 1,
+                        "value": "sess-123",
+                        "producer": "root.startimplementation",
+                        "producer_name": "StartImplementation",
+                        "step_index": 0,
+                    }
+                ]
+            },
+            expected_step_id="root.startimplementation",
+            expected_visit_count=1,
+        )
+
+        loaded_state = StateManager(temp_workspace, run_id="provider-session-finalize").load()
+
+        assert loaded_state.current_step is None
+        assert loaded_state.steps["StartImplementation"]["artifacts"] == {
+            "implementation_session_id": "sess-123"
+        }
+        assert loaded_state.artifact_versions["implementation_session_id"][0]["value"] == "sess-123"
+
     def test_at4_step_result_recording(self, temp_workspace, workflow_file):
         """AT-4: Record step results in state."""
         manager = StateManager(temp_workspace)

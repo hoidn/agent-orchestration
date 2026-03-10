@@ -159,6 +159,22 @@
   - Initial warnings cover shell gates that should become `assert`, stringly `when.equals` routing that should become typed predicates, raw `goto` diamonds that should become structured control, and imported/exported output-name collisions.
   - Warning presence does not change runtime or workflow-load exit codes in the first pass.
 
+- v2.10 additions (provider-session resume)
+  - Scalar `string` becomes a general typed scalar contract for workflow `inputs`/`outputs`, top-level scalar `artifacts`, `expected_outputs`, `output_bundle.fields`, and scalar bookkeeping.
+  - `type: string` preserves exact values end-to-end; unlike the older text-backed scalar types, the runtime does not trim leading/trailing whitespace.
+  - Provider steps authored directly under the root workflow `steps:` list may declare `provider_session`:
+    - `mode: fresh` requires `publish_artifact`
+    - `mode: resume` requires `session_id_from`
+  - Provider templates may declare `session_support` with:
+    - `metadata_mode`
+    - `fresh_command`
+    - optional `resume_command`
+  - `${SESSION_ID}` is legal only inside `session_support.resume_command`, which must contain exactly one placeholder when present.
+  - Fresh session handles are runtime-owned publications: the handle is materialized on `steps.<Step>.artifacts.<publish_artifact>` and appended to `artifact_versions` only after the exact visit's final step result, same-visit lineage appends, and matching `current_step` clearance are committed together.
+  - Resume consumes still participate in ordinary lineage selection, but the reserved `session_id_from` consume is excluded from prompt injection and `consume_bundle`.
+  - Session-enabled visits create canonical observability artifacts under `.orchestrate/runs/<run_id>/provider_sessions/`.
+  - `orchestrate resume` quarantines interrupted session-enabled visits instead of replaying them; `--force-restart` remains the explicit escape hatch.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -174,6 +190,7 @@
   - `v2.7`: D12 `repeat_until`
   - `v2.8`: D13 score-aware gates
   - `v2.9`: D14 authoring linting and normalization
+  - `v2.10`: first-class provider-session resume
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.

@@ -336,6 +336,113 @@ class StateManager:
             # Atomic rename
             temp_file.replace(self.state_file)
 
+    def _write_json_atomic(self, path: Path, payload: Dict[str, Any]) -> None:
+        """Write an arbitrary JSON payload atomically."""
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temp_file = path.with_suffix(f"{path.suffix}.tmp")
+        with open(temp_file, 'w', encoding='utf-8') as f:
+            json.dump(payload, f, indent=2)
+        temp_file.replace(path)
+
+    def provider_session_paths(self, step_id: str, visit_count: int) -> tuple[Path, Path]:
+        """Return the canonical metadata and transport-spool paths for one session visit."""
+        safe_step_id = step_id.replace("/", "_")
+        session_root = self.run_root / "provider_sessions"
+        session_root.mkdir(parents=True, exist_ok=True)
+        visit_key = f"{safe_step_id}__v{visit_count}"
+        return (
+            session_root / f"{visit_key}.json",
+            session_root / f"{visit_key}.transport.log",
+        )
+
+    def initialize_provider_session_visit(
+        self,
+        *,
+        provider_name: str,
+        step_name: str,
+        step_id: str,
+        visit_count: int,
+        mode: str,
+    ) -> Dict[str, Any]:
+        """Create the canonical metadata/spool artifacts before persisting current_step."""
+        with self._lock:
+            metadata_path, transport_spool_path = self.provider_session_paths(step_id, visit_count)
+            transport_spool_path.write_text("", encoding='utf-8')
+            now = datetime.now(timezone.utc).isoformat()
+            metadata = {
+                "run_id": self.run_id,
+                "provider": provider_name,
+                "step_name": step_name,
+                "step_id": step_id,
+                "visit_count": visit_count,
+                "mode": mode,
+                "step_status": "running",
+                "publication_state": "pending",
+                "session_id": None,
+                "metadata_mode": None,
+                "command_variant": None,
+                "resolved_command": None,
+                "started_at": now,
+                "updated_at": now,
+                "captured_transport_bytes": 0,
+                "parser_summary": {},
+                "transport_spool_path": str(transport_spool_path),
+            }
+            self._write_json_atomic(metadata_path, metadata)
+            return {
+                "metadata_path": str(metadata_path),
+                "transport_spool_path": str(transport_spool_path),
+            }
+
+    def update_provider_session_metadata(
+        self,
+        metadata_path: Path | str,
+        updates: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Atomically merge updates into one provider-session metadata record."""
+        with self._lock:
+            path = Path(metadata_path)
+            if path.exists():
+                with open(path, 'r', encoding='utf-8') as f:
+                    payload = json.load(f)
+            else:
+                payload = {}
+            payload.update(updates)
+            payload["updated_at"] = datetime.now(timezone.utc).isoformat()
+            self._write_json_atomic(path, payload)
+            return payload
+
+    def fail_run(
+        self,
+        error: Dict[str, Any],
+        *,
+        clear_current_step: bool = False,
+        expected_step_id: Optional[str] = None,
+        expected_visit_count: Optional[int] = None,
+    ) -> None:
+        """Persist a run-level failure, optionally clearing the matching current_step."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            self.state.status = "failed"
+            self.state.error = error
+
+            if clear_current_step and isinstance(self.state.current_step, dict):
+                current_step = self.state.current_step
+                if expected_step_id is not None and current_step.get("step_id") != expected_step_id:
+                    self._write_state()
+                    return
+                if (
+                    expected_visit_count is not None
+                    and current_step.get("visit_count") != expected_visit_count
+                ):
+                    self._write_state()
+                    return
+                self.state.current_step = None
+
+            self._write_state()
+
     def backup_state(self, step_name: str):
         """Create a backup of current state before step execution.
 
@@ -462,6 +569,42 @@ class StateManager:
 
             self.state.artifact_versions = artifact_versions
             self.state.artifact_consumes = artifact_consumes
+            self._write_state()
+
+    def finalize_step_with_dataflow(
+        self,
+        step_name: str,
+        result: StepResult,
+        *,
+        artifact_versions: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+        artifact_consumes: Optional[Dict[str, Dict[str, int]]] = None,
+        expected_step_id: Optional[str] = None,
+        expected_visit_count: Optional[int] = None,
+    ):
+        """Persist one step result plus dataflow changes in a single state write."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            self.state.steps[step_name] = result
+            if artifact_versions is not None:
+                self.state.artifact_versions = artifact_versions
+            if artifact_consumes is not None:
+                self.state.artifact_consumes = artifact_consumes
+
+            current_step = self.state.current_step
+            if isinstance(current_step, dict) and current_step.get("name") == step_name:
+                if expected_step_id is not None and current_step.get("step_id") != expected_step_id:
+                    self._write_state()
+                    return
+                if (
+                    expected_visit_count is not None
+                    and current_step.get("visit_count") != expected_visit_count
+                ):
+                    self._write_state()
+                    return
+                self.state.current_step = None
+
             self._write_state()
 
     def update_call_frame(self, frame_id: str, frame_state: Dict[str, Any]):

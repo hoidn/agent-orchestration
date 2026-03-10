@@ -1,0 +1,168 @@
+version: "2.10"
+name: "dsl-review-first-fix-loop-provider-session"
+context:
+  max_iterations: "20"
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+providers:
+  codex:
+    command: ["codex", "exec", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+    session_support:
+      metadata_mode: codex_exec_jsonl_stdout
+      fresh_command:
+        ["codex", "exec", "--json", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+      resume_command:
+        [
+          "codex",
+          "exec",
+          "resume",
+          "${SESSION_ID}",
+          "--json",
+          "--model",
+          "${model}",
+          "--config",
+          "reasoning_effort=${effort}",
+        ]
+
+steps:
+  - name: InitializeReviewLoop
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p \
+          state \
+          state/consumes \
+          artifacts/review \
+          artifacts/work
+
+        printf '0\n' > state/review_cycle.txt
+    expected_outputs:
+      - name: review_cycle
+        path: state/review_cycle.txt
+        type: integer
+
+  - name: PrepareReviewSlot
+    command:
+      - bash
+      - -lc
+      - |
+        cycle="$(cat state/review_cycle.txt)"
+        printf 'artifacts/review/review-cycle-%s.md\n' "$cycle" > state/review_path.txt
+    expected_outputs:
+      - name: review_path
+        path: state/review_path.txt
+        type: relpath
+        under: artifacts/review
+
+  - name: ReviewDraft
+    provider: codex
+    input_file: prompts/workflows/dsl_review_fix_loop_provider_session/review.md
+    timeout_sec: 1800
+    depends_on:
+      required:
+        - docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md
+    provider_session:
+      mode: fresh
+      publish_artifact: implementation_session_id
+    expected_outputs:
+      - name: review_path
+        path: state/review_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+        description: Markdown review for the current revision.
+        format_hint: Include a `## High` section only when high-severity findings exist.
+    publishes:
+      - artifact: review
+        from: review_path
+
+  - name: HighSeverityGate
+    consumes:
+      - artifact: review
+        producers: ["ReviewDraft"]
+        policy: latest_successful
+        freshness: any
+    consume_bundle:
+      path: state/consumes/high_severity_gate.json
+      include: ["review"]
+    command:
+      - bash
+      - -lc
+      - |
+        python - <<'PY'
+        import json
+        import pathlib
+        import sys
+
+        with open("state/consumes/high_severity_gate.json", "r", encoding="utf-8") as fh:
+            bundle = json.load(fh)
+
+        review_path = bundle["review"]
+        text = pathlib.Path(review_path).read_text(encoding="utf-8")
+        has_high = any(line.strip() == "## High" for line in text.splitlines())
+        sys.exit(1 if has_high else 0)
+        PY
+    on:
+      success:
+        goto: _end
+      failure:
+        goto: FixIssues
+
+  - name: FixIssues
+    provider: codex
+    input_file: prompts/workflows/dsl_review_fix_loop_provider_session/fix.md
+    timeout_sec: 3600
+    depends_on:
+      required:
+        - docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md
+    consumes:
+      - artifact: implementation_session_id
+        producers: ["ReviewDraft"]
+        policy: latest_successful
+        freshness: any
+      - artifact: review
+        producers: ["ReviewDraft"]
+        policy: latest_successful
+        freshness: since_last_consume
+    prompt_consumes: ["review"]
+    provider_session:
+      mode: resume
+      session_id_from: implementation_session_id
+    on:
+      success:
+        goto: IncrementReviewCycle
+
+  - name: IncrementReviewCycle
+    command:
+      - bash
+      - -lc
+      - 'c=$(cat state/review_cycle.txt); printf "%s\n" "$((c+1))" > state/review_cycle.txt'
+    expected_outputs:
+      - name: review_cycle
+        path: state/review_cycle.txt
+        type: integer
+
+  - name: IterationGate
+    command:
+      - bash
+      - -lc
+      - 'test "$(cat state/review_cycle.txt)" -lt "${context.max_iterations}"'
+    on:
+      success:
+        goto: PrepareReviewSlot
+
+artifacts:
+  review:
+    pointer: state/review_path.txt
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+  implementation_session_id:
+    kind: scalar
+    type: string

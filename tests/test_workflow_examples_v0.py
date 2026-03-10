@@ -1,5 +1,6 @@
 """Smoke tests for v0 artifact-contract example workflows."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Callable
@@ -24,6 +25,7 @@ EXAMPLE_FILES = [
     "dsl_follow_on_plan_impl_review_loop_v2_call.yaml",
     "dsl_tracked_plan_review_loop.yaml",
     "dsl_review_first_fix_loop.yaml",
+    "dsl_review_first_fix_loop_provider_session.yaml",
     "finally_demo.yaml",
     "match_demo.yaml",
     "repeat_until_demo.yaml",
@@ -109,6 +111,9 @@ def _run_with_mocked_providers(
             error=None,
             missing_placeholders=None,
             invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
         )
 
     with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
@@ -585,6 +590,115 @@ def test_dsl_review_first_fix_loop_runtime(tmp_path: Path):
 
     consumes = state.get("artifact_consumes", {}).get("FixIssues", {})
     assert consumes.get("review") == 1
+
+
+def test_dsl_review_first_fix_loop_provider_session_runtime(tmp_path: Path):
+    """Provider-session example publishes review-loop session handles and keeps them out of prompts."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "dsl_review_first_fix_loop_provider_session.yaml"
+    )
+    _copy_repo_file_to_workspace(workspace, "prompts/workflows/dsl_review_fix_loop_provider_session/review.md")
+    _copy_repo_file_to_workspace(workspace, "prompts/workflows/dsl_review_fix_loop_provider_session/fix.md")
+    _copy_repo_file_to_workspace(workspace, "docs/plans/2026-03-06-dsl-evolution-control-flow-and-reuse.md")
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, workflow.get("context", {}))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    provider_sequence = ["ReviewDraft", "FixIssues", "ReviewDraft"]
+    prepare_index = {"value": 0}
+    execute_index = {"value": 0}
+    captured_prompts: list[dict[str, str]] = []
+
+    def _write_review(ws: Path, *, high: bool) -> None:
+        review_relpath = (ws / "state" / "review_path.txt").read_text(encoding="utf-8").strip()
+        review_path = ws / review_relpath
+        review_path.parent.mkdir(parents=True, exist_ok=True)
+        if high:
+            review_path.write_text("## High\n- The typed predicate boundary is underspecified.\n", encoding="utf-8")
+        else:
+            review_path.write_text("## Medium\n- Remaining edits are polish-level.\n", encoding="utf-8")
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        step_name = provider_sequence[prepare_index["value"]]
+        prepare_index["value"] += 1
+        session_request = kwargs.get("session_request")
+        command_variant = "command"
+        metadata_mode = None
+        if session_request is not None:
+            command_variant = "fresh_command" if session_request.mode.value == "fresh" else "resume_command"
+            metadata_mode = "codex_exec_jsonl_stdout"
+        captured_prompts.append({"step": step_name, "prompt": kwargs.get("prompt_content", "") or ""})
+        return SimpleNamespace(
+            input_mode="stdin",
+            prompt=kwargs.get("prompt_content", "") or "",
+            command=["mock-provider", step_name],
+            command_variant=command_variant,
+            metadata_mode=metadata_mode,
+            session_request=session_request,
+        ), None
+
+    def _execute(_self, invocation, **_kwargs):
+        step_name = provider_sequence[execute_index["value"]]
+        execute_index["value"] += 1
+
+        if step_name == "ReviewDraft" and execute_index["value"] == 1:
+            _write_review(workspace, high=True)
+            session_id = "sess-123"
+        elif step_name == "FixIssues":
+            target = workspace / "docs" / "plans" / "2026-03-06-dsl-evolution-control-flow-and-reuse.md"
+            target.write_text(
+                target.read_text(encoding="utf-8") + "\nResolved the highest-severity review feedback.\n",
+                encoding="utf-8",
+            )
+            session_id = invocation.session_request.session_id
+        else:
+            _write_review(workspace, high=False)
+            session_id = "sess-456"
+
+        raw_stdout = "\n".join(
+            [
+                json.dumps({"type": "session.started", "session_id": session_id}),
+                json.dumps({"type": "assistant.message", "role": "assistant", "text": "ok"}),
+                json.dumps({"type": "response.completed", "session_id": session_id}),
+            ]
+        ).encode("utf-8") + b"\n"
+
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=raw_stdout,
+            normalized_stdout=b"ok",
+            provider_session={
+                "session_id": session_id,
+                "normalized_stdout": "ok",
+                "event_count": 3,
+            },
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert execute_index["value"] == 3
+    versions = state.get("artifact_versions", {}).get("implementation_session_id", [])
+    assert [entry["value"] for entry in versions] == ["sess-123", "sess-456"]
+    consumes = state.get("artifact_consumes", {}).get("root.fixissues", {})
+    assert consumes.get("implementation_session_id") == 1
+    assert consumes.get("review") == 1
+
+    fix_prompt = next(item["prompt"] for item in captured_prompts if item["step"] == "FixIssues")
+    assert "artifacts/review/review-cycle-0.md" in fix_prompt
+    assert "sess-123" not in fix_prompt
 
 
 def test_dsl_follow_on_plan_impl_review_loop_runtime(tmp_path: Path):

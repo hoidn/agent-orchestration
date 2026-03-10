@@ -169,6 +169,24 @@ class TestLoaderValidation:
         assert loaded["version"] == "2.9"
         assert loaded["steps"][0]["name"] == "Echo"
 
+    def test_version_2_10_is_supported(self):
+        """Provider-session release version should load successfully."""
+        workflow = {
+            "version": "2.10",
+            "name": "provider-session-release-version",
+            "steps": [{
+                "name": "Echo",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        loaded = self.loader.load(path)
+
+        assert loaded["version"] == "2.10"
+        assert loaded["steps"][0]["name"] == "Echo"
+
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""
         workflow = {
@@ -1005,6 +1023,233 @@ class TestLoaderValidation:
         assert any("outputs.review_decision missing required 'from'" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_v210_workflow_boundary_and_scalar_artifacts_accept_string(self):
+        """Workflow signatures and scalar artifacts accept string contracts in v2.10."""
+        workflow = {
+            "version": "2.10",
+            "name": "string-signatures",
+            "inputs": {
+                "resume_note": {
+                    "kind": "scalar",
+                    "type": "string",
+                    "default": "  keep exact whitespace  ",
+                }
+            },
+            "outputs": {
+                "session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                    "from": {"ref": "root.steps.RecordSession.artifacts.session_id"},
+                }
+            },
+            "artifacts": {
+                "session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [{
+                "name": "RecordSession",
+                "set_scalar": {
+                    "artifact": "session_id",
+                    "value": "session-abc-123",
+                },
+                "publishes": [{"artifact": "session_id", "from": "session_id"}],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+
+        assert loaded["inputs"]["resume_note"]["type"] == "string"
+        assert loaded["outputs"]["session_id"]["type"] == "string"
+        assert loaded["artifacts"]["session_id"]["type"] == "string"
+
+    def test_v210_provider_session_fresh_accepts_top_level_provider_step(self):
+        """provider_session fresh mode is valid on root-level provider steps in v2.10."""
+        workflow = {
+            "version": "2.10",
+            "name": "provider-session-fresh",
+            "providers": {
+                "session_provider": {
+                    "command": ["tool", "--model", "${model}"],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["tool", "--json", "--model", "${model}"],
+                        "resume_command": ["tool", "resume", "${SESSION_ID}", "--json", "--model", "${model}"],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [{
+                "name": "StartImplementation",
+                "provider": "session_provider",
+                "provider_session": {
+                    "mode": "fresh",
+                    "publish_artifact": "implementation_session_id",
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+
+        assert loaded["steps"][0]["provider_session"]["mode"] == "fresh"
+
+    def test_v210_provider_session_rejects_nested_usage(self):
+        """provider_session is rejected in nested loop/branch scopes in v1."""
+        workflow = {
+            "version": "2.10",
+            "name": "provider-session-nested",
+            "providers": {
+                "session_provider": {
+                    "command": ["tool", "--model", "${model}"],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["tool", "--json", "--model", "${model}"],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [{
+                "name": "Loop",
+                "for_each": {
+                    "items": ["one"],
+                    "steps": [{
+                        "name": "StartImplementation",
+                        "provider": "session_provider",
+                        "provider_session": {
+                            "mode": "fresh",
+                            "publish_artifact": "implementation_session_id",
+                        },
+                    }],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("authored directly under the root workflow steps list" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_v210_provider_session_rejects_retries_and_persist_false(self):
+        """Session-enabled steps reject authored retries and fresh-step artifact suppression."""
+        workflow = {
+            "version": "2.10",
+            "name": "provider-session-fresh-invalid-step-settings",
+            "providers": {
+                "session_provider": {
+                    "command": ["tool", "--model", "${model}"],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["tool", "--json", "--model", "${model}"],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [{
+                "name": "StartImplementation",
+                "provider": "session_provider",
+                "retries": 2,
+                "persist_artifacts_in_state": False,
+                "provider_session": {
+                    "mode": "fresh",
+                    "publish_artifact": "implementation_session_id",
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("forbids retries" in str(err.message) for err in exc_info.value.errors)
+        assert any("requires persist_artifacts_in_state to be true" in str(err.message)
+                  for err in exc_info.value.errors)
+
+    def test_v210_provider_session_resume_requires_unique_any_freshness_consume(self):
+        """Resume steps require exactly one matching consume and forbid since_last_consume freshness."""
+        workflow = {
+            "version": "2.10",
+            "name": "provider-session-resume-invalid-consume",
+            "providers": {
+                "session_provider": {
+                    "command": ["tool", "--model", "${model}"],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["tool", "--json", "--model", "${model}"],
+                        "resume_command": ["tool", "resume", "${SESSION_ID}", "--json", "--model", "${model}"],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                },
+                "review_feedback": {
+                    "kind": "scalar",
+                    "type": "string",
+                },
+            },
+            "steps": [{
+                "name": "ResumeImplementation",
+                "provider": "session_provider",
+                "consumes": [
+                    {
+                        "artifact": "implementation_session_id",
+                        "policy": "latest_successful",
+                        "freshness": "since_last_consume",
+                    },
+                    {
+                        "artifact": "review_feedback",
+                        "policy": "latest_successful",
+                    },
+                ],
+                "prompt_consumes": ["implementation_session_id"],
+                "consume_bundle": {
+                    "path": "state/resume_bundle.json",
+                    "include": ["implementation_session_id", "review_feedback"],
+                },
+                "provider_session": {
+                    "mode": "resume",
+                    "session_id_from": "implementation_session_id",
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("must omit freshness or set freshness to 'any'" in str(err.message)
+                  for err in exc_info.value.errors)
+        assert any("cannot be re-included through prompt_consumes" in str(err.message)
+                  for err in exc_info.value.errors)
+        assert any("cannot be re-included through consume_bundle.include" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_if_else_rejects_goto_inside_branch_steps(self):
         """The first structured-control tranche rejects branch-local goto escapes."""
         workflow = {
@@ -1717,6 +1962,27 @@ class TestLoaderValidation:
         assert exc_info.value.exit_code == 2
         assert any("invalid expected_outputs type 'string'" in str(err.message)
                   for err in exc_info.value.errors)
+
+    def test_expected_outputs_string_type_accepts_in_v2_10(self):
+        """expected_outputs type string is allowed once the 2.10 scalar contract lands."""
+        workflow = {
+            "version": "2.10",
+            "name": "string output",
+            "steps": [{
+                "name": "DraftPlan",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "execution_summary",
+                    "path": "state/execution_summary.txt",
+                    "type": "string"
+                }]
+            }]
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+
+        assert loaded["steps"][0]["expected_outputs"][0]["type"] == "string"
 
     def test_expected_outputs_under_rejects_parent_escape(self):
         """expected_outputs under must satisfy path safety checks."""
@@ -2631,6 +2897,30 @@ class TestLoaderValidation:
         result = self.loader.load(path)
         assert result["version"] == "1.4"
         assert result["steps"][0]["output_bundle"]["path"] == "artifacts/work/summary.json"
+
+    def test_v210_output_bundle_accepts_string_field(self):
+        """output_bundle field type string is allowed in v2.10."""
+        workflow = {
+            "version": "2.10",
+            "name": "v210-output-bundle-string",
+            "steps": [{
+                "name": "Assess",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "artifacts/work/summary.json",
+                    "fields": [{
+                        "name": "assistant_text",
+                        "json_pointer": "/assistant_text",
+                        "type": "string",
+                    }],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        result = self.loader.load(path)
+        assert result["version"] == "2.10"
+        assert result["steps"][0]["output_bundle"]["fields"][0]["type"] == "string"
 
     def test_v13_output_bundle_requires_non_empty_fields(self):
         """output_bundle.fields must be a non-empty list."""

@@ -205,6 +205,8 @@ def build_status_snapshot(
             debug_payload = result.get("debug")
             if isinstance(debug_payload, dict) and isinstance(debug_payload.get("call"), dict):
                 entry["output"]["call"] = debug_payload.get("call")
+            if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
+                entry["output"]["provider_session"] = debug_payload.get("provider_session")
 
         if status == "completed":
             entry["summary"] = "completed"
@@ -315,6 +317,24 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
             "",
         ])
 
+    run_error = run.get("error")
+    if isinstance(run_error, dict) and run_error:
+        lines.extend([
+            "## Run Error",
+            _render_kv_lines(
+                [
+                    ("type", run_error.get("type")),
+                    ("message", run_error.get("message")),
+                ]
+            ),
+        ])
+        context = run_error.get("context")
+        if isinstance(context, dict) and context:
+            lines.append("- context:")
+            for key, value in sorted(context.items()):
+                lines.append(f"  - {key}: `{value}`")
+        lines.append("")
+
     lines.extend([
         "## Progress",
         _render_kv_lines(
@@ -362,6 +382,9 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
             artifacts = output_payload.get("artifacts")
             if artifacts:
                 lines.append(f"  - artifacts: `{artifacts}`")
+            provider_session = output_payload.get("provider_session")
+            if provider_session:
+                lines.append(f"  - provider_session: `{provider_session}`")
 
         lines.append("")
 

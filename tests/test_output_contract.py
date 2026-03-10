@@ -1,5 +1,6 @@
 """Tests for deterministic artifact output contracts."""
 
+import json
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,20 @@ def test_validate_contract_value_accepts_native_json_scalars_and_relpaths(tmp_pa
     ) == "docs/tasks/task-a.md"
 
 
+def test_validate_contract_value_accepts_exact_and_empty_strings(tmp_path: Path):
+    """String contracts preserve exact scalar values, including empty strings."""
+    assert output_contract_module.validate_contract_value(
+        "  keep exact whitespace  ",
+        {"type": "string"},
+        workspace=tmp_path,
+    ) == "  keep exact whitespace  "
+    assert output_contract_module.validate_contract_value(
+        "",
+        {"type": "string"},
+        workspace=tmp_path,
+    ) == ""
+
+
 def test_validate_expected_outputs_ignores_guidance_fields(tmp_path: Path):
     """Guidance annotations do not change runtime parsing semantics."""
     (tmp_path / "state").mkdir()
@@ -90,6 +105,22 @@ def test_validate_expected_outputs_ignores_guidance_fields(tmp_path: Path):
 
     artifacts = validate_expected_outputs(specs, workspace=tmp_path)
     assert artifacts == {"review_outcome": "APPROVE"}
+
+
+def test_validate_expected_outputs_preserves_exact_string_contents(tmp_path: Path):
+    """type string reads exact file contents without trimming."""
+    (tmp_path / "state").mkdir()
+    raw_text = "  leading and trailing  \nsecond line\n"
+    (tmp_path / "state" / "assistant.txt").write_text(raw_text, encoding="utf-8")
+
+    specs = [{
+        "name": "assistant_text",
+        "path": "state/assistant.txt",
+        "type": "string",
+    }]
+
+    artifacts = validate_expected_outputs(specs, workspace=tmp_path)
+    assert artifacts == {"assistant_text": raw_text}
 
 
 def test_validate_expected_outputs_missing_file_raises_violation(tmp_path: Path):
@@ -266,6 +297,26 @@ def test_validate_output_bundle_parses_supported_types(tmp_path: Path):
         "approved_flag": True,
         "plan_path": "docs/plans/plan-a.md",
     }
+
+
+def test_validate_output_bundle_preserves_exact_json_string_values(tmp_path: Path):
+    """Output bundle string fields preserve decoded JSON string values exactly."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    raw_text = "  session note  \nnext line"
+    (tmp_path / "artifacts" / "work" / "summary.json").write_text(
+        json.dumps({"assistant_text": raw_text}) + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = {
+        "path": "artifacts/work/summary.json",
+        "fields": [
+            {"name": "assistant_text", "json_pointer": "/assistant_text", "type": "string"},
+        ],
+    }
+
+    artifacts = validate_output_bundle(bundle, workspace=tmp_path)
+    assert artifacts == {"assistant_text": raw_text}
 
 
 def test_validate_output_bundle_missing_file_raises_violation(tmp_path: Path):

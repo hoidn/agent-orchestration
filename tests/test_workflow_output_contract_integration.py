@@ -137,6 +137,65 @@ def test_workflow_signature_binds_inputs_and_exports_outputs(tmp_path: Path):
     }
 
 
+def test_workflow_signature_preserves_exact_string_inputs_and_outputs(tmp_path: Path):
+    """v2.10 workflow signatures preserve exact string scalar values end-to-end."""
+    workflow = {
+        "version": "2.10",
+        "name": "workflow-signature-string-success",
+        "inputs": {
+            "resume_note": {
+                "kind": "scalar",
+                "type": "string",
+            },
+        },
+        "outputs": {
+            "resume_note": {
+                "kind": "scalar",
+                "type": "string",
+                "from": {"ref": "root.steps.GenerateNote.artifacts.resume_note"},
+            },
+        },
+        "steps": [{
+            "name": "GenerateNote",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p state && printf '%s' \"${inputs.resume_note}\" > state/resume_note.txt",
+            ],
+            "expected_outputs": [
+                {
+                    "name": "resume_note",
+                    "path": "state/resume_note.txt",
+                    "type": "string",
+                },
+            ],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={
+            "resume_note": "  keep exact whitespace  ",
+        },
+    )
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["bound_inputs"] == {
+        "resume_note": "  keep exact whitespace  ",
+    }
+    assert state["workflow_outputs"] == {
+        "resume_note": "  keep exact whitespace  ",
+    }
+
+
 def test_workflow_output_export_fails_when_export_contract_is_invalid(tmp_path: Path):
     """Workflow output export should fail the run when the exported value violates its contract."""
     workflow = {

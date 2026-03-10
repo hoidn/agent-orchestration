@@ -5,9 +5,14 @@ Implements provider template storage, lookup, and parameter merging per specs/pr
 """
 
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Any, Dict, List, Optional
 
-from .types import ProviderTemplate, InputMode
+from .types import (
+    InputMode,
+    ProviderSessionMetadataMode,
+    ProviderSessionSupport,
+    ProviderTemplate,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -60,7 +65,32 @@ class ProviderRegistry:
                         "--config", "reasoning_effort=${reasoning_effort}",
                         "--dangerously-bypass-approvals-and-sandbox"],
                 defaults={"model": "gpt-5.3-codex", "reasoning_effort": "high"},
-                input_mode=InputMode.STDIN
+                input_mode=InputMode.STDIN,
+                session_support=ProviderSessionSupport(
+                    metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
+                    fresh_command=[
+                        "codex",
+                        "exec",
+                        "--json",
+                        "--model",
+                        "${model}",
+                        "--config",
+                        "reasoning_effort=${reasoning_effort}",
+                        "--dangerously-bypass-approvals-and-sandbox",
+                    ],
+                    resume_command=[
+                        "codex",
+                        "exec",
+                        "resume",
+                        "${SESSION_ID}",
+                        "--json",
+                        "--model",
+                        "${model}",
+                        "--config",
+                        "reasoning_effort=${reasoning_effort}",
+                        "--dangerously-bypass-approvals-and-sandbox",
+                    ],
+                ),
             )
         }
 
@@ -102,7 +132,8 @@ class ProviderRegistry:
                     name=name,
                     command=config.get("command", []),
                     defaults=config.get("defaults", {}),
-                    input_mode=input_mode
+                    input_mode=input_mode,
+                    session_support=self._parse_session_support(config.get("session_support")),
                 )
 
                 # Validate before registering
@@ -116,6 +147,20 @@ class ProviderRegistry:
                 errors.append(f"Error registering provider '{name}': {e}")
 
         return errors
+
+    def _parse_session_support(self, config: Any) -> Optional[ProviderSessionSupport]:
+        """Parse optional session-support command variants from workflow config."""
+        if config is None or not isinstance(config, dict):
+            return None
+
+        fresh_command = config.get("fresh_command", [])
+        resume_command = config.get("resume_command")
+        metadata_mode = config.get("metadata_mode", "")
+        return ProviderSessionSupport(
+            metadata_mode=metadata_mode,
+            fresh_command=fresh_command if isinstance(fresh_command, list) else [],
+            resume_command=resume_command if isinstance(resume_command, list) else None,
+        )
 
     def get(self, name: str) -> Optional[ProviderTemplate]:
         """

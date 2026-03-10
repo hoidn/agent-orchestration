@@ -178,6 +178,12 @@
 168. v2.7 resume-safe iteration bookkeeping: resume restarts from the first unfinished nested step in the current iteration without replaying completed iteration work
 169. v2.7 condition replay safety: if one iteration's condition already evaluated before interruption, resume advances without replaying that settled iteration
 170. v2.7 loop-frame outputs: the latest selected iteration outputs materialize on `steps.<RepeatUntilStatement>.artifacts`
+171. v2.10 scalar `string`: typed workflow boundaries, scalar artifacts, expected outputs, and output bundles preserve exact string values without trimming
+172. v2.10 provider-session loader guards: `provider_session` and `session_support` are gated at `version: "2.10"`, remain root-top-level only, enforce fresh/resume tagged-union validation, reject retries, and reserve the runtime-owned fresh `publish_artifact` local key
+173. v2.10 resume binding guard: the reserved `session_id_from` consume must match exactly one consume contract, use `freshness: any` or omit freshness, and stay excluded from prompt injection and `consume_bundle`
+174. v2.10 session runtime publication: successful fresh session steps atomically persist their final step result, same-visit artifact-lineage updates, and exact-match `current_step` clearance before the session metadata record is finalized
+175. v2.10 interrupted-visit quarantine: `orchestrate resume` quarantines interrupted session-enabled visits keyed by `current_step.step_id` plus `visit_count`, preserves older same-name terminal results, clears `current_step`, and records a durable run-level quarantine error with metadata/spool paths
+176. v2.10 provider-session observability: report/status surfaces expose run-level quarantine context and step-level `provider_session` summaries without printing raw metadata transport to console stdout
 
 ## DSL Evolution Rollout Crosswalk
 

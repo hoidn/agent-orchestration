@@ -9,6 +9,9 @@
 - Output handling
   - `output_file`: STDOUT is tee'd to this file and to the orchestrator capture pipeline.
   - Stderr is captured separately and written to logs when non-empty.
+  - v2.10 session-enabled provider steps normalize structured provider transport before ordinary output capture:
+    - normalized assistant text becomes the step-visible stdout used by `output_capture` and `output_file`
+    - raw metadata transport remains on the runtime-owned provider-session spool path under the run root
   - Deterministic artifact contracts:
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
@@ -63,6 +66,7 @@
 - `lines`: up to 10,000 lines retained in state; full stdout goes to `logs/<StepName>.stdout` when truncated.
 - `json`: buffer up to 1 MiB for parsing; on overflow or invalid JSON, exit 2 unless `allow_parse_error: true`. The `output_file` always receives the full stream.
 - Stderr is captured separately and written to `logs/<StepName>.stderr` when non-empty.
+- For v2.10 session-enabled provider steps, `--stream-output` and `--debug` stream only normalized assistant text to console stdout; raw session metadata transport never goes directly to the parent console.
 
 ## Line splitting and normalization
 

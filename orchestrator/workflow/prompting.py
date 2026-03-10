@@ -156,9 +156,18 @@ class PromptComposer:
             if not allowed_names:
                 return prompt
 
+        reserved_session_artifact: Optional[str] = None
+        provider_session = step.get("provider_session")
+        if isinstance(provider_session, dict) and provider_session.get("mode") == "resume":
+            session_id_from = provider_session.get("session_id_from")
+            if isinstance(session_id_from, str) and session_id_from:
+                reserved_session_artifact = session_id_from
+
         consumed_values: Dict[str, Any] = {}
         for key, value in step_consumed_values.items():
             if not isinstance(key, str):
+                continue
+            if reserved_session_artifact is not None and key == reserved_session_artifact:
                 continue
             if allowed_names is not None and key not in allowed_names:
                 continue

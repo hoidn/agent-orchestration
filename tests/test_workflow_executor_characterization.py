@@ -318,6 +318,62 @@ def test_executor_top_level_provider_step_persists_result_shape_and_clears_curre
     }
     assert persisted["status"] == "completed"
     assert persisted.get("current_step") is None
+
+
+def test_executor_provider_session_fresh_clears_current_step_after_atomic_publication(tmp_path: Path):
+    session_script = "\n".join(
+        [
+            "python - <<'PY'",
+            "print('{\"type\":\"session.started\",\"session_id\":\"sess-123\"}')",
+            "print('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"hello\"}')",
+            "print('{\"type\":\"response.completed\",\"session_id\":\"sess-123\"}')",
+            "PY",
+        ]
+    )
+    workflow = {
+        "version": "2.10",
+        "name": "provider-session-characterization",
+        "providers": {
+            "echoer": {
+                "command": ["bash", "-lc", session_script],
+                "input_mode": "stdin",
+                "session_support": {
+                    "metadata_mode": "codex_exec_jsonl_stdout",
+                    "fresh_command": ["bash", "-lc", session_script],
+                    "resume_command": ["bash", "-lc", session_script + " # ${SESSION_ID}"],
+                },
+            }
+        },
+        "artifacts": {
+            "implementation_session_id": {
+                "kind": "scalar",
+                "type": "string",
+            },
+        },
+        "steps": [
+            {
+                "name": "AskProvider",
+                "provider": "echoer",
+                "provider_session": {
+                    "mode": "fresh",
+                    "publish_artifact": "implementation_session_id",
+                },
+            }
+        ],
+    }
+
+    loaded = _load_workflow(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="provider-session-characterization")
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(loaded, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "provider-session-characterization")
+
+    assert state["status"] == "completed"
+    assert state.get("current_step") is None
+    assert state["steps"]["AskProvider"]["artifacts"] == {"implementation_session_id": "sess-123"}
+    assert persisted.get("current_step") is None
+    assert persisted["artifact_versions"]["implementation_session_id"][0]["value"] == "sess-123"
     assert persisted["steps"]["AskProvider"]["outcome"] == {
         "status": "completed",
         "phase": "execution",

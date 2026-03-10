@@ -14,6 +14,8 @@ This runbook documents the prototype workflows that use deterministic file-based
   - Pattern: run tests -> gate on failure count -> fix -> retry until pass/max cycles.
 - `workflows/examples/unit_of_work_plus_test_fix_v0.yaml`
   - Pattern: perform unit-of-work -> run tests -> fix loop.
+- `workflows/examples/dsl_review_first_fix_loop_provider_session.yaml`
+  - Pattern: fresh provider-session review -> publish runtime-owned string handle -> gate on review output -> resume the same provider session for fixes.
 
 ## Deterministic Handoff Contract
 
@@ -24,6 +26,9 @@ This runbook documents the prototype workflows that use deterministic file-based
 - In `version: "1.3"` workflows, deterministic values can be bundled:
   - `output_bundle` extracts typed artifacts from one JSON output file.
   - `consume_bundle` materializes resolved consumes into one JSON file for downstream command/provider use.
+- In `version: "2.10"` provider-session workflows:
+  - fresh session handles are typed scalar `string` artifacts published by the runtime, not by prompt-authored files
+  - the reserved resume handle participates in lineage but is excluded from prompt injection and `consume_bundle`
 - Recommended control policy:
   - Keep heavy execution/fix steps flexible (`output_capture: text`).
   - Keep assessment/review/gate steps strict (`output_capture: json`, `allow_parse_error: false`).
@@ -52,6 +57,7 @@ Optional dry-run check:
 ```bash
 cd ~/Documents/agent-orchestration
 python -m orchestrator run workflows/examples/backlog_plan_execute_v0.yaml --dry-run
+python -m orchestrator run workflows/examples/dsl_review_first_fix_loop_provider_session.yaml --dry-run
 ```
 
 Runtime example with summaries enabled:

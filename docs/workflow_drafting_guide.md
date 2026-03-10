@@ -34,6 +34,11 @@ Provider prompt text is composed deterministically:
 
 Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
 
+For v2.10 provider-session steps, treat the session handle as runtime-owned dataflow, not prompt content:
+- use `provider_session.mode: fresh` to publish a typed scalar `string` handle into normal lineage
+- use `provider_session.mode: resume` plus the reserved `session_id_from` consume to bind `${SESSION_ID}` at runtime
+- do not ask prompts to echo, store, or restate the session id; that handle is intentionally excluded from prompt injection and `consume_bundle`
+
 Pointer ownership note (v1.4): consume preflight for relpath artifacts is read-only and does not rewrite registry pointer files. If a command step needs deterministic consumed values, prefer `consume_bundle` JSON and read values from that bundle instead of relying on consume-time pointer mutation.
 
 `expected_outputs` also supports optional guidance fields (`description`, `format_hint`, `example`) that are injected into the `Output Contract` block. Use them to reduce ambiguity for agent-written artifacts. They are prompt guidance only and do not change runtime validation rules.

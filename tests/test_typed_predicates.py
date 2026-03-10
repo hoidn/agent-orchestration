@@ -58,6 +58,38 @@ def test_typed_predicate_evaluator_rejects_multi_operator_nodes():
             evaluator.evaluate(predicate, state)
 
 
+def test_typed_predicate_compare_supports_string_eq_and_ne():
+    evaluator = TypedPredicateEvaluator()
+    state = {
+        "steps": {
+            "WriteSession": {
+                "artifacts": {"session_id": "sess-123"},
+            }
+        }
+    }
+
+    assert evaluator.evaluate(
+        {
+            "compare": {
+                "left": {"ref": "root.steps.WriteSession.artifacts.session_id"},
+                "op": "eq",
+                "right": "sess-123",
+            }
+        },
+        state,
+    ) is True
+    assert evaluator.evaluate(
+        {
+            "compare": {
+                "left": {"ref": "root.steps.WriteSession.artifacts.session_id"},
+                "op": "ne",
+                "right": "sess-999",
+            }
+        },
+        state,
+    ) is True
+
+
 def test_typed_assert_false_exits_with_assert_failed_and_failure_goto(tmp_path: Path):
     workflow = {
         "version": "1.6",
@@ -174,6 +206,47 @@ def test_loader_rejects_bare_steps_refs_in_structured_predicates(tmp_path: Path)
         loader.load(workflow_file)
 
     assert any("bare 'steps.'" in str(err.message) for err in exc_info.value.errors)
+
+
+def test_loader_rejects_ordered_compare_for_string_operands(tmp_path: Path):
+    workflow = {
+        "version": "2.10",
+        "name": "invalid-string-ordered-compare",
+        "artifacts": {
+            "session_id": {
+                "kind": "scalar",
+                "type": "string",
+            }
+        },
+        "steps": [
+            {
+                "name": "WriteSession",
+                "set_scalar": {
+                    "artifact": "session_id",
+                    "value": "sess-123",
+                },
+            },
+            {
+                "name": "GateSession",
+                "assert": {
+                    "compare": {
+                        "left": {"ref": "root.steps.WriteSession.artifacts.session_id"},
+                        "op": "lt",
+                        "right": "sess-999",
+                    }
+                },
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        loader.load(workflow_file)
+
+    assert any("ordered compare operators require numeric operands" in str(err.message)
+              for err in exc_info.value.errors)
 
 
 def test_loader_rejects_self_refs_before_scoped_refs_land(tmp_path: Path):

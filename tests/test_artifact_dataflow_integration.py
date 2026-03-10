@@ -51,6 +51,15 @@ def _scalar_artifact_registry() -> dict:
     }
 
 
+def _string_scalar_artifact_registry() -> dict:
+    return {
+        "session_id": {
+            "kind": "scalar",
+            "type": "string",
+        }
+    }
+
+
 def _publish_step(name: str, target_relpath: str) -> dict:
     return {
         "name": name,
@@ -163,6 +172,199 @@ def test_scalar_bookkeeping_publish_advances_lineage_via_publishes_from(tmp_path
     versions = persisted.get("artifact_versions", {}).get("failed_count", [])
     assert [entry["producer"] for entry in versions] == ["InitializeCount", "IncrementCount"]
     assert [entry["value"] for entry in versions] == [0, 2]
+
+
+def test_string_scalar_bookkeeping_preserves_exact_values_across_lineage(tmp_path: Path):
+    """String scalar artifacts publish and consume exact values without trimming."""
+    workflow = {
+        "version": "2.10",
+        "name": "string-lineage",
+        "artifacts": _string_scalar_artifact_registry(),
+        "steps": [
+            {
+                "name": "InitializeSession",
+                "set_scalar": {
+                    "artifact": "session_id",
+                    "value": "  sess-001  ",
+                },
+                "publishes": [{"artifact": "session_id", "from": "session_id"}],
+            },
+            {
+                "name": "ReadSession",
+                "consumes": [
+                    {
+                        "artifact": "session_id",
+                        "producers": ["InitializeSession"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "consume_bundle": {"path": "state/session_bundle.json"},
+                "command": ["bash", "-lc", "cat state/session_bundle.json"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow)
+
+    assert json.loads(state["steps"]["ReadSession"]["output"]) == {"session_id": "  sess-001  "}
+    versions = persisted.get("artifact_versions", {}).get("session_id", [])
+    assert [entry["value"] for entry in versions] == ["  sess-001  "]
+
+
+def test_provider_session_resume_excludes_reserved_session_handle_from_consume_bundle(tmp_path: Path):
+    """Resume consume bundles omit the reserved session handle by default."""
+    session_script = "\n".join(
+        [
+            "python - <<'PY'",
+            "import json",
+            "from pathlib import Path",
+            "print(json.dumps({\"type\": \"session.started\", \"session_id\": \"sess-123\"}))",
+            "print(json.dumps({\"type\": \"assistant.message\", \"role\": \"assistant\", \"text\": Path(\"state/resume_bundle.json\").read_text(encoding=\"utf-8\")}))",
+            "print(json.dumps({\"type\": \"response.completed\", \"session_id\": \"sess-123\"}))",
+            "PY",
+        ]
+    )
+    workflow = {
+        "version": "2.10",
+        "name": "provider-session-bundle",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", session_script],
+                "input_mode": "stdin",
+                "session_support": {
+                    "metadata_mode": "codex_exec_jsonl_stdout",
+                    "fresh_command": ["bash", "-lc", session_script],
+                    "resume_command": ["bash", "-lc", session_script + " # ${SESSION_ID}"],
+                },
+            }
+        },
+        "artifacts": {
+            "session_id": {
+                "kind": "scalar",
+                "type": "string",
+            },
+            "review_feedback": {
+                "kind": "scalar",
+                "type": "string",
+            },
+        },
+        "steps": [
+            {
+                "name": "PublishSession",
+                "set_scalar": {
+                    "artifact": "session_id",
+                    "value": "sess-123",
+                },
+                "publishes": [{"artifact": "session_id", "from": "session_id"}],
+            },
+            {
+                "name": "PublishFeedback",
+                "set_scalar": {
+                    "artifact": "review_feedback",
+                    "value": "Address the latest comments.",
+                },
+                "publishes": [{"artifact": "review_feedback", "from": "review_feedback"}],
+            },
+            {
+                "name": "ResumeImplementation",
+                "provider": "mock_provider",
+                "consumes": [
+                    {
+                        "artifact": "session_id",
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    },
+                    {
+                        "artifact": "review_feedback",
+                        "policy": "latest_successful",
+                    },
+                ],
+                "consume_bundle": {"path": "state/resume_bundle.json"},
+                "provider_session": {
+                    "mode": "resume",
+                    "session_id_from": "session_id",
+                },
+            },
+        ],
+    }
+
+    state, _persisted = _run_workflow(tmp_path, workflow)
+
+    assert json.loads(state["steps"]["ResumeImplementation"]["output"]) == {
+        "review_feedback": "Address the latest comments.",
+    }
+
+
+def test_provider_session_fresh_publishes_runtime_owned_session_handle(tmp_path: Path):
+    """Fresh session steps publish the captured session handle into normal scalar lineage."""
+    session_script = "\n".join(
+        [
+            "python - <<'PY'",
+            "print('{\"type\":\"session.started\",\"session_id\":\"sess-123\"}')",
+            "print('{\"type\":\"assistant.message\",\"role\":\"assistant\",\"text\":\"hello\"}')",
+            "print('{\"type\":\"response.completed\",\"session_id\":\"sess-123\"}')",
+            "PY",
+        ]
+    )
+
+    workflow = {
+        "version": "2.10",
+        "name": "provider-session-fresh-lineage",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", session_script],
+                "input_mode": "stdin",
+                "session_support": {
+                    "metadata_mode": "codex_exec_jsonl_stdout",
+                    "fresh_command": ["bash", "-lc", session_script],
+                    "resume_command": ["bash", "-lc", session_script + " # ${SESSION_ID}"],
+                },
+            }
+        },
+        "artifacts": {
+            "implementation_session_id": {
+                "kind": "scalar",
+                "type": "string",
+            },
+        },
+        "steps": [
+            {
+                "name": "StartImplementation",
+                "provider": "mock_provider",
+                "provider_session": {
+                    "mode": "fresh",
+                    "publish_artifact": "implementation_session_id",
+                },
+            },
+            {
+                "name": "ReadSession",
+                "consumes": [
+                    {
+                        "artifact": "implementation_session_id",
+                        "producers": ["StartImplementation"],
+                        "policy": "latest_successful",
+                        "freshness": "any",
+                    }
+                ],
+                "consume_bundle": {"path": "state/session_bundle.json"},
+                "command": ["bash", "-lc", "cat state/session_bundle.json"],
+            },
+        ],
+    }
+
+    state, persisted = _run_workflow(tmp_path, workflow)
+
+    assert state["steps"]["StartImplementation"]["artifacts"] == {
+        "implementation_session_id": "sess-123"
+    }
+    assert json.loads(state["steps"]["ReadSession"]["output"]) == {
+        "implementation_session_id": "sess-123"
+    }
+    versions = persisted.get("artifact_versions", {}).get("implementation_session_id", [])
+    assert len(versions) == 1
+    assert versions[0]["producer_name"] == "StartImplementation"
+    assert versions[0]["value"] == "sess-123"
 
 
 def test_consume_latest_successful_prefers_fixissues_over_executeplan(tmp_path: Path):

@@ -39,8 +39,9 @@ def validate_contract_value(raw_value: Any, spec: Dict[str, Any], workspace: Pat
     value_type = spec.get("type")
 
     if isinstance(raw_value, str):
+        normalized_value = raw_value if value_type == "string" else raw_value.strip()
         parsed_value, violation = _parse_output_value(
-            raw_value=raw_value.strip(),
+            raw_value=normalized_value,
             value_type=value_type,
             spec=spec,
             workspace=resolved_workspace,
@@ -105,7 +106,9 @@ def validate_expected_outputs(expected_outputs: List[Dict[str, Any]], workspace:
                 ))
             continue
 
-        raw_value = output_file.read_text(encoding="utf-8").strip()
+        raw_value = output_file.read_text(encoding="utf-8")
+        if spec.get("type") != "string":
+            raw_value = raw_value.strip()
         value_type = spec.get("type")
         parsed_value, violation = _parse_output_value(
             raw_value=raw_value,
@@ -254,6 +257,9 @@ def _parse_output_value(
     spec: Dict[str, Any],
     workspace: Path,
 ) -> tuple[Any, ContractViolation | None]:
+    if value_type == "string":
+        return raw_value, None
+
     if value_type == "enum":
         allowed = spec.get("allowed", [])
         if raw_value not in allowed:
@@ -312,6 +318,15 @@ def _parse_output_bundle_value(
     spec: Dict[str, Any],
     workspace: Path,
 ) -> tuple[Any, ContractViolation | None]:
+    if value_type == "string":
+        if not isinstance(raw_value, str):
+            return None, ContractViolation(
+                type="invalid_string",
+                message="Output value is not a valid string",
+                context={"value": raw_value},
+            )
+        return raw_value, None
+
     if value_type == "enum":
         allowed = spec.get("allowed", [])
         if not isinstance(raw_value, str) or raw_value not in allowed:
