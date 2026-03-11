@@ -1287,6 +1287,51 @@ def test_executor_uses_typed_provider_leaf_when_cached_top_level_step_payload_dr
     assert persisted["steps"]["AskProvider"]["output"] == "ok"
 
 
+def test_step_for_node_id_returns_fresh_top_level_compatibility_materialization(tmp_path: Path):
+    workflow = {
+        "version": "2.10",
+        "name": "projection-executor-fresh-top-level-materialization",
+        "context": {
+            "greeting": "ok",
+        },
+        "providers": {
+            "echoer": {
+                "command": [
+                    "python",
+                    "-c",
+                    "import sys; sys.stdout.write(sys.argv[1])",
+                    "${value}",
+                ],
+            }
+        },
+        "steps": [
+            {
+                "name": "AskProvider",
+                "id": "ask_provider",
+                "provider": "echoer",
+                "provider_params": {
+                    "value": "${context.greeting}",
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-fresh-top-level-materialization",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    first_step = executor._step_for_node_id("root.ask_provider")
+    second_step = executor._step_for_node_id("root.ask_provider")
+    first_step["provider_params"]["value"] = "legacy"
+
+    assert first_step is not second_step
+    assert second_step["provider_params"]["value"] == "${context.greeting}"
+
+
 def test_executor_uses_typed_scalar_leaf_when_cached_top_level_step_payload_drifts(tmp_path: Path):
     workflow = {
         "version": "2.7",
@@ -1325,6 +1370,58 @@ def test_executor_uses_typed_scalar_leaf_when_cached_top_level_step_payload_drif
     assert state["status"] == "completed"
     assert state["steps"]["SetReady"]["artifacts"] == {"ready": True}
     assert persisted["steps"]["SetReady"]["artifacts"] == {"ready": True}
+
+
+def test_step_for_node_id_returns_fresh_nested_loop_compatibility_materialization(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "projection-executor-fresh-loop-materialization",
+        "steps": [
+            {
+                "name": "ProcessItems",
+                "id": "process_items",
+                "for_each": {
+                    "items": ["alpha", "beta"],
+                    "steps": [
+                        {
+                            "name": "WriteItem",
+                            "id": "write_item",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf '%s\\n' '${item}' >> state/items.txt",
+                            ],
+                        }
+                    ],
+                },
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    loop_node = bundle.ir.nodes["root.process_items"]
+    nested_node_id = loop_node.body_node_ids[0]
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="projection-executor-fresh-loop-materialization",
+    )
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    first_step = executor._step_for_node_id(nested_node_id)
+    second_step = executor._step_for_node_id(nested_node_id)
+    first_step["command"] = [
+        "bash",
+        "-lc",
+        "mkdir -p state && printf 'legacy\\n' >> state/items.txt",
+    ]
+
+    assert first_step is not second_step
+    assert second_step["command"] == [
+        "bash",
+        "-lc",
+        "mkdir -p state && printf '%s\\n' '${item}' >> state/items.txt",
+    ]
 
 
 def test_executor_uses_typed_command_leaf_when_ir_raw_payload_drifts(tmp_path: Path):

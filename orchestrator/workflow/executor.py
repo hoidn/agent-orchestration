@@ -80,6 +80,7 @@ from .prompting import PromptComposer
 from .references import ReferenceResolutionError, ReferenceResolver
 from .resume_planner import ResumePlanner, ResumeStateIntegrityError
 from .runtime_context import RuntimeContext
+from .runtime_step import RuntimeStep
 from .runtime_types import RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 
@@ -445,7 +446,6 @@ class WorkflowExecutor:
         )
         self.finalization_start_index = len(self.executable_ir.body_region)
         self.steps = []
-        self._step_by_node_id: Dict[str, Dict[str, Any]] = {}
         self._execution_index_by_node_id = {
             node_id: index
             for index, node_id in enumerate(self._step_node_ids)
@@ -486,6 +486,8 @@ class WorkflowExecutor:
 
     def _step_id(self, step: Dict[str, Any], fallback_index: Optional[int] = None) -> str:
         """Return the durable identity for a top-level step."""
+        if isinstance(step, RuntimeStep) and fallback_index is None:
+            return step.step_id
         projection_entry = self._projection_entry_for_step(
             step,
             self.current_step if fallback_index is None else fallback_index,
@@ -570,7 +572,7 @@ class WorkflowExecutor:
         )
         return materialized_step
 
-    def _runtime_step_for_node(
+    def _compatibility_step_for_node(
         self,
         node: ExecutableNode,
         *,
@@ -578,7 +580,7 @@ class WorkflowExecutor:
         presentation_name: Optional[str] = None,
         step_id: Optional[str] = None,
     ) -> Dict[str, Any]:
-        """Render one executable node into the mutable runtime step shape."""
+        """Render one executable node into the mutable compatibility step shape."""
         resolved_name = presentation_name if isinstance(presentation_name, str) else node.presentation_name
         resolved_step_id = step_id if isinstance(step_id, str) else node.step_id
         nested_steps: Optional[List[Dict[str, Any]]] = None
@@ -618,7 +620,7 @@ class WorkflowExecutor:
         region_name: str,
     ) -> Dict[str, Any]:
         """Convert one executable node into the runtime step payload used by the executor."""
-        return self._runtime_step_for_node(
+        return self._compatibility_step_for_node(
             node,
             region_name=region_name,
         )
@@ -656,7 +658,7 @@ class WorkflowExecutor:
                 if nested_names is not None
                 else child_node.presentation_name
             )
-            child_step = self._runtime_step_for_node(
+            child_step = self._compatibility_step_for_node(
                 child_node,
                 region_name=region_name,
                 presentation_name=child_name,
@@ -664,6 +666,43 @@ class WorkflowExecutor:
             )
             materialized_steps.append(child_step)
         return materialized_steps
+
+    def _runtime_step_for_node(
+        self,
+        node: ExecutableNode,
+        *,
+        presentation_name: Optional[str] = None,
+        step_id: Optional[str] = None,
+    ) -> RuntimeStep:
+        """Build one immutable runtime step view from an executable node."""
+        resolved_name = (
+            presentation_name
+            if isinstance(presentation_name, str)
+            else self.projection.presentation_key_by_node_id.get(node.node_id, node.presentation_name)
+            if self.projection is not None
+            else node.presentation_name
+        )
+        resolved_step_id = step_id if isinstance(step_id, str) else node.step_id
+        return RuntimeStep(node=node, name=resolved_name, step_id=resolved_step_id)
+
+    def _runtime_step_for_node_id(
+        self,
+        node_id: str,
+        *,
+        presentation_name: Optional[str] = None,
+        step_id: Optional[str] = None,
+    ) -> RuntimeStep:
+        """Return the immutable runtime step view for one executable node id."""
+        if self.executable_ir is None:
+            raise ValueError("Typed workflow is missing executable IR")
+        node = self.executable_ir.nodes.get(node_id)
+        if node is None:
+            raise ValueError(f"Typed workflow is missing executable node '{node_id}'")
+        return self._runtime_step_for_node(
+            node,
+            presentation_name=presentation_name,
+            step_id=step_id,
+        )
 
     def _first_execution_node_id(self) -> Optional[str]:
         """Return the first top-level executable node id when bundle-backed IR is available."""
@@ -673,21 +712,17 @@ class WorkflowExecutor:
         return ordered_node_ids[0] if ordered_node_ids else None
 
     def _step_for_node_id(self, node_id: str) -> Dict[str, Any]:
-        """Return the runtime step payload for one executable node id."""
-        step = self._step_by_node_id.get(node_id)
-        if step is None and self.executable_ir is not None:
-            node = self.executable_ir.nodes.get(node_id)
-            if node is None:
-                raise ValueError(f"Typed workflow is missing executable node '{node_id}'")
-            step = self._materialize_projection_step(
-                node,
-                region_name=node.region.value,
-            )
-            step = self._apply_materialized_step_identity(step, node)
-            self._step_by_node_id[node_id] = step
-        if step is None:
-            raise ValueError(f"Typed workflow is missing a top-level runtime step for node '{node_id}'")
-        return step
+        """Return a fresh compatibility materialization for one executable node id."""
+        if self.executable_ir is None:
+            raise ValueError("Typed workflow is missing executable IR")
+        node = self.executable_ir.nodes.get(node_id)
+        if node is None:
+            raise ValueError(f"Typed workflow is missing executable node '{node_id}'")
+        step = self._materialize_projection_step(
+            node,
+            region_name=node.region.value,
+        )
+        return self._apply_materialized_step_identity(step, node)
 
     def _execution_index_for_node_id(self, node_id: str) -> int:
         """Return the combined execution index for one top-level executable node id."""
@@ -844,7 +879,7 @@ class WorkflowExecutor:
             steps_state = state.get("steps")
             if isinstance(steps_state, Mapping) and step_name in steps_state:
                 continue
-            skipped_step = self._step_for_node_id(node_id)
+            skipped_step = self._runtime_step_for_node_id(node_id, presentation_name=step_name)
             self._persist_step_result(
                 state,
                 step_name,
@@ -862,6 +897,8 @@ class WorkflowExecutor:
             return None
 
         node_id = None
+        if isinstance(step, RuntimeStep):
+            node_id = step.node_id
         if isinstance(step_index, int) and 0 <= step_index < len(self._step_node_ids):
             node_id = self._step_node_ids[step_index]
         if not isinstance(node_id, str):
@@ -884,6 +921,8 @@ class WorkflowExecutor:
 
     def _executable_node_for_step(self, step: Dict[str, Any]) -> Any:
         """Return the typed executable node backing one legacy compatibility step."""
+        if isinstance(step, RuntimeStep):
+            return step.node
         if self.executable_ir is None or not isinstance(step, dict):
             return None
         step_id = step.get("step_id")
@@ -901,15 +940,16 @@ class WorkflowExecutor:
         return node.kind
 
     def _typed_execution_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Return a fresh IR-owned runtime step payload when executable topology is active."""
+        """Return an IR-backed runtime step view when executable topology is active."""
         if not self._use_ir_topology:
+            return step
+        if isinstance(step, RuntimeStep):
             return step
         node = self._executable_node_for_step(step)
         if node is None:
             return step
         return self._runtime_step_for_node(
             node,
-            region_name=node.region.value,
             presentation_name=step.get("name"),
             step_id=step.get("step_id"),
         )
@@ -1682,7 +1722,7 @@ class WorkflowExecutor:
                     if current_node_id is None:
                         break
                     step_index = self._execution_index_for_node_id(current_node_id)
-                    step = self._step_for_node_id(current_node_id)
+                    step = self._runtime_step_for_node_id(current_node_id)
                 else:
                     if step_index >= len(self.steps):
                         break

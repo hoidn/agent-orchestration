@@ -157,7 +157,11 @@ class LoopExecutor:
             nested_name = loop_projection.nested_presentation_keys.get(node_id)
             if not isinstance(nested_name, str) or not nested_name or nested_name in iteration_state:
                 continue
-            nested_step = self.executor._step_for_node_id(node_id)
+            nested_step = self.executor._runtime_step_for_node_id(
+                node_id,
+                presentation_name=nested_name,
+                step_id=loop_projection.runtime_step_id(iteration_index, node_id),
+            )
             skipped_result = self.executor._attach_outcome(
                 nested_step,
                 {
@@ -196,13 +200,18 @@ class LoopExecutor:
         """Execute one typed loop body by IR node ids until the frame boundary or failure."""
         current_node_id = start_node_id
         while isinstance(current_node_id, str) and current_node_id in body_node_ids:
-            nested_step = self.executor._step_for_node_id(current_node_id)
-            nested_step = self.executor._typed_execution_step(nested_step)
-            nested_name = loop_projection.nested_presentation_keys.get(
-                current_node_id,
-                nested_step.get("name", current_node_id),
-            )
             nested_runtime_step_id = loop_projection.runtime_step_id(iteration_index, current_node_id)
+            projected_nested_name = loop_projection.nested_presentation_keys.get(current_node_id)
+            nested_step = self.executor._runtime_step_for_node_id(
+                current_node_id,
+                presentation_name=projected_nested_name if isinstance(projected_nested_name, str) else None,
+                step_id=nested_runtime_step_id,
+            )
+            nested_name = (
+                projected_nested_name
+                if isinstance(projected_nested_name, str) and projected_nested_name
+                else nested_step.get("name", current_node_id)
+            )
             loop_scope = self.build_loop_scope(
                 state,
                 iteration_state,
@@ -1490,12 +1499,14 @@ class LoopExecutor:
         if isinstance(loop_name, str) and "." in loop_name:
             name_prefix = loop_name.rsplit(".", 1)[0]
 
+        projection = getattr(self.executor, "projection", None)
+        if projection is None:
+            return {}
+
         parent_scope_steps: Dict[str, Any] = {}
-        for candidate in self.executor.steps:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_name = candidate.get("name")
-            candidate_step_id = candidate.get("step_id")
+        for entry in projection.entries_by_node_id.values():
+            candidate_name = entry.presentation_key
+            candidate_step_id = entry.step_id
             if not isinstance(candidate_name, str) or not isinstance(candidate_step_id, str):
                 continue
             if "." in candidate_step_id:
@@ -1533,12 +1544,14 @@ class LoopExecutor:
         else:
             parent_step_id = "root"
 
+        projection = getattr(self.executor, "projection", None)
+        if projection is None:
+            return {}
+
         parent_scope_nodes: Dict[str, Any] = {}
-        for candidate in self.executor.steps:
-            if not isinstance(candidate, dict):
-                continue
-            candidate_step_id = candidate.get("step_id")
-            candidate_name = candidate.get("name")
+        for entry in projection.entries_by_node_id.values():
+            candidate_step_id = entry.step_id
+            candidate_name = entry.presentation_key
             if not isinstance(candidate_step_id, str) or not isinstance(candidate_name, str):
                 continue
             if "." in candidate_step_id:
