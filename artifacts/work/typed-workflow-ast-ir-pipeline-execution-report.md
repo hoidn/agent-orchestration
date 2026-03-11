@@ -1,39 +1,34 @@
 # Completed In This Pass
 
-- Parsed legacy `when/assert` conditions into typed surface nodes and carried them through the IR runtime so legacy `when.equals` no longer depends on raw dict condition fallback or gets silently ignored under typed execution.
-- Removed raw-workflow fallbacks from loaded-bundle root metadata helpers and from DSL lint entrypoints, while preserving the `None -> empty contracts` import-validation path the loader still uses before it raises workflow validation errors.
-- Switched advisory linting for stringly `when.equals` checks to typed surface condition nodes instead of `step.raw`, and added focused regression coverage for the bundle-only and typed-condition boundaries.
+- Removed the remaining `raw` payload storage from `SurfaceWorkflow`, `SurfaceStep`, structured block AST nodes, and `ExecutableNodeBase`, so authored/lowered dict payloads no longer escape the typed AST/IR models.
+- Removed the `_compatibility_step_definition()` raw fallback and rebuilt test-side compatibility materialization from typed AST/IR data instead of stored raw payloads.
+- Updated the affected runtime and lint regressions to corrupt cached compatibility payloads instead of mutating nonexistent raw state, preserving coverage for typed authority over execution/reporting behavior.
 
 # Completed Plan Tasks
 
-- Tranche 5: removed the reviewed bundle/lint raw-authority fallbacks so maintainer-facing helpers and linting now require typed loaded bundles instead of raw workflow mappings.
-- Tranche 5: removed the reviewed executor mixed-mode legacy condition/ref fallback slice by evaluating only typed condition forms in the IR runtime.
-- Tranche 5: reran the approved structured/finalization/call/report verification boundary and the required `design_plan_impl_review_stack_v2_call.yaml --dry-run` smoke check.
+- Tranche 5: removed the remaining raw AST/IR payload escape hatches in `orchestrator/workflow/surface_ast.py`, `orchestrator/workflow/elaboration.py`, `orchestrator/workflow/executable_ir.py`, and `orchestrator/workflow/lowering.py`.
+- Tranche 5: removed the last raw-backed compatibility fallback in lowering and rewrote compatibility/test helpers to materialize from typed surface/IR/projection data.
+- Tranche 5: reran the approved structured/call/finalization/report verification boundary and the required `design_plan_impl_review_stack_v2_call.yaml --dry-run` smoke check.
 
 # Remaining Required Plan Tasks
 
-- Remove the remaining `raw` payload storage and propagation on core AST/IR/contracts in `surface_ast.py`, `executable_ir.py`, and `lowering.py` so raw dicts stop escaping elaboration/lowering internals.
-- Continue trimming remaining typed-pipeline compatibility scaffolding outside this slice, including any steady-state runtime/reporting helpers that still depend on raw compatibility payloads rather than typed bundle/IR/projection data.
-- Finish the broader Tranche 5 steady-state cleanup and exit criteria before declaring the typed pipeline migration complete.
+- Remove the broader IR-to-dict execution/materialization adapter so executor, loop, and finalization paths consume only IR/projection data instead of rebuilding mutable step payloads.
+- Finish the remaining Tranche 5 steady-state cleanup and maintainer-doc updates so the runtime boundary and docs match the typed pipeline architecture.
 
 # Verification
 
-- `pytest --collect-only -q tests/test_workflow_surface_ast.py tests/test_dsl_linting.py tests/test_workflow_executor_characterization.py`
-  - `54 tests collected`
-- `pytest -q tests/test_workflow_surface_ast.py -k 'loaded_workflow_helpers_require_loaded_bundle or parses_legacy_when_equals_into_condition_node' -v`
-  - `2 passed`
-- `pytest -q tests/test_dsl_linting.py -k 'lint_requires_loaded_workflow_bundle or typed_legacy_when_condition_when_step_raw_drifts' -v`
-  - `2 passed`
-- `pytest -q tests/test_workflow_executor_characterization.py -k respects_legacy_when_equals_without_condition_dict_fallback -v`
-  - `1 passed`
-- `pytest -q tests/test_workflow_surface_ast.py tests/test_dsl_linting.py tests/test_typed_predicates.py tests/test_workflow_output_contract_integration.py -k 'surface or lint or when or workflow_input_binding_uses_typed_contract_definition_when_legacy_contract_raw_drifts or workflow_output_export_uses_bound_ir_contracts_when_legacy_refs_are_corrupted or workflow_output_export_uses_typed_contract_definition_when_legacy_contract_raw_drifts' -v`
-  - `26 passed, 21 deselected`
+- `pytest --collect-only -q tests/test_loader_validation.py tests/test_workflow_ir_lowering.py`
+  - `106 tests collected`
+- `pytest -q tests/test_loader_validation.py tests/test_workflow_ir_lowering.py -k 'surface_ast_exposes_no_raw_payloads or expose_no_legacy_raw_payloads' -v`
+  - `2 passed, 104 deselected`
+- `pytest -q tests/test_loader_validation.py tests/test_workflow_ir_lowering.py tests/test_workflow_surface_ast.py tests/test_workflow_lowering_invariants.py tests/test_workflow_state_projection.py tests/test_structured_control_flow.py tests/test_subworkflow_calls.py tests/test_workflow_executor_characterization.py tests/test_workflow_output_contract_integration.py tests/test_dsl_linting.py tests/test_typed_predicates.py tests/test_observability_report.py tests/test_cli_safety.py tests/test_resume_command.py tests/test_workflow_examples_v0.py tests/test_provider_integration.py tests/test_secrets.py -v`
+  - `376 passed`
 - `pytest tests/test_loader_validation.py tests/test_structured_control_flow.py tests/test_subworkflow_calls.py tests/test_resume_command.py tests/test_workflow_examples_v0.py tests/test_observability_report.py tests/test_cli_report_command.py -k 'structured or repeat_until or finalization or call or report or design_plan_impl_review_stack_v2_call' -v`
-  - `87 passed, 137 deselected`
+  - `87 passed, 138 deselected`
 - `PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/design_plan_impl_review_stack_v2_call.yaml --dry-run`
   - `[DRY RUN] Workflow validation successful`
 
 # Residual Risks
 
-- Core AST/IR nodes and contract wrappers still retain `raw` payloads for compatibility and tests, so the typed-only “raw dicts do not escape parse/elaboration internals” end state is still incomplete.
-- Bundle helpers still preserve `None -> {}` behavior for import prevalidation; that keeps loader validation stable, but the remaining Tranche 5 cleanup should continue auditing similar compatibility shims so they do not become steady-state runtime authority again.
+- Executor, loop, and finalization execution still rebuild mutable compatibility step payloads from IR nodes, so the Tranche 5 “IR/projection only” runtime boundary is not finished yet.
+- Maintainer docs still need the final parse/elaborate/lower/execute and projection-backed resume/report updates before the tranche can be declared fully complete.

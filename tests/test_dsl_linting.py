@@ -1,7 +1,5 @@
 """Tests for advisory DSL linting and normalization hints."""
 
-from dataclasses import replace
-
 from pathlib import Path
 
 import pytest
@@ -9,8 +7,6 @@ import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.linting import lint_workflow
-from orchestrator.workflow.surface_ast import freeze_mapping
-
 
 def _write_yaml(path: Path, payload: dict) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -200,7 +196,7 @@ def test_lint_warns_when_imported_workflows_export_colliding_outputs(tmp_path: P
         },
     )
 
-    assert "__imports" not in workflow.surface.raw
+    assert not hasattr(workflow.surface, "raw")
 
     warnings = lint_workflow(workflow)
 
@@ -238,7 +234,7 @@ def test_lint_uses_surface_steps_from_typed_bundle(tmp_path: Path):
     )
 
 
-def test_lint_uses_typed_surface_leaf_fields_when_step_raw_drifts(tmp_path: Path):
+def test_lint_uses_typed_surface_leaf_fields_without_raw_payloads(tmp_path: Path):
     bundle = _load_workflow_bundle(
         tmp_path,
         {
@@ -264,27 +260,9 @@ def test_lint_uses_typed_surface_leaf_fields_when_step_raw_drifts(tmp_path: Path
             ],
         },
     )
-    drifted_bundle = replace(
-        bundle,
-        surface=replace(
-            bundle.surface,
-            steps=(
-                replace(
-                    bundle.surface.steps[0],
-                    raw=freeze_mapping(
-                        {
-                            **dict(bundle.surface.steps[0].raw),
-                            "command": ["echo", "ready"],
-                            "on": {},
-                        }
-                    ),
-                ),
-                *bundle.surface.steps[1:],
-            ),
-        ),
-    )
+    assert not hasattr(bundle.surface.steps[0], "raw")
 
-    warnings = lint_workflow(drifted_bundle)
+    warnings = lint_workflow(bundle)
     warning_codes = {
         warning["code"]
         for warning in warnings
@@ -295,7 +273,7 @@ def test_lint_uses_typed_surface_leaf_fields_when_step_raw_drifts(tmp_path: Path
     assert "goto-diamond-to-structured-control" in warning_codes
 
 
-def test_lint_uses_typed_legacy_when_condition_when_step_raw_drifts(tmp_path: Path):
+def test_lint_uses_typed_legacy_when_condition_without_raw_payloads(tmp_path: Path):
     bundle = _load_workflow_bundle(
         tmp_path,
         {
@@ -319,26 +297,9 @@ def test_lint_uses_typed_legacy_when_condition_when_step_raw_drifts(tmp_path: Pa
             ],
         },
     )
-    drifted_bundle = replace(
-        bundle,
-        surface=replace(
-            bundle.surface,
-            steps=(
-                bundle.surface.steps[0],
-                replace(
-                    bundle.surface.steps[1],
-                    raw=freeze_mapping(
-                        {
-                            **dict(bundle.surface.steps[1].raw),
-                            "when": {},
-                        }
-                    ),
-                ),
-            ),
-        ),
-    )
+    assert not hasattr(bundle.surface.steps[1], "raw")
 
-    warnings = lint_workflow(drifted_bundle)
+    warnings = lint_workflow(bundle)
 
     assert any(
         warning["code"] == "stringly-when-equals" and warning["step"] == "RouteDecision"

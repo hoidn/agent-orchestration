@@ -13,7 +13,6 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.executable_ir import NodeResultAddress
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.references import ReferenceResolutionError
-from orchestrator.workflow.surface_ast import freeze_mapping
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -35,19 +34,6 @@ def _load_workflow_bundle(workspace: Path, workflow: dict):
 def _persisted_state(workspace: Path, run_id: str) -> dict:
     state_file = workspace / ".orchestrate" / "runs" / run_id / "state.json"
     return json.loads(state_file.read_text(encoding="utf-8"))
-
-
-def _replace_ir_node_raw(bundle, node_id: str, raw_payload: dict):
-    return replace(
-        bundle,
-        ir=replace(
-            bundle.ir,
-            nodes=MappingProxyType({
-                **bundle.ir.nodes,
-                node_id: replace(bundle.ir.nodes[node_id], raw=freeze_mapping(raw_payload)),
-            }),
-        ),
-    )
 
 
 def test_executor_requires_loaded_workflow_bundle(tmp_path: Path):
@@ -463,16 +449,7 @@ def test_executor_uses_typed_for_each_body_nodes_when_loop_raw_steps_are_missing
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
     loop_node = bundle.ir.nodes["root.process_items"]
-    loop_raw = dict(loop_node.raw)
-    for_each_raw = dict(loop_raw["for_each"])
-    for_each_raw.pop("steps", None)
-    loop_raw["for_each"] = for_each_raw
-    new_nodes = dict(bundle.ir.nodes)
-    new_nodes["root.process_items"] = replace(loop_node, raw=freeze_mapping(loop_raw))
-    bundle = replace(
-        bundle,
-        ir=replace(bundle.ir, nodes=MappingProxyType(new_nodes)),
-    )
+    assert not hasattr(loop_node, "raw")
 
     state_manager = StateManager(
         workspace=tmp_path,
@@ -572,10 +549,7 @@ def test_executor_uses_typed_context_defaults_when_loop_state_context_is_missing
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle = replace(
-        bundle,
-        surface=replace(bundle.surface, raw=freeze_mapping({})),
-    )
+    assert not hasattr(bundle.surface, "raw")
 
     state_manager = StateManager(
         workspace=tmp_path,
@@ -642,16 +616,7 @@ def test_executor_uses_typed_repeat_until_body_nodes_when_loop_raw_steps_are_mis
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
     loop_node = bundle.ir.nodes["root.review_loop"]
-    loop_raw = dict(loop_node.raw)
-    repeat_until_raw = dict(loop_raw["repeat_until"])
-    repeat_until_raw.pop("steps", None)
-    loop_raw["repeat_until"] = repeat_until_raw
-    new_nodes = dict(bundle.ir.nodes)
-    new_nodes["root.review_loop"] = replace(loop_node, raw=freeze_mapping(loop_raw))
-    bundle = replace(
-        bundle,
-        ir=replace(bundle.ir, nodes=MappingProxyType(new_nodes)),
-    )
+    assert not hasattr(loop_node, "raw")
 
     state_manager = StateManager(
         workspace=tmp_path,
@@ -1005,21 +970,13 @@ def test_executor_uses_projection_order_and_presentation_names_over_legacy_adapt
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    write_one = {
-        **dict(bundle.ir.nodes["root.write_one"].raw),
-        "name": "LegacyWriteOne",
-    }
-    write_two = {
-        **dict(bundle.ir.nodes["root.write_two"].raw),
-        "name": "LegacyWriteTwo",
-    }
-    bundle = _replace_ir_node_raw(bundle, "root.write_one", write_one)
-    bundle = _replace_ir_node_raw(bundle, "root.write_two", write_two)
-
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-order")
     state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.write_one")["name"] = "LegacyWriteOne"
+    executor._step_for_node_id("root.write_two")["name"] = "LegacyWriteTwo"
 
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-order")
 
     assert state["status"] == "completed"
@@ -1075,19 +1032,12 @@ def test_executor_resolves_goto_against_projection_when_legacy_target_name_drift
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle = _replace_ir_node_raw(
-        bundle,
-        "root.final",
-        {
-            **dict(bundle.ir.nodes["root.final"].raw),
-            "name": "LegacyFinal",
-        },
-    )
-
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-goto")
     state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.final")["name"] = "LegacyFinal"
 
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-goto")
 
     assert state["status"] == "completed"
@@ -1395,26 +1345,19 @@ def test_executor_uses_typed_command_leaf_when_ir_raw_payload_drifts(tmp_path: P
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle = _replace_ir_node_raw(
-        bundle,
-        "root.write_typed",
-        {
-            **dict(bundle.ir.nodes["root.write_typed"].raw),
-            "command": [
-                "bash",
-                "-lc",
-                "mkdir -p state && printf 'legacy\\n' > state/result.txt",
-            ],
-        },
-    )
-
     state_manager = StateManager(
         workspace=tmp_path,
         run_id="projection-executor-command-leaf-raw-drift",
     )
     state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.write_typed")["command"] = [
+        "bash",
+        "-lc",
+        "mkdir -p state && printf 'legacy\\n' > state/result.txt",
+    ]
 
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    state = executor.execute()
 
     assert state["status"] == "completed"
     assert (tmp_path / "state" / "result.txt").read_text(encoding="utf-8") == "typed\n"
@@ -1502,21 +1445,15 @@ def test_executor_uses_typed_for_each_items_when_ir_raw_payload_drifts(tmp_path:
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    loop_node = bundle.ir.nodes["root.process_items"]
-    loop_raw = dict(loop_node.raw)
-    loop_raw["for_each"] = {
-        **dict(loop_raw["for_each"]),
-        "items": ["legacy"],
-    }
-    bundle = _replace_ir_node_raw(bundle, "root.process_items", loop_raw)
-
     state_manager = StateManager(
         workspace=tmp_path,
         run_id="projection-executor-loop-items-raw-drift",
     )
     state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.process_items")["for_each"]["items"] = ["legacy"]
 
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-loop-items-raw-drift")
 
     assert state["status"] == "completed"
@@ -1565,19 +1502,13 @@ def test_executor_uses_typed_call_alias_when_ir_raw_payload_drifts(tmp_path: Pat
             ],
         },
     )
-    bundle = _replace_ir_node_raw(
-        bundle,
-        "root.run_child",
-        {
-            **dict(bundle.ir.nodes["root.run_child"].raw),
-            "call": "missing_child",
-        },
-    )
 
     state_manager = StateManager(workspace=tmp_path, run_id="typed-call-alias-raw-drift")
     state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.run_child")["call"] = "missing_child"
 
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    state = executor.execute()
 
     assert state["status"] == "completed"
     assert state["steps"]["RunChild"]["status"] == "completed"
@@ -1678,19 +1609,12 @@ def test_executor_uses_projection_names_for_finalization_bookkeeping_when_legacy
     }
 
     bundle = _load_workflow_bundle(tmp_path, workflow)
-    bundle = _replace_ir_node_raw(
-        bundle,
-        "root.finally.cleanup.write_cleanup_marker",
-        {
-            **dict(bundle.ir.nodes["root.finally.cleanup.write_cleanup_marker"].raw),
-            "name": "LegacyCleanup",
-        },
-    )
-
     state_manager = StateManager(workspace=tmp_path, run_id="projection-finalization-names")
     state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.finally.cleanup.write_cleanup_marker")["name"] = "LegacyCleanup"
 
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-finalization-names")
     cleanup_node_id = bundle.ir.finalization_region[0]
     cleanup_name = bundle.projection.presentation_key_by_node_id[cleanup_node_id]
@@ -2040,16 +1964,8 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_top_level_dis
     bundle = _load_workflow_bundle(tmp_path, workflow)
     state_manager = StateManager(workspace=tmp_path, run_id="typed-top-level-dispatch")
     state_manager.initialize("workflow.yaml")
-
-    bundle = _replace_ir_node_raw(
-        bundle,
-        "root.run_command",
-        {
-            **dict(bundle.ir.nodes["root.run_command"].raw),
-            "structured_if_join": {"branches": {}},
-        },
-    )
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.run_command")["structured_if_join"] = {"branches": {}}
 
     state = executor.execute()
 
@@ -2090,15 +2006,8 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_nested_dispat
 
     loop_node = bundle.ir.nodes["root.process_items"]
     child_node_id = loop_node.body_node_ids[0]
-    bundle = _replace_ir_node_raw(
-        bundle,
-        child_node_id,
-        {
-            **dict(bundle.ir.nodes[child_node_id].raw),
-            "structured_match_join": {"cases": {}},
-        },
-    )
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id(child_node_id)["structured_match_join"] = {"cases": {}}
 
     state = executor.execute()
 

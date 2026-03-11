@@ -418,7 +418,6 @@ class _IRBuilder:
             "region": region,
             "lexical_scope": tuple(token for token in step.step_id.split(".") if token),
             "execution_config": _execution_config_for_step(step),
-            "raw": step.raw,
         }
         routed_transfers = _leaf_goto_transfers(step.common.on, context.root_targets)
         if step.kind is SurfaceStepKind.CALL:
@@ -491,7 +490,6 @@ class _IRBuilder:
             region=region,
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
             execution_config=_execution_config_for_step(step),
-            raw=step.raw,
             routed_transfers=MappingProxyType(
                 {
                     "loop_continue": ExecutableTransfer(
@@ -544,7 +542,6 @@ class _IRBuilder:
             region=region,
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
             execution_config=_execution_config_for_step(step),
-            raw=step.raw,
             routed_transfers=MappingProxyType(
                 {
                     "loop_continue": ExecutableTransfer(
@@ -625,7 +622,6 @@ class _IRBuilder:
                 kind=ExecutableNodeKind.IF_BRANCH_MARKER,
                 region=region,
                 lexical_scope=tuple(token for token in block.step_id.split(".") if token),
-                raw=block.raw,
                 routed_transfers=MappingProxyType(
                     {
                         "branch_taken": ExecutableTransfer(
@@ -656,7 +652,6 @@ class _IRBuilder:
             kind=ExecutableNodeKind.IF_JOIN,
             region=region,
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
-            raw=step.raw,
             statement_name=statement_presentation_name,
             branch_outputs=MappingProxyType(dict(branch_outputs)),
         )
@@ -717,7 +712,6 @@ class _IRBuilder:
                 kind=ExecutableNodeKind.MATCH_CASE_MARKER,
                 region=region,
                 lexical_scope=tuple(token for token in block.step_id.split(".") if token),
-                raw=block.raw,
                 routed_transfers=MappingProxyType(
                     {
                         "case_selected": ExecutableTransfer(
@@ -747,7 +741,6 @@ class _IRBuilder:
             kind=ExecutableNodeKind.MATCH_JOIN,
             region=region,
             lexical_scope=tuple(token for token in step.step_id.split(".") if token),
-            raw=step.raw,
             statement_name=statement_presentation_name,
             selector_address=selector_address,
             case_outputs=MappingProxyType(dict(case_outputs)),
@@ -955,14 +948,13 @@ def _report_kind_for_node(node: ExecutableNode) -> str:
 
 def _compatibility_step_definition(node: ExecutableNode) -> CompatibilityStepDefinition:
     config = getattr(node, "execution_config", None)
-    raw = node.raw if isinstance(node.raw, Mapping) else {}
     common = config.common if config is not None else None
-    consumes = common.consumes if common is not None else raw.get("consumes")
-    expected_outputs = common.expected_outputs if common is not None else raw.get("expected_outputs")
-    provider_session = common.provider_session if common is not None else raw.get("provider_session")
-    max_visits = common.max_visits if common is not None else raw.get("max_visits")
-    command = config.command if isinstance(config, CommandStepConfig) else raw.get("command")
-    provider = config.provider if isinstance(config, ProviderStepConfig) else raw.get("provider")
+    consumes = common.consumes if common is not None else ()
+    expected_outputs = common.expected_outputs if common is not None else ()
+    provider_session = common.provider_session if common is not None else None
+    max_visits = common.max_visits if common is not None else None
+    command = config.command if isinstance(config, CommandStepConfig) else None
+    provider = config.provider if isinstance(config, ProviderStepConfig) else None
     return CompatibilityStepDefinition(
         report_kind=_report_kind_for_node(node),
         command=freeze_value(command) if command is not None else None,

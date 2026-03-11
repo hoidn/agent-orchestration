@@ -1,8 +1,7 @@
 """Tests for the typed surface workflow bundle and authored-shape AST."""
 
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
-from types import MappingProxyType
 
 import pytest
 import yaml
@@ -378,12 +377,9 @@ def test_surface_workflow_exposes_typed_root_metadata_without_raw_fallbacks(tmp_
     assert bundle.surface.processed_dir == "typed-processed"
     assert bundle.surface.max_transitions == 9
 
-    rawless_bundle = replace(
-        bundle,
-        surface=replace(bundle.surface, raw=MappingProxyType({})),
-    )
+    assert not hasattr(bundle.surface, "raw")
 
-    assert dict(workflow_context(rawless_bundle)) == {"project": "typed-pipeline"}
+    assert dict(workflow_context(bundle)) == {"project": "typed-pipeline"}
 
 
 def test_loaded_workflow_helpers_require_loaded_bundle() -> None:

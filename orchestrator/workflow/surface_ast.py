@@ -127,7 +127,6 @@ class SurfaceBranchBlock:
     step_id: str
     steps: tuple["SurfaceStep", ...]
     outputs: Mapping[str, SurfaceContract] = field(default_factory=empty_frozen_mapping)
-    raw: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 @dataclass(frozen=True)
@@ -139,7 +138,6 @@ class SurfaceMatchCaseBlock:
     step_id: str
     steps: tuple["SurfaceStep", ...]
     outputs: Mapping[str, SurfaceContract] = field(default_factory=empty_frozen_mapping)
-    raw: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 @dataclass(frozen=True)
@@ -152,7 +150,6 @@ class SurfaceRepeatUntilBlock:
     outputs: Mapping[str, SurfaceContract]
     condition: Any
     max_iterations: Optional[int]
-    raw: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 @dataclass(frozen=True)
@@ -162,7 +159,6 @@ class SurfaceFinallyBlock:
     token: str
     step_id: str
     steps: tuple["SurfaceStep", ...]
-    raw: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 @dataclass(frozen=True)
@@ -173,7 +169,6 @@ class SurfaceStep:
     step_id: str
     kind: SurfaceStepKind
     authored_id: Optional[str] = None
-    raw: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     common: SurfaceStepCommonConfig = field(default_factory=SurfaceStepCommonConfig)
     when_predicate: Any = None
     assert_predicate: Any = None
@@ -228,4 +223,3 @@ class SurfaceWorkflow:
     outputs: Mapping[str, SurfaceContract] = field(default_factory=empty_frozen_mapping)
     imports: Mapping[str, ImportedWorkflowMetadata] = field(default_factory=empty_frozen_mapping)
     finalization: Optional[SurfaceFinallyBlock] = None
-    raw: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)

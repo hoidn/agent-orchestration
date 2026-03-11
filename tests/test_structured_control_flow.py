@@ -1,8 +1,6 @@
 """Tests for structured if/else lowering and runtime semantics."""
 
-from dataclasses import replace
 from pathlib import Path
-from types import MappingProxyType
 
 import pytest
 import yaml
@@ -11,7 +9,6 @@ from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.surface_ast import freeze_mapping
 from tests.workflow_bundle_helpers import (
     materialize_projection_body_steps,
     materialize_projection_finalization_steps,
@@ -964,45 +961,29 @@ def test_if_else_branch_outputs_materialize_on_statement_and_skip_non_taken_bran
 def test_if_else_executes_from_bound_guard_and_join_outputs_when_legacy_refs_are_corrupted(tmp_path: Path):
     workflow_path = _write_workflow(tmp_path, _structured_if_else_workflow())
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    route_review_node = bundle.ir.nodes["root.route_review"]
-    corrupted_raw = {
-        **dict(route_review_node.raw),
-        "if": {
-            "artifact_bool": {
-                "ref": "root.steps.Missing.artifacts.ready",
-            }
-        },
-        "then": {
-            **dict(route_review_node.raw.get("then", {})),
-            "outputs": {
-                "review_decision": {
-                    "kind": "scalar",
-                    "type": "enum",
-                    "allowed": ["APPROVE", "REVISE"],
-                    "from": {
-                        "ref": "root.steps.Missing.artifacts.review_decision",
-                    },
-                }
-            },
-        },
-    }
-    bundle = replace(
-        bundle,
-        ir=replace(
-            bundle.ir,
-            nodes=MappingProxyType({
-                **bundle.ir.nodes,
-                "root.route_review": replace(
-                    route_review_node,
-                    raw=freeze_mapping(corrupted_raw),
-                ),
-            }),
-        ),
-    )
-
     state_manager = StateManager(workspace=tmp_path, run_id="structured-bound-refs")
     state_manager.initialize("workflow.yaml")
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    route_review_step = executor._step_for_node_id("root.route_review")
+    route_review_step["if"] = {
+        "artifact_bool": {
+            "ref": "root.steps.Missing.artifacts.ready",
+        }
+    }
+    route_review_step["then"] = {
+        "outputs": {
+            "review_decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+                "from": {
+                    "ref": "root.steps.Missing.artifacts.review_decision",
+                },
+            }
+        }
+    }
+
+    state = executor.execute(on_error="continue")
 
     assert state["status"] == "completed"
     assert state["steps"]["RouteReview.then.WriteApproved"]["status"] == "completed"
@@ -1155,49 +1136,31 @@ def test_repeat_until_materializes_loop_frame_outputs_and_iteration_results(tmp_
 def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corrupted(tmp_path: Path):
     workflow_path = _write_workflow(tmp_path, _structured_repeat_until_workflow())
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    review_loop_node = bundle.ir.nodes["root.review_loop"]
-    corrupted_raw = {
-        **dict(review_loop_node.raw),
-        "repeat_until": {
-            **dict(review_loop_node.raw.get("repeat_until", {})),
-            "outputs": {
-                "review_decision": {
-                    "kind": "scalar",
-                    "type": "enum",
-                    "allowed": ["APPROVE", "REVISE"],
-                    "from": {
-                        "ref": "self.steps.Missing.artifacts.review_decision",
-                    },
-                }
-            },
-            "condition": {
-                "compare": {
-                    "left": {
-                        "ref": "root.steps.Missing.artifacts.review_decision",
-                    },
-                    "op": "eq",
-                    "right": "APPROVE",
-                }
-            },
-        },
-    }
-    bundle = replace(
-        bundle,
-        ir=replace(
-            bundle.ir,
-            nodes=MappingProxyType({
-                **bundle.ir.nodes,
-                "root.review_loop": replace(
-                    review_loop_node,
-                    raw=freeze_mapping(corrupted_raw),
-                ),
-            }),
-        ),
-    )
-
     state_manager = StateManager(workspace=tmp_path, run_id="repeat-until-bound-refs")
     state_manager.initialize("workflow.yaml")
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    review_loop_step = executor._step_for_node_id("root.review_loop")
+    review_loop_step["repeat_until"]["outputs"] = {
+        "review_decision": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["APPROVE", "REVISE"],
+            "from": {
+                "ref": "self.steps.Missing.artifacts.review_decision",
+            },
+        }
+    }
+    review_loop_step["repeat_until"]["condition"] = {
+        "compare": {
+            "left": {
+                "ref": "root.steps.Missing.artifacts.review_decision",
+            },
+            "op": "eq",
+            "right": "APPROVE",
+        }
+    }
+
+    state = executor.execute(on_error="continue")
 
     assert state["status"] == "completed"
     assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}
@@ -1224,40 +1187,21 @@ def test_repeat_until_uses_typed_output_contract_definition_without_ir_contract_
     review_loop_node = bundle.ir.nodes["root.review_loop"]
     assert not hasattr(review_loop_node.output_contracts["review_decision"], "raw")
 
-    corrupted_raw = {
-        **dict(review_loop_node.raw),
-        "repeat_until": {
-            **dict(review_loop_node.raw.get("repeat_until", {})),
-            "outputs": {
-                **dict(review_loop_node.raw.get("repeat_until", {}).get("outputs", {})),
-                "review_decision": {
-                    "kind": "scalar",
-                    "type": "enum",
-                    "allowed": ["BLOCKED"],
-                    "from": {
-                        "ref": "self.steps.WriteDecision.artifacts.review_decision",
-                    },
-                },
-            },
-        },
-    }
-    bundle = replace(
-        bundle,
-        ir=replace(
-            bundle.ir,
-            nodes=MappingProxyType({
-                **bundle.ir.nodes,
-                "root.review_loop": replace(
-                    review_loop_node,
-                    raw=freeze_mapping(corrupted_raw),
-                ),
-            }),
-        ),
-    )
-
     state_manager = StateManager(workspace=tmp_path, run_id="repeat-until-bound-contract")
     state_manager.initialize("workflow.yaml")
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.review_loop")["repeat_until"]["outputs"] = {
+        "review_decision": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["BLOCKED"],
+            "from": {
+                "ref": "self.steps.WriteDecision.artifacts.review_decision",
+            },
+        }
+    }
+
+    state = executor.execute(on_error="continue")
 
     assert state["status"] == "completed"
     assert state["steps"]["ReviewLoop"]["artifacts"] == {"review_decision": "APPROVE"}

@@ -1,9 +1,7 @@
 """Tests for v1.6 typed predicates, structured refs, and assert routing."""
 
 import json
-from dataclasses import replace
 from pathlib import Path
-from types import MappingProxyType
 
 import pytest
 import yaml
@@ -13,7 +11,6 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.predicates import PredicateEvaluationError, TypedPredicateEvaluator
-from orchestrator.workflow.surface_ast import freeze_mapping
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -220,32 +217,17 @@ def test_executor_uses_bound_when_predicates_when_legacy_ref_is_corrupted(tmp_pa
 
     workflow_file = _write_workflow(tmp_path, workflow)
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_file)
-    when_node = bundle.ir.nodes["root.only_when_ready"]
-    corrupted_raw = {
-        **dict(when_node.raw),
-        "when": {
-            "artifact_bool": {
-                "ref": "root.steps.Missing.artifacts.ready",
-            }
-        },
-    }
-    bundle = replace(
-        bundle,
-        ir=replace(
-            bundle.ir,
-            nodes=MappingProxyType({
-                **bundle.ir.nodes,
-                "root.only_when_ready": replace(
-                    when_node,
-                    raw=freeze_mapping(corrupted_raw),
-                ),
-            }),
-        ),
-    )
     state_manager = StateManager(workspace=tmp_path, run_id="bound-when-predicate")
     state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    step = executor._step_for_node_id("root.only_when_ready")
+    step["when"] = {
+        "artifact_bool": {
+            "ref": "root.steps.Missing.artifacts.ready",
+        }
+    }
 
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+    state = executor.execute(on_error="continue")
 
     assert state["status"] == "completed"
     assert state["steps"]["OnlyWhenReady"]["status"] == "completed"

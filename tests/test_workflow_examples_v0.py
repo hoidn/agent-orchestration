@@ -10,7 +10,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from tests.workflow_bundle_helpers import bundle_context_dict
+from tests.workflow_bundle_helpers import bundle_context_dict, thaw_surface_workflow
 
 
 EXAMPLE_FILES = [
@@ -134,7 +134,7 @@ def test_workflow_examples_v0_load():
     for example_file in EXAMPLE_FILES:
         workflow_path = root / "workflows" / "examples" / example_file
         workflow = loader.load(workflow_path)
-        assert workflow.surface.raw["steps"], f"Expected steps in {example_file}"
+        assert thaw_surface_workflow(workflow)["steps"], f"Expected steps in {example_file}"
 
 
 def test_backlog_plan_execute_v0_runtime(tmp_path: Path):

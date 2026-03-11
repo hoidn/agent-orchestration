@@ -10,7 +10,7 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_provenance
-from tests.workflow_bundle_helpers import materialize_projection_body_steps
+from tests.workflow_bundle_helpers import materialize_projection_body_steps, thaw_surface_workflow
 
 
 class TestLoaderValidation:
@@ -169,9 +169,10 @@ class TestLoaderValidation:
         path = self.write_workflow(workflow)
 
         loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
 
-        assert loaded.surface.raw["version"] == "2.9"
-        assert loaded.surface.raw["steps"][0]["name"] == "Echo"
+        assert surface["version"] == "2.9"
+        assert surface["steps"][0]["name"] == "Echo"
 
     def test_version_2_10_is_supported(self):
         """Provider-session release version should load successfully."""
@@ -187,9 +188,10 @@ class TestLoaderValidation:
         path = self.write_workflow(workflow)
 
         loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
 
-        assert loaded.surface.raw["version"] == "2.10"
-        assert loaded.surface.raw["steps"][0]["name"] == "Echo"
+        assert surface["version"] == "2.10"
+        assert surface["steps"][0]["name"] == "Echo"
 
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""
@@ -1064,10 +1066,11 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
 
-        assert loaded.surface.raw["inputs"]["resume_note"]["type"] == "string"
-        assert loaded.surface.raw["outputs"]["session_id"]["type"] == "string"
-        assert loaded.surface.raw["artifacts"]["session_id"]["type"] == "string"
+        assert surface["inputs"]["resume_note"]["type"] == "string"
+        assert surface["outputs"]["session_id"]["type"] == "string"
+        assert surface["artifacts"]["session_id"]["type"] == "string"
 
     def test_v210_provider_session_fresh_accepts_top_level_provider_step(self):
         """provider_session fresh mode is valid on root-level provider steps in v2.10."""
@@ -1103,8 +1106,9 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
 
-        assert loaded.surface.raw["steps"][0]["provider_session"]["mode"] == "fresh"
+        assert surface["steps"][0]["provider_session"]["mode"] == "fresh"
 
     def test_v210_provider_session_rejects_nested_usage(self):
         """provider_session is rejected in nested loop/branch scopes in v1."""
@@ -1388,7 +1392,7 @@ class TestLoaderValidation:
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
 
-        loop_step = loaded.surface.raw["steps"][1]
+        loop_step = materialize_projection_body_steps(loaded)[1]
         assert loop_step["step_id"] == "root.loop"
         assert loop_step["for_each"]["steps"][0]["step_id"] == "root.loop.set_iteration_flag"
         assert loop_step["for_each"]["steps"][1]["step_id"] == "root.loop.assert_scopes"
@@ -1437,11 +1441,13 @@ class TestLoaderValidation:
         loaded_a = self.loader.load(path_a)
         path_b = self.write_workflow(workflow_b)
         loaded_b = self.loader.load(path_b)
+        steps_a = materialize_projection_body_steps(loaded_a)
+        steps_b = materialize_projection_body_steps(loaded_b)
 
-        assert loaded_a.surface.raw["steps"][1]["step_id"] == "root.loop"
-        assert loaded_b.surface.raw["steps"][2]["step_id"] == "root.loop"
-        assert loaded_a.surface.raw["steps"][1]["for_each"]["steps"][0]["step_id"] == "root.loop.process"
-        assert loaded_b.surface.raw["steps"][2]["for_each"]["steps"][0]["step_id"] == "root.loop.process"
+        assert steps_a[1]["step_id"] == "root.loop"
+        assert steps_b[2]["step_id"] == "root.loop"
+        assert steps_a[1]["for_each"]["steps"][0]["step_id"] == "root.loop.process"
+        assert steps_b[2]["for_each"]["steps"][0]["step_id"] == "root.loop.process"
 
     def test_compiler_generated_step_ids_disambiguate_colliding_names(self):
         """Compiler-generated step ids must remain unique when names normalize alike."""
@@ -1462,10 +1468,11 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        steps = materialize_projection_body_steps(loaded)
 
-        assert loaded.surface.raw["steps"][0]["step_id"] == "root.build_a"
-        assert loaded.surface.raw["steps"][1]["step_id"] == "root.build_a_2"
-        assert loaded.surface.raw["steps"][0]["step_id"] != loaded.surface.raw["steps"][1]["step_id"]
+        assert steps[0]["step_id"] == "root.build_a"
+        assert steps[1]["step_id"] == "root.build_a_2"
+        assert steps[0]["step_id"] != steps[1]["step_id"]
 
     def test_v2_parent_refs_reject_multi_visit_targets(self):
         """Scoped parent refs cannot target provably multi-visit parent steps."""
@@ -1731,10 +1738,11 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
+        surface = thaw_surface_workflow(result)
 
-        assert result.surface.raw["version"] == "1.1"
-        assert result.surface.raw["name"] == "minimal"
-        assert len(result.surface.raw["steps"]) == 1
+        assert surface["version"] == "1.1"
+        assert surface["name"] == "minimal"
+        assert len(surface["steps"]) == 1
 
     def test_valid_provider_workflow(self):
         """Valid provider-based workflow."""
@@ -1758,9 +1766,10 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
+        surface = thaw_surface_workflow(result)
 
-        assert "providers" in result.surface.raw
-        assert "claude" in result.surface.raw["providers"]
+        assert "providers" in surface
+        assert "claude" in surface["providers"]
 
     def test_valid_for_each_loop(self):
         """Valid for_each loop configuration."""
@@ -1788,9 +1797,10 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
+        surface = thaw_surface_workflow(result)
 
-        assert len(result.surface.raw["steps"]) == 2
-        assert "for_each" in result.surface.raw["steps"][1]
+        assert len(surface["steps"]) == 2
+        assert "for_each" in surface["steps"][1]
 
     def test_valid_variables_usage(self):
         """Valid variable substitution in allowed fields."""
@@ -1810,9 +1820,10 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
+        surface = thaw_surface_workflow(result)
 
         # Should load without errors
-        assert result.surface.raw["context"]["project"] == "test"
+        assert surface["context"]["project"] == "test"
 
     def test_goto_end_target_valid(self):
         """_end is a valid goto target."""
@@ -1835,9 +1846,10 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
+        surface = thaw_surface_workflow(result)
 
         # Should load without errors
-        assert len(result.surface.raw["steps"]) == 2
+        assert len(surface["steps"]) == 2
 
     def test_expected_outputs_valid_shape(self):
         """expected_outputs with required fields loads successfully."""
@@ -1861,7 +1873,8 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
-        assert result.surface.raw["steps"][0]["expected_outputs"][0]["type"] == "relpath"
+        surface = thaw_surface_workflow(result)
+        assert surface["steps"][0]["expected_outputs"][0]["type"] == "relpath"
 
     def test_expected_outputs_guidance_fields_accept_strings(self):
         """Optional expected_outputs guidance fields accept string values."""
@@ -1886,7 +1899,8 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
-        output_spec = result.surface.raw["steps"][0]["expected_outputs"][0]
+        surface = thaw_surface_workflow(result)
+        output_spec = surface["steps"][0]["expected_outputs"][0]
         assert output_spec["description"] == "Path to generated implementation plan."
         assert output_spec["format_hint"] == "Workspace-relative path"
         assert output_spec["example"] == "docs/plans/2026-02-27-feature.md"
@@ -1985,8 +1999,9 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
 
-        assert loaded.surface.raw["steps"][0]["expected_outputs"][0]["type"] == "string"
+        assert surface["steps"][0]["expected_outputs"][0]["type"] == "string"
 
     def test_expected_outputs_under_rejects_parent_escape(self):
         """expected_outputs under must satisfy path safety checks."""
@@ -2151,9 +2166,10 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
-        assert result.surface.raw["version"] == "1.2"
-        assert "artifacts" in result.surface.raw
-        assert "execution_log" in result.surface.raw["artifacts"]
+        surface = thaw_surface_workflow(result)
+        assert surface["version"] == "1.2"
+        assert "artifacts" in surface
+        assert "execution_log" in surface["artifacts"]
 
     def test_v14_artifacts_schema_accepts_in_v1_4(self):
         """Top-level artifacts schema is accepted in v1.4."""
@@ -2176,9 +2192,10 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
-        assert result.surface.raw["version"] == "1.4"
-        assert "artifacts" in result.surface.raw
-        assert "execution_log" in result.surface.raw["artifacts"]
+        surface = thaw_surface_workflow(result)
+        assert surface["version"] == "1.4"
+        assert "artifacts" in surface
+        assert "execution_log" in surface["artifacts"]
 
     def test_v14_consumes_controls_accept_in_v1_4(self):
         """v1.4 accepts consumes and consume prompt controls."""
@@ -2208,8 +2225,9 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
-        assert result.surface.raw["version"] == "1.4"
-        assert result.surface.raw["steps"][0]["consumes"][0]["artifact"] == "execution_log"
+        surface = thaw_surface_workflow(result)
+        assert surface["version"] == "1.4"
+        assert surface["steps"][0]["consumes"][0]["artifact"] == "execution_log"
 
     def test_v12_publishes_rejected_in_v1_1_1(self):
         """Step publishes are version-gated to v1.2+."""
@@ -2615,7 +2633,8 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
-        consume_spec = loaded.surface.raw["steps"][0]["consumes"][0]
+        surface = thaw_surface_workflow(loaded)
+        consume_spec = surface["steps"][0]["consumes"][0]
         assert consume_spec["description"] == "Primary execution log generated by ExecutePlan."
         assert consume_spec["format_hint"] == "Workspace-relative .log path"
         assert consume_spec["example"] == "artifacts/work/latest-execution.log"
@@ -2711,7 +2730,7 @@ class TestLoaderValidation:
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
 
-        assert loaded.surface.raw["name"] == "for-each-cross-scope-producer"
+        assert loaded.surface.name == "for-each-cross-scope-producer"
 
     def test_v12_artifact_kind_scalar_accepts_non_relpath_types(self):
         """kind:scalar supports scalar output types without pointer-file requirements."""
@@ -2732,7 +2751,8 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
-        assert loaded.surface.raw["artifacts"]["failed_count"]["kind"] == "scalar"
+        surface = thaw_surface_workflow(loaded)
+        assert surface["artifacts"]["failed_count"]["kind"] == "scalar"
 
     def test_v12_artifact_kind_scalar_rejects_relpath_pointer_fields(self):
         """kind:scalar cannot use pointer/under/must_exist_target relpath constraints."""
@@ -2813,7 +2833,8 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         loaded = self.loader.load(path)
-        assert loaded.surface.raw["artifacts"]["execution_log"]["type"] == "relpath"
+        surface = thaw_surface_workflow(loaded)
+        assert surface["artifacts"]["execution_log"]["type"] == "relpath"
 
     def test_v13_output_bundle_requires_version_1_3(self):
         """output_bundle is gated to version 1.3+."""
@@ -2899,8 +2920,9 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
-        assert result.surface.raw["version"] == "1.4"
-        assert result.surface.raw["steps"][0]["output_bundle"]["path"] == "artifacts/work/summary.json"
+        surface = thaw_surface_workflow(result)
+        assert surface["version"] == "1.4"
+        assert surface["steps"][0]["output_bundle"]["path"] == "artifacts/work/summary.json"
 
     def test_v210_output_bundle_accepts_string_field(self):
         """output_bundle field type string is allowed in v2.10."""
@@ -2923,8 +2945,9 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
-        assert result.surface.raw["version"] == "2.10"
-        assert result.surface.raw["steps"][0]["output_bundle"]["fields"][0]["type"] == "string"
+        surface = thaw_surface_workflow(result)
+        assert surface["version"] == "2.10"
+        assert surface["steps"][0]["output_bundle"]["fields"][0]["type"] == "string"
 
     def test_v13_output_bundle_requires_non_empty_fields(self):
         """output_bundle.fields must be a non-empty list."""
@@ -3058,8 +3081,9 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
         result = self.loader.load(path)
-        assert result.surface.raw["version"] == "1.4"
-        assert result.surface.raw["steps"][0]["consume_bundle"]["path"] == "state/consumes/review.json"
+        surface = thaw_surface_workflow(result)
+        assert surface["version"] == "1.4"
+        assert surface["steps"][0]["consume_bundle"]["path"] == "state/consumes/review.json"
 
     def test_load_returns_typed_bundle_without_legacy_adapter(self):
         """load() now returns the typed bundle and no longer exposes a legacy adapter."""
@@ -3080,9 +3104,93 @@ class TestLoaderValidation:
         assert isinstance(loaded, LoadedWorkflowBundle)
         assert not hasattr(loaded, "legacy_workflow")
         assert not isinstance(loaded, Mapping)
-        assert loaded.surface.raw["name"] == "typed-provenance-adapter"
+        assert loaded.surface.name == "typed-provenance-adapter"
         assert provenance.workflow_path == path.resolve()
         assert provenance.source_root == path.parent.resolve()
+
+    def test_load_bundle_surface_ast_exposes_no_raw_payloads(self):
+        """Typed surface AST records should not retain authored raw payload copies."""
+        workflow = {
+            "version": "2.7",
+            "name": "surface-without-raw",
+            "artifacts": {
+                "ready": {
+                    "kind": "scalar",
+                    "type": "bool",
+                },
+                "decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                },
+            },
+            "steps": [
+                {
+                    "name": "SetReady",
+                    "id": "set_ready",
+                    "set_scalar": {
+                        "artifact": "ready",
+                        "value": True,
+                    },
+                },
+                {
+                    "name": "Route",
+                    "id": "route",
+                    "if": {
+                        "artifact_bool": {
+                            "ref": "root.steps.SetReady.artifacts.ready",
+                        },
+                    },
+                    "then": {
+                        "id": "approve",
+                        "steps": [
+                            {
+                                "name": "WriteApproved",
+                                "id": "write_approved",
+                                "set_scalar": {
+                                    "artifact": "decision",
+                                    "value": "APPROVE",
+                                },
+                            }
+                        ],
+                    },
+                    "else": {
+                        "id": "revise",
+                        "steps": [
+                            {
+                                "name": "WriteRevision",
+                                "id": "write_revision",
+                                "set_scalar": {
+                                    "artifact": "decision",
+                                    "value": "REVISE",
+                                },
+                            }
+                        ],
+                    },
+                }
+            ],
+            "finally": {
+                "id": "cleanup",
+                "steps": [
+                    {
+                        "name": "Cleanup",
+                        "id": "cleanup_step",
+                        "command": ["bash", "-lc", "true"],
+                    }
+                ],
+            },
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        surface_step = loaded.surface.steps[1]
+
+        assert not hasattr(loaded.surface, "raw")
+        assert not hasattr(surface_step, "raw")
+        assert surface_step.then_branch is not None
+        assert not hasattr(surface_step.then_branch, "raw")
+        assert loaded.surface.finalization is not None
+        assert not hasattr(loaded.surface.finalization, "raw")
 
     def test_v13_consume_bundle_include_must_be_subset_of_consumes(self):
         """consume_bundle.include must only contain artifacts declared in consumes."""

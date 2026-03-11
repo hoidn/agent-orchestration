@@ -1,6 +1,5 @@
 """Tests for CLI safety features (AT-11, AT-12, AT-16)."""
 
-from dataclasses import replace
 import json
 import os
 import shutil
@@ -19,8 +18,6 @@ from orchestrator.cli.commands.run import (
     run_workflow
 )
 from orchestrator.loader import WorkflowLoader
-from orchestrator.workflow.surface_ast import freeze_mapping
-
 
 class TestCLISafety(TestCase):
     """Test CLI safety features."""
@@ -258,11 +255,9 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
     def test_run_workflow_passes_state_dir_override_to_state_manager(self, mock_loader, mock_state, mock_executor):
         """run_workflow should honor the documented --state-dir override."""
-        mock_loader.return_value.load_bundle.return_value = {
-            'version': '1.1',
-            'name': 'test',
-            'steps': [],
-        }
+        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
+            self.workflow_file
+        )
 
         mock_state_inst = MagicMock()
         mock_state_inst.logs_dir = Path('/tmp/custom-runs') / 'test-run-123' / 'logs'
@@ -302,15 +297,22 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
     def test_run_workflow_passes_merged_context_to_state(self, mock_loader, mock_state, mock_executor):
         """run_workflow should initialize state with workflow context defaults plus CLI overrides."""
-        mock_loader.return_value.load_bundle.return_value = {
-            'version': '1.1',
-            'name': 'test',
-            'context': {
-                'max_review_cycles': '3',
-                'mode': 'default',
-            },
-            'steps': [],
-        }
+        self.workflow_file.write_text(
+            """
+version: "1.1"
+name: test
+context:
+  max_review_cycles: "3"
+  mode: default
+steps:
+  - name: test
+    command: ["bash", "-lc", "true"]
+""".strip()
+            + "\n"
+        )
+        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
+            self.workflow_file
+        )
 
         mock_state_inst = MagicMock()
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
@@ -352,17 +354,23 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
     def test_run_workflow_passes_bound_inputs_to_state(self, mock_loader, mock_state, mock_executor):
         """Workflow-signature runs should bind typed CLI inputs before state initialization."""
-        mock_loader.return_value.load_bundle.return_value = {
-            'version': '2.1',
-            'name': 'signature-test',
-            'inputs': {
-                'max_cycles': {
-                    'kind': 'scalar',
-                    'type': 'integer',
-                }
-            },
-            'steps': [],
-        }
+        self.workflow_file.write_text(
+            """
+version: "2.1"
+name: signature-test
+inputs:
+  max_cycles:
+    kind: scalar
+    type: integer
+steps:
+  - name: test
+    command: ["bash", "-lc", "true"]
+""".strip()
+            + "\n"
+        )
+        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
+            self.workflow_file
+        )
 
         mock_state_inst = MagicMock()
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
@@ -538,7 +546,7 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowExecutor')
     @patch('orchestrator.cli.commands.run.StateManager')
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
-    def test_run_workflow_uses_typed_processed_dir_when_surface_raw_drifts(
+    def test_run_workflow_uses_typed_processed_dir_from_loaded_bundle(
         self,
         mock_loader,
         mock_state,
@@ -556,17 +564,8 @@ steps:
             + "\n"
         )
         bundle = WorkflowLoader(self.workspace).load_bundle(self.workflow_file)
-        drifted_surface = replace(
-            bundle.surface,
-            raw=freeze_mapping({
-                **dict(bundle.surface.raw),
-                "processed_dir": "raw-processed",
-            }),
-        )
-        mock_loader.return_value.load_bundle.return_value = replace(
-            bundle,
-            surface=drifted_surface,
-        )
+        assert not hasattr(bundle.surface, "raw")
+        mock_loader.return_value.load_bundle.return_value = bundle
 
         mock_state_inst = MagicMock()
         mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-processed' / 'logs'
@@ -616,11 +615,9 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
     def test_run_workflow_passes_stream_output_to_executor(self, mock_loader, mock_state, mock_executor):
         """run_workflow should pass a dedicated stream-output flag into the executor."""
-        mock_loader.return_value.load_bundle.return_value = {
-            'version': '1.1',
-            'name': 'test',
-            'steps': [],
-        }
+        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
+            self.workflow_file
+        )
 
         mock_state_inst = MagicMock()
         mock_state_inst.logs_dir = self.workspace / '.orchestrate' / 'runs' / 'test-run-123' / 'logs'
@@ -661,12 +658,9 @@ steps:
     def test_run_workflow_with_clean_and_archive(self, mock_loader, mock_state, mock_executor):
         """Test full run workflow with clean and archive flags."""
         # Set up mocks
-        mock_loader.return_value.load_bundle.return_value = {
-            'version': '1.1',
-            'name': 'test',
-            'processed_dir': 'processed',
-            'steps': []
-        }
+        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
+            self.workflow_file
+        )
 
         mock_state_inst = MagicMock()
         mock_state_inst.create_run.return_value = {
@@ -719,11 +713,9 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
     def test_run_workflow_returns_nonzero_for_failed_status(self, mock_loader, mock_state, mock_executor):
         """run_workflow should return non-zero when executor reports failed run status."""
-        mock_loader.return_value.load_bundle.return_value = {
-            'version': '1.1',
-            'name': 'test',
-            'steps': [],
-        }
+        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
+            self.workflow_file
+        )
 
         mock_state_inst = MagicMock()
         mock_state_inst.initialize.return_value = MagicMock(run_id='test-run-123')
@@ -759,11 +751,9 @@ steps:
     @patch('orchestrator.cli.commands.run.WorkflowLoader')
     def test_run_workflow_dry_run(self, mock_loader):
         """Test dry run mode."""
-        mock_loader.return_value.load_bundle.return_value = {
-            'version': '1.1',
-            'name': 'test',
-            'steps': []
-        }
+        mock_loader.return_value.load_bundle.return_value = WorkflowLoader(self.workspace).load_bundle(
+            self.workflow_file
+        )
 
         args = MagicMock()
         args.workflow = str(self.workflow_file)

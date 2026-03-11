@@ -208,7 +208,6 @@ def elaborate_surface_workflow(
         outputs=_parse_contracts(surface_workflow.get("outputs"), SurfaceRefScopeCatalog(root_step_names=root_step_names)),
         imports=imports,
         finalization=_elaborate_finalization(finalization, root_step_names=root_step_names),
-        raw=freeze_mapping(surface_workflow),
     )
 
 
@@ -234,7 +233,6 @@ def _elaborate_finalization(
             self_step_names=step_names,
             parent_step_names=(),
         ),
-        raw=freeze_mapping(finalization if isinstance(finalization, Mapping) else normalized),
     )
 
 
@@ -311,7 +309,6 @@ def _elaborate_step(
             step_id=str(step.get("step_id", "")),
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
-            raw=freeze_mapping(step),
             if_condition=condition,
             then_branch=then_branch,
             else_branch=else_branch,
@@ -341,7 +338,6 @@ def _elaborate_step(
             step_id=str(step.get("step_id", "")),
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
-            raw=freeze_mapping(step),
             match_ref=selector_ref,
             match_cases=MappingProxyType(match_cases),
         )
@@ -357,7 +353,6 @@ def _elaborate_step(
             step_id=str(step.get("step_id", "")),
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
-            raw=freeze_mapping(step),
             common=common,
             repeat_until=repeat_until,
         )
@@ -379,7 +374,6 @@ def _elaborate_step(
             step_id=str(step.get("step_id", "")),
             kind=kind,
             authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
-            raw=freeze_mapping(step),
             common=common,
             when_predicate=when_predicate,
             assert_predicate=assert_predicate,
@@ -403,7 +397,6 @@ def _elaborate_step(
         step_id=str(step.get("step_id", "")),
         kind=kind,
         authored_id=step.get("id") if isinstance(step.get("id"), str) else None,
-        raw=freeze_mapping(step),
         common=common,
         when_predicate=when_predicate,
         assert_predicate=assert_predicate,
@@ -475,7 +468,6 @@ def _elaborate_branch(
             parent_step_names=parent_step_names,
         ),
         outputs=_parse_contracts(normalized.get("outputs"), branch_catalog),
-        raw=freeze_mapping(branch if isinstance(branch, Mapping) else normalized),
     )
 
 
@@ -511,7 +503,6 @@ def _elaborate_match_case(
             parent_step_names=parent_step_names,
         ),
         outputs=_parse_contracts(normalized.get("outputs"), case_catalog),
-        raw=freeze_mapping(case_block if isinstance(case_block, Mapping) else normalized),
     )
 
 
@@ -548,7 +539,6 @@ def _elaborate_repeat_until(
         outputs=_parse_contracts(output_specs, body_catalog),
         condition=parse_typed_predicate(block.get("condition", {}), body_catalog),
         max_iterations=block.get("max_iterations") if isinstance(block.get("max_iterations"), int) else None,
-        raw=freeze_mapping(block),
     )
 
 

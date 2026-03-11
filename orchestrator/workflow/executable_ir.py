@@ -368,7 +368,6 @@ class ExecutableNodeBase:
     region: WorkflowRegion
     lexical_scope: tuple[str, ...]
     execution_config: Optional[ExecutableStepConfig] = None
-    raw: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     fallthrough_node_id: Optional[str] = None
     routed_transfers: Mapping[str, ExecutableTransfer] = field(default_factory=empty_frozen_mapping)
 

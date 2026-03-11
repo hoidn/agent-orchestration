@@ -1,6 +1,5 @@
 """Integration tests for expected_outputs enforcement in workflow execution."""
 
-from dataclasses import replace
 from types import SimpleNamespace
 from pathlib import Path
 
@@ -11,8 +10,6 @@ from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
-from orchestrator.workflow.surface_ast import freeze_mapping
-from tests.workflow_bundle_helpers import thaw_surface_workflow
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -229,13 +226,6 @@ def test_workflow_input_binding_uses_typed_contract_definition_without_contract_
     loaded = WorkflowLoader(tmp_path).load_bundle(workflow_file)
     assert not hasattr(loaded.surface.inputs["task_path"], "raw")
 
-    corrupted_surface = thaw_surface_workflow(loaded)
-    corrupted_surface["inputs"]["task_path"]["under"] = "docs/other"
-    loaded = replace(
-        loaded,
-        surface=replace(loaded.surface, raw=freeze_mapping(corrupted_surface)),
-    )
-
     bound_inputs = bind_workflow_inputs(
         workflow_input_contracts(loaded),
         {"task_path": "docs/tasks/task-a.md"},
@@ -296,14 +286,7 @@ def test_workflow_output_export_uses_bound_ir_contracts_when_legacy_refs_are_cor
     workflow_file = _write_workflow(tmp_path, workflow)
     loader = WorkflowLoader(tmp_path)
     loaded = loader.load(workflow_file)
-    corrupted_surface = thaw_surface_workflow(loaded)
-    corrupted_surface["outputs"]["report_path"]["from"]["ref"] = (
-        "root.steps.DoesNotExist.artifacts.report_path"
-    )
-    loaded = replace(
-        loaded,
-        surface=replace(loaded.surface, raw=freeze_mapping(corrupted_surface)),
-    )
+    assert not hasattr(loaded.surface.outputs["report_path"], "raw")
 
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
     state_manager.initialize(
@@ -373,13 +356,7 @@ def test_workflow_output_export_uses_typed_contract_definition_without_ir_contra
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
     assert not hasattr(loaded.ir.outputs["report_path"], "raw")
-
-    corrupted_surface = thaw_surface_workflow(loaded)
-    corrupted_surface["outputs"]["report_path"]["under"] = "docs/export"
-    loaded = replace(
-        loaded,
-        surface=replace(loaded.surface, raw=freeze_mapping(corrupted_surface)),
-    )
+    assert not hasattr(loaded.surface.outputs["report_path"], "raw")
 
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")
     state_manager.initialize(

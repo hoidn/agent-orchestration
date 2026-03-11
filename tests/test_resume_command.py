@@ -19,7 +19,7 @@ from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
-from tests.workflow_bundle_helpers import bundle_context_dict
+from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
 
 
 def _build_resume_loop_workflow() -> dict:
@@ -1124,7 +1124,7 @@ def test_repeat_until_resume_advances_past_already_evaluated_condition_without_r
         encoding="utf-8",
     )
     workflow = WorkflowLoader(temp_workspace).load(workflow_path)
-    repeat_step = workflow.surface.raw["steps"][0]
+    repeat_step = materialize_projection_body_steps(workflow)[0]
     body_steps = repeat_step["repeat_until"]["steps"]
 
     state_dir = temp_workspace / "state"

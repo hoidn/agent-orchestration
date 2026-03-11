@@ -1,9 +1,8 @@
 """Loader and runtime coverage for reusable workflow imports and call boundaries."""
 
 import json
-from dataclasses import replace
 from pathlib import Path
-from types import MappingProxyType, SimpleNamespace
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -14,11 +13,9 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
-from orchestrator.workflow.surface_ast import freeze_mapping
 from tests.workflow_bundle_helpers import (
     bundle_context_dict,
     materialize_projection_body_steps,
-    thaw_surface_workflow,
 )
 
 
@@ -1036,30 +1033,14 @@ def test_call_uses_bound_inputs_when_legacy_ref_is_corrupted(tmp_path: Path):
     )
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    call_node = bundle.ir.nodes["root.run_review_loop"]
-    corrupted_raw = {
-        **dict(call_node.raw),
-        "with": {
-            **dict(call_node.raw.get("with", {})),
-            "max_cycles": {"ref": "root.steps.Missing.artifacts.max_cycles"},
-        },
-    }
-    bundle = replace(
-        bundle,
-        ir=replace(
-            bundle.ir,
-            nodes=MappingProxyType({
-                **bundle.ir.nodes,
-                "root.run_review_loop": replace(
-                    call_node,
-                    raw=freeze_mapping(corrupted_raw),
-                ),
-            }),
-        ),
-    )
     state_manager = StateManager(tmp_path, run_id="bound-call-inputs")
     state_manager.initialize("workflow.yaml")
-    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute(on_error="continue")
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+    executor._step_for_node_id("root.run_review_loop")["with"] = {
+        "max_cycles": {"ref": "root.steps.Missing.artifacts.max_cycles"},
+        "write_root": "state/review-loop",
+    }
+    state = executor.execute(on_error="continue")
 
     assert state["status"] == "completed"
     assert state["steps"]["RunReviewLoop"]["artifacts"] == {"approved": True}
@@ -1089,16 +1070,6 @@ def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corru
     imported_bundle = bundle.imports["review_loop"]
     assert not hasattr(imported_bundle.surface.outputs["approved"], "raw")
 
-    corrupted_surface_raw = thaw_surface_workflow(imported_bundle)
-    corrupted_surface_raw["outputs"]["approved"]["from"]["ref"] = (
-        "root.steps.Missing.artifacts.approved"
-    )
-    corrupted_surface = replace(
-        imported_bundle.surface,
-        raw=freeze_mapping(corrupted_surface_raw),
-    )
-    corrupted_bundle = replace(imported_bundle, surface=corrupted_surface)
-
     state_manager = StateManager(tmp_path, run_id="bound-call-output-provenance")
     state_manager.initialize("workflow.yaml", context=bundle_context_dict(bundle))
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
@@ -1109,7 +1080,7 @@ def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corru
     debug_payload = executor.call_executor.build_debug_payload(
         frame_id=frame_id,
         step=materialize_projection_body_steps(bundle)[0],
-        imported_workflow=corrupted_bundle,
+        imported_workflow=imported_bundle,
         child_state=frame["state"],
     )
 

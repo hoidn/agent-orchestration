@@ -556,17 +556,10 @@ def test_snapshot_uses_projection_metadata_when_bundle_ir_raw_and_legacy_steps_a
         encoding="utf-8",
     )
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
-    mutated_nodes = {
-        node_id: replace(node, raw=MappingProxyType({}))
-        for node_id, node in bundle.ir.nodes.items()
-    }
-    mutated_bundle = replace(
-        bundle,
-        ir=replace(bundle.ir, nodes=MappingProxyType(mutated_nodes)),
-    )
+    assert all(not hasattr(node, "raw") for node in bundle.ir.nodes.values())
 
     snapshot = build_status_snapshot(
-        mutated_bundle,
+        bundle,
         {
             "run_id": "bundle-projection-metadata",
             "status": "running",
@@ -1255,8 +1248,8 @@ def test_snapshot_uses_typed_surface_metadata_without_raw_workflow_fallback(tmp_
     )
     rawless_bundle = replace(
         bundle,
-        surface=replace(bundle.surface, raw=MappingProxyType({})),
     )
+    assert not hasattr(rawless_bundle.surface, "raw")
 
     snapshot = build_status_snapshot(
         rawless_bundle,
