@@ -15,7 +15,11 @@ from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.surface_ast import freeze_mapping
-from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
+from tests.workflow_bundle_helpers import (
+    bundle_context_dict,
+    materialize_projection_body_steps,
+    thaw_surface_workflow,
+)
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -1083,20 +1087,15 @@ def test_call_debug_exports_use_bound_output_addresses_when_surface_ref_is_corru
 
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     imported_bundle = bundle.imports["review_loop"]
-    approved_output = imported_bundle.surface.outputs["approved"]
-    corrupted_output = replace(
-        approved_output,
-        raw=freeze_mapping(
-            {
-                "kind": "scalar",
-                "type": "bool",
-                "from": {"ref": "root.steps.Missing.artifacts.approved"},
-            }
-        ),
+    assert not hasattr(imported_bundle.surface.outputs["approved"], "raw")
+
+    corrupted_surface_raw = thaw_surface_workflow(imported_bundle)
+    corrupted_surface_raw["outputs"]["approved"]["from"]["ref"] = (
+        "root.steps.Missing.artifacts.approved"
     )
     corrupted_surface = replace(
         imported_bundle.surface,
-        outputs=MappingProxyType({"approved": corrupted_output}),
+        raw=freeze_mapping(corrupted_surface_raw),
     )
     corrupted_bundle = replace(imported_bundle, surface=corrupted_surface)
 

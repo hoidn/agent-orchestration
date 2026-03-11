@@ -101,7 +101,6 @@ class ExecutableContract:
     kind: Optional[str]
     value_type: Optional[str]
     definition: Mapping[str, Any]
-    raw: Mapping[str, Any]
     source_address: Optional[BoundAddress] = None
 
 

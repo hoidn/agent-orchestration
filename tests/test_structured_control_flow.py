@@ -1216,23 +1216,31 @@ def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corr
     ]
 
 
-def test_repeat_until_uses_typed_output_contract_definition_when_legacy_contract_raw_drifts(
+def test_repeat_until_uses_typed_output_contract_definition_without_ir_contract_raw_payloads(
     tmp_path: Path,
 ):
     workflow_path = _write_workflow(tmp_path, _structured_repeat_until_workflow())
     bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
     review_loop_node = bundle.ir.nodes["root.review_loop"]
-    drifted_output = replace(
-        review_loop_node.output_contracts["review_decision"],
-        raw=freeze_mapping({
-            "kind": "scalar",
-            "type": "enum",
-            "allowed": ["BLOCKED"],
-            "from": {
-                "ref": "self.steps.WriteDecision.artifacts.review_decision",
+    assert not hasattr(review_loop_node.output_contracts["review_decision"], "raw")
+
+    corrupted_raw = {
+        **dict(review_loop_node.raw),
+        "repeat_until": {
+            **dict(review_loop_node.raw.get("repeat_until", {})),
+            "outputs": {
+                **dict(review_loop_node.raw.get("repeat_until", {}).get("outputs", {})),
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["BLOCKED"],
+                    "from": {
+                        "ref": "self.steps.WriteDecision.artifacts.review_decision",
+                    },
+                },
             },
-        }),
-    )
+        },
+    }
     bundle = replace(
         bundle,
         ir=replace(
@@ -1241,10 +1249,7 @@ def test_repeat_until_uses_typed_output_contract_definition_when_legacy_contract
                 **bundle.ir.nodes,
                 "root.review_loop": replace(
                     review_loop_node,
-                    output_contracts=MappingProxyType({
-                        **review_loop_node.output_contracts,
-                        "review_decision": drifted_output,
-                    }),
+                    raw=freeze_mapping(corrupted_raw),
                 ),
             }),
         ),

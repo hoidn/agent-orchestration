@@ -1,7 +1,7 @@
 """Integration tests for expected_outputs enforcement in workflow execution."""
 
 from dataclasses import replace
-from types import MappingProxyType, SimpleNamespace
+from types import SimpleNamespace
 from pathlib import Path
 
 import yaml
@@ -201,10 +201,10 @@ def test_workflow_signature_preserves_exact_string_inputs_and_outputs(tmp_path: 
     }
 
 
-def test_workflow_input_binding_uses_typed_contract_definition_when_legacy_contract_raw_drifts(
+def test_workflow_input_binding_uses_typed_contract_definition_without_contract_raw_payloads(
     tmp_path: Path,
 ):
-    """Workflow input binding should use the typed contract definition, not mutable raw payloads."""
+    """Workflow input binding should use typed contract definitions, not root raw fallback."""
     (tmp_path / "docs" / "tasks").mkdir(parents=True)
     (tmp_path / "docs" / "tasks" / "task-a.md").write_text("# task\n", encoding="utf-8")
 
@@ -227,21 +227,13 @@ def test_workflow_input_binding_uses_typed_contract_definition_when_legacy_contr
 
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load_bundle(workflow_file)
-    drifted_input = replace(
-        loaded.surface.inputs["task_path"],
-        raw=freeze_mapping({
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "docs/other",
-            "must_exist_target": True,
-        }),
-    )
+    assert not hasattr(loaded.surface.inputs["task_path"], "raw")
+
+    corrupted_surface = thaw_surface_workflow(loaded)
+    corrupted_surface["inputs"]["task_path"]["under"] = "docs/other"
     loaded = replace(
         loaded,
-        surface=replace(
-            loaded.surface,
-            inputs=MappingProxyType({"task_path": drifted_input}),
-        ),
+        surface=replace(loaded.surface, raw=freeze_mapping(corrupted_surface)),
     )
 
     bound_inputs = bind_workflow_inputs(
@@ -330,10 +322,10 @@ def test_workflow_output_export_uses_bound_ir_contracts_when_legacy_refs_are_cor
     }
 
 
-def test_workflow_output_export_uses_typed_contract_definition_when_legacy_contract_raw_drifts(
+def test_workflow_output_export_uses_typed_contract_definition_without_ir_contract_raw_payloads(
     tmp_path: Path,
 ):
-    """Workflow output export should validate against the typed contract definition, not raw payload drift."""
+    """Workflow output export should validate against typed IR contracts, not root raw fallback."""
     (tmp_path / "docs" / "tasks").mkdir(parents=True)
     (tmp_path / "docs" / "tasks" / "task-a.md").write_text("# task\n", encoding="utf-8")
 
@@ -380,22 +372,13 @@ def test_workflow_output_export_uses_typed_contract_definition_when_legacy_contr
 
     workflow_file = _write_workflow(tmp_path, workflow)
     loaded = WorkflowLoader(tmp_path).load(workflow_file)
-    drifted_output = replace(
-        loaded.ir.outputs["report_path"],
-        raw=freeze_mapping({
-            "kind": "relpath",
-            "type": "relpath",
-            "under": "docs/export",
-            "must_exist_target": True,
-            "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
-        }),
-    )
+    assert not hasattr(loaded.ir.outputs["report_path"], "raw")
+
+    corrupted_surface = thaw_surface_workflow(loaded)
+    corrupted_surface["outputs"]["report_path"]["under"] = "docs/export"
     loaded = replace(
         loaded,
-        ir=replace(
-            loaded.ir,
-            outputs=MappingProxyType({"report_path": drifted_output}),
-        ),
+        surface=replace(loaded.surface, raw=freeze_mapping(corrupted_surface)),
     )
 
     state_manager = StateManager(workspace=tmp_path, run_id="test-run")

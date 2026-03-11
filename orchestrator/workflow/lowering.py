@@ -289,7 +289,6 @@ class _IRBuilder:
                         kind=contract.kind,
                         value_type=contract.value_type,
                         definition=contract.definition,
-                        raw=contract.raw,
                         source_address=None,
                     )
                     for name, contract in self.surface.inputs.items()
@@ -1067,7 +1066,6 @@ def _bind_contracts(
                 kind=contract.kind,
                 value_type=contract.value_type,
                 definition=contract.definition,
-                raw=contract.raw,
                 source_address=_bind_surface_ref(contract.from_ref, context),
             )
             for name, contract in contracts.items()
