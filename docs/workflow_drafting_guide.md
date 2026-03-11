@@ -27,10 +27,11 @@ Provider prompt text is composed deterministically:
 
 | Order | Step | Notes / knobs |
 | --- | --- | --- |
-| 1 | Read `input_file` literally. | No variable substitution inside file contents. |
-| 2 | Apply `depends_on.inject` (v1.1.1+) if enabled. | Injects resolved dependencies in-memory; the workflow file does not change. |
-| 3 | Inject `## Consumed Artifacts` (v1.2+) if the step has `consumes`. | `inject_consumes`, `consumes_injection_position`, `prompt_consumes`. Uses resolved consume values from preflight. |
-| 4 | Append `## Output Contract` if the step has `expected_outputs`. | `inject_output_contract` controls suffix injection. This is validation, not execution. |
+| 1 | Read the base prompt source (`input_file` or `asset_file`) literally. | No variable substitution inside file contents. |
+| 2 | Prepend `asset_depends_on` blocks (v2.5+) if enabled. | Workflow-source-relative assets are injected in declared order before the base prompt. |
+| 3 | Apply `depends_on.inject` (v1.1.1+) if enabled. | Injects resolved workspace dependencies in-memory around the already-expanded prompt. |
+| 4 | Inject `## Consumed Artifacts` (v1.2+) if the step has `consumes`. | `inject_consumes`, `consumes_injection_position`, `prompt_consumes`. Uses resolved consume values from preflight. |
+| 5 | Append `## Output Contract` if the step has `expected_outputs`. | `inject_output_contract` controls suffix injection. This is validation, not execution. |
 
 Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
 

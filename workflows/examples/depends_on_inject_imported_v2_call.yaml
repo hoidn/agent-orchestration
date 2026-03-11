@@ -1,0 +1,34 @@
+version: "2.7"
+name: depends-on-inject-imported-v2-call
+imports:
+  imported_review: ../library/depends_on_inject_imported_review.yaml
+outputs:
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.RunImportedReview.artifacts.review_decision
+steps:
+  - name: WriteRuntimeManifest
+    id: write_runtime_manifest
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p state
+        printf 'runtime manifest\n' > state/runtime-manifest.txt
+        printf 'state/runtime-manifest.txt\n' > state/manifest_path.txt
+    expected_outputs:
+      - name: manifest_path
+        path: state/manifest_path.txt
+        type: relpath
+        must_exist_target: true
+
+  - name: RunImportedReview
+    id: run_imported_review
+    call: imported_review
+    with:
+      state_root: state/imported-review
+      manifest_path:
+        ref: root.steps.WriteRuntimeManifest.artifacts.manifest_path

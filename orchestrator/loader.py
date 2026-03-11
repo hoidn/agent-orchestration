@@ -1943,7 +1943,7 @@ class WorkflowLoader:
 
         # Validate inject feature (requires version 1.1.1)
         if 'inject' in depends_on:
-            if version != "1.1.1":
+            if not self._version_at_least(version, "1.1.1"):
                 self._add_error(f"Step '{step_name}': depends_on.inject requires version '1.1.1'")
 
     def _validate_asset_file(self, step: Dict[str, Any], step_name: str, version: str) -> None:

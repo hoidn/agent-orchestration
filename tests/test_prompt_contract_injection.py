@@ -214,6 +214,89 @@ def test_provider_asset_depends_on_injects_source_assets_in_declared_order(tmp_p
     assert captured["prompt"].index("Base prompt.") < captured["prompt"].index("## Output Contract")
 
 
+def test_provider_asset_depends_on_and_depends_on_inject_compose_in_contract_order(tmp_path: Path):
+    """Workspace dependency injection wraps the asset-expanded prompt, not the base prompt."""
+    workflow_dir = tmp_path / "workflows" / "library"
+    (workflow_dir / "prompts").mkdir(parents=True)
+    (workflow_dir / "rubrics").mkdir(parents=True)
+    (tmp_path / "state").mkdir(parents=True)
+    (workflow_dir / "prompts" / "review.md").write_text("Base prompt.\n")
+    (workflow_dir / "rubrics" / "review.md").write_text("Rubric body.\n")
+    (tmp_path / "state" / "runtime-manifest.txt").write_text("runtime data\n")
+
+    workflow = {
+        "version": "2.7",
+        "name": "mixed-injection-order",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "provider": "mock_provider",
+            "asset_file": "prompts/review.md",
+            "asset_depends_on": ["rubrics/review.md"],
+            "depends_on": {
+                "required": ["state/runtime-manifest.txt"],
+                "inject": True,
+            },
+            "expected_outputs": [{
+                "name": "review_decision",
+                "path": "state/review_decision.txt",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }],
+        }],
+    }
+
+    workflow_file = _write_workflow(workflow_dir, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(str(workflow_file.relative_to(tmp_path)))
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        (tmp_path / "state" / "review_decision.txt").write_text("APPROVE\n")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+
+    dependency_header = "The following required files are available:"
+    dependency_path = "  - state/runtime-manifest.txt"
+    asset_header = "=== File: rubrics/review.md ==="
+    base_prompt = "Base prompt."
+    output_contract = "## Output Contract"
+
+    assert state["steps"]["Review"]["exit_code"] == 0
+    assert dependency_header in captured["prompt"]
+    assert dependency_path in captured["prompt"]
+    assert asset_header in captured["prompt"]
+    assert base_prompt in captured["prompt"]
+    assert output_contract in captured["prompt"]
+    assert captured["prompt"].index(dependency_header) < captured["prompt"].index(asset_header)
+    assert captured["prompt"].index(asset_header) < captured["prompt"].index(base_prompt)
+    assert captured["prompt"].index(base_prompt) < captured["prompt"].index(output_contract)
+
+
 def test_provider_session_resume_excludes_reserved_session_consume_from_prompt(tmp_path: Path):
     """Resume session handles stay out of prompt injection even when inject_consumes is left on."""
     (tmp_path / "prompts").mkdir()

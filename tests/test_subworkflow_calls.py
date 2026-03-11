@@ -270,6 +270,52 @@ def test_call_rejects_unknown_import_alias(tmp_path: Path):
     )
 
 
+def test_imported_v2_workflow_allows_depends_on_inject(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.7",
+            "name": "imported-depends-on-inject",
+            "providers": {
+                "reviewer": {
+                    "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                    "input_mode": "stdin",
+                }
+            },
+            "steps": [
+                {
+                    "name": "Review",
+                    "id": "review",
+                    "provider": "reviewer",
+                    "depends_on": {
+                        "required": ["state/runtime-manifest.txt"],
+                        "inject": True,
+                    },
+                }
+            ],
+        },
+    )
+    caller_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "call-demo",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "steps": [
+                {
+                    "name": "RunReviewLoop",
+                    "id": "run_review_loop",
+                    "call": "review_loop",
+                }
+            ],
+        },
+    )
+
+    workflow = WorkflowLoader(tmp_path).load(caller_path)
+
+    assert [step["name"] for step in materialize_projection_body_steps(workflow)] == ["RunReviewLoop"]
+
+
 def test_call_executes_from_loaded_bundle_without_legacy_import_magic(tmp_path: Path):
     _write_yaml(
         tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
@@ -337,6 +383,160 @@ def test_call_uses_typed_import_contracts_when_legacy_specs_are_missing(tmp_path
     }
     assert frame["export_status"] == "completed"
     assert frame["state"]["workflow_outputs"] == {"approved": True}
+
+
+def test_call_runtime_preserves_depends_on_inject_and_asset_depends_on_prompt_order(
+    tmp_path: Path,
+):
+    workflow_dir = tmp_path / "workflows" / "library"
+    (workflow_dir / "prompts").mkdir(parents=True)
+    (workflow_dir / "rubrics").mkdir(parents=True)
+    (workflow_dir / "prompts" / "depends_on_inject_imported_review.md").write_text(
+        "Base prompt.\n",
+        encoding="utf-8",
+    )
+    (workflow_dir / "rubrics" / "depends_on_inject_imported_review.md").write_text(
+        "Rubric body.\n",
+        encoding="utf-8",
+    )
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "review_fix_loop.yaml",
+        {
+            "version": "2.7",
+            "name": "depends-on-inject-imported-review",
+            "inputs": {
+                "state_root": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                },
+                "manifest_path": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                    "must_exist_target": True,
+                },
+            },
+            "outputs": {
+                "review_decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE"],
+                    "from": {
+                        "ref": "root.steps.ReviewImportedInjection.artifacts.review_decision",
+                    },
+                }
+            },
+            "providers": {
+                "reviewer": {
+                    "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                    "input_mode": "stdin",
+                }
+            },
+            "steps": [
+                {
+                    "name": "ReviewImportedInjection",
+                    "id": "review_imported_injection",
+                    "provider": "reviewer",
+                    "asset_file": "prompts/depends_on_inject_imported_review.md",
+                    "asset_depends_on": ["rubrics/depends_on_inject_imported_review.md"],
+                    "depends_on": {
+                        "required": ["${inputs.manifest_path}"],
+                        "inject": True,
+                    },
+                    "expected_outputs": [
+                        {
+                            "name": "review_decision",
+                            "path": "${inputs.state_root}/decision.txt",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    workflow_path = _write_yaml(
+        tmp_path / "workflow.yaml",
+        {
+            "version": "2.7",
+            "name": "call-mixed-injection-order",
+            "imports": {"review_loop": "workflows/library/review_fix_loop.yaml"},
+            "steps": [
+                {
+                    "name": "WriteRuntimeManifest",
+                    "id": "write_runtime_manifest",
+                    "command": [
+                        "bash",
+                        "-lc",
+                        (
+                            "mkdir -p state && "
+                            "printf 'runtime manifest\\n' > state/runtime-manifest.txt && "
+                            "printf 'state/runtime-manifest.txt\\n' > state/manifest_path.txt"
+                        ),
+                    ],
+                    "expected_outputs": [
+                        {
+                            "name": "manifest_path",
+                            "path": "state/manifest_path.txt",
+                            "type": "relpath",
+                            "must_exist_target": True,
+                        }
+                    ],
+                },
+                {
+                    "name": "RunImportedReview",
+                    "id": "run_imported_review",
+                    "call": "review_loop",
+                    "with": {
+                        "state_root": "state/imported-review",
+                        "manifest_path": {
+                            "ref": "root.steps.WriteRuntimeManifest.artifacts.manifest_path",
+                        },
+                    },
+                },
+            ],
+        },
+    )
+
+    workflow = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    state_manager = StateManager(tmp_path, run_id="call-mixed-injection-order")
+    state_manager.initialize("workflow.yaml", context=bundle_context_dict(workflow))
+    executor = WorkflowExecutor(workflow, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_self, _invocation, **_kwargs):
+        decision_path = tmp_path / "state" / "imported-review" / "decision.txt"
+        decision_path.parent.mkdir(parents=True, exist_ok=True)
+        decision_path.write_text("APPROVE\n", encoding="utf-8")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["RunImportedReview"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert len(state.get("call_frames", {})) == 1
+    assert captured["prompt"].index("The following required files are available:") < captured["prompt"].index(
+        "=== File: rubrics/depends_on_inject_imported_review.md ==="
+    )
+    assert captured["prompt"].index(
+        "=== File: rubrics/depends_on_inject_imported_review.md ==="
+    ) < captured["prompt"].index("Base prompt.")
+    assert captured["prompt"].index("Base prompt.") < captured["prompt"].index("## Output Contract")
 
 
 def test_import_path_rejects_source_tree_escape(tmp_path: Path):

@@ -21,6 +21,7 @@ EXAMPLE_FILES = [
     "backlog_priority_design_plan_impl_stack_v2_call.yaml",
     "call_subworkflow_demo.yaml",
     "cycle_guard_demo.yaml",
+    "depends_on_inject_imported_v2_call.yaml",
     "design_plan_impl_review_stack_v2_call.yaml",
     "dsl_follow_on_plan_impl_review_loop.yaml",
     "dsl_follow_on_plan_impl_review_loop_v2.yaml",
@@ -201,6 +202,53 @@ def test_call_subworkflow_demo_runtime(tmp_path: Path):
     assert state["steps"]["VerifyApproved"]["status"] == "completed"
     assert (workspace / "state" / "review-loop" / "history.log").read_text() == "review-loop-started\n"
     assert len(state.get("call_frames", {})) == 1
+
+
+def test_depends_on_inject_imported_v2_call_example_runtime(tmp_path: Path):
+    """Imported-call example composes asset and workspace dependency prompts in contract order."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path,
+        "depends_on_inject_imported_v2_call.yaml",
+    )
+    _copy_repo_file_to_workspace(workspace, "workflows/library/depends_on_inject_imported_review.yaml")
+    _copy_repo_file_to_workspace(
+        workspace,
+        "workflows/library/prompts/depends_on_inject_imported_review.md",
+    )
+    _copy_repo_file_to_workspace(
+        workspace,
+        "workflows/library/rubrics/depends_on_inject_imported_review.md",
+    )
+
+    captured_prompts: list[dict[str, str]] = []
+
+    def _write_review_decision(ws: Path) -> None:
+        decision = ws / "state" / "imported-review" / "decision.txt"
+        decision.parent.mkdir(parents=True, exist_ok=True)
+        decision.write_text("APPROVE\n", encoding="utf-8")
+
+    state = _run_with_mocked_providers(
+        workspace=workspace,
+        workflow_path=workflow_path,
+        workflow_relpath=workflow_relpath,
+        provider_sequence=["ReviewImportedInjection"],
+        provider_writers={"ReviewImportedInjection": _write_review_decision},
+        captured_prompts=captured_prompts,
+    )
+
+    prompt = captured_prompts[0]["prompt"]
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == 1
+    assert state["steps"]["RunImportedReview"]["artifacts"] == {"review_decision": "APPROVE"}
+    assert len(state.get("call_frames", {})) == 1
+    assert prompt.index("The following required files are available:") < prompt.index(
+        "=== File: rubrics/depends_on_inject_imported_review.md ==="
+    )
+    assert prompt.index("=== File: rubrics/depends_on_inject_imported_review.md ===") < prompt.index(
+        "Review the imported runtime manifest."
+    )
+    assert prompt.index("Review the imported runtime manifest.") < prompt.index("## Output Contract")
 
 
 def test_structured_if_else_demo_runtime(tmp_path: Path):

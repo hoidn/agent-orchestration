@@ -3477,6 +3477,15 @@ class WorkflowExecutor:
         if prompt_error is not None:
             return prompt_error
 
+        prompt, asset_error = self.prompt_composer.apply_asset_depends_on_prompt_injection(
+            step,
+            prompt,
+            step_name=step.get('name', f'step_{self.current_step}'),
+            contract_violation_result=self._contract_violation_result,
+        )
+        if asset_error is not None:
+            return asset_error
+
         # Handle dependencies if specified (AT-22-27)
         if 'depends_on' in step:
             depends_on = step['depends_on']
@@ -3530,15 +3539,6 @@ class WorkflowExecutor:
                 # Record truncation details if present (AT-35)
                 if injection_result.was_truncated and injection_result.truncation_details:
                     debug_info['injection'] = injection_result.truncation_details
-
-        prompt, asset_error = self.prompt_composer.apply_asset_depends_on_prompt_injection(
-            step,
-            prompt,
-            step_name=step.get('name', f'step_{self.current_step}'),
-            contract_violation_result=self._contract_violation_result,
-        )
-        if asset_error is not None:
-            return asset_error
 
         # Inject resolved consumes into provider prompt when requested.
         resolved_consumes = state.get('_resolved_consumes', {})

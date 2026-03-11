@@ -27,6 +27,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/backlog_priority_design_plan_impl_stack_v2_call.yaml` | `2.7` | `backlog-priority-design-plan-impl-stack-v2-call` | Ordered backlog driver: iterates a priority manifest, runs one per-item design -> plan -> implementation stack, and skips only the current item when any phase fails. |
 | `workflows/examples/call_subworkflow_demo.yaml` | `2.5` | `call-subworkflow-demo` | Demonstrates inline reusable `call` execution, persisted call-frame state, and caller-visible outputs exported from a library workflow. |
 | `workflows/examples/cycle_guard_demo.yaml` | `1.8` | `cycle-guard-demo` | Demonstrates `max_visits`/`max_transitions` counters, a typed `assert.compare` loop gate, and terminal guard-stop behavior without shell counters. |
+| `workflows/examples/depends_on_inject_imported_v2_call.yaml` | `2.7` | `depends-on-inject-imported-v2-call` | Demonstrates an imported callee that combines workflow-source prompt assets with workspace `depends_on.inject`, using a local provider to emit a deterministic review decision. |
 | `workflows/examples/design_plan_impl_review_stack_v2_call.yaml` | `2.7` | `design-plan-impl-review-stack-v2-call` | Full stack example: tracked design/ADR loop, tracked plan loop, then implementation review/fix, composed from reusable `call`-based phase workflows. |
 | `workflows/examples/assert_gate_demo.yaml` | `1.5` | `assert-gate-demo` | Demonstrates first-class `assert` gates and `on.failure.goto` recovery without shell glue. |
 | `workflows/examples/bad_processed.yaml` | `1.1` | `bad_processed` | Negative fixture for path-safety validation of an invalid `processed_dir`. |
@@ -72,6 +73,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/library/tracked_design_phase.yaml` | `2.7` | `tracked-design-phase` | Reusable tracked design/ADR phase: draft design, run tracked hard-nosed review/revise loop, allow explicit `BLOCK`, and export the approved design contract. |
 | `workflows/library/tracked_plan_phase.yaml` | `2.7` | `tracked-plan-phase` | Reusable tracked plan phase: draft plan from an approved design, reconcile carried findings across iterations, and export the approved plan contract. |
 | `workflows/library/design_plan_impl_implementation_phase.yaml` | `2.7` | `design-plan-impl-implementation-phase` | Reusable implementation phase for the full stack example: implement against design + plan, then review/fix until the implementation is approved. |
+| `workflows/library/depends_on_inject_imported_review.yaml` | `2.7` | `depends-on-inject-imported-review` | Library workflow for the imported-injection example: prepends workflow-source rubric assets, then injects a caller-produced runtime manifest into the provider prompt before exporting an enum review decision. |
 | `workflows/library/review_fix_loop.yaml` | `2.5` | `review-fix-loop` | Minimal reusable call demo library used by `call_subworkflow_demo.yaml`. |
 
 ## Related Docs

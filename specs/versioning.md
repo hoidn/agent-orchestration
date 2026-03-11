@@ -10,7 +10,7 @@
 
 - v1.1.1 additions (dependency injection)
   - `depends_on.inject`: shorthand `true` or object form `{ mode, instruction?, position? }`.
-  - Validation is strict: workflows using injection MUST set `version: "1.1.1"` (or higher).
+  - Validation is strict: workflows using injection MUST set `version: "1.1.1"` or any later supported DSL version.
   - Migration from 1.1 to 1.1.1
     - Before: duplicate file lists in prompt and depends_on.
     - After: declare files once in `depends_on`; orchestrator injects into the prompt.
@@ -299,7 +299,7 @@ Planned acceptance:
 | DSL version | Key features enabled | Notes |
 | --- | --- | --- |
 | 1.1 | Baseline DSL; providers (argv/stdin), `wait_for`, `depends_on` (required/optional), `when` (equals/exists/not_exists), retries/timeouts, strict path safety | State schema initially 1.1.1 (separate track). Unknown DSL fields rejected. |
-| 1.1.1 | `depends_on.inject` (list/content/none), injection truncation recording | Workflows must declare `version: "1.1.1"` to use `inject`. |
+| 1.1.1 | `depends_on.inject` (list/content/none), injection truncation recording | Workflows must declare `version: "1.1.1"` or a later supported version to use `inject`. |
 | 1.2 | `artifacts(kind=relpath|scalar)`, `publishes`, `consumes`, `prompt_consumes` with runtime publish/consume enforcement | Keeps `expected_outputs` as file-validation primitive; adds provenance/freshness guarantees plus optional prompt-noise reduction and scalar consume flow. |
 | 1.3 | `output_bundle`, `consume_bundle`, and `publishes.from` support for bundle fields | Reduces deterministic I/O fragmentation while preserving v1.2 publish/consume guarantees. |
 | 1.4 | Read-only relpath consume semantics (no consume-time pointer mutation) | Preserves v1.2/v1.3 behavior by version; command steps should prefer `consume_bundle` for deterministic consumed values. |

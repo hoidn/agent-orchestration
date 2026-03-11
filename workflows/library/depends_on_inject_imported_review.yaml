@@ -1,0 +1,51 @@
+version: "2.7"
+name: depends-on-inject-imported-review
+inputs:
+  state_root:
+    kind: relpath
+    type: relpath
+  manifest_path:
+    kind: relpath
+    type: relpath
+    must_exist_target: true
+outputs:
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.ReviewImportedInjection.artifacts.review_decision
+providers:
+  local_review_writer:
+    command:
+      - python
+      - -c
+      - |
+        import pathlib
+        import sys
+
+        sys.stdin.read()
+        output_path = pathlib.Path(sys.argv[1])
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        output_path.write_text("APPROVE\n", encoding="utf-8")
+        sys.stdout.write("ok\n")
+      - ${output_path}
+    input_mode: stdin
+steps:
+  - name: ReviewImportedInjection
+    id: review_imported_injection
+    provider: local_review_writer
+    provider_params:
+      output_path: ${inputs.state_root}/decision.txt
+    asset_file: prompts/depends_on_inject_imported_review.md
+    asset_depends_on:
+      - rubrics/depends_on_inject_imported_review.md
+    depends_on:
+      required:
+        - ${inputs.manifest_path}
+      inject: true
+    expected_outputs:
+      - name: review_decision
+        path: ${inputs.state_root}/decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]
