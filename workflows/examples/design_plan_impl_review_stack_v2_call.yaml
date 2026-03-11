@@ -8,52 +8,43 @@ imports:
 
 inputs:
   brief_path:
-    kind: relpath
     type: relpath
     under: workflows/examples/inputs
     must_exist_target: true
     default: workflows/examples/inputs/provider_session_resume_brief.md
   design_target_path:
-    kind: relpath
     type: relpath
     under: docs/plans
     default: docs/plans/2026-03-09-provider-session-resume-design.md
   design_review_report_target_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
     default: artifacts/review/provider-session-resume-design-review.json
   plan_target_path:
-    kind: relpath
     type: relpath
     under: docs/plans
     default: docs/plans/2026-03-09-provider-session-resume-execution-plan.md
   plan_review_report_target_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
     default: artifacts/review/provider-session-resume-plan-review.json
   execution_report_target_path:
-    kind: relpath
     type: relpath
     under: artifacts/work
     default: artifacts/work/provider-session-resume-execution-report.md
   implementation_review_report_target_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
     default: artifacts/review/provider-session-resume-implementation-review.md
 
 outputs:
   design_path:
-    kind: relpath
     type: relpath
     under: docs/plans
     must_exist_target: true
     from:
       ref: root.steps.RunDesignPhase.artifacts.design_path
   design_review_report_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
     must_exist_target: true
@@ -66,14 +57,12 @@ outputs:
     from:
       ref: root.steps.RunDesignPhase.artifacts.design_review_decision
   plan_path:
-    kind: relpath
     type: relpath
     under: docs/plans
     must_exist_target: true
     from:
       ref: root.steps.RunPlanPhase.artifacts.plan_path
   plan_review_report_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
     must_exist_target: true
@@ -86,14 +75,12 @@ outputs:
     from:
       ref: root.steps.RunPlanPhase.artifacts.plan_review_decision
   execution_report_path:
-    kind: relpath
     type: relpath
     under: artifacts/work
     must_exist_target: true
     from:
       ref: root.steps.RunImplementationPhase.artifacts.execution_report_path
   implementation_review_report_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
     must_exist_target: true

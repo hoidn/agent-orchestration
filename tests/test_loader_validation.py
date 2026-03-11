@@ -1029,6 +1029,48 @@ class TestLoaderValidation:
         assert any("outputs.review_decision missing required 'from'" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_workflow_relpath_boundaries_accept_type_without_kind(self):
+        """Workflow-boundary relpath contracts may omit redundant kind: relpath."""
+        workflow = {
+            "version": "2.1",
+            "name": "relpath-boundary-style",
+            "inputs": {
+                "task_path": {
+                    "type": "relpath",
+                    "under": "docs/tasks",
+                    "must_exist_target": True,
+                }
+            },
+            "outputs": {
+                "report_path": {
+                    "type": "relpath",
+                    "under": "artifacts/reports",
+                    "must_exist_target": True,
+                    "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
+                }
+            },
+            "steps": [{
+                "name": "GenerateReport",
+                "command": ["echo", "ok"],
+                "expected_outputs": [{
+                    "name": "report_path",
+                    "path": "state/report_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/reports",
+                }],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
+
+        assert surface["inputs"]["task_path"]["type"] == "relpath"
+        assert "kind" not in surface["inputs"]["task_path"]
+        assert surface["outputs"]["report_path"]["type"] == "relpath"
+        assert "kind" not in surface["outputs"]["report_path"]
+
     def test_v210_workflow_boundary_and_scalar_artifacts_accept_string(self):
         """Workflow signatures and scalar artifacts accept string contracts in v2.10."""
         workflow = {

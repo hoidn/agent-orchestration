@@ -27,6 +27,8 @@ def lint_workflow(workflow: Any) -> List[Dict[str, Any]]:
         raise TypeError("LoadedWorkflowBundle required")
 
     warnings: List[Dict[str, Any]] = []
+    _lint_redundant_relpath_boundary_kinds(bundle.surface.inputs, warnings, boundary_kind="inputs")
+    _lint_redundant_relpath_boundary_kinds(bundle.surface.outputs, warnings, boundary_kind="outputs")
     _lint_surface_steps(bundle.surface.steps, warnings, "steps")
     warnings.extend(_lint_import_output_collisions(bundle))
     return warnings
@@ -205,6 +207,34 @@ def _lint_import_output_collisions(workflow: Any) -> List[Dict[str, Any]]:
             )
         )
     return warnings
+
+
+def _lint_redundant_relpath_boundary_kinds(
+    contracts: Mapping[str, Any],
+    warnings: List[Dict[str, Any]],
+    *,
+    boundary_kind: str,
+) -> None:
+    for contract_name, contract in contracts.items():
+        if not isinstance(contract_name, str):
+            continue
+        if getattr(contract, "kind", None) != "relpath":
+            continue
+        if getattr(contract, "value_type", None) != "relpath":
+            continue
+        warnings.append(
+            _warning(
+                code="redundant-relpath-boundary-kind",
+                path=f"{boundary_kind}.{contract_name}",
+                message=(
+                    f"Top-level workflow {boundary_kind[:-1]} '{contract_name}' redundantly declares "
+                    "`kind: relpath` alongside `type: relpath`. Prefer `type: relpath` alone."
+                ),
+                suggestion="Drop `kind: relpath` from this workflow boundary contract.",
+                boundary=contract_name,
+                surface=boundary_kind,
+            )
+        )
 
 
 def _warning(*, code: str, path: str, message: str, suggestion: str, **extra: Any) -> Dict[str, Any]:

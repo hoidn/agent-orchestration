@@ -6,7 +6,6 @@ inputs:
     kind: scalar
     type: integer
   write_root:
-    kind: relpath
     type: relpath
 
 artifacts:

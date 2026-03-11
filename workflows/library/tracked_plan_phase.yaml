@@ -7,33 +7,27 @@ context:
 
 inputs:
   state_root:
-    kind: relpath
     type: relpath
     under: state
   design_path:
-    kind: relpath
     type: relpath
     under: docs/plans
     must_exist_target: true
   plan_target_path:
-    kind: relpath
     type: relpath
     under: docs/plans
   plan_review_report_target_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
 
 outputs:
   plan_path:
-    kind: relpath
     type: relpath
     under: docs/plans
     must_exist_target: true
     from:
       ref: root.steps.FinalizePlanPhaseOutputs.artifacts.plan_path
   plan_review_report_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
     must_exist_target: true
@@ -142,7 +136,7 @@ steps:
   - name: DraftPlan
     id: draft_plan
     provider: codex
-    input_file: prompts/workflows/design_plan_impl_stack_v2_call/draft_plan.md
+    asset_file: prompts/design_plan_impl_stack_v2_call/draft_plan.md
     timeout_sec: 3600
     consumes:
       - artifact: design
@@ -181,7 +175,7 @@ steps:
         - name: ReviewPlanTracked
           id: review_plan_tracked
           provider: codex
-          input_file: prompts/workflows/design_plan_impl_stack_v2_call/review_plan.md
+          asset_file: prompts/design_plan_impl_stack_v2_call/review_plan.md
           timeout_sec: 1800
           consumes:
             - artifact: design
@@ -249,7 +243,7 @@ steps:
                   - name: RevisePlanTracked
                     id: revise_plan_tracked
                     provider: codex
-                    input_file: prompts/workflows/design_plan_impl_stack_v2_call/revise_plan.md
+                    asset_file: prompts/design_plan_impl_stack_v2_call/revise_plan.md
                     timeout_sec: 3600
                     consumes:
                       - artifact: design

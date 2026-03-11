@@ -2,7 +2,6 @@ version: "2.5"
 name: review-fix-loop
 inputs:
   write_root:
-    kind: relpath
     type: relpath
 artifacts:
   approved:

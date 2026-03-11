@@ -157,6 +157,8 @@
 - v2.9 additions (authoring linting and normalization)
   - CLI dry-run and report surfaces may emit advisory lint warnings without turning them into validation failures.
   - Initial warnings cover shell gates that should become `assert`, stringly `when.equals` routing that should become typed predicates, raw `goto` diamonds that should become structured control, and imported/exported output-name collisions.
+  - Advisory lint also warns when top-level workflow-boundary `inputs` or `outputs` redundantly declare `kind: relpath` together with `type: relpath`; prefer `type: relpath` alone on workflow boundaries.
+  - This warning is intentionally scoped away from top-level `artifacts`, `expected_outputs`, and `output_bundle`, where relpath/storage semantics still rely on artifact-style contracts.
   - Warning presence does not change runtime or workflow-load exit codes in the first pass.
 
 - v2.10 additions (provider-session resume)

@@ -11,13 +11,19 @@
 - Where variables are substituted
   - Provider templates and `provider_params` values
   - Raw `command` arrays
-  - File paths (e.g., `input_file`, `output_file`)
+  - File paths (e.g., `input_file`, `asset_file`, `asset_depends_on`, `output_file`)
   - Conditions (`when.equals.left/right`)
   - Dependency globs in `depends_on` and `wait_for.glob`
   - Workflow-signature consumers: command arrays, provider params, deterministic file paths, and first-class `assert`/typed predicates may all read `${inputs.*}` or `ref: inputs.*`
 
+- Surface boundaries
+  - Workflow-boundary `inputs` / `outputs` are typed interface contracts, not prompt sources.
+  - Runtime dependencies (`depends_on`, `consumes`) are distinct from provider prompt sources.
+  - Provider prompt sources are `input_file`, `asset_file`, and `asset_depends_on`.
+  - Artifact storage / lineage surfaces are `artifacts`, `expected_outputs`, `output_bundle`, and `publishes`.
+
 - Where variables are not substituted
-  - File contents: files referenced by `input_file`, `output_file`, or other file parameters are passed literally.
+  - File contents: files referenced by `input_file`, `asset_file`, `output_file`, or other file parameters are passed literally.
   - To include dynamic content inside a file, first generate it in a prior step, then reference that file.
 
 - Undefined variables and coercion
@@ -33,8 +39,11 @@
   - Secrets are sourced from the orchestrator environment and masked in logs. See `security.md` for normative rules.
   - The `${env.*}` namespace is disallowed in workflows; the loader must reject such references.
 
-- v1.2 artifact consume materialization
-  - Before a step with `consumes` executes, orchestrator resolves the selected artifact version and writes its value to the artifact registry pointer file (for example `state/execution_log_path.txt`).
+- v1.2+ artifact consume materialization
+  - Before a step with `consumes` executes, orchestrator resolves the selected artifact version.
+  - For `version: "1.2"` / `"1.3"` relpath consumes, runtime writes the selected value to the artifact registry pointer file (for example `state/execution_log_path.txt`).
+  - For `version: "1.4"` relpath consumes, runtime resolves the value read-only and does not mutate pointer files.
+  - Scalar consumes never write pointer files.
   - This is runtime contract enforcement, not variable substitution.
 
 ## Dynamic Content Pattern

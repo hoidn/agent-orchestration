@@ -7,38 +7,31 @@ context:
 
 inputs:
   state_root:
-    kind: relpath
     type: relpath
     under: state
   design_path:
-    kind: relpath
     type: relpath
     under: docs/plans
     must_exist_target: true
   plan_path:
-    kind: relpath
     type: relpath
     under: docs/plans
     must_exist_target: true
   execution_report_target_path:
-    kind: relpath
     type: relpath
     under: artifacts/work
   implementation_review_report_target_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
 
 outputs:
   execution_report_path:
-    kind: relpath
     type: relpath
     under: artifacts/work
     must_exist_target: true
     from:
       ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.execution_report_path
   implementation_review_report_path:
-    kind: relpath
     type: relpath
     under: artifacts/review
     must_exist_target: true
@@ -145,7 +138,7 @@ steps:
   - name: ExecuteImplementation
     id: execute_implementation
     provider: codex
-    input_file: prompts/workflows/design_plan_impl_stack_v2_call/implement_plan.md
+    asset_file: prompts/design_plan_impl_stack_v2_call/implement_plan.md
     timeout_sec: 43200
     consumes:
       - artifact: design
@@ -187,7 +180,7 @@ steps:
         - name: ReviewImplementation
           id: review_implementation
           provider: codex
-          input_file: prompts/workflows/design_plan_impl_stack_v2_call/review_implementation.md
+          asset_file: prompts/design_plan_impl_stack_v2_call/review_implementation.md
           timeout_sec: 1800
           consumes:
             - artifact: design
@@ -249,7 +242,7 @@ steps:
                   - name: FixImplementation
                     id: fix_implementation
                     provider: codex
-                    input_file: prompts/workflows/design_plan_impl_stack_v2_call/fix_implementation.md
+                    asset_file: prompts/design_plan_impl_stack_v2_call/fix_implementation.md
                     timeout_sec: 43200
                     consumes:
                       - artifact: design

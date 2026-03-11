@@ -14,8 +14,9 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 
 - `workflows/examples/`: runnable example workflows and validation fixtures
 - `workflows/library/`: reusable imported subworkflows used by `call`-based examples
+- `workflows/library/prompts/`: repo-owned prompt assets bundled with reusable imported workflows
 - `workflows/examples/prompts/`: prompt files used only by example workflows stored under `workflows/examples/`
-- `prompts/workflows/`: shared prompt trees used by larger example workflows
+- `prompts/workflows/`: shared prompt trees used by standalone or monolithic workflows
 
 ## Workflow Catalog
 
@@ -67,12 +68,12 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 
 | Path | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- |
-| `workflows/library/follow_on_plan_phase.yaml` | `2.7` | `follow-on-plan-phase` | Reusable plan-phase subworkflow for the modular follow-on example: draft plan, run structured plan review/revise loop, export the final plan contract. |
-| `workflows/library/follow_on_implementation_phase.yaml` | `2.7` | `follow-on-implementation-phase` | Reusable implementation-phase subworkflow for the modular follow-on example: execute plan work, run structured implementation review/fix loop, export final implementation outputs. |
+| `workflows/library/follow_on_plan_phase.yaml` | `2.7` | `follow-on-plan-phase` | Reusable plan-phase subworkflow for the modular follow-on example: draft plan, run structured plan review/revise loop, and ship its bundled prompt assets from `workflows/library/prompts/dsl_follow_on_plan_impl_loop_v2_call/`. |
+| `workflows/library/follow_on_implementation_phase.yaml` | `2.7` | `follow-on-implementation-phase` | Reusable implementation-phase subworkflow for the modular follow-on example: execute plan work, run structured implementation review/fix loop, and ship its bundled prompt assets from `workflows/library/prompts/dsl_follow_on_plan_impl_loop_v2_call/`. |
 | `workflows/library/backlog_item_design_plan_impl_stack.yaml` | `2.7` | `backlog-item-design-plan-impl-stack` | Per-item reusable stack for the priority backlog driver: run design, plan, and implementation phases, convert any phase failure into a terminal item outcome, and export item summary/report paths. |
-| `workflows/library/tracked_design_phase.yaml` | `2.7` | `tracked-design-phase` | Reusable tracked design/ADR phase: draft design, run tracked hard-nosed review/revise loop, allow explicit `BLOCK`, and export the approved design contract. |
-| `workflows/library/tracked_plan_phase.yaml` | `2.7` | `tracked-plan-phase` | Reusable tracked plan phase: draft plan from an approved design, reconcile carried findings across iterations, and export the approved plan contract. |
-| `workflows/library/design_plan_impl_implementation_phase.yaml` | `2.7` | `design-plan-impl-implementation-phase` | Reusable implementation phase for the full stack example: implement against design + plan, then review/fix until the implementation is approved. |
+| `workflows/library/tracked_design_phase.yaml` | `2.7` | `tracked-design-phase` | Reusable tracked design/ADR phase: draft design, run tracked hard-nosed review/revise loop, allow explicit `BLOCK`, and ship its bundled prompt assets from `workflows/library/prompts/design_plan_impl_stack_v2_call/`. |
+| `workflows/library/tracked_plan_phase.yaml` | `2.7` | `tracked-plan-phase` | Reusable tracked plan phase: draft plan from an approved design, reconcile carried findings across iterations, and ship its bundled prompt assets from `workflows/library/prompts/design_plan_impl_stack_v2_call/`. |
+| `workflows/library/design_plan_impl_implementation_phase.yaml` | `2.7` | `design-plan-impl-implementation-phase` | Reusable implementation phase for the full stack example: implement against design + plan, then review/fix until the implementation is approved, using bundled prompt assets under `workflows/library/prompts/design_plan_impl_stack_v2_call/`. |
 | `workflows/library/depends_on_inject_imported_review.yaml` | `2.7` | `depends-on-inject-imported-review` | Library workflow for the imported-injection example: prepends workflow-source rubric assets, then injects a caller-produced runtime manifest into the provider prompt before exporting an enum review decision. |
 | `workflows/library/review_fix_loop.yaml` | `2.5` | `review-fix-loop` | Minimal reusable call demo library used by `call_subworkflow_demo.yaml`. |
 

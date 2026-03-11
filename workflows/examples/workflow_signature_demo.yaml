@@ -2,7 +2,6 @@ version: "2.1"
 name: workflow-signature-demo
 inputs:
   task_path:
-    kind: relpath
     type: relpath
     under: workflows/examples/inputs
     must_exist_target: true
@@ -14,7 +13,6 @@ inputs:
     description: Maximum review cycles budget for this run.
 outputs:
   report_path:
-    kind: relpath
     type: relpath
     under: artifacts/reports
     must_exist_target: true

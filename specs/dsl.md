@@ -8,7 +8,7 @@
   - Queue defaults: `inbox_dir`, `processed_dir`, `failed_dir`, `task_extension` (see `queue.md`).
   - `context`: key/value map available via `${context.*}` (see `variables.md`).
   - `inputs`: workflow-boundary input contracts (v2.1+).
-    - Separate contract family from the v1.2+ artifact registry; no pointer semantics.
+    - Separate contract family from runtime dependencies, provider prompt sources, and the v1.2+ artifact registry; no pointer semantics.
     - Keys are input names; values reuse typed contract fields:
       - `kind: relpath|scalar` (optional; default `relpath`)
       - `type: enum|integer|float|bool|string|relpath` (required)
@@ -17,9 +17,11 @@
       - `required: boolean` (optional; default true)
       - `default` (optional)
       - `description: string` (optional)
+    - Preferred authoring style for relpath boundaries: use `type: relpath` alone; explicit `kind: relpath` remains valid for backward compatibility.
     - Successful binding is exposed inside the workflow through `${inputs.<name>}` and typed `ref: inputs.<name>`.
   - `outputs`: workflow-boundary output contracts (v2.1+).
     - Keys are output names; values reuse the same typed contract fields as `inputs` plus required `from`.
+    - Preferred authoring style for relpath boundaries: use `type: relpath` alone; explicit `kind: relpath` remains valid for backward compatibility.
     - `from` must be exactly `{ ref: "root.steps.<Step>.artifacts.<name>|exit_code|outcome.<field>" }`.
     - Export validation runs after the workflow body completes successfully and, for v2.3+ workflows with `finally`, only after finalization completes successfully.
   - `imports`: reusable workflow aliases (v2.5+).
@@ -108,14 +110,14 @@
     - When exceeded, the step fails pre-execution with `error.type: "cycle_guard_exceeded"`.
   - IO:
     - `input_file: string`
-      - Workspace-relative runtime path, even when the workflow later runs under `call`.
-    - `asset_file: string` (planned v2.5; contract fixed in v2.4 docs)
-      - Provider-only workflow-source-relative prompt/template asset.
+      - Provider-only workspace-relative prompt source for workspace-owned or runtime-generated prompt material, even when the workflow later runs under `call`.
+    - `asset_file: string` (v2.5+)
+      - Provider-only workflow-source-relative prompt/template asset for bundled reusable-workflow material.
       - Mutually exclusive with `input_file`.
       - Resolves relative to the directory containing the authored workflow file and must remain within that workflow source tree.
     - `output_file: string`
       - Workspace-relative runtime path. `call` namespaces step/result identities, not authored output files.
-    - `asset_depends_on: string[]` (planned v2.5; contract fixed in v2.4 docs)
+    - `asset_depends_on: string[]` (v2.5+)
       - Provider-only list of exact workflow-source-relative reference files injected into the composed prompt.
       - Not a substitute for workspace-relative `depends_on`.
       - No globbing or optional/mode variants in the first tranche; the author controls the exact ordered file list.
@@ -207,9 +209,9 @@
       - `example: string` (optional prompt guidance for consumed-artifact injection; no runtime validation impact)
       - runtime preflight:
         - `kind: relpath` artifacts:
-          - `version: "1.2"` / `"1.3"`: materialize selected value to canonical pointer file
+          - `version: "1.2"` / `"1.3"`: materialize the selected value to the canonical pointer file
           - `version: "1.4"`: read-only consume resolution (no pointer-file mutation)
-        - `kind: scalar` artifacts skip pointer-file writes and use typed value directly
+        - `kind: scalar` artifacts never write pointer files and use the typed value directly
         - v2.10 `provider_session.mode: resume` reserves one consume for runtime `${SESSION_ID}` binding rather than prompt or consume-bundle output
         - fail with `contract_violation` (exit 2) when missing/stale/type-invalid
   - Control:

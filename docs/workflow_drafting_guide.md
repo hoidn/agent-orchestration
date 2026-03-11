@@ -9,13 +9,22 @@ Companion docs:
 
 Goal: help you author workflows that are reliable when prompts, deterministic artifacts, and control flow all interact.
 
-## 1) Mental Model: Three Contracts
+## 1) Mental Model: Four Authoring Surfaces
 
-Treat a provider step as three separate contracts. Confusing them is the fastest way to write a workflow that "looks right" but fails in review.
+Keep these authoring surfaces separate. Confusing them is the fastest way to write a workflow that looks coherent in YAML but teaches the wrong boundary model.
+
+| Surface | What it is | Where it lives |
+| --- | --- | --- |
+| Workflow boundary | Typed values crossing the workflow interface. | Top-level `inputs`, `outputs`. |
+| Runtime dependencies | Files or published artifacts that must resolve before a step runs. | `depends_on`, `consumes`. |
+| Provider prompt sources | The authored material used to compose provider prompt text. | `input_file`, `asset_file`, `asset_depends_on`. |
+| Artifact storage / lineage | Deterministic validation and publication surfaces. | Top-level `artifacts`, step `expected_outputs`, `output_bundle`, `publishes`. |
+
+Inside one provider step, you still have separate prompt, runtime, and flow contracts:
 
 | Contract | What it is | Where it lives |
 | --- | --- | --- |
-| Prompt contract | The instructions the provider receives. | `input_file` plus injected blocks (see below). |
+| Prompt contract | The instructions the provider receives. | Prompt sources plus injected dependency/dataflow blocks. |
 | Runtime contract | What the orchestrator validates after execution. | `expected_outputs` or `output_bundle`. |
 | Flow contract | What determines routing, looping, and termination. | `on.*.goto`, gates, and cycle caps. |
 
@@ -88,7 +97,7 @@ Two practical upgrades now exist:
 - v2.7: prefer top-level `repeat_until` for bounded post-test review/fix loops when the exit condition should read the latest iteration outputs instead of shell-managed counters or raw `goto` back-edges.
 - v2.8: prefer the `score` predicate helper for evaluator thresholds and score bands instead of repeating numeric `compare` / `all_of` chains around one score artifact.
 - v2.9 tooling: use `orchestrate run ... --dry-run` or `orchestrate report` to surface advisory migration warnings for shell gates, stringly `when.equals`, raw `goto` diamonds, and imported/exported output-name collisions before those patterns spread.
-- Task 10 reusable-call boundary: if a workflow is intended for later `call` reuse, keep bundled prompts/rubrics/schemas on the future workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep runtime reads/writes on the existing WORKSPACE-relative surfaces (`input_file`, `depends_on`, `output_file`, deterministic outputs).
+- Reusable-call boundary: if a workflow is intended for `call` reuse, keep bundled prompts/rubrics/schemas on the workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep workspace-owned or runtime-generated prompt material on `input_file`.
 
 ## 5) Prompt Authoring Guidance
 
@@ -209,6 +218,7 @@ If you expect a workflow to be used through `call`:
 - Surface every DSL-managed write root that needs to vary per invocation as a typed workflow `input` with `type: relpath`.
 - Bind those write-root inputs uniquely at each call site when repeated or concurrent calls could otherwise share the same managed `state/*`, `artifacts/*`, or other deterministic output roots.
 - Keep bundled source assets on the workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) instead of teaching callers to copy prompt files into the workspace.
+- Keep `input_file` only for workspace-owned prompt material: caller-supplied files, runtime-generated prompts, or top-level flows that intentionally read prompt files from the active workspace.
 - Keep cross-boundary data narrow: caller -> callee through typed `inputs`; callee -> caller only through declared `outputs`.
 - Remember the caller-visible contract: exported callee outputs land on the outer call step (`steps.<CallStep>.artifacts.*`) only after the callee body and any callee `finally` work both succeed.
 - Assume imported `command` / `provider` steps still have accepted operational risk for undeclared filesystem effects. First-tranche `call` is reuse, not sandboxing.

@@ -139,6 +139,71 @@ def test_workflow_signature_binds_inputs_and_exports_outputs(tmp_path: Path):
     }
 
 
+def test_workflow_signature_relpath_boundaries_work_without_explicit_kind(tmp_path: Path):
+    """Workflow signatures should accept relpath inputs/outputs with type: relpath alone."""
+    (tmp_path / "docs" / "tasks").mkdir(parents=True)
+    (tmp_path / "docs" / "tasks" / "task-a.md").write_text("# task\n")
+
+    workflow = {
+        "version": "2.1",
+        "name": "workflow-signature-style-success",
+        "inputs": {
+            "task_path": {
+                "type": "relpath",
+                "under": "docs/tasks",
+                "must_exist_target": True,
+            },
+        },
+        "outputs": {
+            "report_path": {
+                "type": "relpath",
+                "under": "artifacts/reports",
+                "must_exist_target": True,
+                "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
+            },
+        },
+        "steps": [{
+            "name": "GenerateReport",
+            "command": [
+                "bash",
+                "-lc",
+                "mkdir -p state artifacts/reports && "
+                "cp \"${inputs.task_path}\" artifacts/reports/report.md && "
+                "printf 'artifacts/reports/report.md\\n' > state/report_path.txt",
+            ],
+            "expected_outputs": [
+                {
+                    "name": "report_path",
+                    "path": "state/report_path.txt",
+                    "type": "relpath",
+                    "under": "artifacts/reports",
+                    "must_exist_target": True,
+                },
+            ],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={
+            "task_path": "docs/tasks/task-a.md",
+        },
+    )
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"] == {
+        "report_path": "artifacts/reports/report.md",
+    }
+
+
 def test_workflow_signature_preserves_exact_string_inputs_and_outputs(tmp_path: Path):
     """v2.10 workflow signatures preserve exact string scalar values end-to-end."""
     workflow = {

@@ -91,11 +91,18 @@ Key notes:
 
 ## Provider Step Runtime Order
 
+Authoring-surface note:
+- Workflow-boundary `inputs` / `outputs` are interface contracts, not prompt sources.
+- Runtime dependencies (`depends_on`, `consumes`) are resolved before execution; they are distinct from both boundary contracts and prompt-source selection.
+- Provider prompt sources are `input_file`, `asset_file`, and `asset_depends_on`.
+- Artifact storage / lineage surfaces are `artifacts`, `expected_outputs`, `output_bundle`, and `publishes`.
+
 For provider steps, runtime behavior is effectively:
 
 ```text
 compose prompt
-  = input_file literal
+  = base prompt source literal (input_file from WORKSPACE, or asset_file from the workflow source tree)
+  + optional asset_depends_on injection
   + optional depends_on injection
   + optional consumed-artifacts injection (v1.2+)
   + optional output-contract suffix
@@ -120,7 +127,9 @@ Prompt composition details are normative in `specs/providers.md`.
 Before step execution:
 - `consumes` preflight selects artifact versions according to policy/freshness.
 - Missing or stale required artifacts fail preflight with `contract_violation`.
+- In v1.2 / v1.3, relpath consume preflight materializes the selected value to the canonical pointer file.
 - In v1.4, relpath consume preflight is pointer-safe/read-only (no pointer-file mutation).
+- Scalar consumes never write pointer files.
 - Optional `consume_bundle` writes resolved consume values to deterministic JSON for the step.
 
 After successful step execution + output validation:

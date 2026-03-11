@@ -2,10 +2,8 @@ version: "2.7"
 name: depends-on-inject-imported-review
 inputs:
   state_root:
-    kind: relpath
     type: relpath
   manifest_path:
-    kind: relpath
     type: relpath
     must_exist_target: true
 outputs:

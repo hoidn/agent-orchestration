@@ -16,14 +16,15 @@
   - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
   - In argv mode, `${PROMPT}` is replaced by the composed prompt (see below).
   - In stdin mode, the composed prompt is piped to the child stdin; provider templates MUST NOT include `${PROMPT}`.
+  - Provider prompt sources are distinct from workflow-boundary `inputs` / `outputs`, runtime dependencies (`depends_on`, `consumes`), and artifact storage / lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`).
   - Reusable-workflow prompt assets:
-    - `input_file` stays workspace-relative.
-    - `asset_file` is the workflow-source-relative prompt/template surface for reusable workflows.
+    - `input_file` stays workspace-relative and is for workspace-owned or runtime-generated prompt material.
+    - `asset_file` is the workflow-source-relative prompt/template surface for bundled reusable-workflow assets.
 
 - Prompt composition
   - Read exactly one base prompt source:
-    - `input_file` literally from WORKSPACE, or
-    - `asset_file` literally from the directory containing the authored workflow file.
+    - `input_file` literally from WORKSPACE for workspace-owned or runtime-generated prompt material, or
+    - `asset_file` literally from the directory containing the authored workflow file for bundled reusable-workflow assets.
   - `asset_depends_on` source assets are injected in-memory as deterministic content blocks in declared order.
   - Apply workspace dependency injection in-memory if `depends_on.inject` is enabled (see `dependencies.md`).
   - For `version: "1.2"` provider steps with `consumes`, inject a deterministic `Consumed Artifacts` block by default using resolved consume values from preflight (not prompt-authored paths).
@@ -48,7 +49,7 @@
 
 - Placeholder and parameter substitution
   - Substitution pipeline:
-    1) Compose prompt from the selected base prompt source (`input_file` today; `asset_file` once the reusable-call surface lands) plus any source/workspace dependency injection.
+    1) Compose prompt from the selected base prompt source plus any source/workspace dependency injection.
     2) Merge `providers.<name>.defaults` overlaid by `step.provider_params` (step wins).
     3) Substitute inside `provider_params` values (strings only; recursively visit arrays/objects; non-strings unchanged).
     4) Substitute template tokens: `${PROMPT}` (argv mode only), `${SESSION_ID}` (resume-command only), `${<provider_param>}`, and `${run|context|loop|steps.*}`.
