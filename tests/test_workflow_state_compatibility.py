@@ -12,6 +12,7 @@ from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from tests.workflow_bundle_helpers import materialize_projection_body_steps
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -562,9 +563,10 @@ def test_structured_helper_steps_persist_current_step_indices_from_lowered_order
         _build_structured_current_step_index_workflow(),
     )
     workflow = WorkflowLoader(tmp_path).load(workflow_path)
+    body_steps = materialize_projection_body_steps(workflow)
     expected_indices = {
         step["name"]: index
-        for index, step in enumerate(workflow["steps"])
+        for index, step in enumerate(body_steps)
     }
 
     recorded_current_steps = []
