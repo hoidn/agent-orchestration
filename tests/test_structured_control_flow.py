@@ -964,7 +964,7 @@ def test_if_else_executes_from_bound_guard_and_join_outputs_when_legacy_refs_are
     state_manager = StateManager(workspace=tmp_path, run_id="structured-bound-refs")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    route_review_step = executor._step_for_node_id("root.route_review")
+    route_review_step = dict(executor._runtime_step_for_node_id("root.route_review"))
     route_review_step["if"] = {
         "artifact_bool": {
             "ref": "root.steps.Missing.artifacts.ready",
@@ -982,6 +982,8 @@ def test_if_else_executes_from_bound_guard_and_join_outputs_when_legacy_refs_are
             }
         }
     }
+
+    assert executor._structured_output_contracts(route_review_step, "then") != route_review_step["then"]["outputs"]
 
     state = executor.execute(on_error="continue")
 
@@ -1139,7 +1141,8 @@ def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corr
     state_manager = StateManager(workspace=tmp_path, run_id="repeat-until-bound-refs")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    review_loop_step = executor._step_for_node_id("root.review_loop")
+    review_loop_step = dict(executor._runtime_step_for_node_id("root.review_loop"))
+    review_loop_step["repeat_until"] = dict(review_loop_step["repeat_until"])
     review_loop_step["repeat_until"]["outputs"] = {
         "review_decision": {
             "kind": "scalar",
@@ -1159,6 +1162,9 @@ def test_repeat_until_uses_bound_outputs_and_condition_when_legacy_refs_are_corr
             "right": "APPROVE",
         }
     }
+
+    assert executor._repeat_until_output_contracts(review_loop_step) != review_loop_step["repeat_until"]["outputs"]
+    assert executor._repeat_until_condition(review_loop_step) != review_loop_step["repeat_until"]["condition"]
 
     state = executor.execute(on_error="continue")
 
@@ -1190,7 +1196,9 @@ def test_repeat_until_uses_typed_output_contract_definition_without_ir_contract_
     state_manager = StateManager(workspace=tmp_path, run_id="repeat-until-bound-contract")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.review_loop")["repeat_until"]["outputs"] = {
+    review_loop_step = dict(executor._runtime_step_for_node_id("root.review_loop"))
+    review_loop_step["repeat_until"] = dict(review_loop_step["repeat_until"])
+    review_loop_step["repeat_until"]["outputs"] = {
         "review_decision": {
             "kind": "scalar",
             "type": "enum",
@@ -1200,6 +1208,8 @@ def test_repeat_until_uses_typed_output_contract_definition_without_ir_contract_
             },
         }
     }
+
+    assert executor._repeat_until_output_contracts(review_loop_step) != review_loop_step["repeat_until"]["outputs"]
 
     state = executor.execute(on_error="continue")
 

@@ -10,9 +10,10 @@ import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
-from orchestrator.workflow.executable_ir import NodeResultAddress
+from orchestrator.workflow.executable_ir import ExecutableNodeKind, NodeResultAddress
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.references import ReferenceResolutionError
+from tests.workflow_bundle_helpers import materialize_projection_step
 
 
 def _write_workflow(workspace: Path, workflow: dict) -> Path:
@@ -36,6 +37,10 @@ def _persisted_state(workspace: Path, run_id: str) -> dict:
     return json.loads(state_file.read_text(encoding="utf-8"))
 
 
+def _runtime_step_dict(executor: WorkflowExecutor, node_id: str) -> dict:
+    return dict(executor._runtime_step_for_node_id(node_id))
+
+
 def test_executor_requires_loaded_workflow_bundle(tmp_path: Path):
     workflow = {
         "version": "2.5",
@@ -48,6 +53,28 @@ def test_executor_requires_loaded_workflow_bundle(tmp_path: Path):
 
     with pytest.raises(TypeError, match="LoadedWorkflowBundle"):
         WorkflowExecutor(workflow, tmp_path, StateManager(tmp_path, run_id="typed-bundle-only"))
+
+
+def test_executor_does_not_expose_legacy_projection_step_materializer(tmp_path: Path):
+    workflow = {
+        "version": "2.7",
+        "name": "no-legacy-step-materializer",
+        "steps": [
+            {
+                "name": "Echo",
+                "id": "echo",
+                "command": ["bash", "-lc", "printf ok"],
+            }
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(workspace=tmp_path, run_id="no-legacy-step-materializer")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    assert not hasattr(executor, "_step_for_node_id")
 
 
 def test_executor_respects_legacy_when_equals_without_condition_dict_fallback(tmp_path: Path):
@@ -503,8 +530,9 @@ def test_executor_uses_typed_for_each_body_nodes_when_cached_loop_payload_drifts
     )
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    loop_step = executor._step_for_node_id("root.process_items")
-    loop_step["for_each"]["steps"] = []
+    loop_step = executor._runtime_step_for_node_id("root.process_items")
+
+    assert loop_step["for_each"] == {"items": ["alpha", "beta"]}
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-for-each-cached-body")
@@ -687,8 +715,12 @@ def test_executor_uses_typed_repeat_until_body_nodes_when_cached_loop_payload_dr
     )
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    loop_step = executor._step_for_node_id("root.review_loop")
-    loop_step["repeat_until"]["steps"] = []
+    loop_step = executor._runtime_step_for_node_id("root.review_loop")
+
+    assert loop_step["repeat_until"] == {
+        "id": "iteration_body",
+        "max_iterations": 3,
+    }
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-repeat-until-cached-body")
@@ -973,8 +1005,13 @@ def test_executor_uses_projection_order_and_presentation_names_over_legacy_adapt
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-order")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.write_one")["name"] = "LegacyWriteOne"
-    executor._step_for_node_id("root.write_two")["name"] = "LegacyWriteTwo"
+    first_step = materialize_projection_step(bundle, "root.write_one")
+    second_step = materialize_projection_step(bundle, "root.write_two")
+    first_step["name"] = "LegacyWriteOne"
+    second_step["name"] = "LegacyWriteTwo"
+
+    assert executor._step_identity(first_step, step_index=0).name == "WriteOne"
+    assert executor._step_identity(second_step, step_index=1).name == "WriteTwo"
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-order")
@@ -1035,7 +1072,10 @@ def test_executor_resolves_goto_against_projection_when_legacy_target_name_drift
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-goto")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.final")["name"] = "LegacyFinal"
+    final_step = materialize_projection_step(bundle, "root.final")
+    final_step["name"] = "LegacyFinal"
+
+    assert executor._step_identity(final_step, step_index=2).name == "Final"
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-goto")
@@ -1095,7 +1135,7 @@ def test_executor_uses_ir_routed_transfer_when_materialized_on_target_drifts(tmp
     state_manager = StateManager(workspace=tmp_path, run_id="projection-executor-goto-transfer")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    step = executor._step_for_node_id("root.start")
+    step = _runtime_step_dict(executor, "root.start")
     step["on"]["success"]["goto"] = "LegacyFinal"
 
     next_step = executor._handle_control_flow(
@@ -1160,7 +1200,7 @@ def test_executor_does_not_fallback_to_materialized_goto_when_ir_transfer_is_mis
     )
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    step = executor._step_for_node_id("root.start")
+    step = _runtime_step_dict(executor, "root.start")
 
     next_step = executor._handle_control_flow(
         step,
@@ -1276,8 +1316,12 @@ def test_executor_uses_typed_provider_leaf_when_cached_top_level_step_payload_dr
     )
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    cached_step = executor._step_for_node_id("root.ask_provider")
-    cached_step["provider_params"]["value"] = "legacy"
+    cached_params = executor._runtime_step_for_node_id("root.ask_provider")["provider_params"]
+    cached_params["value"] = "legacy"
+
+    assert executor._runtime_step_for_node_id("root.ask_provider")["provider_params"]["value"] == (
+        "${context.greeting}"
+    )
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-provider-leaf-cache")
@@ -1287,7 +1331,7 @@ def test_executor_uses_typed_provider_leaf_when_cached_top_level_step_payload_dr
     assert persisted["steps"]["AskProvider"]["output"] == "ok"
 
 
-def test_step_for_node_id_returns_fresh_top_level_compatibility_materialization(tmp_path: Path):
+def test_runtime_step_returns_fresh_top_level_payload_views(tmp_path: Path):
     workflow = {
         "version": "2.10",
         "name": "projection-executor-fresh-top-level-materialization",
@@ -1324,12 +1368,12 @@ def test_step_for_node_id_returns_fresh_top_level_compatibility_materialization(
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
 
-    first_step = executor._step_for_node_id("root.ask_provider")
-    second_step = executor._step_for_node_id("root.ask_provider")
-    first_step["provider_params"]["value"] = "legacy"
+    first_params = executor._runtime_step_for_node_id("root.ask_provider")["provider_params"]
+    second_params = executor._runtime_step_for_node_id("root.ask_provider")["provider_params"]
+    first_params["value"] = "legacy"
 
-    assert first_step is not second_step
-    assert second_step["provider_params"]["value"] == "${context.greeting}"
+    assert first_params is not second_params
+    assert second_params["value"] == "${context.greeting}"
 
 
 def test_executor_uses_typed_scalar_leaf_when_cached_top_level_step_payload_drifts(tmp_path: Path):
@@ -1361,8 +1405,10 @@ def test_executor_uses_typed_scalar_leaf_when_cached_top_level_step_payload_drif
     )
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    cached_step = executor._step_for_node_id("root.set_ready")
-    cached_step["set_scalar"]["value"] = False
+    cached_scalar = executor._runtime_step_for_node_id("root.set_ready")["set_scalar"]
+    cached_scalar["value"] = False
+
+    assert executor._runtime_step_for_node_id("root.set_ready")["set_scalar"]["value"] is True
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-scalar-leaf-cache")
@@ -1372,7 +1418,7 @@ def test_executor_uses_typed_scalar_leaf_when_cached_top_level_step_payload_drif
     assert persisted["steps"]["SetReady"]["artifacts"] == {"ready": True}
 
 
-def test_step_for_node_id_returns_fresh_nested_loop_compatibility_materialization(tmp_path: Path):
+def test_runtime_step_returns_fresh_nested_loop_payload_views(tmp_path: Path):
     workflow = {
         "version": "2.7",
         "name": "projection-executor-fresh-loop-materialization",
@@ -1408,16 +1454,12 @@ def test_step_for_node_id_returns_fresh_nested_loop_compatibility_materializatio
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
 
-    first_step = executor._step_for_node_id(nested_node_id)
-    second_step = executor._step_for_node_id(nested_node_id)
-    first_step["command"] = [
-        "bash",
-        "-lc",
-        "mkdir -p state && printf 'legacy\\n' >> state/items.txt",
-    ]
+    first_command = executor._runtime_step_for_node_id(nested_node_id)["command"]
+    second_command = executor._runtime_step_for_node_id(nested_node_id)["command"]
+    first_command[2] = "mkdir -p state && printf 'legacy\\n' >> state/items.txt"
 
-    assert first_step is not second_step
-    assert second_step["command"] == [
+    assert first_command is not second_command
+    assert second_command == [
         "bash",
         "-lc",
         "mkdir -p state && printf '%s\\n' '${item}' >> state/items.txt",
@@ -1448,11 +1490,12 @@ def test_executor_uses_typed_command_leaf_when_ir_raw_payload_drifts(tmp_path: P
     )
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.write_typed")["command"] = [
-        "bash",
-        "-lc",
-        "mkdir -p state && printf 'legacy\\n' > state/result.txt",
-    ]
+    cached_command = executor._runtime_step_for_node_id("root.write_typed")["command"]
+    cached_command[2] = "mkdir -p state && printf 'legacy\\n' > state/result.txt"
+
+    assert executor._runtime_step_for_node_id("root.write_typed")["command"][2].endswith(
+        "printf 'typed\\n' > state/result.txt"
+    )
 
     state = executor.execute()
 
@@ -1495,12 +1538,12 @@ def test_executor_uses_typed_nested_leaf_when_cached_loop_body_step_payload_drif
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
     nested_node_id = loop_node.body_node_ids[0]
-    cached_step = executor._step_for_node_id(nested_node_id)
-    cached_step["command"] = [
-        "bash",
-        "-lc",
-        "mkdir -p state && printf 'legacy\\n' >> state/items.txt",
-    ]
+    cached_command = executor._runtime_step_for_node_id(nested_node_id)["command"]
+    cached_command[2] = "mkdir -p state && printf 'legacy\\n' >> state/items.txt"
+
+    assert executor._runtime_step_for_node_id(nested_node_id)["command"][2].endswith(
+        "printf '%s\\n' '${item}' >> state/items.txt"
+    )
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-loop-leaf-cache")
@@ -1548,7 +1591,13 @@ def test_executor_uses_typed_for_each_items_when_ir_raw_payload_drifts(tmp_path:
     )
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.process_items")["for_each"]["items"] = ["legacy"]
+    cached_for_each = executor._runtime_step_for_node_id("root.process_items")["for_each"]
+    cached_for_each["items"] = ["legacy"]
+
+    assert executor._runtime_step_for_node_id("root.process_items")["for_each"]["items"] == [
+        "alpha",
+        "beta",
+    ]
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-executor-loop-items-raw-drift")
@@ -1603,7 +1652,10 @@ def test_executor_uses_typed_call_alias_when_ir_raw_payload_drifts(tmp_path: Pat
     state_manager = StateManager(workspace=tmp_path, run_id="typed-call-alias-raw-drift")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.run_child")["call"] = "missing_child"
+    legacy_step = _runtime_step_dict(executor, "root.run_child")
+    legacy_step["call"] = "missing_child"
+
+    assert executor._typed_execution_step(legacy_step)["call"] == "child"
 
     state = executor.execute()
 
@@ -1709,11 +1761,17 @@ def test_executor_uses_projection_names_for_finalization_bookkeeping_when_legacy
     state_manager = StateManager(workspace=tmp_path, run_id="projection-finalization-names")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.finally.cleanup.write_cleanup_marker")["name"] = "LegacyCleanup"
+    cleanup_node_id = bundle.ir.finalization_region[0]
+    legacy_cleanup_step = materialize_projection_step(bundle, cleanup_node_id)
+    legacy_cleanup_step["name"] = "LegacyCleanup"
+
+    assert executor._step_identity(
+        legacy_cleanup_step,
+        step_index=executor.finalization_start_index,
+    ).name == bundle.projection.presentation_key_by_node_id[cleanup_node_id]
 
     state = executor.execute()
     persisted = _persisted_state(tmp_path, "projection-finalization-names")
-    cleanup_node_id = bundle.ir.finalization_region[0]
     cleanup_name = bundle.projection.presentation_key_by_node_id[cleanup_node_id]
 
     assert state["status"] == "completed"
@@ -2062,7 +2120,12 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_top_level_dis
     state_manager = StateManager(workspace=tmp_path, run_id="typed-top-level-dispatch")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.run_command")["structured_if_join"] = {"branches": {}}
+    legacy_step = _runtime_step_dict(executor, "root.run_command")
+    legacy_step["structured_if_join"] = {"branches": {}}
+
+    typed_step = executor._typed_execution_step(legacy_step)
+
+    assert typed_step.execution_kind is ExecutableNodeKind.COMMAND
 
     state = executor.execute()
 
@@ -2104,7 +2167,12 @@ def test_executor_ignores_conflicting_legacy_helper_keys_for_typed_nested_dispat
     loop_node = bundle.ir.nodes["root.process_items"]
     child_node_id = loop_node.body_node_ids[0]
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id(child_node_id)["structured_match_join"] = {"cases": {}}
+    legacy_step = _runtime_step_dict(executor, child_node_id)
+    legacy_step["structured_match_join"] = {"cases": {}}
+
+    typed_step = executor._typed_execution_step(legacy_step)
+
+    assert typed_step.execution_kind is ExecutableNodeKind.COMMAND
 
     state = executor.execute()
 

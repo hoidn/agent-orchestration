@@ -1236,10 +1236,13 @@ def test_call_uses_bound_inputs_when_legacy_ref_is_corrupted(tmp_path: Path):
     state_manager = StateManager(tmp_path, run_id="bound-call-inputs")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    executor._step_for_node_id("root.run_review_loop")["with"] = {
+    step = dict(executor._runtime_step_for_node_id("root.run_review_loop"))
+    step["with"] = {
         "max_cycles": {"ref": "root.steps.Missing.artifacts.max_cycles"},
         "write_root": "state/review-loop",
     }
+
+    assert executor._call_input_bindings(step)["max_cycles"] != step["with"]["max_cycles"]
     state = executor.execute(on_error="continue")
 
     assert state["status"] == "completed"

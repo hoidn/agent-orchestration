@@ -15,7 +15,6 @@ class FinalizationController:
         self,
         *,
         finalization: Optional[Dict[str, Any]],
-        finalization_steps: List[Dict[str, Any]],
         finalization_start_index: int,
         finalization_step_count: Optional[int] = None,
         finalization_node_ids: Optional[List[str]] = None,
@@ -26,7 +25,6 @@ class FinalizationController:
         finalization_failure_error: Callable[[Dict[str, Any], str], Dict[str, Any]],
     ) -> None:
         self.finalization = finalization
-        self.finalization_steps = finalization_steps
         self.finalization_start_index = finalization_start_index
         self.finalization_node_ids = tuple(
             node_id for node_id in (finalization_node_ids or []) if isinstance(node_id, str)
@@ -34,7 +32,7 @@ class FinalizationController:
         self.finalization_step_count = (
             finalization_step_count
             if isinstance(finalization_step_count, int)
-            else len(self.finalization_node_ids) or len(self.finalization_steps)
+            else len(self.finalization_node_ids)
         )
         self.finalization_node_id_set = set(self.finalization_node_ids)
         self.finalization_entry_node_id = finalization_entry_node_id
@@ -54,13 +52,13 @@ class FinalizationController:
 
     def _configured_step_names(self) -> List[str]:
         """Return projected finalization presentation keys when available."""
-        if self.projection is not None and self.finalization_node_ids:
-            names = [
-                self.projection.presentation_key_by_node_id.get(node_id)
-                for node_id in self.finalization_node_ids
-            ]
-            return [name for name in names if isinstance(name, str)]
-        return [step.get("name") for step in self.finalization_steps if isinstance(step, dict)]
+        if self.projection is None or not self.finalization_node_ids:
+            return []
+        names = [
+            self.projection.presentation_key_by_node_id.get(node_id)
+            for node_id in self.finalization_node_ids
+        ]
+        return [name for name in names if isinstance(name, str)]
 
     def _finalization_index_for(
         self,

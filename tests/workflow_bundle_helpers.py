@@ -11,9 +11,18 @@ from orchestrator.workflow.conditions import (
     NotExistsConditionNode,
 )
 from orchestrator.workflow.executable_ir import (
+    AssertStepConfig,
+    CallStepConfig,
+    CommandStepConfig,
     ForEachNode,
+    ForEachStepConfig,
+    IncrementScalarStepConfig,
+    ProviderStepConfig,
     RepeatUntilFrameNode,
-    materialize_execution_config,
+    RepeatUntilStepConfig,
+    SetScalarStepConfig,
+    StepCommonConfig,
+    WaitForStepConfig,
 )
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_context
 from orchestrator.workflow.predicates import (
@@ -54,6 +63,137 @@ def _thaw(value: Any) -> Any:
     if is_dataclass(value):
         return {str(key): _thaw(item) for key, item in vars(value).items()}
     return value
+
+
+def _set_runtime_field(
+    step: dict[str, Any],
+    field_name: str,
+    value: Any,
+    *,
+    include_empty: bool = False,
+) -> None:
+    if value is None:
+        return
+    if not include_empty and isinstance(value, dict) and not value:
+        return
+    if not include_empty and isinstance(value, (list, tuple)) and not value:
+        return
+    step[field_name] = _thaw(value)
+
+
+def _render_common_config(step: dict[str, Any], common: StepCommonConfig) -> None:
+    _set_runtime_field(step, "on", common.on)
+    _set_runtime_field(step, "consumes", common.consumes)
+    _set_runtime_field(step, "consume_bundle", common.consume_bundle)
+    _set_runtime_field(step, "publishes", common.publishes)
+    _set_runtime_field(step, "expected_outputs", common.expected_outputs)
+    _set_runtime_field(step, "output_bundle", common.output_bundle)
+    if common.persist_artifacts_in_state is not None:
+        step["persist_artifacts_in_state"] = common.persist_artifacts_in_state
+    _set_runtime_field(step, "provider_session", common.provider_session)
+    if common.max_visits is not None:
+        step["max_visits"] = common.max_visits
+    _set_runtime_field(step, "retries", common.retries)
+    _set_runtime_field(step, "env", common.env)
+    _set_runtime_field(step, "secrets", common.secrets)
+    _set_runtime_field(step, "timeout_sec", common.timeout_sec)
+    _set_runtime_field(step, "output_capture", common.output_capture)
+    _set_runtime_field(step, "output_file", common.output_file)
+    if common.allow_parse_error is not None:
+        step["allow_parse_error"] = common.allow_parse_error
+
+
+def materialize_execution_config_for_test(
+    config: Any,
+    *,
+    step_name: str,
+    step_id: str,
+    nested_steps: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
+    step: dict[str, Any] = {
+        "name": step_name,
+        "step_id": step_id,
+    }
+
+    if isinstance(
+        config,
+            (
+                CommandStepConfig,
+                ProviderStepConfig,
+                WaitForStepConfig,
+                AssertStepConfig,
+                CallStepConfig,
+                SetScalarStepConfig,
+                IncrementScalarStepConfig,
+                ForEachStepConfig,
+                RepeatUntilStepConfig,
+            ),
+    ):
+        _render_common_config(step, config.common)
+
+    if isinstance(config, CommandStepConfig):
+        _set_runtime_field(step, "command", config.command, include_empty=True)
+        return step
+
+    if isinstance(config, ProviderStepConfig):
+        step["provider"] = config.provider
+        _set_runtime_field(step, "provider_params", config.provider_params)
+        _set_runtime_field(step, "input_file", config.input_file)
+        _set_runtime_field(step, "asset_file", config.asset_file)
+        _set_runtime_field(step, "depends_on", config.depends_on)
+        _set_runtime_field(step, "asset_depends_on", config.asset_depends_on)
+        if config.inject_output_contract is not None:
+            step["inject_output_contract"] = config.inject_output_contract
+        if config.inject_consumes is not None:
+            step["inject_consumes"] = config.inject_consumes
+        _set_runtime_field(step, "prompt_consumes", config.prompt_consumes)
+        if config.consumes_injection_position is not None:
+            step["consumes_injection_position"] = config.consumes_injection_position
+        return step
+
+    if isinstance(config, WaitForStepConfig):
+        _set_runtime_field(step, "wait_for", config.wait_for, include_empty=True)
+        return step
+
+    if isinstance(config, AssertStepConfig):
+        return step
+
+    if isinstance(config, SetScalarStepConfig):
+        _set_runtime_field(step, "set_scalar", config.set_scalar, include_empty=True)
+        return step
+
+    if isinstance(config, IncrementScalarStepConfig):
+        _set_runtime_field(step, "increment_scalar", config.increment_scalar, include_empty=True)
+        return step
+
+    if isinstance(config, CallStepConfig):
+        step["call"] = config.call
+        return step
+
+    if isinstance(config, ForEachStepConfig):
+        for_each: dict[str, Any] = {}
+        if config.items_from is not None:
+            for_each["items_from"] = config.items_from
+        else:
+            for_each["items"] = _thaw(config.items)
+        if config.item_name != "item":
+            for_each["as"] = config.item_name
+        if nested_steps is not None:
+            for_each["steps"] = nested_steps
+        step["for_each"] = for_each
+        return step
+
+    if isinstance(config, RepeatUntilStepConfig):
+        repeat_until: dict[str, Any] = {
+            "id": config.body_id,
+            "max_iterations": config.max_iterations,
+        }
+        if nested_steps is not None:
+            repeat_until["steps"] = nested_steps
+        step["repeat_until"] = repeat_until
+        return step
+
+    raise TypeError(f"Unsupported executable config for tests: {type(config).__name__}")
 
 
 def _surface_ref_text(ref: Any) -> str:
@@ -328,7 +468,7 @@ def _materialize_loop_steps(
     for node_id in node_ids:
         child_node = bundle.ir.nodes[node_id]
         if child_node.execution_config is not None:
-            child_step = materialize_execution_config(
+            child_step = materialize_execution_config_for_test(
                 child_node.execution_config,
                 step_name=child_node.presentation_name,
                 step_id=child_node.step_id,
@@ -353,7 +493,7 @@ def materialize_projection_step(
 ) -> dict[str, Any]:
     node = bundle.ir.nodes[node_id]
     if node.execution_config is not None:
-        step = materialize_execution_config(
+        step = materialize_execution_config_for_test(
             node.execution_config,
             step_name=node.presentation_name,
             step_id=node.step_id,

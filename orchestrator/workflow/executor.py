@@ -45,13 +45,11 @@ from .executable_ir import (
     ExecutableNodeKind,
     FinalizationStepNode,
     ExecutableContract,
-    ForEachNode,
     IfBranchMarkerNode,
     IfJoinNode,
     LoopOutputAddress,
     MatchCaseMarkerNode,
     MatchJoinNode,
-    materialize_execution_config,
     NodeResultAddress,
     RepeatUntilFrameNode,
     WorkflowInputAddress,
@@ -437,15 +435,11 @@ class WorkflowExecutor:
             if self.loaded_bundle.surface.finalization is not None
             else None
         )
-        self._use_ir_topology = True
         self._step_node_ids: List[Optional[str]] = []
-        self.body_steps = []
-        self.finalization_steps = []
         self._step_node_ids = list(self.executable_ir.body_region) + list(
             self.executable_ir.finalization_region
         )
         self.finalization_start_index = len(self.executable_ir.body_region)
-        self.steps = []
         self._execution_index_by_node_id = {
             node_id: index
             for index, node_id in enumerate(self._step_node_ids)
@@ -457,7 +451,6 @@ class WorkflowExecutor:
         self.resume_planner = ResumePlanner()
         self.finalization_controller = FinalizationController(
             finalization=self.finalization,
-            finalization_steps=self.finalization_steps,
             finalization_start_index=self.finalization_start_index,
             finalization_step_count=(
                 len(self.executable_ir.finalization_region)
@@ -523,150 +516,6 @@ class WorkflowExecutor:
             visit_count=visit_count,
         )
 
-    def _ordered_top_level_steps(self) -> tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Optional[str]]]:
-        """Return top-level body/finalization adapter steps ordered by projection when available."""
-        ordered_body_steps = self._ordered_projection_steps(
-            self.executable_ir.body_region,
-            region_name="body",
-        )
-        ordered_finalization_steps = self._ordered_projection_steps(
-            self.executable_ir.finalization_region,
-            region_name="finalization",
-        )
-        ordered_node_ids = list(self.executable_ir.body_region) + list(self.executable_ir.finalization_region)
-        return ordered_body_steps, ordered_finalization_steps, ordered_node_ids
-
-    def _ordered_projection_steps(
-        self,
-        node_ids: tuple[str, ...],
-        *,
-        region_name: str,
-    ) -> List[Dict[str, Any]]:
-        """Materialize top-level runtime steps from executable IR payloads."""
-        ordered_steps: List[Dict[str, Any]] = []
-        for node_id in node_ids:
-            if self.executable_ir is None:
-                raise ValueError("Typed top-level ordering requires executable IR")
-            node = self.executable_ir.nodes.get(node_id)
-            if node is None:
-                raise ValueError(f"Executable IR is missing {region_name} node '{node_id}'")
-            materialized_step = self._materialize_projection_step(
-                node,
-                region_name=region_name,
-            )
-            self._apply_materialized_step_identity(materialized_step, node)
-            ordered_steps.append(materialized_step)
-        return ordered_steps
-
-    def _apply_materialized_step_identity(
-        self,
-        materialized_step: Dict[str, Any],
-        node: ExecutableNode,
-    ) -> Dict[str, Any]:
-        """Ensure one materialized IR payload carries its stable runtime identity."""
-        materialized_step["step_id"] = node.step_id
-        materialized_step["name"] = (
-            self.projection.presentation_key_by_node_id.get(node.node_id, node.presentation_name)
-            if self.projection is not None
-            else node.presentation_name
-        )
-        return materialized_step
-
-    def _compatibility_step_for_node(
-        self,
-        node: ExecutableNode,
-        *,
-        region_name: str,
-        presentation_name: Optional[str] = None,
-        step_id: Optional[str] = None,
-    ) -> Dict[str, Any]:
-        """Render one executable node into the mutable compatibility step shape."""
-        resolved_name = presentation_name if isinstance(presentation_name, str) else node.presentation_name
-        resolved_step_id = step_id if isinstance(step_id, str) else node.step_id
-        nested_steps: Optional[List[Dict[str, Any]]] = None
-
-        if isinstance(node, ForEachNode):
-            nested_steps = self._materialize_loop_body_steps(
-                node.body_node_ids,
-                region_name=region_name,
-                loop_node_id=node.node_id,
-                loop_kind="for_each",
-            )
-        elif isinstance(node, RepeatUntilFrameNode):
-            nested_steps = self._materialize_loop_body_steps(
-                node.body_node_ids,
-                region_name=region_name,
-                loop_node_id=node.node_id,
-                loop_kind="repeat_until",
-            )
-
-        if node.execution_config is not None:
-            return materialize_execution_config(
-                node.execution_config,
-                step_name=resolved_name,
-                step_id=resolved_step_id,
-                nested_steps=nested_steps,
-            )
-
-        return {
-            "name": resolved_name,
-            "step_id": resolved_step_id,
-        }
-
-    def _materialize_projection_step(
-        self,
-        node: ExecutableNode,
-        *,
-        region_name: str,
-    ) -> Dict[str, Any]:
-        """Convert one executable node into the runtime step payload used by the executor."""
-        return self._compatibility_step_for_node(
-            node,
-            region_name=region_name,
-        )
-
-    def _materialize_loop_body_steps(
-        self,
-        node_ids: tuple[str, ...],
-        *,
-        region_name: str,
-        loop_node_id: str,
-        loop_kind: str,
-    ) -> List[Dict[str, Any]]:
-        """Rebuild one lowered loop body from executable child nodes."""
-        if self.executable_ir is None:
-            raise ValueError("Typed loop body materialization requires executable IR")
-
-        nested_names: Optional[Mapping[str, str]] = None
-        if self.projection is not None:
-            if loop_kind == "for_each":
-                projection = self.projection.for_each_nodes.get(loop_node_id)
-            else:
-                projection = self.projection.repeat_until_nodes.get(loop_node_id)
-            if projection is not None:
-                nested_names = projection.nested_presentation_keys
-
-        materialized_steps: List[Dict[str, Any]] = []
-        for node_id in node_ids:
-            child_node = self.executable_ir.nodes.get(node_id)
-            if child_node is None:
-                raise ValueError(
-                    f"Typed {loop_kind} node '{loop_node_id}' is missing {region_name} child node '{node_id}'"
-                )
-            child_name = (
-                nested_names.get(node_id, child_node.presentation_name)
-                if nested_names is not None
-                else child_node.presentation_name
-            )
-            child_step = self._compatibility_step_for_node(
-                child_node,
-                region_name=region_name,
-                presentation_name=child_name,
-                step_id=child_node.step_id,
-            )
-            materialized_steps.append(child_step)
-        return materialized_steps
-
     def _runtime_step_for_node(
         self,
         node: ExecutableNode,
@@ -706,23 +555,10 @@ class WorkflowExecutor:
 
     def _first_execution_node_id(self) -> Optional[str]:
         """Return the first top-level executable node id when bundle-backed IR is available."""
-        if not self._use_ir_topology or self.projection is None:
+        if self.projection is None:
             return None
         ordered_node_ids = self.projection.ordered_execution_node_ids()
         return ordered_node_ids[0] if ordered_node_ids else None
-
-    def _step_for_node_id(self, node_id: str) -> Dict[str, Any]:
-        """Return a fresh compatibility materialization for one executable node id."""
-        if self.executable_ir is None:
-            raise ValueError("Typed workflow is missing executable IR")
-        node = self.executable_ir.nodes.get(node_id)
-        if node is None:
-            raise ValueError(f"Typed workflow is missing executable node '{node_id}'")
-        step = self._materialize_projection_step(
-            node,
-            region_name=node.region.value,
-        )
-        return self._apply_materialized_step_identity(step, node)
 
     def _execution_index_for_node_id(self, node_id: str) -> int:
         """Return the combined execution index for one top-level executable node id."""
@@ -940,9 +776,7 @@ class WorkflowExecutor:
         return node.kind
 
     def _typed_execution_step(self, step: Dict[str, Any]) -> Dict[str, Any]:
-        """Return an IR-backed runtime step view when executable topology is active."""
-        if not self._use_ir_topology:
-            return step
+        """Return an IR-backed runtime step view for one executable step mapping."""
         if isinstance(step, RuntimeStep):
             return step
         node = self._executable_node_for_step(step)
@@ -1701,12 +1535,7 @@ class WorkflowExecutor:
         try:
             # Execute steps with control flow support
             try:
-                if self._use_ir_topology:
-                    resume_restart_node_id = self._determine_resume_restart_node_id(state) if resume else None
-                    resume_restart_index = None
-                else:
-                    resume_restart_index = self._determine_resume_restart_index(state) if resume else None
-                    resume_restart_node_id = None
+                resume_restart_node_id = self._determine_resume_restart_node_id(state) if resume else None
             except ResumeStateIntegrityError as exc:
                 return self._fail_resume_state_integrity(
                     "resume_state_integrity_error",
@@ -1715,19 +1544,13 @@ class WorkflowExecutor:
                 )
             step_index = 0
             current_node_id = resume_restart_node_id
-            if self._use_ir_topology and current_node_id is None:
+            if current_node_id is None:
                 current_node_id = self._first_execution_node_id()
             while True:
-                if self._use_ir_topology:
-                    if current_node_id is None:
-                        break
-                    step_index = self._execution_index_for_node_id(current_node_id)
-                    step = self._runtime_step_for_node_id(current_node_id)
-                else:
-                    if step_index >= len(self.steps):
-                        break
-                    step = self.steps[step_index]
-                    current_node_id = self._node_id_for_execution_index(step_index)
+                if current_node_id is None:
+                    break
+                step_index = self._execution_index_for_node_id(current_node_id)
+                step = self._runtime_step_for_node_id(current_node_id)
                 self.current_step = step_index
 
                 # Check if step should be executed
@@ -1735,19 +1558,9 @@ class WorkflowExecutor:
                 step_name = identity.name
                 step_id = identity.step_id
                 step = self._typed_execution_step(step)
-                resume_current_step = False
-                if self._use_ir_topology:
-                    if resume_restart_node_id is not None and current_node_id == resume_restart_node_id:
-                        resume_current_step = True
-                        resume_restart_node_id = None
-                elif resume_restart_index is not None:
-                    if step_index < resume_restart_index:
-                        logger.info(f"Skipping step before resume restart point: {step_name}")
-                        step_index += 1
-                        continue
-                    if step_index == resume_restart_index:
-                        resume_current_step = True
-                        resume_restart_index = None
+                resume_current_step = resume_restart_node_id is not None and current_node_id == resume_restart_node_id
+                if resume_current_step:
+                    resume_restart_node_id = None
 
                 is_finalization_step = self._is_finalization_step(
                     step_index,
@@ -1803,11 +1616,7 @@ class WorkflowExecutor:
                     )
                     if should_break:
                         break
-                    if self._use_ir_topology:
-                        current_node_id = next_node_id
-                    else:
-                        assert next_step_index is not None
-                        step_index = next_step_index
+                    current_node_id = next_node_id
                     continue
 
                 # Check structured branch guards before the step's own when clause.
@@ -1869,11 +1678,7 @@ class WorkflowExecutor:
                         )
                         if should_break:
                             break
-                        if self._use_ir_topology:
-                            current_node_id = next_node_id
-                        else:
-                            assert next_step_index is not None
-                            step_index = next_step_index
+                        current_node_id = next_node_id
                         continue
 
                     if not should_execute:
@@ -1910,11 +1715,7 @@ class WorkflowExecutor:
                         )
                         if should_break:
                             break
-                        if self._use_ir_topology:
-                            current_node_id = next_node_id
-                        else:
-                            assert next_step_index is not None
-                            step_index = next_step_index
+                        current_node_id = next_node_id
                         continue
 
                 # Check conditional execution (AT-37, AT-46, AT-47)
@@ -1978,11 +1779,7 @@ class WorkflowExecutor:
                         )
                         if should_break:
                             break
-                        if self._use_ir_topology:
-                            current_node_id = next_node_id
-                        else:
-                            assert next_step_index is not None
-                            step_index = next_step_index
+                        current_node_id = next_node_id
                         continue
 
                     if not should_execute:
@@ -2019,11 +1816,7 @@ class WorkflowExecutor:
                         )
                         if should_break:
                             break
-                        if self._use_ir_topology:
-                            current_node_id = next_node_id
-                        else:
-                            assert next_step_index is not None
-                            step_index = next_step_index
+                        current_node_id = next_node_id
                         continue
 
                 # AT-69: Create backup before step execution if debug enabled
@@ -2074,11 +1867,7 @@ class WorkflowExecutor:
                     )
                     if should_break:
                         break
-                    if self._use_ir_topology:
-                        current_node_id = next_node_id
-                    else:
-                        assert next_step_index is not None
-                        step_index = next_step_index
+                    current_node_id = next_node_id
                     continue
 
                 if consume_error is not None:
@@ -2118,11 +1907,7 @@ class WorkflowExecutor:
                     )
                     if should_break:
                         break
-                    if self._use_ir_topology:
-                        current_node_id = next_node_id
-                    else:
-                        assert next_step_index is not None
-                        step_index = next_step_index
+                    current_node_id = next_node_id
                     continue
 
                 if isinstance(visit_count, int):
@@ -2183,11 +1968,7 @@ class WorkflowExecutor:
                 )
                 if should_break:
                     break
-                if self._use_ir_topology:
-                    current_node_id = next_node_id
-                else:
-                    assert next_step_index is not None
-                    step_index = next_step_index
+                current_node_id = next_node_id
         except Exception:
             terminal_status = 'failed'
             self.state_manager.update_status(terminal_status)
@@ -2528,45 +2309,31 @@ class WorkflowExecutor:
         if finalization_decision.should_break:
             return None, None, terminal_status, True
 
-        if self._use_ir_topology and isinstance(current_node_id, str):
-            implicit_target = next_step is None
-            implicit_transfer = (
-                self._implicit_typed_transfer(current_node_id, state)
-                if implicit_target
-                else None
-            )
-            if isinstance(next_step, str) and next_step not in {"_end", "_stop"}:
-                next_node_id = next_step
-            elif isinstance(next_step, int):
-                next_node_id = self._node_id_for_execution_index(next_step)
-            elif implicit_transfer is not None and isinstance(implicit_transfer.target_node_id, str):
-                next_node_id = implicit_transfer.target_node_id
-            else:
-                next_node_id = self._fallthrough_node_id(current_node_id)
-            if self._counts_as_transition_for_typed_target(
-                current_node_id,
-                next_node_id,
-                implicit=implicit_target,
-                state=state,
-            ):
-                self._increment_transition_count(state)
-            return None, next_node_id, terminal_status, False
+        if not isinstance(current_node_id, str):
+            return None, None, terminal_status, True
 
-        target_index = self._resolve_next_step_index(current_index, next_step)
-        if target_index is None:
-            return current_index + 1, None, terminal_status, False
-        self._increment_transition_count(state)
-        return target_index, None, terminal_status, False
-
-    def _resolve_next_step_index(self, current_index: int, next_step: Any) -> Optional[int]:
-        """Resolve the concrete next step index for transition accounting."""
-        if isinstance(next_step, int):
-            return next_step
-
-        implicit_index = current_index + 1
-        if implicit_index < len(self.steps):
-            return implicit_index
-        return None
+        implicit_target = next_step is None
+        implicit_transfer = (
+            self._implicit_typed_transfer(current_node_id, state)
+            if implicit_target
+            else None
+        )
+        if isinstance(next_step, str) and next_step not in {"_end", "_stop"}:
+            next_node_id = next_step
+        elif isinstance(next_step, int):
+            next_node_id = self._node_id_for_execution_index(next_step)
+        elif implicit_transfer is not None and isinstance(implicit_transfer.target_node_id, str):
+            next_node_id = implicit_transfer.target_node_id
+        else:
+            next_node_id = self._fallthrough_node_id(current_node_id)
+        if self._counts_as_transition_for_typed_target(
+            current_node_id,
+            next_node_id,
+            implicit=implicit_target,
+            state=state,
+        ):
+            self._increment_transition_count(state)
+        return None, next_node_id, terminal_status, False
 
     def _collect_persisted_iteration_state(
         self,
@@ -2830,7 +2597,7 @@ class WorkflowExecutor:
             )
             return '_stop'
 
-        if self._use_ir_topology and isinstance(current_node_id, str):
+        if isinstance(current_node_id, str):
             goto_transfer = self._typed_on_goto_transfer(
                 current_node_id,
                 exit_code=exit_code,

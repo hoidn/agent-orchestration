@@ -18,9 +18,10 @@ from orchestrator.workflow.executable_ir import (
     RepeatUntilFrameNode,
     RepeatUntilStepConfig,
     SetScalarStepConfig,
-    materialize_execution_config,
 )
 from orchestrator.workflow import lowering
+from orchestrator.workflow import executable_ir
+from tests.workflow_bundle_helpers import materialize_execution_config_for_test
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -277,6 +278,10 @@ def _write_ir_workflow(workspace: Path) -> Path:
     )
 
 
+def test_executable_ir_does_not_export_legacy_runtime_materializer():
+    assert not hasattr(executable_ir, "materialize_execution_config")
+
+
 def _write_for_each_call_ir_workflow(workspace: Path) -> Path:
     _write_review_loop_library(workspace)
     return _write_yaml(
@@ -518,7 +523,7 @@ def test_ir_lowering_preserves_scalar_commands_and_provider_dependency_mappings(
 
     assert isinstance(run_shell.execution_config, CommandStepConfig)
     assert run_shell.execution_config.command == 'echo "hello ${context.name}"'
-    materialized_command = materialize_execution_config(
+    materialized_command = materialize_execution_config_for_test(
         run_shell.execution_config,
         step_name="RunShell",
         step_id=run_shell_step.step_id,
@@ -528,7 +533,7 @@ def test_ir_lowering_preserves_scalar_commands_and_provider_dependency_mappings(
     assert isinstance(render_prompt.execution_config, ProviderStepConfig)
     assert render_prompt.execution_config.depends_on["required"] == ("data.txt",)
     assert render_prompt.execution_config.depends_on["inject"] is True
-    materialized_provider = materialize_execution_config(
+    materialized_provider = materialize_execution_config_for_test(
         render_prompt.execution_config,
         step_name="RenderPrompt",
         step_id=render_prompt_step.step_id,

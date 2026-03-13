@@ -220,12 +220,14 @@ def test_executor_uses_bound_when_predicates_when_legacy_ref_is_corrupted(tmp_pa
     state_manager = StateManager(workspace=tmp_path, run_id="bound-when-predicate")
     state_manager.initialize("workflow.yaml")
     executor = WorkflowExecutor(bundle, tmp_path, state_manager)
-    step = executor._step_for_node_id("root.only_when_ready")
+    step = dict(executor._runtime_step_for_node_id("root.only_when_ready"))
     step["when"] = {
         "artifact_bool": {
             "ref": "root.steps.Missing.artifacts.ready",
         }
     }
+
+    assert executor._when_condition(step) != step["when"]
 
     state = executor.execute(on_error="continue")
 
