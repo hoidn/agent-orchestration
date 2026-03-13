@@ -60,6 +60,7 @@ python -m orchestrator run workflows/examples/<workflow>.yaml --dry-run
 | `workflows/examples/test_fix_loop_v0.yaml` | `1.1.1` | `test-fix-loop-v0` | Minimal test/fix loop with a shell gate and bounded retry count. |
 | `workflows/examples/test_validation.yml` | `1.1` | `validation test` | Loader-validation fixture showing valid and intentionally commented invalid forms. |
 | `workflows/examples/typed_predicate_routing.yaml` | `1.6` | `typed-predicate-routing` | Demonstrates structured `ref:` predicates against step artifacts and normalized recovered-failure outcomes. |
+| `workflows/examples/typed_workflow_ast_ir_pipeline_finish_item0.yaml` | `2.7` | `typed-workflow-ast-ir-pipeline-finish-item0` | One-off workflow for backlog item `typed-workflow-ast-ir-pipeline`: reuse the approved design and plan, then run only the implementation review/fix phase with isolated state and report outputs. |
 | `workflows/examples/unit_of_work_plus_test_fix_v0.yaml` | `1.1.1` | `unit-of-work-plus-test-fix-v0` | Unit-of-work execution followed by a bounded post-work test/fix loop. |
 | `workflows/examples/workflow_signature_demo.yaml` | `2.1` | `workflow-signature-demo` | Demonstrates typed workflow `inputs`/`outputs`, `${inputs.*}` substitution, `ref: inputs.*` gating, and validated workflow output export. |
 | `workflows/examples/wait_for_example.yaml` | `1.1` | `wait-for-example` | Minimal `wait_for` example for task-file arrival polling. |

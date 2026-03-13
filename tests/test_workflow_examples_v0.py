@@ -37,6 +37,7 @@ EXAMPLE_FILES = [
     "structured_if_else_demo.yaml",
     "test_fix_loop_v0.yaml",
     "typed_predicate_routing.yaml",
+    "typed_workflow_ast_ir_pipeline_finish_item0.yaml",
     "unit_of_work_plus_test_fix_v0.yaml",
     "workflow_signature_demo.yaml",
 ]
@@ -1419,6 +1420,101 @@ def test_backlog_priority_design_plan_impl_stack_v2_call_runtime(tmp_path: Path)
         state["steps"]["ProcessBacklogItems"][1]["RunItemWorkflow"]["artifacts"]["execution_report_path"]
         == "artifacts/work/depends-on-inject-imported-v2-workflows-execution-report.md"
     )
+
+
+def test_typed_workflow_ast_ir_pipeline_finish_item0_runtime(tmp_path: Path):
+    """One-off item-0 workflow reuses the implementation phase against the approved design and plan."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "typed_workflow_ast_ir_pipeline_finish_item0.yaml"
+    )
+    for repo_file in [
+        "workflows/library/design_plan_impl_implementation_phase.yaml",
+        "workflows/library/prompts/design_plan_impl_stack_v2_call/implement_plan.md",
+        "workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md",
+        "workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md",
+        "docs/plans/typed-workflow-ast-ir-pipeline-design.md",
+        "docs/plans/typed-workflow-ast-ir-pipeline-execution-plan.md",
+    ]:
+        _copy_repo_file_to_workspace(workspace, repo_file)
+
+    provider_index = {"value": 0}
+
+    def _write_execution_report(ws: Path) -> None:
+        _write_relpath_artifact(
+            ws,
+            "state/backlog-priority-stack/typed-workflow-ast-ir-pipeline/implementation-phase/execution_report_path.txt",
+            "artifacts/work/typed-workflow-ast-ir-pipeline-execution-report.md",
+            "# Item 0 implementation report\n",
+        )
+
+    def _write_implementation_review(ws: Path) -> None:
+        report_relpath = (
+            ws
+            / "state"
+            / "backlog-priority-stack"
+            / "typed-workflow-ast-ir-pipeline"
+            / "implementation-phase"
+            / "implementation_review_report_path.txt"
+        ).read_text(encoding="utf-8").strip()
+        report_path = ws / report_relpath
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text("## Decision\nAPPROVE\n", encoding="utf-8")
+        (
+            ws
+            / "state"
+            / "backlog-priority-stack"
+            / "typed-workflow-ast-ir-pipeline"
+            / "implementation-phase"
+            / "implementation_review_decision.txt"
+        ).write_text("APPROVE\n", encoding="utf-8")
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    def _prepare_invocation(_self, *_args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **_kwargs):
+        index = provider_index["value"]
+        provider_index["value"] += 1
+        if index == 0:
+            _write_execution_report(workspace)
+        elif index == 1:
+            _write_implementation_review(workspace)
+        else:
+            raise AssertionError(f"Unexpected provider invocation index {index}")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert provider_index["value"] == 2
+    assert state["workflow_outputs"] == {
+        "execution_report_path": "artifacts/work/typed-workflow-ast-ir-pipeline-execution-report.md",
+        "implementation_review_report_path": "artifacts/review/typed-workflow-ast-ir-pipeline-implementation-review.md",
+        "implementation_review_decision": "APPROVE",
+    }
+    assert state["steps"]["RunImplementationPhase"]["artifacts"] == {
+        "execution_report_path": "artifacts/work/typed-workflow-ast-ir-pipeline-execution-report.md",
+        "implementation_review_report_path": "artifacts/review/typed-workflow-ast-ir-pipeline-implementation-review.md",
+        "implementation_review_decision": "APPROVE",
+    }
+    assert len(state.get("call_frames", {})) == 1
 
 
 def test_design_plan_impl_review_stack_v2_call_runtime(tmp_path: Path):

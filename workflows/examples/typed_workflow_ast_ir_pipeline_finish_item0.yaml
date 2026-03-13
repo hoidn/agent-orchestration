@@ -1,0 +1,36 @@
+version: "2.7"
+name: "typed-workflow-ast-ir-pipeline-finish-item0"
+
+imports:
+  implementation_phase: ../library/design_plan_impl_implementation_phase.yaml
+
+outputs:
+  execution_report_path:
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.execution_report_path
+  implementation_review_report_path:
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.implementation_review_report_path
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.RunImplementationPhase.artifacts.implementation_review_decision
+
+steps:
+  - name: RunImplementationPhase
+    id: run_implementation_phase
+    call: implementation_phase
+    with:
+      state_root: state/backlog-priority-stack/typed-workflow-ast-ir-pipeline/implementation-phase
+      design_path: docs/plans/typed-workflow-ast-ir-pipeline-design.md
+      plan_path: docs/plans/typed-workflow-ast-ir-pipeline-execution-plan.md
+      execution_report_target_path: artifacts/work/typed-workflow-ast-ir-pipeline-execution-report.md
+      implementation_review_report_target_path: artifacts/review/typed-workflow-ast-ir-pipeline-implementation-review.md
