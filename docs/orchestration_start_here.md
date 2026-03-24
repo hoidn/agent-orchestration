@@ -131,6 +131,7 @@ Change prompt files when you need to change:
 Change runtime invocation or runbooks when you need to change:
 - CLI flags (`--debug`, `--on-error`, summary mode, etc.)
 - operational procedures (launch, monitoring, recovery)
+- repo-local operator conventions for special workflows that also mutate git state during a run
 
 Change specs when you need to change:
 - normative contract semantics (DSL/state/CLI behavior itself)
@@ -139,6 +140,9 @@ Change specs when you need to change:
 
 Confusion: "Runbook controls execution semantics."
 - Correction: workflow DSL controls executable semantics; runbook explains usage.
+
+Confusion: "Every workflow needs the same git-safety rules."
+- Correction: most workflows do not treat git history or checkout state as runtime data. Special coexistence rules are repo-local operational policy for workflows that stage, commit, reset, or compare against live refs during execution.
 
 Confusion: "Prompt text can define routing."
 - Correction: routing belongs in DSL `on.*.goto` and gate steps.
