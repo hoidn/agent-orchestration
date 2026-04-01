@@ -142,7 +142,7 @@ Confusion: "Runbook controls execution semantics."
 - Correction: workflow DSL controls executable semantics; runbook explains usage.
 
 Confusion: "Every workflow needs the same git-safety rules."
-- Correction: most workflows do not treat git history or checkout state as runtime data. Special coexistence rules are repo-local operational policy for workflows that stage, commit, reset, or compare against live refs during execution.
+- Correction: most workflows do not treat git history or checkout state as runtime data. Special coexistence rules are repo-local operational policy only for workflows with DSL-level git rollback/checkpoint behavior, such as candidate-commit loops that record a base ref and later reset/restore against it.
 
 Confusion: "Prompt text can define routing."
 - Correction: routing belongs in DSL `on.*.goto` and gate steps.

@@ -146,14 +146,14 @@ Leave unrelated files alone.
 Write the report to the exact path named by `state/execution_report_path.txt`.
 ```
 
-### Git-Mutating Workflows Are A Special Case
+### Rollback/Checkpoint Workflows Are A Special Case
 
-Not every workflow needs checkout-level operator rules. Add them only when the workflow itself stages, commits, resets, restores, or otherwise treats the current git state as part of runtime behavior.
+Not every workflow needs checkout-level operator rules. Add them only when the workflow has DSL-level git rollback/checkpoint behavior, for example when authored runtime semantics depend on recording a base ref, creating candidate commits, and later resetting or restoring against that recorded ref.
 
 For those workflows:
 - record explicit refs such as `base_ref`, `accepted_ref`, or `candidate_commit` in workflow-owned state instead of inferring intent from ancestry shortcuts like `HEAD^`
 - route keep/discard/recovery against those explicit refs, not against whatever happens to be at the branch tip later
-- document repo-local live-run coexistence rules in the downstream runbook or study doc: what human edits are safe during a run, what must wait, and when a separate checkout is required
+- document repo-local live-run coexistence rules in the downstream runbook or study doc: what human edits are safe during a run, what must wait, and whether the workflow should run only in a dedicated checkout
 - keep the prompt focused on the local task; operator rules about branch movement, resume/recovery, or safe concurrent edits belong in docs and workflow/runtime behavior, not prompt prose
 
 If a workflow can be derailed by an unrelated commit landing in the same checkout, treat that as a workflow/runbook design issue to document or fix explicitly, not as a universal rule for all workflows.

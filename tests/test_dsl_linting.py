@@ -261,6 +261,79 @@ def test_lint_warns_when_top_level_relpath_boundaries_redundantly_declare_kind(t
     assert warning_paths == {"inputs.design_path", "outputs.report_path"}
 
 
+def test_lint_warns_when_imported_workflow_relpath_boundaries_redundantly_declare_kind(tmp_path: Path):
+    _write_yaml(
+        tmp_path / "workflows" / "library" / "callee.yaml",
+        {
+            "version": "2.9",
+            "name": "redundant-relpath-import",
+            "inputs": {
+                "state_root": {
+                    "type": "relpath",
+                },
+                "design_path": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                    "under": "docs/plans",
+                    "must_exist_target": True,
+                }
+            },
+            "outputs": {
+                "report_path": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                    "must_exist_target": True,
+                    "from": {"ref": "root.steps.GenerateReport.artifacts.report_path"},
+                }
+            },
+            "steps": [
+                {
+                    "name": "GenerateReport",
+                    "command": ["bash", "-lc", "true"],
+                    "expected_outputs": [
+                        {
+                            "name": "report_path",
+                            "path": "${inputs.state_root}/report_path.txt",
+                            "type": "relpath",
+                            "under": "artifacts/work",
+                        }
+                    ],
+                }
+            ],
+        },
+    )
+    bundle = _load_workflow_bundle(
+        tmp_path,
+        {
+            "version": "2.9",
+            "name": "caller",
+            "imports": {
+                "callee": "workflows/library/callee.yaml",
+            },
+            "steps": [
+                {
+                    "name": "Done",
+                    "command": ["echo", "done"],
+                }
+            ],
+        },
+    )
+
+    warnings = lint_workflow(bundle)
+
+    warning_paths = {
+        warning["path"]
+        for warning in warnings
+        if warning["code"] == "redundant-relpath-boundary-kind"
+    }
+
+    assert warning_paths == {
+        "imports.callee.inputs.design_path",
+        "imports.callee.outputs.report_path",
+    }
+
+
 def test_lint_does_not_warn_for_non_boundary_relpath_contracts(tmp_path: Path):
     workflow = _load_workflow(
         tmp_path,

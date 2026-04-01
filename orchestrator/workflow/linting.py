@@ -27,8 +27,7 @@ def lint_workflow(workflow: Any) -> List[Dict[str, Any]]:
         raise TypeError("LoadedWorkflowBundle required")
 
     warnings: List[Dict[str, Any]] = []
-    _lint_redundant_relpath_boundary_kinds(bundle.surface.inputs, warnings, boundary_kind="inputs")
-    _lint_redundant_relpath_boundary_kinds(bundle.surface.outputs, warnings, boundary_kind="outputs")
+    _lint_bundle_redundant_relpath_boundary_kinds(bundle, warnings)
     _lint_surface_steps(bundle.surface.steps, warnings, "steps")
     warnings.extend(_lint_import_output_collisions(bundle))
     return warnings
@@ -214,6 +213,7 @@ def _lint_redundant_relpath_boundary_kinds(
     warnings: List[Dict[str, Any]],
     *,
     boundary_kind: str,
+    path_prefix: str = "",
 ) -> None:
     for contract_name, contract in contracts.items():
         if not isinstance(contract_name, str):
@@ -225,7 +225,7 @@ def _lint_redundant_relpath_boundary_kinds(
         warnings.append(
             _warning(
                 code="redundant-relpath-boundary-kind",
-                path=f"{boundary_kind}.{contract_name}",
+                path=f"{path_prefix}{boundary_kind}.{contract_name}",
                 message=(
                     f"Top-level workflow {boundary_kind[:-1]} '{contract_name}' redundantly declares "
                     "`kind: relpath` alongside `type: relpath`. Prefer `type: relpath` alone."
@@ -234,6 +234,35 @@ def _lint_redundant_relpath_boundary_kinds(
                 boundary=contract_name,
                 surface=boundary_kind,
             )
+        )
+
+
+def _lint_bundle_redundant_relpath_boundary_kinds(
+    bundle: Any,
+    warnings: List[Dict[str, Any]],
+    *,
+    path_prefix: str = "",
+) -> None:
+    _lint_redundant_relpath_boundary_kinds(
+        bundle.surface.inputs,
+        warnings,
+        boundary_kind="inputs",
+        path_prefix=path_prefix,
+    )
+    _lint_redundant_relpath_boundary_kinds(
+        bundle.surface.outputs,
+        warnings,
+        boundary_kind="outputs",
+        path_prefix=path_prefix,
+    )
+
+    for alias, imported_bundle in bundle.imports.items():
+        if not isinstance(alias, str):
+            continue
+        _lint_bundle_redundant_relpath_boundary_kinds(
+            imported_bundle,
+            warnings,
+            path_prefix=f"{path_prefix}imports.{alias}.",
         )
 
 

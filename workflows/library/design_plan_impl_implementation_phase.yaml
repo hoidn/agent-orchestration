@@ -162,7 +162,7 @@ steps:
     id: implementation_review_loop
     repeat_until:
       id: implementation_review_iteration
-      max_iterations: 30
+      max_iterations: 40
       outputs:
         review_decision:
           kind: scalar

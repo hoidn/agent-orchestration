@@ -14,7 +14,7 @@ These are the highest-impact terminology and contract confusions.
 | `depends_on` vs `consumes` | "They are redundant." | `depends_on` declares file dependencies and optional prompt injection; `consumes` is v1.2+ artifact producer/consumer lineage with typed preflight/freshness semantics. | [Dependencies](../specs/dependencies.md), [DSL](../specs/dsl.md) |
 | Queue lifecycle | "Orchestrator auto-moves queue items." | Queue item movement is workflow-authored; orchestrator does not auto-move individual task files. | [Queues and Wait-For](../specs/queue.md) |
 | Orchestration vs DSL | "DSL is the entire system." | DSL is the authored contract language; orchestration is DSL + runtime + queue conventions + operations policy. | [Orchestration Start Here](orchestration_start_here.md) |
-| Git-mutating workflow safety | "Every workflow needs the same live-checkout git rules." | Only workflows that stage, commit, reset, or compare against live refs need repo-local coexistence rules; author them explicitly and prefer recorded refs over ancestry shortcuts like `HEAD^`. | [Orchestration Start Here](orchestration_start_here.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
+| Rollback/checkpoint workflow safety | "Every workflow needs the same live-checkout git rules." | Only workflows with DSL-level git rollback/checkpoint behavior need special coexistence rules; author them explicitly, prefer recorded refs over ancestry shortcuts like `HEAD^`, and consider a dedicated run checkout. | [Orchestration Start Here](orchestration_start_here.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Docs vs specs precedence | "Any docs page is authoritative." | `specs/` are normative. `docs/` are explanatory. | [Master Spec](../specs/index.md) |
 | Workflow authoring surfaces | "Workflow inputs, prompt files, dependencies, and artifacts are all the same kind of input." | Keep four surfaces separate: workflow boundary (`inputs`/`outputs`), runtime dependencies (`depends_on`/`consumes`), provider prompt sources (`input_file`/`asset_file`/`asset_depends_on`), and artifact storage or lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`). | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
 
@@ -28,7 +28,7 @@ These are the highest-impact terminology and contract confusions.
 **Use this when:** You are onboarding or need to run the orchestrator quickly.
 
 ### [Orchestration Start Here](orchestration_start_here.md)
-**Description:** Conceptual foundation for the system and glossary of orchestration/workflow/runtime terminology, with a relationship diagram and a reminder that live-checkout git-safety rules are repo-local policy for git-mutating workflows, not a universal workflow convention.
+**Description:** Conceptual foundation for the system and glossary of orchestration/workflow/runtime terminology, with a relationship diagram and a reminder that live-checkout git-safety rules are repo-local policy only for workflows with DSL-level git rollback/checkpoint behavior.
 **Keywords:** concepts, glossary, orchestration, dsl, runtime, git
 **Use this when:** You need a clean mental model before authoring workflows or debugging behavior.
 
@@ -38,7 +38,7 @@ These are the highest-impact terminology and contract confusions.
 **Use this when:** You need to understand what the engine actually does during `run`/`resume`.
 
 ### [Workflow Drafting Guide](workflow_drafting_guide.md)
-**Description:** Authoring guidance for writing robust workflows, including prompt/runtime/flow contract separation, deterministic handoff patterns, and special-case guidance for workflows that mutate git state during execution.
+**Description:** Authoring guidance for writing robust workflows, including prompt/runtime/flow contract separation, deterministic handoff patterns, and special-case guidance for workflows with DSL-level git rollback/checkpoint behavior.
 **Keywords:** authoring, prompts, contracts, deterministic-handoff, gates, git
 **Use this when:** You are writing or refactoring workflow YAML and prompt patterns.
 

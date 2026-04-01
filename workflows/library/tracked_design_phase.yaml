@@ -154,7 +154,7 @@ steps:
     id: design_review_loop
     repeat_until:
       id: design_review_iteration
-      max_iterations: 12
+      max_iterations: 20
       outputs:
         review_decision:
           kind: scalar
