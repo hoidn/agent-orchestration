@@ -1,88 +1,149 @@
 # Agent Orchestration
 
-Deterministic, sequential workflow orchestration for command and provider-driven agent loops.
+Deterministic, sequential workflow orchestration for command steps and provider-driven agent loops.
 
-This repo defines a YAML DSL, strict runtime contracts, and filesystem-native run state so execution is reproducible and debuggable.
+This repo defines:
 
-## Quickstart
+- a YAML DSL for workflows
+- strict runtime contracts for control flow, outputs, and artifact lineage
+- filesystem-native run state under `.orchestrate/runs/<run_id>/` so runs are reproducible and debuggable
+
+If you are new to the repo, start by validating a real design -> plan -> implement workflow. The first path below is self-contained and does not require provider credentials.
+
+## Prerequisites
+
+- Python 3.11+
+- `bash`
+- a checkout of this repository
+
+Optional for real provider execution:
+
+- the `codex` CLI available in your shell
+- whatever auth/configuration your `codex exec` setup requires
+
+## Install
 
 ```bash
-cd /home/ollie/Documents/agent-orchestration
-conda create -n agent-orch python=3.11 -y
-conda activate agent-orch
+git clone <repo-url> agent-orchestration
+cd agent-orchestration
+
+python3.11 -m venv .venv
+source .venv/bin/activate
 pip install -e ".[dev]"
-python -m orchestrator --help
-python -m orchestrator run workflows/examples/prompt_audit_demo.yaml --debug
 ```
 
-## What It Does
+Sanity check:
 
-- Runs stepwise workflows (`command` or `provider`) with deterministic control flow.
-- Supports retries, timeouts, `goto` routing, and `for_each` loops.
-- Enforces typed output contracts (`expected_outputs` and v1.3 `output_bundle`).
-- Supports artifact lineage via v1.2+ `artifacts`/`publishes`/`consumes`.
-- Stores run state and logs under `.orchestrate/runs/<run_id>/`.
+```bash
+python -m orchestrator --help
+```
 
-## Version Snapshot
+## First Successful Run
 
-- `1.1`: baseline DSL.
-- `1.1.1`: dependency injection (`depends_on.inject`).
-- `1.2`: artifact publish/consume dataflow (`artifacts`, `publishes`, `consumes`).
-- `1.3`: deterministic JSON bundles (`output_bundle`, `consume_bundle`).
+Validate the full call-based design -> plan -> implement stack:
 
-Authoritative versioning details: [specs/versioning.md](specs/versioning.md)
+```bash
+python -m orchestrator run \
+  workflows/examples/design_plan_impl_review_stack_v2_call.yaml \
+  --dry-run
+```
 
-## Start Here
+Expected result:
 
-- Global docs index (informative): [docs/index.md](docs/index.md)
-- Master spec (normative): [specs/index.md](specs/index.md)
-- Acceptance criteria (normative): [specs/acceptance/index.md](specs/acceptance/index.md)
-- CLI contract (normative): [specs/cli.md](specs/cli.md)
-- Orchestration concept model (informative): [docs/orchestration_start_here.md](docs/orchestration_start_here.md)
-- Runtime execution lifecycle (informative): [docs/runtime_execution_lifecycle.md](docs/runtime_execution_lifecycle.md)
-- Workflow drafting guide (informative): [docs/workflow_drafting_guide.md](docs/workflow_drafting_guide.md)
-- Example workflows: [workflows/examples](workflows/examples)
-- Example runbook: [workflows/examples/README_v0_artifact_contract.md](workflows/examples/README_v0_artifact_contract.md)
-- Test guide: [tests/README.md](tests/README.md)
+- the workflow loads successfully
+- imported subworkflows validate
+- typed inputs/outputs validate
+- no provider command is executed yet
+
+This example is the best first read because it exercises the current modular stack:
+
+- top-level workflow: [`workflows/examples/design_plan_impl_review_stack_v2_call.yaml`](workflows/examples/design_plan_impl_review_stack_v2_call.yaml)
+- design phase: [`workflows/library/tracked_design_phase.yaml`](workflows/library/tracked_design_phase.yaml)
+- plan phase: [`workflows/library/tracked_plan_phase.yaml`](workflows/library/tracked_plan_phase.yaml)
+- implementation phase: [`workflows/library/design_plan_impl_implementation_phase.yaml`](workflows/library/design_plan_impl_implementation_phase.yaml)
+- input brief: [`workflows/examples/inputs/provider_session_resume_brief.md`](workflows/examples/inputs/provider_session_resume_brief.md)
+
+## Run The Same Workflow For Real
+
+Only do this after `--dry-run` succeeds and `codex exec` works in your shell.
+
+This command keeps the demo outputs in distinct files so you do not overwrite the example's default target paths:
+
+```bash
+python -m orchestrator run \
+  workflows/examples/design_plan_impl_review_stack_v2_call.yaml \
+  --stream-output \
+  --input design_target_path=docs/plans/readme-demo-provider-session-resume-design.md \
+  --input design_review_report_target_path=artifacts/review/readme-demo-provider-session-resume-design-review.json \
+  --input plan_target_path=docs/plans/readme-demo-provider-session-resume-execution-plan.md \
+  --input plan_review_report_target_path=artifacts/review/readme-demo-provider-session-resume-plan-review.json \
+  --input execution_report_target_path=artifacts/work/readme-demo-provider-session-resume-execution-report.md \
+  --input implementation_review_report_target_path=artifacts/review/readme-demo-provider-session-resume-implementation-review.md
+```
+
+That run will:
+
+- read the brief from `workflows/examples/inputs/provider_session_resume_brief.md`
+- draft and review a design
+- draft and review an execution plan
+- execute implementation work and run the implementation review/fix loop
+- write run state and logs under `.orchestrate/runs/<run_id>/`
+
+After a run, generate a readable report:
+
+```bash
+python -m orchestrator report --format md
+```
+
+If a run stops partway through, resume it:
+
+```bash
+python -m orchestrator resume <run_id>
+```
+
+## What The Repo Contains
+
+- [`docs/index.md`](docs/index.md): documentation hub and recommended read order
+- [`specs/index.md`](specs/index.md): normative contract for the DSL, CLI, state, and acceptance scope
+- [`workflows/README.md`](workflows/README.md): catalog of example and reusable workflows
+- [`prompts/README.md`](prompts/README.md): curated prompt index
+- [`tests/README.md`](tests/README.md): testing and smoke-check guidance
 
 ## Common Commands
 
+Validate any workflow without executing steps:
+
 ```bash
-# Validate workflow and context without executing steps
-python -m orchestrator run workflows/examples/backlog_plan_execute_v1_2_dataflow.yaml --dry-run
+python -m orchestrator run workflows/examples/design_plan_impl_review_stack_v2_call.yaml --dry-run
+```
 
-# Resume a run
-python -m orchestrator resume <run_id>
+Validate another example that demonstrates runtime observability flags:
 
-# Generate a human-readable run status report
-python -m orchestrator report --run-id <run_id> --format md
-
-# Enable advisory step summaries (async by default)
+```bash
 python -m orchestrator run workflows/examples/observability_runtime_config_demo.yaml --debug --step-summaries
+```
 
-# Deterministic summary mode (blocks each step until summary result/error is written)
-python -m orchestrator run workflows/examples/observability_runtime_config_demo.yaml --debug --step-summaries --summary-mode sync
+Run the default unit/integration test loop:
 
-# Unit/integration default loop
+```bash
 pytest -m "not e2e" -v
 ```
 
-## Runtime Observability
+## Versioning
 
-- Observability is runtime-configured (CLI flags), not workflow DSL.
-- `--step-summaries` enables advisory per-step summaries.
-- `--summary-mode async|sync` controls mode:
-  - `async` (default): non-blocking, best-effort.
-  - `sync`: deterministic/blocking summary execution.
-- Summary artifacts are written under `.orchestrate/runs/<run_id>/summaries/`.
-- Summaries are never consumed by `consumes` and never used for control-flow gating.
+This repo contains workflows across multiple DSL versions, including older `1.x` examples and newer `2.x` structured-control and call-based examples.
+
+Authoritative versioning details live in:
+
+- [`specs/index.md`](specs/index.md)
+- [`specs/versioning.md`](specs/versioning.md)
 
 ## Debugging Runs
 
-Primary artifacts for a run:
+The first places to inspect for a failed or confusing run are:
 
-- `state.json`: step results, artifacts, and errors.
-- `logs/<Step>.prompt.txt`: fully composed provider prompt (after injections).
-- `logs/<Step>.stdout` / `logs/<Step>.stderr`: command/provider execution traces.
+- `state.json`: step results, artifacts, and error context
+- `logs/<Step>.prompt.txt`: the fully composed provider prompt
+- `logs/<Step>.stdout` and `logs/<Step>.stderr`: command or provider execution traces
 
-Tip: if agent behavior looks wrong, inspect `logs/<Step>.prompt.txt` first.
+If agent behavior looks wrong, inspect `logs/<Step>.prompt.txt` before changing workflow logic.
