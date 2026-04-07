@@ -67,18 +67,12 @@ This example is the best first read because it exercises the current modular sta
 
 Only do this after `--dry-run` succeeds and `codex exec` works in your shell.
 
-This command keeps the demo outputs in distinct files so you do not overwrite the example's default target paths:
+This uses the workflow's default output paths, so it will write example design, plan, and review artifacts into `docs/plans/`, `artifacts/review/`, and `artifacts/work/`.
 
 ```bash
 python -m orchestrator run \
   workflows/examples/design_plan_impl_review_stack_v2_call.yaml \
-  --stream-output \
-  --input design_target_path=docs/plans/readme-demo-provider-session-resume-design.md \
-  --input design_review_report_target_path=artifacts/review/readme-demo-provider-session-resume-design-review.json \
-  --input plan_target_path=docs/plans/readme-demo-provider-session-resume-execution-plan.md \
-  --input plan_review_report_target_path=artifacts/review/readme-demo-provider-session-resume-plan-review.json \
-  --input execution_report_target_path=artifacts/work/readme-demo-provider-session-resume-execution-report.md \
-  --input implementation_review_report_target_path=artifacts/review/readme-demo-provider-session-resume-implementation-review.md
+  --stream-output
 ```
 
 That run will:
