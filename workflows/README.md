@@ -30,9 +30,10 @@ python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loo
 - `workflows/examples/prompts/`: prompt files used only by example workflows stored under `workflows/examples/`
 - `prompts/workflows/`: shared prompt trees used by standalone or monolithic workflows
 
-When invoking a workflow from another repository checkout, prefer a no-import workflow file such as
-`workflows/library/revision_study_design_plan_impl_monolith.yaml`; imported `call` stacks are intended
-to run from this repo root or to be copied with their sibling library files into the target checkout.
+When invoking a workflow from another repository checkout, prefer copying the relevant call-based stack
+with its imported library workflows and bundled prompt directory. Use a no-import monolith such as
+`workflows/library/revision_study_design_plan_impl_monolith.yaml` only as a portability or debugging
+fallback when copying the import tree is not practical.
 
 ## Prompt Resolution
 
@@ -124,8 +125,8 @@ The generated prompt map is the source for exact missing-file rows. Current clas
 | `workflows/library/design_plan_impl_implementation_phase.yaml` | `2.7` | `design-plan-impl-implementation-phase` | Reusable implementation phase for the full stack example: implement against design + plan, then review/fix until the implementation is approved, using bundled prompt assets under `workflows/library/prompts/design_plan_impl_stack_v2_call/`. |
 | `workflows/library/depends_on_inject_imported_review.yaml` | `2.7` | `depends-on-inject-imported-review` | Library workflow for the imported-injection example: prepends workflow-source rubric assets, then injects a caller-produced runtime manifest into the provider prompt before exporting an enum review decision. |
 | `workflows/library/review_fix_loop.yaml` | `2.5` | `review-fix-loop` | Minimal reusable call demo library used by `call_subworkflow_demo.yaml`. |
-| `workflows/library/revision_study_design_plan_impl_stack.yaml` | `2.7` | `revision-study-design-plan-impl-stack` | Call-based revision-study workflow: treats a human revision design seed as read-only, produces an approved derived design, drafts/reviews a plan, then executes/reviews implementation using bundled prompts under `workflows/library/prompts/revision_study_stack/`. |
-| `workflows/library/revision_study_design_plan_impl_monolith.yaml` | `2.7` | `revision-study-design-plan-impl-monolith` | No-import revision-study workflow for running from an external paper checkout while still using source-relative bundled prompt assets under `workflows/library/prompts/revision_study_stack/`. |
+| `workflows/library/revision_study_design_plan_impl_stack.yaml` | `2.7` | `revision-study-design-plan-impl-stack` | Preferred call-based revision-study workflow: treats a human revision design seed as read-only, produces an approved derived design, drafts/reviews a plan, then executes/reviews implementation using bundled prompts under `workflows/library/prompts/revision_study_stack/`. Copy this file with its imported phase workflows and prompt directory when running from another checkout. |
+| `workflows/library/revision_study_design_plan_impl_monolith.yaml` | `2.7` | `revision-study-design-plan-impl-monolith` | No-import revision-study fallback for portability or debugging when copying the call-based import tree is not practical. Keep behavior aligned with the call-based stack; do not use it as the normal authoring target. |
 | `workflows/library/revision_study_design_phase.yaml` | `2.7` | `revision-study-design-phase` | Reusable design-review phase for revision studies; derives an approved design artifact from a read-only revision design seed and tracks open design findings. |
 | `workflows/library/revision_study_plan_phase.yaml` | `2.7` | `revision-study-plan-phase` | Reusable plan-review phase for revision studies; drafts and reviews an implementation plan from the approved revision design. |
 | `workflows/library/revision_study_implementation_phase.yaml` | `2.7` | `revision-study-implementation-phase` | Reusable implementation review/fix phase for revision studies; executes the approved plan and reviews remaining required study/manuscript work. |

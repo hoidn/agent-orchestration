@@ -237,6 +237,11 @@ For post-v2.0 workflows, separate display names from durable identity:
 
 ### Preparing A Workflow For `call`
 
+Before drafting a new design -> plan -> implementation workflow, check `workflows/README.md` for an
+existing call-based stack or phase workflow that already matches the shape. If one exists, copy or import
+that stack and its imported subworkflows recursively instead of flattening it into a one-off monolith.
+Use a monolith only when import portability or a debugging snapshot is the explicit goal.
+
 If you expect a workflow to be used through `call`:
 
 - Surface every DSL-managed write root that needs to vary per invocation as a typed workflow `input` with `type: relpath`.
