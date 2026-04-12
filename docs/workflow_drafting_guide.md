@@ -242,6 +242,13 @@ existing call-based stack or phase workflow that already matches the shape. If o
 that stack and its imported subworkflows recursively instead of flattening it into a one-off monolith.
 Use a monolith only when import portability or a debugging snapshot is the explicit goal.
 
+For domain-specific work that still fits the generic design -> plan -> implementation prompts, prefer an
+adapter over a new phase stack. The adapter should translate domain seeds into a backlog-compatible
+working design seed plus per-item state/artifact roots, then call `workflows/library/backlog_item_design_plan_impl_stack.yaml`.
+`workflows/library/revision_study_priority_design_plan_impl_stack.yaml` is the reference pattern for
+revision-study seeds; it intentionally lets the generic design draft/revision passes rewrite the generated
+working seed instead of treating the manifest source as the post-review source of truth.
+
 If you expect a workflow to be used through `call`:
 
 - Surface every DSL-managed write root that needs to vary per invocation as a typed workflow `input` with `type: relpath`.

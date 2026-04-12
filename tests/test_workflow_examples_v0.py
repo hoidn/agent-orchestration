@@ -19,6 +19,7 @@ EXAMPLE_FILES = [
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
     "backlog_priority_design_plan_impl_stack_v2_call.yaml",
+    "revision_study_priority_design_plan_impl_stack_v2_call.yaml",
     "call_subworkflow_demo.yaml",
     "cycle_guard_demo.yaml",
     "depends_on_inject_imported_v2_call.yaml",

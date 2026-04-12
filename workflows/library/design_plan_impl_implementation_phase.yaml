@@ -46,7 +46,7 @@ outputs:
 
 providers:
   codex:
-    command: ["codex", "exec", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
     input_mode: "stdin"
     defaults:
       model: "${context.workflow_model}"

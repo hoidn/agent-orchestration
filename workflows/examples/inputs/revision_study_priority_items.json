@@ -1,0 +1,9 @@
+[
+  {
+    "study_id": "probe-mischaracterization-demo",
+    "title": "Probe Mischaracterization Stress Test",
+    "revision_design_path": "workflows/examples/inputs/revision_studies/probe_mischaracterization_stress_test.md",
+    "revision_context_path": "workflows/examples/inputs/revision_studies/revision_context.md",
+    "notes": "Example fixture for adapting revision-study seeds into the generic backlog-style design-plan-implementation stack."
+  }
+]
