@@ -1,10 +1,11 @@
 version: "1.1"
 name: "Retry Demo Workflow"
-description: "Demonstrates retry behavior for AT-20, AT-21"
+# Demonstrates retry behavior for AT-20 and AT-21.
 
 providers:
   echo_provider:
-    template: "echo ${PROMPT}"
+    command: ["echo", "${PROMPT}"]
+    input_mode: "argv"
     defaults:
       model: "test"
 

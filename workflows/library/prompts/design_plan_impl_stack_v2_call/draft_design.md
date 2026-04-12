@@ -9,4 +9,4 @@ Focus on:
 - whether internal refactoring or debt paydown is required before feature work
 - explicit non-goals and sequencing constraints
 
-Write the design to the exact path named by `${inputs.state_root}/design_path.txt`.
+Write the design to the `design_path` path specified in the Output Contract.

@@ -1,8 +1,7 @@
 version: "1.1"
 name: "Conditional Execution Demo"
-description: |
-  Demonstrates conditional execution with when.equals, when.exists, and when.not_exists.
-  Tests AT-37, AT-46, AT-47.
+# Demonstrates conditional execution with when.equals, when.exists, and when.not_exists.
+# Tests AT-37, AT-46, AT-47.
 
 context:
   environment: "development"

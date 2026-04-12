@@ -47,6 +47,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** prompts, catalog, canonical, review, plan, implementation
 **Use this when:** You want to reuse or adapt an existing prompt instead of inventing one from scratch.
 
+### [Workflow Prompt Map](workflow_prompt_map.md)
+**Description:** Exhaustive generated map of workflow provider prompt sources, including `input_file`, `asset_file`, and `asset_depends_on` resolution and missing-file status.  
+**Keywords:** workflows, prompts, input_file, asset_file, prompt-assets  
+**Use this when:** You need to find which prompt files a workflow step uses or audit missing/stale prompt references.
+
 ### [Master Spec](../specs/index.md)
 **Description:** Normative root of the external contract, including module map, versioning boundaries, and acceptance scope.  
 **Keywords:** normative, contract, spec, versioning, conformance  
@@ -65,8 +70,8 @@ If your immediate goal is to write or revise a workflow, use this read order:
 3. [Variable Model and Substitution](../specs/variables.md), [Dependencies and Injection](../specs/dependencies.md), and [Providers and Prompt Delivery](../specs/providers.md)
    Why: these three specs cover the authoring details that most often cause broken workflows: substitution rules, dependency injection behavior, and what providers actually receive.
 
-4. [Prompt Index](../prompts/README.md), [Workflow Index](../workflows/README.md), plus one or two runnable examples under [workflows/examples/](../workflows/examples/)
-   Why: use the prompt catalog and workflow examples to copy the current house style for review prompts, loop contracts, gates, artifact contracts, and prompt layout instead of inventing patterns from scratch.
+4. [Prompt Index](../prompts/README.md), [Workflow Index](../workflows/README.md), [Workflow Prompt Map](workflow_prompt_map.md), plus one or two runnable examples under [workflows/examples/](../workflows/examples/)
+   Why: use the prompt catalog, exhaustive prompt map, and workflow examples to copy the current house style for review prompts, loop contracts, gates, artifact contracts, and prompt layout instead of inventing patterns from scratch.
 
 Minimum rule of thumb: if you have only read `docs/index.md`, you can find the docs; if you have read the four items above, you can usually write an effective workflow without extra repo archaeology.
 

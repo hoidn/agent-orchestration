@@ -17,8 +17,8 @@ When reviewing:
   - non-blocking defects in already-implemented work
   - optional later work or deliberate deferrals
 
-Write the review as markdown to the exact path named by `${inputs.state_root}/implementation_review_report_path.txt`.
-Write `APPROVE` or `REVISE` to `${inputs.state_root}/implementation_review_decision.txt`.
+Write the review as markdown to the `implementation_review_report_path` path specified in the Output Contract.
+Write `APPROVE` or `REVISE` to the `implementation_review_decision` path specified in the Output Contract.
 
 Group findings by severity.
 If there are any high-severity findings, include a section header exactly `## High`.

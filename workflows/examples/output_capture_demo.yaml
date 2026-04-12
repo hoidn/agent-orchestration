@@ -3,7 +3,7 @@
 
 version: "1.1"
 name: output_capture_demo
-description: Demonstrates text, lines, and JSON output capture
+# Demonstrates text, lines, and JSON output capture.
 
 context:
   demo_value: "test"

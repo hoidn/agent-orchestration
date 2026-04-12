@@ -6,7 +6,7 @@ Do not use `git worktree` or another checkout.
 If the repo is dirty, stay in the current checkout and leave unrelated files alone.
 Do not modify workflow YAML, prompt files, or runtime state files unless the plan explicitly requires it.
 
-Write a concise execution report to the exact path named by `${inputs.state_root}/execution_report_path.txt`.
+Write a concise execution report to the `execution_report_path` path specified in the Output Contract.
 
 The execution report must include:
 - `Completed In This Pass`

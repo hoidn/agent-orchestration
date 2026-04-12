@@ -9,4 +9,4 @@ The plan should:
 - include verification for each tranche
 - call out migrations, compatibility boundaries, and explicit non-goals
 
-Write the plan to the exact path named by `${inputs.state_root}/plan_path.txt`.
+Write the plan to the `plan_path` path specified in the Output Contract.

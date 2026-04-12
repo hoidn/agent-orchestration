@@ -2,6 +2,8 @@
 
 This index catalogs the canonical prompt files worth reusing. It is intentionally curated rather than exhaustive.
 
+For the exhaustive workflow-to-prompt map, including `input_file`, `asset_file`, and `asset_depends_on` resolution, see [`docs/workflow_prompt_map.md`](/home/ollie/Documents/agent-orchestration/docs/workflow_prompt_map.md).
+
 Selection rule:
 - include the new repo hygiene prompt
 - include prompt families used by workflows run in the last two days

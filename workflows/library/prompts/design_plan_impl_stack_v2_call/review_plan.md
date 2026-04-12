@@ -13,7 +13,7 @@ For each prior finding, classify it as one of:
 You may add `NEW` findings only if they are materially distinct.
 Do not preserve a finding only because it existed before.
 
-Write JSON to the exact path named by `${inputs.state_root}/plan_review_report_path.txt` using this shape:
+Write JSON to the `plan_review_report_path` path specified in the Output Contract using this shape:
 
 ```json
 {
@@ -35,8 +35,8 @@ Write JSON to the exact path named by `${inputs.state_root}/plan_review_report_p
 ```
 
 Also write:
-- `APPROVE` or `REVISE` to `${inputs.state_root}/plan_review_decision.txt`
-- the unresolved high count integer to `${inputs.state_root}/unresolved_high_count.txt`
-- the unresolved medium count integer to `${inputs.state_root}/unresolved_medium_count.txt`
+- `APPROVE` or `REVISE` to the `plan_review_decision` path specified in the Output Contract
+- the unresolved high count integer to the `unresolved_high_count` path specified in the Output Contract
+- the unresolved medium count integer to the `unresolved_medium_count` path specified in the Output Contract
 
 Approve only if there are no unresolved high findings and the plan is ready to execute.
