@@ -44,6 +44,16 @@ Provider prompt text is composed deterministically:
 
 Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
 
+### Dependency Injection Scope
+
+Use `depends_on.inject` for runtime-resolved file lists or content, not for substantive task instructions that belong in the prompt. Keep injected instructions as neutral labels unless the wording is only explaining how to interpret the injected block.
+
+For provider-review steps, treat injected docs as candidates rather than a mandatory reading list unless the step truly requires every file. Avoid broad doc globs such as `docs/**/*.md` or `specs/*.md`; prefer `docs/index.md` plus a small exact set of docs that are nearly always relevant. Do not list ambient agent instruction files such as `AGENTS.md` or `CLAUDE.md` as workflow dependencies just to make agents read them; the agent runtime handles those.
+
+If semantic enforcement matters, put the standard in the review or design prompt and back it with an output contract or gate instead of duplicating the same instruction in YAML and prompt prose.
+
+Codex provider note: when a Codex workflow is expected to use shell tools to read or write the checkout, include `--dangerously-bypass-approvals-and-sandbox` in the provider command; `--skip-git-repo-check` is often paired with it for workflows that may run from copied or generated checkouts. The bypass flag matches the built-in `codex` provider and avoids Codex starting in its default Linux sandbox, which can fail in nested or externally sandboxed environments. Only use this for trusted workflow workspaces because it disables Codex's own approval and sandbox layer.
+
 For v2.10 provider-session steps, treat the session handle as runtime-owned dataflow, not prompt content:
 - use `provider_session.mode: fresh` to publish a typed scalar `string` handle into normal lineage
 - use `provider_session.mode: resume` plus the reserved `session_id_from` consume to bind `${SESSION_ID}` at runtime
@@ -111,6 +121,8 @@ Keep prompts focused on decision-quality instructions, not DSL plumbing.
 | Evidence format (what files to write and where). | Over-specifying pointer plumbing already enforced by contracts. |
 
 Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders.
+
+For design, design-review, and planning prompts that may affect architecture, data contracts, workflow APIs, or stable modules, explicitly instruct the agent to read `docs/index.md` first when present, then use it to select the relevant specs, architecture docs, workflow guides, and findings docs. This instruction belongs in the prompt because it is part of the review or design judgment standard. Keep the workflow `depends_on.inject` list narrow and treat it as candidate context, not a mandatory reading list.
 
 ### Keep Workflow Mechanics Out Of Prompts
 

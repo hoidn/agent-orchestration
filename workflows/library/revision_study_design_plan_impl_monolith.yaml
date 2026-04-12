@@ -107,7 +107,7 @@ outputs:
 
 providers:
   codex:
-    command: ["codex", "exec", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
     input_mode: "stdin"
     defaults:
       model: "${context.workflow_model}"
@@ -339,6 +339,17 @@ steps:
           provider: codex
           asset_file: prompts/revision_study_stack/review_design.md
           timeout_sec: 1800
+          depends_on:
+            optional:
+              - docs/index.md
+              - docs/findings.md
+              - docs/DEVELOPER_GUIDE.md
+              - docs/architecture.md
+              - specs/data_contracts.md
+            inject:
+              mode: list
+              position: prepend
+              instruction: "Repository documentation candidate files resolved from depends_on.optional:"
           consumes:
             - artifact: revision_design_seed
               policy: latest_successful

@@ -72,7 +72,7 @@
 - Examples
 - Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-opus-4-6" }`.
 - Claude summary alias: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-sonnet-4-6" }`.
-- Codex CLI: `command: ["codex","exec","--model","${model}","--config","reasoning_effort=${reasoning_effort}"]`, `input_mode: 'stdin'` (prompt via stdin).
+- Codex CLI: `command: ["codex","exec","--dangerously-bypass-approvals-and-sandbox","--model","${model}","--config","reasoning_effort=${reasoning_effort}"]`, `input_mode: 'stdin'` (prompt via stdin).
 - Codex session-capable CLI (v2.10): `session_support.fresh_command: ["codex","exec","--json",...]`, `session_support.resume_command: ["codex","exec","resume","${SESSION_ID}","--json",...]`.
 
 ## Direct CLI Integration (details)
@@ -87,7 +87,7 @@ providers:
   gemini:
     command: ["gemini", "-p", "${PROMPT}"]
   codex:
-    command: ["codex", "exec", "--model", "${model}", "--config", "reasoning_effort=${reasoning_effort}"]
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--model", "${model}", "--config", "reasoning_effort=${reasoning_effort}"]
     input_mode: "stdin"
     defaults:
       model: "gpt-5.3-codex"
@@ -151,7 +151,7 @@ steps:
 | claude | `claude -p ${PROMPT} --model ${model}` | argv | Default model via provider defaults (e.g., `claude-opus-4-6`) or CLI config/env. |
 | claude_sonnet_summary | `claude -p ${PROMPT} --model ${model}` | argv | Built-in observability summary alias. Default model: `claude-sonnet-4-6`. Advisory only; not for control-flow gates. |
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
-| codex | `codex exec --model ${model} --config reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.3-codex`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). |
+| codex | `codex exec --dangerously-bypass-approvals-and-sandbox --model ${model} --config reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.3-codex`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). Use only for trusted workflow workspaces because it disables Codex's own approval and sandbox layer. |
 
 Exit code mapping:
 - 0 = Success
