@@ -91,8 +91,10 @@ class DashboardStep:
     duration_ms: Any = None
     output_preview: str = ""
     error: Any = None
+    outcome: Any = None
     artifacts: Mapping[str, Any] = field(default_factory=dict)
     debug: Mapping[str, Any] = field(default_factory=dict)
+    provider_session: Mapping[str, Any] = field(default_factory=dict)
     file_refs: Mapping[str, FileReference] = field(default_factory=dict)
 
 
@@ -117,6 +119,8 @@ class DashboardIndexRow:
     updated_at: Any = None
     state_mtime: Optional[float] = None
     read_time: Optional[str] = None
+    heartbeat_at: Optional[str] = None
+    heartbeat_age_seconds: Optional[float] = None
     failure_summary: str = ""
     warnings: list[str] = field(default_factory=list)
     availability: Mapping[str, bool] = field(default_factory=dict)
@@ -135,6 +139,8 @@ class DashboardRunDetail:
     error: Any = None
     artifact_versions: Mapping[str, Any] = field(default_factory=dict)
     artifact_consumes: Mapping[str, Any] = field(default_factory=dict)
+    observability_files: Mapping[str, list[FileReference]] = field(default_factory=dict)
+    common_artifact_refs: Mapping[str, FileReference] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)
     degraded: bool = False
     state: Optional[Mapping[str, Any]] = None

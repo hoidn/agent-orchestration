@@ -84,17 +84,20 @@ class DashboardApp:
             "<h1>Workflow Runs</h1>",
             '<p><a href="/runs">Refresh</a></p>',
             "<table>",
-            "<thead><tr><th>Workspace</th><th>Run</th><th>State Run ID</th><th>Workflow</th><th>Persisted</th><th>Display</th><th>Updated</th><th>Failure</th></tr></thead>",
+            "<thead><tr><th>Workspace</th><th>Run</th><th>State Run ID</th><th>Workflow</th><th>Persisted</th><th>Display</th><th>Cursor</th><th>Started</th><th>Updated</th><th>State mtime</th><th>Read time</th><th>Heartbeat</th><th>Availability</th><th>Failure</th></tr></thead>",
             "<tbody>",
         ])
         if not rows:
-            lines.append("<tr><td colspan=\"8\">No runs matched.</td></tr>")
+            lines.append("<tr><td colspan=\"14\">No runs matched.</td></tr>")
         for row in rows:
             detail_href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}"
             workflow = row.workflow_name or row.workflow_file or ""
             display = row.display_status
             if row.display_status_reason:
                 display = f"{display} ({row.display_status_reason})"
+            heartbeat = row.heartbeat_at or ""
+            if row.heartbeat_age_seconds is not None:
+                heartbeat = f"{heartbeat} ({self._format_duration(row.heartbeat_age_seconds)})"
             lines.append(
                 "<tr>"
                 f"<td>{self._e(row.workspace_label)}<br><small>{self._e(str(row.workspace_root))}</small></td>"
@@ -103,7 +106,13 @@ class DashboardApp:
                 f"<td>{self._e(workflow)}</td>"
                 f"<td>{self._e(row.persisted_status)}</td>"
                 f"<td>{self._e(display)}</td>"
+                f"<td>{self._e(row.cursor_summary)}</td>"
+                f"<td>{self._e(row.started_at or '')}</td>"
                 f"<td>{self._e(row.updated_at or '')}</td>"
+                f"<td>{self._e(self._format_timestamp(row.state_mtime))}</td>"
+                f"<td>{self._e(row.read_time or '')}</td>"
+                f"<td>{self._e(heartbeat)}</td>"
+                f"<td>{self._e(self._format_availability(row.availability))}</td>"
                 f"<td>{self._e(row.failure_summary)}</td>"
                 "</tr>"
             )
@@ -175,11 +184,54 @@ class DashboardApp:
                 lines.append("<ul>")
                 for name, file_ref in step.file_refs.items():
                     lines.append(
-                        f"<li>{self._e(name)}: <a href=\"{self._file_href(row, file_ref)}\">"
+                        f"<li>{self._e(name)} ({self._e(file_ref.label or '')}): "
+                        f"<a href=\"{self._file_href(row, file_ref)}\">"
                         f"{self._e(file_ref.scope)}:{self._e(file_ref.route_path)}</a></li>"
                     )
                 lines.append("</ul>")
         lines.append("</ul></section>")
+
+        lines.extend(["<section><h2>Observability Files</h2>"])
+        self._append_file_group(
+            lines,
+            row,
+            "Prompt Audits",
+            detail.observability_files.get("prompt_audits", []),
+        )
+        self._append_file_group(
+            lines,
+            row,
+            "Execution Logs",
+            list(detail.observability_files.get("stdout", []))
+            + list(detail.observability_files.get("stderr", [])),
+        )
+        self._append_file_group(
+            lines,
+            row,
+            "Provider Sessions",
+            list(detail.observability_files.get("provider_sessions", []))
+            + list(detail.observability_files.get("provider_transport", [])),
+        )
+        self._append_file_group(
+            lines,
+            row,
+            "State Backups",
+            detail.observability_files.get("state_backups", []),
+        )
+        lines.append("</section>")
+
+        lines.extend(["<section><h2>Common Artifacts</h2>"])
+        if detail.common_artifact_refs:
+            lines.append("<ul>")
+            for name, file_ref in detail.common_artifact_refs.items():
+                lines.append(
+                    f"<li>{self._e(name)}: <a href=\"{self._file_href(row, file_ref)}\">"
+                    f"{self._e(file_ref.scope)}:{self._e(file_ref.route_path)}</a></li>"
+                )
+            lines.append("</ul>")
+        else:
+            lines.append("<p>No common artifact file references.</p>")
+        lines.append("</section>")
 
         lines.append("<section><h2>Inputs</h2>")
         lines.append(f"<pre>{self._json(detail.bound_inputs)}</pre></section>")
@@ -216,12 +268,18 @@ class DashboardApp:
             f"<p>Status: {self._e(step.status)}</p>",
             f"<p>Kind: {self._e(step.kind)}</p>",
             f"<p>Step id: {self._e(step.step_id or '')}</p>",
+            f"<p>Visit count: {self._e(step.visit_count if step.visit_count is not None else '')}</p>",
+            f"<p>Duration: {self._e(str(step.duration_ms) + ' ms' if step.duration_ms is not None else '')}</p>",
             "<h2>Output Preview</h2>",
             f"<pre>{self._e(step.output_preview)}</pre>",
             "<h2>Error</h2>",
             f"<pre>{self._json(step.error)}</pre>",
+            "<h2>Outcome</h2>",
+            f"<pre>{self._json(step.outcome)}</pre>",
             "<h2>Debug</h2>",
             f"<pre>{self._json(step.debug)}</pre>",
+            "<h2>Provider Session</h2>",
+            f"<pre>{self._json(step.provider_session)}</pre>",
             "<h2>Artifacts</h2>",
             f"<pre>{self._json(step.artifacts)}</pre>",
         ]
@@ -229,7 +287,8 @@ class DashboardApp:
             lines.extend(["<h2>Files</h2>", "<ul>"])
             for name, file_ref in step.file_refs.items():
                 lines.append(
-                    f"<li>{self._e(name)}: <a href=\"{self._file_href(row, file_ref)}\">"
+                    f"<li>{self._e(name)} ({self._e(file_ref.label or '')}): "
+                    f"<a href=\"{self._file_href(row, file_ref)}\">"
                     f"{self._e(file_ref.scope)}:{self._e(file_ref.route_path)}</a></li>"
                 )
             lines.append("</ul>")
@@ -317,6 +376,20 @@ class DashboardApp:
             f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}"
             f"/files/{quote(file_ref.scope)}/{quote(file_ref.route_path)}"
         )
+
+    def _append_file_group(self, lines: list[str], row, title: str, refs) -> None:
+        lines.append(f"<h3>{self._e(title)}</h3>")
+        if not refs:
+            lines.append("<p>None found.</p>")
+            return
+        lines.append("<ul>")
+        for file_ref in refs:
+            label = file_ref.label or file_ref.status
+            lines.append(
+                f"<li>{self._e(label)}: <a href=\"{self._file_href(row, file_ref)}\">"
+                f"{self._e(file_ref.scope)}:{self._e(file_ref.route_path)}</a></li>"
+            )
+        lines.append("</ul>")
 
     def _run_record_for_detail(self, detail):
         scan = self.scanner.scan()
@@ -443,6 +516,32 @@ class DashboardApp:
 
     def _e(self, value: object) -> str:
         return html.escape(str(value), quote=True)
+
+    def _format_availability(self, availability: Mapping[str, bool]) -> str:
+        if not availability:
+            return ""
+        return ", ".join(
+            f"{key}={'yes' if value else 'no'}"
+            for key, value in sorted(availability.items())
+        )
+
+    def _format_timestamp(self, value: object) -> str:
+        if not isinstance(value, (int, float)):
+            return ""
+        try:
+            return datetime.fromtimestamp(value, timezone.utc).isoformat()
+        except (OSError, ValueError):
+            return str(value)
+
+    def _format_duration(self, seconds_value: float) -> str:
+        seconds = int(seconds_value)
+        if seconds < 60:
+            return f"{seconds}s"
+        minutes, seconds = divmod(seconds, 60)
+        if minutes < 60:
+            return f"{minutes}m {seconds}s"
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours}h {minutes}m"
 
     def _json(self, value: object) -> str:
         return html.escape(

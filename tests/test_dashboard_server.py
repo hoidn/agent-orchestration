@@ -67,6 +67,53 @@ def test_runs_index_returns_html_with_security_headers_and_escaped_fields(tmp_pa
     assert f'href="{tmp_path}' not in body
 
 
+def test_runs_index_renders_cursor_freshness_and_availability_fields(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    (run_root / "logs").mkdir(parents=True)
+    (run_root / "provider_sessions").mkdir()
+    (run_root / "logs" / "Step.prompt.txt").write_text("prompt", encoding="utf-8")
+    (run_root / "logs" / "Step.stdout").write_text("stdout", encoding="utf-8")
+    (run_root / "logs" / "Step.stderr").write_text("stderr", encoding="utf-8")
+    (run_root / "provider_sessions" / "root.step__v1.json").write_text("{}", encoding="utf-8")
+    (run_root / "state.json.step_Step.bak").write_text("{}", encoding="utf-8")
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "running",
+                "started_at": "2026-04-13T12:00:00+00:00",
+                "updated_at": "2026-04-13T12:02:00+00:00",
+                "current_step": {
+                    "name": "Step",
+                    "step_id": "root.step",
+                    "started_at": "2026-04-13T12:01:00+00:00",
+                    "last_heartbeat_at": "2026-04-13T12:01:30+00:00",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    response = DashboardApp(
+        RunScanner([tmp_path]),
+        now="2026-04-13T12:02:30+00:00",
+    ).handle("GET", "/runs")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "Cursor" in body
+    assert "Step" in body
+    assert "Started" in body
+    assert "State mtime" in body
+    assert "Read time" in body
+    assert "Heartbeat" in body
+    assert "1m 0s" in body
+    assert "Availability" in body
+    assert "prompt_audits" in body
+    assert "provider_sessions" in body
+    assert "state_backups" in body
+
+
 def test_unknown_route_returns_404(tmp_path: Path):
     response = _app(tmp_path).handle("GET", "/missing")
 
@@ -158,6 +205,73 @@ def test_run_detail_route_shows_cursor_commands_lineage_and_warnings(tmp_path: P
     assert "artifact_versions" in body
 
 
+def test_run_detail_links_run_local_observability_files(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    logs = run_root / "logs"
+    provider_sessions = run_root / "provider_sessions"
+    logs.mkdir(parents=True)
+    provider_sessions.mkdir()
+    (logs / "Step.prompt.txt").write_text("masked prompt", encoding="utf-8")
+    (logs / "Step.stdout").write_text("stdout", encoding="utf-8")
+    (logs / "Step.stderr").write_text("stderr", encoding="utf-8")
+    (provider_sessions / "root.step__v1.json").write_text(
+        '{"step_status":"completed"}',
+        encoding="utf-8",
+    )
+    (provider_sessions / "root.step__v1.transport.log").write_text(
+        "transport",
+        encoding="utf-8",
+    )
+    (run_root / "state.json.step_Step.bak").write_text("{}", encoding="utf-8")
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "completed",
+                "steps": {
+                    "Step": {
+                        "status": "completed",
+                        "step_id": "root.step",
+                        "visit_count": 1,
+                        "debug": {
+                            "provider_session": {
+                                "metadata_path": str(provider_sessions / "root.step__v1.json"),
+                                "transport_spool_path": str(
+                                    provider_sessions / "root.step__v1.transport.log"
+                                ),
+                                "publication_state": "published",
+                            }
+                        },
+                    }
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "Prompt Audits" in body
+    assert "masked debug prompt file" in body
+    assert 'href="/runs/w0/run1/files/run/logs/Step.prompt.txt"' in body
+    assert "Execution Logs" in body
+    assert "less-masked execution log" in body
+    assert 'href="/runs/w0/run1/files/run/logs/Step.stdout"' in body
+    assert 'href="/runs/w0/run1/files/run/logs/Step.stderr"' in body
+    assert "Provider Sessions" in body
+    assert "provider transport log" in body
+    assert 'href="/runs/w0/run1/files/run/provider_sessions/root.step__v1.json"' in body
+    assert (
+        'href="/runs/w0/run1/files/run/provider_sessions/root.step__v1.transport.log"'
+        in body
+    )
+    assert "State Backups" in body
+    assert 'href="/runs/w0/run1/files/run/state.json.step_Step.bak"' in body
+
+
 def test_step_detail_route_resolves_by_name_and_escapes_payloads(tmp_path: Path):
     _write_run(
         tmp_path,
@@ -184,6 +298,75 @@ def test_step_detail_route_resolves_by_name_and_escapes_payloads(tmp_path: Path)
     assert "&lt;b&gt;bad&lt;/b&gt;" in body
     assert "&lt;script&gt;boom&lt;/script&gt;" in body
     assert "&lt;img src=x&gt;" in body
+
+
+def test_step_detail_shows_visit_duration_outcome_and_observability_refs(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    logs = run_root / "logs"
+    provider_sessions = run_root / "provider_sessions"
+    logs.mkdir(parents=True)
+    provider_sessions.mkdir()
+    (logs / "Step.prompt.txt").write_text("prompt", encoding="utf-8")
+    (logs / "Step.stdout").write_text("stdout", encoding="utf-8")
+    (logs / "Step.stderr").write_text("stderr", encoding="utf-8")
+    (provider_sessions / "root.step__v3.json").write_text(
+        '{"publication_state":"published"}',
+        encoding="utf-8",
+    )
+    (provider_sessions / "root.step__v3.transport.log").write_text(
+        "transport",
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "completed",
+                "steps": {
+                    "Step": {
+                        "status": "completed",
+                        "step_id": "root.step",
+                        "duration_ms": 123,
+                        "visit_count": 3,
+                        "outcome": {
+                            "status": "completed",
+                            "phase": "execution",
+                            "class": "completed",
+                        },
+                        "debug": {
+                            "provider_session": {
+                                "metadata_path": str(provider_sessions / "root.step__v3.json"),
+                                "transport_spool_path": str(
+                                    provider_sessions / "root.step__v3.transport.log"
+                                ),
+                                "publication_state": "published",
+                            }
+                        },
+                    }
+                },
+            },
+            indent=2,
+        ),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/steps/Step")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "Visit count: 3" in body
+    assert "Duration: 123 ms" in body
+    assert "Outcome" in body
+    assert "published" in body
+    assert "Provider Session" in body
+    assert 'href="/runs/w0/run1/files/run/logs/Step.prompt.txt"' in body
+    assert 'href="/runs/w0/run1/files/run/logs/Step.stdout"' in body
+    assert 'href="/runs/w0/run1/files/run/logs/Step.stderr"' in body
+    assert 'href="/runs/w0/run1/files/run/provider_sessions/root.step__v3.json"' in body
+    assert (
+        'href="/runs/w0/run1/files/run/provider_sessions/root.step__v3.transport.log"'
+        in body
+    )
 
 
 def test_state_preview_route_uses_capped_escaped_json_preview(tmp_path: Path):
