@@ -1590,6 +1590,21 @@ class LoopExecutor:
             if presentation_key in iteration_state and isinstance(iteration_state[presentation_key], dict)
         }
 
+    def build_loop_self_node_ids(self, loop_step: Dict[str, Any]) -> tuple[str, ...]:
+        """Return node ids that belong to the active loop body scope."""
+        projection = getattr(self.executor, "projection", None)
+        if projection is None:
+            return ()
+
+        loop_node_id = self.executor._step_id(loop_step)
+        loop_projection = projection.repeat_until_nodes.get(loop_node_id)
+        if loop_projection is None:
+            loop_projection = projection.for_each_nodes.get(loop_node_id)
+        if loop_projection is None:
+            return ()
+
+        return tuple(loop_projection.nested_presentation_keys.keys())
+
     def build_loop_scope(
         self,
         state: Dict[str, Any],
@@ -1607,7 +1622,10 @@ class LoopExecutor:
         }
         if isinstance(parent_scope_node_results, dict) and parent_scope_node_results:
             scope["parent_node_results"] = parent_scope_node_results
-        if isinstance(loop_step, dict):
+        if loop_step is not None:
+            self_node_ids = self.build_loop_self_node_ids(loop_step)
+            if self_node_ids:
+                scope["self_node_ids"] = self_node_ids
             self_node_results = self.build_loop_self_node_results(loop_step, iteration_state)
             if self_node_results:
                 scope["self_node_results"] = self_node_results

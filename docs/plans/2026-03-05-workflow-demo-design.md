@@ -524,4 +524,4 @@ The workflow should win because of process control, not because of privileged in
 4. Build 2-3 candidate Python-to-Rust ML-adjacent tasks against the scaffold.
 5. Validate that at least one candidate usually triggers a meaningful revision cycle.
 
-For entrypoint-matching tasks such as the current nanoBragg flagship, review and implementation gates should judge against the named reference entrypoint outputs and visible fixture boundaries rather than a broader inferred domain model.
+For entrypoint-matching tasks such as the current nanoBragg flagship, review and implementation gates should judge against the scoped contract: the named reference entrypoint outputs and visible fixture boundaries rather than a broader inferred domain model.

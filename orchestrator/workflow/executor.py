@@ -798,6 +798,17 @@ class WorkflowExecutor:
         results = scope.get(key)
         return results if isinstance(results, Mapping) else None
 
+    @staticmethod
+    def _scoped_node_ids_contains(
+        scope: Optional[Dict[str, Dict[str, Any]]],
+        key: str,
+        node_id: str,
+    ) -> bool:
+        if not isinstance(scope, dict):
+            return False
+        node_ids = scope.get(key)
+        return isinstance(node_ids, (set, frozenset, tuple, list)) and node_id in node_ids
+
     def _result_for_node_id(
         self,
         node_id: str,
@@ -813,6 +824,9 @@ class WorkflowExecutor:
             candidate = indexed_results.get(node_id)
             if isinstance(candidate, dict):
                 return candidate
+
+        if self._scoped_node_ids_contains(scope, "self_node_ids", node_id):
+            raise ReferenceResolutionError(f"Bound address target step '{node_id}' is unavailable")
 
         presentation_key = (
             self.projection.presentation_key_by_node_id.get(node_id)
@@ -3233,7 +3247,7 @@ class WorkflowExecutor:
         step_name = step.get('name', f'step_{self.current_step}')
         runtime_context = self._runtime_context(context, state)
         variables = runtime_context.build_variables(self.variable_substitutor, state)
-        resolved_expected_outputs, _resolved_output_bundle, path_error = self._resolve_output_contract_paths(
+        resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
             step,
             state,
             context=context,
@@ -3244,6 +3258,9 @@ class WorkflowExecutor:
         if resolved_expected_outputs is not None:
             prompt_contract_step = dict(step)
             prompt_contract_step['expected_outputs'] = resolved_expected_outputs
+        elif resolved_output_bundle is not None:
+            prompt_contract_step = dict(step)
+            prompt_contract_step['output_bundle'] = resolved_output_bundle
 
         # Initialize prompt variable from either input_file or asset_file.
         prompt, prompt_error = self.prompt_composer.read_prompt_source(

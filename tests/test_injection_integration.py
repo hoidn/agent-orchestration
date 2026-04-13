@@ -14,6 +14,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
 from orchestrator.providers.executor import ProviderExecutionResult
 from orchestrator.exceptions import WorkflowValidationError
+from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
 
 
 def create_workflow_file(workspace: Path, workflow: dict, filename: str = "test.yaml") -> str:
@@ -102,7 +103,7 @@ def test_at28_basic_injection(temp_workspace, mock_provider_registry):
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -178,7 +179,7 @@ def test_at29_list_mode_injection(temp_workspace, mock_provider_registry):
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -238,7 +239,7 @@ def test_at30_content_mode_injection(temp_workspace, mock_provider_registry):
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -297,7 +298,7 @@ def test_at31_custom_instruction(temp_workspace, mock_provider_registry):
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -354,7 +355,7 @@ def test_at32_append_position(temp_workspace, mock_provider_registry):
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -411,7 +412,7 @@ def test_at33_pattern_injection(temp_workspace, mock_provider_registry):
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -469,7 +470,7 @@ def test_at34_optional_file_injection(temp_workspace, mock_provider_registry):
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -524,7 +525,7 @@ def test_at35_no_injection_default(temp_workspace, mock_provider_registry):
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -600,7 +601,7 @@ def test_at53_injection_shorthand(temp_workspace, mock_provider_registry):
                 state_manager.initialize(workflow_file, {})
 
                 executor = WorkflowExecutor(
-                    workflow=workflow,
+                    workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                     workspace=temp_workspace,
                     state_manager=state_manager
                 )
@@ -658,7 +659,7 @@ def test_injection_truncation_debug_record(temp_workspace, mock_provider_registr
 
             # Execute workflow
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
                 workspace=temp_workspace,
                 state_manager=state_manager
             )
@@ -712,7 +713,7 @@ def test_dependency_validation_with_injection(temp_workspace, mock_provider_regi
         state_manager.initialize(workflow_file, {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(temp_workspace, workflow_file),
             workspace=temp_workspace,
             state_manager=state_manager
         )

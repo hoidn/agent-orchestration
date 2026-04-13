@@ -140,15 +140,10 @@ def test_build_observability_config_mode_enables_summaries():
 @patch('orchestrator.cli.commands.run.WorkflowLoader')
 def test_run_workflow_persists_observability_runtime_config(mock_loader, mock_state, mock_executor, tmp_path, monkeypatch):
     workflow_file = tmp_path / 'workflow.yaml'
-    workflow_file.write_text('version: "1.3"\nname: test\nsteps: []\n')
+    workflow_file.write_text('version: "1.3"\nname: test\nsteps:\n  - name: Noop\n    command: ["true"]\n')
     monkeypatch.chdir(tmp_path)
 
-    mock_loader.return_value.load_bundle.return_value = {
-        'version': '1.3',
-        'name': 'test',
-        'steps': [],
-        'context': {},
-    }
+    mock_loader.return_value.load_bundle.return_value = WorkflowLoader(tmp_path).load_bundle(workflow_file)
 
     state_inst = MagicMock()
     state_inst.logs_dir = tmp_path / '.orchestrate' / 'runs' / 'test-run' / 'logs'

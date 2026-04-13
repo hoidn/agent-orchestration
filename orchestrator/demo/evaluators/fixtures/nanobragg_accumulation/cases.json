@@ -7,6 +7,9 @@
       "rtol": 1e-6,
       "atol": 1e-8,
       "trace_taps": [[0, 0]],
+      "reference_method": "offline_reference_harness",
+      "reference_source": "../nanoBragg/golden_suite_generator/nanoBragg.c",
+      "reference_snapshot": "scoped-simplified-harness-v1",
       "notes": "Minimal shape-and-value parity case."
     },
     {
@@ -16,6 +19,9 @@
       "rtol": 1e-6,
       "atol": 1e-8,
       "trace_taps": [[1, 1]],
+      "reference_method": "offline_reference_harness",
+      "reference_source": "../nanoBragg/golden_suite_generator/nanoBragg.c",
+      "reference_snapshot": "scoped-simplified-harness-v1",
       "notes": "Exercises detector-thickness-related terms."
     },
     {
@@ -25,6 +31,9 @@
       "rtol": 1e-6,
       "atol": 1e-8,
       "trace_taps": [[2, 1]],
+      "reference_method": "offline_reference_harness",
+      "reference_source": "../nanoBragg/golden_suite_generator/nanoBragg.c",
+      "reference_snapshot": "scoped-simplified-harness-v1",
       "notes": "Exercises multiple phi and mosaic-domain combinations."
     }
   ]

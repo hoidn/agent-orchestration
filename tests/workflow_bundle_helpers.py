@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import is_dataclass
+from pathlib import Path
 from typing import Any
 
+from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.conditions import (
     EqualsConditionNode,
     ExistsConditionNode,
@@ -49,6 +51,14 @@ from orchestrator.workflow.surface_ast import (
     SurfaceStepKind,
     SurfaceWorkflow,
 )
+
+
+def load_workflow_bundle_for_test(workspace: Path, workflow_file: str | Path) -> LoadedWorkflowBundle:
+    """Load a workflow bundle from an absolute path or a path relative to workspace."""
+    workflow_path = Path(workflow_file)
+    if not workflow_path.is_absolute():
+        workflow_path = Path(workspace) / workflow_path
+    return WorkflowLoader(Path(workspace)).load_bundle(workflow_path)
 
 
 def _thaw(value: Any) -> Any:

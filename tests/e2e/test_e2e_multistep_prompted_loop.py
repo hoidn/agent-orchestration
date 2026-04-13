@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.loader import WorkflowLoader
+from tests.workflow_bundle_helpers import thaw_surface_workflow
 from tests.e2e.conftest import skip_if_no_cli, skip_if_no_e2e
 from tests.e2e.reporter import reporter
 
@@ -270,7 +271,7 @@ def test_multistep_prompt_file_contract(e2e_workspace: Path):
     workflow_path = _seed_prompted_loop_workspace(e2e_workspace)
 
     loader = WorkflowLoader(e2e_workspace)
-    workflow = loader.load(workflow_path)
+    workflow = thaw_surface_workflow(loader.load(workflow_path))
 
     provider_steps = [step for step in workflow["steps"] if "provider" in step]
     assert provider_steps, "Expected provider steps in prompted loop workflow"

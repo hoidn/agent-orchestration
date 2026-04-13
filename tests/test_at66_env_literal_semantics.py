@@ -15,6 +15,7 @@ import subprocess
 
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
+from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
 
 
 class TestAT66EnvLiteralSemantics:
@@ -55,7 +56,7 @@ class TestAT66EnvLiteralSemantics:
             state_manager.initialize("workflow.yaml", context={'some_key': 'context-value'})
 
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
                 workspace=Path(tmpdir),
                 state_manager=state_manager
             )
@@ -149,7 +150,7 @@ class TestAT66EnvLiteralSemantics:
             state_manager.initialize("workflow.yaml", context={'key': 'value'})
 
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
                 workspace=Path(tmpdir),
                 state_manager=state_manager
             )
@@ -203,7 +204,7 @@ class TestAT66EnvLiteralSemantics:
             state_manager.initialize("workflow.yaml", context={'value': 'context-val'})
 
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
                 workspace=Path(tmpdir),
                 state_manager=state_manager
             )
@@ -267,7 +268,7 @@ class TestAT66EnvLiteralSemantics:
             state_manager.initialize("workflow.yaml")
 
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
                 workspace=Path(tmpdir),
                 state_manager=state_manager
             )
@@ -335,7 +336,7 @@ class TestAT66EnvLiteralSemantics:
             state_manager.initialize("workflow.yaml")
 
             executor = WorkflowExecutor(
-                workflow=workflow,
+                workflow=load_workflow_bundle_for_test(Path(tmpdir), workflow_file),
                 workspace=Path(tmpdir),
                 state_manager=state_manager
             )

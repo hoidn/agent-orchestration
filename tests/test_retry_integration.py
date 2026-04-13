@@ -14,6 +14,7 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
+from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
 
 
 class TestRetryIntegration:
@@ -52,7 +53,7 @@ class TestRetryIntegration:
 
         # Execute workflow
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager
         )
@@ -103,7 +104,7 @@ exit 0
 
         # Execute workflow (global retries should not apply)
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager,
             max_retries=5  # Global retries should not apply to commands
@@ -143,7 +144,7 @@ exit 0
 
         # Execute workflow
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager
         )
@@ -202,7 +203,7 @@ exit 0
 
         # Execute workflow
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager
         )

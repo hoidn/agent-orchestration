@@ -15,6 +15,7 @@ import subprocess
 
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
+from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
 
 
 class TestPromptLiteralContents:
@@ -70,7 +71,7 @@ class TestPromptLiteralContents:
         state_manager.initialize('workflow.yaml', {'project': 'test-project'})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
             debug=False
@@ -154,7 +155,7 @@ class TestPromptLiteralContents:
         state_manager.initialize('workflow.yaml', {'data': 'important-data'})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
             debug=False
@@ -249,7 +250,7 @@ class TestPromptLiteralContents:
         state_manager.initialize('workflow.yaml', {'model': 'gpt-4'})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
             debug=False
@@ -339,7 +340,7 @@ class TestPromptLiteralContents:
         state_manager.initialize('workflow.yaml', {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
             debug=False
@@ -415,7 +416,7 @@ class TestPromptLiteralContents:
         state_manager.initialize('workflow.yaml', {'name': 'test-value'})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(workspace, workflow_path),
             workspace=workspace,
             state_manager=state_manager,
             debug=False

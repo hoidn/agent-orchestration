@@ -189,7 +189,7 @@ steps:
         assert MockExecutor.called
         init_kwargs = MockExecutor.call_args.kwargs
         workflow = init_kwargs['workflow']
-        assert workflow['name'] == 'Modified Workflow'
+        assert workflow.surface.name == 'Modified Workflow'
 
     assert result == 0
 

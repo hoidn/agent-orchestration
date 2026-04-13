@@ -11,6 +11,7 @@ import time
 
 from orchestrator.state import StateManager, RunState, StepResult
 from orchestrator.workflow.executor import WorkflowExecutor
+from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
 
 
 def test_at69_debug_enables_backups():
@@ -102,7 +103,7 @@ def test_at69_workflow_executor_creates_backups():
 
         # Create executor with debug=True
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(workspace, workflow_file),
             workspace=workspace,
             state_manager=state_manager,
             debug=True  # Enable debug mode
@@ -152,7 +153,7 @@ def test_at69_for_each_loop_backups():
 
         # Create executor with debug=True
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(workspace, workflow_file),
             workspace=workspace,
             state_manager=state_manager,
             debug=True

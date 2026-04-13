@@ -17,6 +17,7 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
+from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
 
 
 def create_test_workflow():
@@ -120,7 +121,7 @@ def test_at65_loop_scoped_steps_current_iteration(tmp_path):
     with patch('subprocess.run', mock_run):
         # Execute
         executor = WorkflowExecutor(
-            workflow,
+            load_workflow_bundle_for_test(tmp_path, workflow_path),
             tmp_path,  # workspace
             state_manager,
             logs_dir=tmp_path / "logs"
@@ -167,7 +168,7 @@ def test_at65_outer_steps_undefined_in_loop(tmp_path):
     state_manager = StateManager(state_dir)
     state_manager.initialize(str(workflow_path))
     executor = WorkflowExecutor(
-        workflow,
+        load_workflow_bundle_for_test(tmp_path, workflow_path),
         tmp_path,  # workspace
         state_manager,
         logs_dir=tmp_path / "logs"
@@ -255,7 +256,7 @@ def test_at65_iteration_isolation(tmp_path):
         state_manager = StateManager(state_dir)
         state_manager.initialize(str(workflow_path))
         executor = WorkflowExecutor(
-            workflow,
+            load_workflow_bundle_for_test(tmp_path, workflow_path),
             tmp_path,  # workspace
             state_manager,
             logs_dir=tmp_path / "logs"
@@ -284,7 +285,7 @@ def test_loop_scoping_legacy_v14_steps_namespace_is_unchanged(tmp_path):
     state_manager = StateManager(state_dir)
     state_manager.initialize(str(workflow_path))
     executor = WorkflowExecutor(
-        workflow,
+        load_workflow_bundle_for_test(tmp_path, workflow_path),
         tmp_path,
         state_manager,
         logs_dir=tmp_path / "logs",
@@ -568,7 +569,7 @@ def test_at65_nested_step_references_within_iteration(tmp_path):
         state_manager = StateManager(state_dir)
         state_manager.initialize(str(workflow_path))
         executor = WorkflowExecutor(
-            workflow,
+            load_workflow_bundle_for_test(tmp_path, workflow_path),
             tmp_path,  # workspace
             state_manager,
             logs_dir=tmp_path / "logs"
@@ -626,7 +627,7 @@ def test_at65_empty_steps_in_first_iteration(tmp_path):
     state_manager = StateManager(state_dir)
     state_manager.initialize(str(workflow_path))
     executor = WorkflowExecutor(
-        workflow,
+        load_workflow_bundle_for_test(tmp_path, workflow_path),
         tmp_path,  # workspace
         state_manager,
         logs_dir=tmp_path / "logs"

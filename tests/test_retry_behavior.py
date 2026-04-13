@@ -17,6 +17,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.state import StateManager
 from orchestrator.exec.output_capture import CaptureResult, CaptureMode
 from orchestrator.providers.executor import ProviderExecutionResult
+from tests.workflow_bundle_helpers import load_workflow_bundle_for_test
 
 
 class TestRetryPolicy:
@@ -121,7 +122,7 @@ class TestWorkflowRetryExecution:
         state_manager.initialize(str(workflow_file), {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager
         )
@@ -174,7 +175,7 @@ class TestWorkflowRetryExecution:
         state_manager.initialize(str(workflow_file), {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager,
             max_retries=2,
@@ -242,7 +243,7 @@ class TestWorkflowRetryExecution:
         state_manager.initialize(str(workflow_file), {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager,
             max_retries=1,
@@ -301,7 +302,7 @@ class TestWorkflowRetryExecution:
         state_manager.initialize(str(workflow_file), {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager,
             max_retries=5  # Global retries should not apply to commands
@@ -358,7 +359,7 @@ class TestWorkflowRetryExecution:
         state_manager.initialize(str(workflow_file), {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager
         )
@@ -431,7 +432,7 @@ class TestWorkflowRetryExecution:
         state_manager.initialize(str(workflow_file), {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager,
             max_retries=5
@@ -488,7 +489,7 @@ class TestWorkflowRetryExecution:
         state_manager.initialize(str(workflow_file), {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager,
             max_retries=10  # Global setting
@@ -538,7 +539,7 @@ class TestWorkflowRetryExecution:
         state_manager.initialize('retry_visits.yaml', {})
 
         executor = WorkflowExecutor(
-            workflow=workflow,
+            workflow=load_workflow_bundle_for_test(self.workspace, workflow_file),
             workspace=self.workspace,
             state_manager=state_manager,
         )
