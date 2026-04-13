@@ -86,6 +86,11 @@ artifacts:
     kind: scalar
     type: enum
     allowed: ["APPROVE", "REVISE"]
+  open_findings:
+    pointer: ${inputs.state_root}/open_findings_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
   review_decision:
     kind: scalar
     type: enum
@@ -103,6 +108,9 @@ steps:
         mkdir -p "$(dirname "${inputs.implementation_review_report_target_path}")"
         printf '%s\n' "${inputs.execution_report_target_path}" > "${inputs.state_root}/execution_report_path.txt"
         printf '%s\n' "${inputs.implementation_review_report_target_path}" > "${inputs.state_root}/implementation_review_report_path.txt"
+        printf '%s\n' "${inputs.state_root}/open_findings.json" > "${inputs.state_root}/open_findings_path.txt"
+        printf '%s\n' "${inputs.state_root}/implementation_review_findings.json" > "${inputs.state_root}/implementation_review_findings_path.txt"
+        printf '{"findings": []}\n' > "${inputs.state_root}/open_findings.json"
     expected_outputs:
       - name: execution_report_path
         path: ${inputs.state_root}/execution_report_path.txt
@@ -112,6 +120,14 @@ steps:
         path: ${inputs.state_root}/implementation_review_report_path.txt
         type: relpath
         under: artifacts/revision_studies
+      - name: open_findings_path
+        path: ${inputs.state_root}/open_findings_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+    publishes:
+      - artifact: open_findings
+        from: open_findings_path
 
   - name: PublishRevisionImplementationInputs
     id: publish_revision_implementation_inputs
@@ -221,7 +237,10 @@ steps:
             - artifact: execution_report
               policy: latest_successful
               freshness: any
-          prompt_consumes: ["approved_design", "revision_context", "plan", "execution_report"]
+            - artifact: open_findings
+              policy: latest_successful
+              freshness: any
+          prompt_consumes: ["approved_design", "revision_context", "plan", "execution_report", "open_findings"]
           expected_outputs:
             - name: implementation_review_report_path
               path: ${inputs.state_root}/implementation_review_report_path.txt
@@ -232,11 +251,59 @@ steps:
               path: ${inputs.state_root}/implementation_review_decision.txt
               type: enum
               allowed: ["APPROVE", "REVISE"]
+            - name: implementation_review_findings_path
+              path: ${inputs.state_root}/implementation_review_findings_path.txt
+              type: relpath
+              under: state
+              must_exist_target: true
+            - name: unresolved_high_count
+              path: ${inputs.state_root}/implementation_unresolved_high_count.txt
+              type: integer
+            - name: unresolved_medium_count
+              path: ${inputs.state_root}/implementation_unresolved_medium_count.txt
+              type: integer
           publishes:
             - artifact: implementation_review_report
               from: implementation_review_report_path
             - artifact: implementation_review_decision
               from: implementation_review_decision
+
+        - name: ExtractOpenRevisionImplementationFindings
+          id: extract_open_revision_implementation_findings
+          command:
+            - bash
+            - -lc
+            - |
+              python - <<'PY'
+              import json
+              from pathlib import Path
+
+              review_pointer = Path("${inputs.state_root}/implementation_review_findings_path.txt")
+              review_path = Path(review_pointer.read_text(encoding="utf-8").strip())
+              report = json.loads(review_path.read_text(encoding="utf-8"))
+
+              carried = []
+              for finding in report.get("findings", []):
+                  if finding.get("status") in {"STILL_OPEN", "NEW", "SPLIT"}:
+                      carried.append(finding)
+
+              open_findings_pointer = Path("${inputs.state_root}/open_findings_path.txt")
+              open_findings_path = Path(open_findings_pointer.read_text(encoding="utf-8").strip())
+              open_findings_path.parent.mkdir(parents=True, exist_ok=True)
+              open_findings_path.write_text(
+                  json.dumps({"findings": carried}, indent=2) + "\n",
+                  encoding="utf-8",
+              )
+              PY
+          expected_outputs:
+            - name: open_findings_path
+              path: ${inputs.state_root}/open_findings_path.txt
+              type: relpath
+              under: state
+              must_exist_target: true
+          publishes:
+            - artifact: open_findings
+              from: open_findings_path
 
         - name: RouteRevisionImplementationDecision
           id: route_revision_implementation_decision

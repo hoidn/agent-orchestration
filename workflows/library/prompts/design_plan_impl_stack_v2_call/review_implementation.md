@@ -11,6 +11,7 @@ Prioritize completion of unfinished required plan work over cleanup of issues in
 When reviewing:
 - identify required plan tasks that are still not implemented
 - identify concrete implementation bugs, regressions, contract mismatches, and weak verification
+- use systematic-debugging to identify the root cause of any nontrivial runtime failures
 - distinguish:
   - remaining required plan work
   - defects in already-implemented work that block subsequent required plan work
