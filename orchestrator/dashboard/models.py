@@ -139,6 +139,8 @@ class DashboardRunDetail:
     error: Any = None
     artifact_versions: Mapping[str, Any] = field(default_factory=dict)
     artifact_consumes: Mapping[str, Any] = field(default_factory=dict)
+    call_frame_artifact_versions: Mapping[str, Any] = field(default_factory=dict)
+    call_frame_artifact_consumes: Mapping[str, Any] = field(default_factory=dict)
     observability_files: Mapping[str, list[FileReference]] = field(default_factory=dict)
     common_artifact_refs: Mapping[str, FileReference] = field(default_factory=dict)
     warnings: list[str] = field(default_factory=list)

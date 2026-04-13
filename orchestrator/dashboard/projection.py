@@ -49,7 +49,7 @@ class RunProjector:
         warnings = base_warnings + ([workflow_warning] if workflow_warning else [])
 
         if workflow is not None:
-            snapshot = build_status_snapshot(workflow, state, run.run_root)
+            snapshot = build_status_snapshot(workflow, state, run.run_root, now=self.now)
             steps = self._steps_from_snapshot(snapshot.get("steps", []), resolver, warnings)
             run_payload = snapshot.get("run", {}) if isinstance(snapshot.get("run"), Mapping) else {}
             persisted_status = str(run_payload.get("persisted_status") or state.get("status"))
@@ -71,8 +71,16 @@ class RunProjector:
         cursor = self.cursor_projector.project(state)
         warnings.extend(cursor.warnings)
         artifact_versions = self._artifact_versions(state, resolver, warnings)
+        artifact_consumes = self._artifact_consumes(state)
+        call_frame_artifact_versions, call_frame_artifact_consumes = (
+            self._call_frame_artifact_lineage(state, resolver, warnings)
+        )
         observability_files = self._observability_files(run.run_root, resolver, warnings)
-        common_artifact_refs = self._common_artifact_refs(steps, artifact_versions)
+        common_artifact_refs = self._common_artifact_refs(
+            steps,
+            artifact_versions,
+            call_frame_artifact_versions,
+        )
         failure_summary = self._failure_summary(state, steps, run.parse_error or run.read_error)
         row = self._row(
             run,
@@ -100,11 +108,9 @@ class RunProjector:
             finalization=state.get("finalization", {}) if isinstance(state.get("finalization"), Mapping) else {},
             error=state.get("error"),
             artifact_versions=artifact_versions,
-            artifact_consumes=(
-                state.get("artifact_consumes", {})
-                if isinstance(state.get("artifact_consumes"), Mapping)
-                else {}
-            ),
+            artifact_consumes=artifact_consumes,
+            call_frame_artifact_versions=call_frame_artifact_versions,
+            call_frame_artifact_consumes=call_frame_artifact_consumes,
             observability_files=observability_files,
             common_artifact_refs=common_artifact_refs,
             warnings=warnings,
@@ -391,6 +397,8 @@ class RunProjector:
         state: Mapping[str, Any],
         resolver: FileReferenceResolver,
         warnings: list[str],
+        *,
+        source_label: Optional[str] = None,
     ) -> dict[str, list[dict[str, Any]]]:
         versions = state.get("artifact_versions")
         if not isinstance(versions, Mapping):
@@ -409,10 +417,67 @@ class RunProjector:
                     try:
                         copy_entry["file_ref"] = resolver.from_any(value, label=artifact_name)
                     except UnsafePathError as exc:
-                        warnings.append(f"unsafe artifact {artifact_name}: {exc}")
+                        if source_label:
+                            warnings.append(
+                                f"unsafe {source_label} artifact {artifact_name}: {exc}"
+                            )
+                        else:
+                            warnings.append(f"unsafe artifact {artifact_name}: {exc}")
                 projected_entries.append(copy_entry)
             projected[artifact_name] = projected_entries
         return projected
+
+    def _artifact_consumes(self, state: Mapping[str, Any]) -> dict[str, Any]:
+        consumes = state.get("artifact_consumes")
+        return dict(consumes) if isinstance(consumes, Mapping) else {}
+
+    def _call_frame_artifact_lineage(
+        self,
+        state: Mapping[str, Any],
+        resolver: FileReferenceResolver,
+        warnings: list[str],
+        *,
+        prefix: str = "",
+        depth: int = 0,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        if depth > 20:
+            warnings.append("call frame artifact lineage recursion limit reached")
+            return {}, {}
+        call_frames = state.get("call_frames")
+        if not isinstance(call_frames, Mapping):
+            return {}, {}
+
+        frame_versions: dict[str, Any] = {}
+        frame_consumes: dict[str, Any] = {}
+        for frame_id, frame in call_frames.items():
+            if not isinstance(frame_id, str) or not isinstance(frame, Mapping):
+                continue
+            frame_state = frame.get("state")
+            if not isinstance(frame_state, Mapping):
+                continue
+            frame_key = f"{prefix}/{frame_id}" if prefix else frame_id
+            versions = self._artifact_versions(
+                frame_state,
+                resolver,
+                warnings,
+                source_label=f"call frame {frame_key}",
+            )
+            consumes = self._artifact_consumes(frame_state)
+            if versions:
+                frame_versions[frame_key] = versions
+            if consumes:
+                frame_consumes[frame_key] = consumes
+
+            nested_versions, nested_consumes = self._call_frame_artifact_lineage(
+                frame_state,
+                resolver,
+                warnings,
+                prefix=frame_key,
+                depth=depth + 1,
+            )
+            frame_versions.update(nested_versions)
+            frame_consumes.update(nested_consumes)
+        return frame_versions, frame_consumes
 
     def _failure_summary(
         self,
@@ -474,6 +539,7 @@ class RunProjector:
         self,
         steps: list[DashboardStep],
         artifact_versions: Mapping[str, Any],
+        call_frame_artifact_versions: Mapping[str, Any],
     ) -> dict[str, FileReference]:
         refs: dict[str, FileReference] = {}
         for step in steps:
@@ -499,6 +565,27 @@ class RunProjector:
                 if key in refs:
                     key = f"{artifact_name}@{version}" if version is not None else f"{artifact_name}.lineage"
                 refs[key] = file_ref
+        for frame_id, frame_versions in call_frame_artifact_versions.items():
+            if not isinstance(frame_versions, Mapping):
+                continue
+            for artifact_name, entries in frame_versions.items():
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    if not isinstance(entry, Mapping):
+                        continue
+                    file_ref = entry.get("file_ref")
+                    if not isinstance(file_ref, FileReference):
+                        continue
+                    version = entry.get("version")
+                    key = f"{frame_id}.{artifact_name}"
+                    if key in refs:
+                        key = (
+                            f"{frame_id}.{artifact_name}@{version}"
+                            if version is not None
+                            else f"{frame_id}.{artifact_name}.lineage"
+                        )
+                    refs[key] = file_ref
         return refs
 
     def _has_run_file(self, run_root: Path, pattern: str) -> bool:

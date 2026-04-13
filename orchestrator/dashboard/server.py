@@ -5,6 +5,7 @@ from __future__ import annotations
 import html
 import json
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -31,11 +32,17 @@ class DashboardResponse:
 class DashboardApp:
     """Explicit route dispatcher for dashboard pages."""
 
-    def __init__(self, scanner: RunScanner, *, now: str | datetime | None = None) -> None:
+    def __init__(
+        self,
+        scanner: RunScanner,
+        *,
+        now: str | datetime | Callable[[], str | datetime] | None = None,
+    ) -> None:
         self.scanner = scanner
-        self.now = self._coerce_now(now)
+        self._now_provider = self._coerce_now_provider(now)
 
     def handle(self, method: str, target: str) -> DashboardResponse:
+        request_now = self._now()
         if method != "GET":
             return self._response(405, "Method not allowed")
         parsed = urlsplit(target)
@@ -43,11 +50,11 @@ class DashboardApp:
             return DashboardResponse(status=302, headers={"Location": "/runs"})
         if parsed.path == "/runs":
             query = parse_qs(parsed.query)
-            return self._runs_index(query)
+            return self._runs_index(query, request_now)
         segments = [unquote(segment) for segment in parsed.path.strip("/").split("/") if segment]
         if len(segments) >= 3 and segments[0] == "runs":
             workspace_id, run_dir_id = segments[1], segments[2]
-            detail = self._find_detail(workspace_id, run_dir_id)
+            detail = self._find_detail(workspace_id, run_dir_id, request_now)
             if detail is None:
                 return self._response(404, "Run not found")
             if len(segments) == 3:
@@ -66,10 +73,10 @@ class DashboardApp:
                 )
         return self._response(404, "Not found")
 
-    def _runs_index(self, query: Mapping[str, list[str]]) -> DashboardResponse:
+    def _runs_index(self, query: Mapping[str, list[str]], now: datetime) -> DashboardResponse:
         scan = self.scanner.scan()
-        projector = RunProjector(now=self.now)
-        rows = self._filter_rows(projector.project_index(scan.runs), query)
+        projector = RunProjector(now=now)
+        rows = self._filter_rows(projector.project_index(scan.runs), query, now)
         refresh = self._refresh_seconds(query)
         lines = [
             "<!doctype html>",
@@ -119,11 +126,11 @@ class DashboardApp:
         lines.extend(["</tbody></table>", "</main>", "</body></html>"])
         return self._html_response("\n".join(lines))
 
-    def _find_detail(self, workspace_id: str, run_dir_id: str):
+    def _find_detail(self, workspace_id: str, run_dir_id: str, now: datetime):
         scan = self.scanner.scan()
         for run in scan.runs:
             if run.workspace.id == workspace_id and run.run_dir_id == run_dir_id:
-                return RunProjector(now=self.now).project_detail(run)
+                return RunProjector(now=now).project_detail(run)
         return None
 
     def _run_detail(self, detail, *, refresh: Optional[int] = None) -> DashboardResponse:
@@ -245,6 +252,10 @@ class DashboardApp:
         lines.append(f"<pre>{self._json(detail.artifact_versions)}</pre></section>")
         lines.append("<section><h2>artifact_consumes</h2>")
         lines.append(f"<pre>{self._json(detail.artifact_consumes)}</pre></section>")
+        lines.append("<section><h2>call_frame_artifact_versions</h2>")
+        lines.append(f"<pre>{self._json(detail.call_frame_artifact_versions)}</pre></section>")
+        lines.append("<section><h2>call_frame_artifact_consumes</h2>")
+        lines.append(f"<pre>{self._json(detail.call_frame_artifact_consumes)}</pre></section>")
         lines.append(f"<p><a href=\"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/state\">State JSON</a></p>")
         lines.extend(["</main></body></html>"])
         return self._html_response("\n".join(lines))
@@ -305,9 +316,16 @@ class DashboardApp:
             "<html><head><meta charset=\"utf-8\"><title>State Preview</title></head><body><main>",
             f"<h1>State JSON for {self._e(detail.row.run_dir_id)}</h1>",
             f"<p>Status: {self._e(preview.status)}</p>",
+        ]
+        if preview.truncated:
+            size = preview.size_bytes if preview.size_bytes is not None else ""
+            lines.append(
+                f"<p>Preview truncated at dashboard cap; file size {self._e(size)} bytes.</p>"
+            )
+        lines.extend([
             f"<pre>{preview.display_text}</pre>",
             "</main></body></html>",
-        ]
+        ])
         return DashboardResponse(
             status=200,
             body="\n".join(lines).encode("utf-8"),
@@ -354,17 +372,23 @@ class DashboardApp:
             return self._html_response(body)
 
         preview = renderer.preview(file_ref.absolute_path)
-        body = "\n".join(
-            [
-                "<!doctype html>",
-                "<html><head><meta charset=\"utf-8\"><title>File Preview</title></head><body><main>",
-                f"<h1>{self._e(scope)}:{self._e(file_ref.route_path)}</h1>",
-                f"<p>Status: {self._e(preview.status)}</p>",
-                f"<p><a href=\"{self._file_href(detail.row, file_ref)}?raw=1\">Download raw</a></p>",
-                f"<pre>{preview.display_text}</pre>",
-                "</main></body></html>",
-            ]
-        )
+        lines = [
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"><title>File Preview</title></head><body><main>",
+            f"<h1>{self._e(scope)}:{self._e(file_ref.route_path)}</h1>",
+            f"<p>Status: {self._e(preview.status)}</p>",
+            f"<p><a href=\"{self._file_href(detail.row, file_ref)}?raw=1\">Download raw</a></p>",
+        ]
+        if preview.truncated:
+            size = preview.size_bytes if preview.size_bytes is not None else ""
+            lines.append(
+                f"<p>Preview truncated at dashboard cap; file size {self._e(size)} bytes.</p>"
+            )
+        lines.extend([
+            f"<pre>{preview.display_text}</pre>",
+            "</main></body></html>",
+        ])
+        body = "\n".join(lines)
         return DashboardResponse(
             status=200,
             body=body.encode("utf-8"),
@@ -401,7 +425,7 @@ class DashboardApp:
                 return run
         raise LookupError("run disappeared during dashboard request")
 
-    def _filter_rows(self, rows, query: Mapping[str, list[str]]):
+    def _filter_rows(self, rows, query: Mapping[str, list[str]], now: datetime):
         workspace_filter = self._first(query, "workspace")
         status_filter = self._first(query, "status")
         workflow_filter = self._first(query, "workflow")
@@ -438,7 +462,7 @@ class DashboardApp:
                     continue
             if recency_filter is not None:
                 updated_at = self._parse_datetime(row.updated_at)
-                if updated_at is None or self.now - updated_at > recency_filter:
+                if updated_at is None or now - updated_at > recency_filter:
                     continue
             filtered.append(row)
         return filtered
@@ -463,7 +487,21 @@ class DashboardApp:
             "Content-Security-Policy": DASHBOARD_CSP,
         }
 
-    def _coerce_now(self, value: str | datetime | None) -> datetime:
+    def _now(self) -> datetime:
+        return self._now_provider()
+
+    def _coerce_now_provider(
+        self,
+        value: str | datetime | Callable[[], str | datetime] | None,
+    ) -> Callable[[], datetime]:
+        if callable(value):
+            return lambda: self._coerce_now_value(value())
+        fixed = self._coerce_now_value(value) if value is not None else None
+        if fixed is not None:
+            return lambda: fixed
+        return lambda: datetime.now(timezone.utc)
+
+    def _coerce_now_value(self, value: str | datetime) -> datetime:
         if isinstance(value, datetime):
             return value.astimezone(timezone.utc) if value.tzinfo else value.replace(tzinfo=timezone.utc)
         if isinstance(value, str):

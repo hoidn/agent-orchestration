@@ -83,3 +83,25 @@ def test_scanner_warns_on_state_run_id_mismatch(tmp_path: Path):
     assert result.runs[0].warnings == [
         "state.run_id 'state-run' differs from run directory 'dir-run'"
     ]
+
+
+def test_scanner_rejects_state_json_symlink_escape(tmp_path: Path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    external_state = outside / "state.json"
+    external_state.write_text(
+        json.dumps({"run_id": "external-run", "status": "completed"}),
+        encoding="utf-8",
+    )
+    run_dir = tmp_path / ".orchestrate" / "runs" / "run1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "state.json").symlink_to(external_state)
+
+    result = RunScanner([tmp_path]).scan()
+
+    assert len(result.runs) == 1
+    run = result.runs[0]
+    assert run.state is None
+    assert run.state_run_id is None
+    assert run.read_error is not None
+    assert "outside workspace" in run.read_error

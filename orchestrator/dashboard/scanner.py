@@ -63,9 +63,31 @@ class RunScanner:
         run_dir_id = run_root.name
         warnings: list[str] = []
         try:
-            resolved_run_root = run_root.resolve(strict=True)
+            resolved_scanned_run_root = run_root.resolve(strict=True)
         except OSError:
-            resolved_run_root = run_root.resolve(strict=False)
+            resolved_scanned_run_root = run_root.resolve(strict=False)
+        try:
+            resolved_scanned_run_root.relative_to(workspace.root)
+        except ValueError:
+            return RunRecord(
+                workspace=workspace,
+                run_dir_id=run_dir_id,
+                run_root=resolved_scanned_run_root,
+                state_path=state_path,
+                read_error=f"run root escapes workspace: {run_root}",
+            )
+
+        try:
+            resolved_state_path = state_path.resolve(strict=True)
+        except OSError as exc:
+            return RunRecord(
+                workspace=workspace,
+                run_dir_id=run_dir_id,
+                run_root=resolved_scanned_run_root,
+                state_path=state_path,
+                read_error=str(exc),
+            )
+        resolved_run_root = resolved_state_path.parent
         try:
             resolved_run_root.relative_to(workspace.root)
         except ValueError:
@@ -73,18 +95,18 @@ class RunScanner:
                 workspace=workspace,
                 run_dir_id=run_dir_id,
                 run_root=resolved_run_root,
-                state_path=state_path,
-                read_error=f"run root escapes workspace: {run_root}",
+                state_path=resolved_state_path,
+                read_error=f"state.json resolves outside workspace: {state_path}",
             )
 
         try:
-            raw_state = state_path.read_text(encoding="utf-8")
+            raw_state = resolved_state_path.read_text(encoding="utf-8")
         except OSError as exc:
             return RunRecord(
                 workspace=workspace,
                 run_dir_id=run_dir_id,
                 run_root=resolved_run_root,
-                state_path=state_path,
+                state_path=resolved_state_path,
                 read_error=str(exc),
             )
 
@@ -95,7 +117,7 @@ class RunScanner:
                 workspace=workspace,
                 run_dir_id=run_dir_id,
                 run_root=resolved_run_root,
-                state_path=state_path,
+                state_path=resolved_state_path,
                 parse_error=str(exc),
             )
 
@@ -104,7 +126,7 @@ class RunScanner:
                 workspace=workspace,
                 run_dir_id=run_dir_id,
                 run_root=resolved_run_root,
-                state_path=state_path,
+                state_path=resolved_state_path,
                 parse_error="state.json must contain a JSON object",
             )
 
@@ -117,7 +139,7 @@ class RunScanner:
             workspace=workspace,
             run_dir_id=run_dir_id,
             run_root=resolved_run_root,
-            state_path=state_path,
+            state_path=resolved_state_path,
             state=state,
             state_run_id=state_run_id,
             warnings=warnings,

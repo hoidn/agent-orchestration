@@ -482,3 +482,93 @@ def test_invalid_refresh_value_is_ignored_and_escaped(tmp_path: Path):
     body = response.body.decode("utf-8")
     assert "http-equiv=\"refresh\"" not in body
     assert "<script>" not in body
+
+
+def test_runs_index_uses_request_time_for_freshness(tmp_path: Path):
+    _write_run(
+        tmp_path,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "running",
+            "updated_at": "2026-04-13T11:59:00+00:00",
+            "current_step": {
+                "name": "Step",
+                "started_at": "2026-04-13T11:56:00+00:00",
+                "last_heartbeat_at": "2026-04-13T11:56:00+00:00",
+            },
+        },
+    )
+    request_times = iter(
+        [
+            "2026-04-13T12:00:00+00:00",
+            "2026-04-13T12:02:00+00:00",
+        ]
+    )
+    app = DashboardApp(RunScanner([tmp_path]), now=lambda: next(request_times))
+
+    first = app.handle("GET", "/runs").body.decode("utf-8")
+    second = app.handle("GET", "/runs?refresh=5").body.decode("utf-8")
+
+    assert "running" in first
+    assert "stale_running_step_heartbeat_timeout" not in first
+    assert "stale_running_step_heartbeat_timeout" in second
+    assert "6m 0s" in second
+
+
+def test_run_detail_renders_call_frame_local_artifact_lineage(tmp_path: Path):
+    artifact = tmp_path / "artifacts" / "frame.txt"
+    artifact.parent.mkdir()
+    artifact.write_text("ok", encoding="utf-8")
+    _write_run(
+        tmp_path,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "running",
+            "current_step": {"name": "Call", "step_id": "root.call"},
+            "call_frames": {
+                "root.call::visit::1": {
+                    "step_id": "root.call",
+                    "state": {
+                        "artifact_versions": {
+                            "frame_result": [
+                                {
+                                    "version": 1,
+                                    "value": "artifacts/frame.txt",
+                                    "producer": "Nested",
+                                }
+                            ]
+                        },
+                        "artifact_consumes": {"Nested": {"frame_result": 1}},
+                    },
+                }
+            },
+        },
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "call_frame_artifact_versions" in body
+    assert "root.call::visit::1" in body
+    assert "frame_result" in body
+    assert "artifacts/frame.txt" in body
+    assert "call_frame_artifact_consumes" in body
+
+
+def test_file_preview_route_displays_truncated_large_files(tmp_path: Path):
+    large = tmp_path / "artifacts" / "large.log"
+    large.parent.mkdir()
+    large.write_text("a" * (70 * 1024), encoding="utf-8")
+    _write_run(tmp_path, "run1", {"run_id": "run1", "status": "completed"})
+
+    response = _app(tmp_path).handle(
+        "GET",
+        "/runs/w0/run1/files/workspace/artifacts/large.log",
+    )
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "truncated" in body.lower()

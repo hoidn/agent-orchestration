@@ -178,6 +178,7 @@ def build_status_snapshot(
     state: Dict[str, Any],
     run_root: Path,
     run_log_path: Optional[Path] = None,
+    now: Optional[datetime] = None,
 ) -> Dict[str, Any]:
     """Build a deterministic status snapshot from workflow + state artifacts."""
     bundle = workflow_bundle(workflow)
@@ -276,7 +277,7 @@ def build_status_snapshot(
         - progress["skipped"]
     )
 
-    status_projection = derive_status_projection(state, step_entries)
+    status_projection = derive_status_projection(state, step_entries, now=now)
     run_status = str(status_projection["display_status"])
     status_reason = status_projection["display_status_reason"]
     if run_status != "running":

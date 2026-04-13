@@ -65,6 +65,41 @@ def test_projector_uses_workflow_metadata_and_keeps_display_status_separate(tmp_
     assert state_path.read_text(encoding="utf-8") == before
 
 
+def test_projector_uses_injected_time_for_workflow_aware_stale_heartbeat(
+    tmp_path: Path,
+):
+    workflow_path = _write_yaml(
+        tmp_path / "workflows" / "flow.yaml",
+        {
+            "version": "1.3",
+            "name": "dashboard-flow",
+            "steps": [{"name": "Step", "command": ["bash", "-lc", "true"]}],
+        },
+    )
+    _write_state(
+        tmp_path,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "running",
+            "workflow_file": str(workflow_path.relative_to(tmp_path)),
+            "current_step": {
+                "name": "Step",
+                "step_id": "root.step",
+                "last_heartbeat_at": "2030-01-01T00:00:00+00:00",
+            },
+        },
+    )
+    run = _scan_one(tmp_path)
+
+    detail = RunProjector(
+        now=datetime(2030, 1, 1, 0, 6, tzinfo=timezone.utc),
+    ).project_detail(run)
+
+    assert detail.row.display_status == "failed"
+    assert detail.row.display_status_reason == "stale_running_step_heartbeat_timeout"
+
+
 def test_projector_falls_back_to_state_only_when_workflow_file_is_unsafe(tmp_path: Path):
     outside = tmp_path.parent / "outside-workflow.yaml"
     state = {
@@ -131,3 +166,52 @@ def test_projector_links_safe_artifacts_and_warns_on_unsafe_artifacts(tmp_path: 
     assert detail.artifact_versions["safe_path"][0]["file_ref"].route_path == "artifacts/result.txt"
     assert detail.artifact_consumes == {"Use": {"safe_path": 1}}
     assert any("unsafe artifact unsafe_path" in warning for warning in detail.warnings)
+
+
+def test_projector_exposes_call_frame_local_artifact_lineage(tmp_path: Path):
+    frame_artifact = tmp_path / "artifacts" / "frame-result.txt"
+    frame_artifact.parent.mkdir()
+    frame_artifact.write_text("frame", encoding="utf-8")
+    outside = tmp_path.parent / "outside-frame-artifact.txt"
+    state = {
+        "run_id": "run4",
+        "status": "running",
+        "current_step": {"name": "Call", "step_id": "root.call"},
+        "call_frames": {
+            "root.call::visit::1": {
+                "step_id": "root.call",
+                "state": {
+                    "artifact_versions": {
+                        "frame_result": [
+                            {
+                                "version": 1,
+                                "value": "artifacts/frame-result.txt",
+                                "producer": "Nested",
+                            }
+                        ],
+                        "unsafe_frame_result": [
+                            {"version": 1, "value": str(outside), "producer": "Nested"}
+                        ],
+                    },
+                    "artifact_consumes": {"NestedReview": {"frame_result": 1}},
+                },
+            }
+        },
+    }
+    _write_state(tmp_path, "run4", state)
+
+    detail = RunProjector().project_detail(_scan_one(tmp_path))
+
+    frame_versions = detail.call_frame_artifact_versions["root.call::visit::1"]
+    assert frame_versions["frame_result"][0]["file_ref"].route_path == (
+        "artifacts/frame-result.txt"
+    )
+    assert "unsafe_frame_result" in frame_versions
+    assert "file_ref" not in frame_versions["unsafe_frame_result"][0]
+    assert detail.call_frame_artifact_consumes == {
+        "root.call::visit::1": {"NestedReview": {"frame_result": 1}}
+    }
+    assert any(
+        "unsafe call frame root.call::visit::1 artifact unsafe_frame_result" in warning
+        for warning in detail.warnings
+    )
