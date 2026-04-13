@@ -2455,14 +2455,13 @@ class WorkflowExecutor:
         *,
         step_name: str,
         field_name: str,
+        context: Optional[Dict[str, Any]] = None,
     ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
         """Resolve runtime path templates against workflow context and bound inputs."""
-        raw_context = state.get('context', {})
-        runtime_context = RuntimeContext.from_mapping(
-            {"context": raw_context if isinstance(raw_context, dict) else {}},
-            default_context=self.workflow_context_defaults,
-            root_steps=state.get("steps", {}),
-        )
+        if context is None:
+            raw_context = state.get('context', {})
+            context = {"context": raw_context if isinstance(raw_context, dict) else {}}
+        runtime_context = self._runtime_context(context, state)
         variables = runtime_context.build_variables(self.variable_substitutor, state)
         try:
             substituted = self.variable_substitutor.substitute(path_value, variables)
@@ -3207,7 +3206,7 @@ class WorkflowExecutor:
                 'error': {'message': 'Command execution failed with no result'}
             }
 
-        return self._apply_expected_outputs_contract(step, result.to_state_dict(), state)
+        return self._apply_expected_outputs_contract(step, result.to_state_dict(), state, context=context)
 
     def _execute_provider_with_context(
         self,
@@ -3533,7 +3532,7 @@ class WorkflowExecutor:
         if debug_info:
             result['debug'] = debug_info
 
-        return self._apply_expected_outputs_contract(step, result, state)
+        return self._apply_expected_outputs_contract(step, result, state, context=context)
 
     def _build_provider_session_request(
         self,
@@ -3641,6 +3640,7 @@ class WorkflowExecutor:
         self,
         step: Dict[str, Any],
         state: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
     ) -> tuple[Optional[List[Dict[str, Any]]], Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         """Resolve runtime path templates for output contract surfaces."""
         step_name = step.get('name', f'step_{self.current_step}')
@@ -3662,6 +3662,7 @@ class WorkflowExecutor:
                         state,
                         step_name=step_name,
                         field_name=f"expected_outputs[{index}].path",
+                        context=context,
                     )
                     if path_error is not None:
                         return None, None, path_error
@@ -3679,6 +3680,7 @@ class WorkflowExecutor:
                     state,
                     step_name=step_name,
                     field_name='output_bundle.path',
+                    context=context,
                 )
                 if path_error is not None:
                     return None, None, path_error
@@ -3691,6 +3693,7 @@ class WorkflowExecutor:
         step: Dict[str, Any],
         result: Dict[str, Any],
         state: Dict[str, Any],
+        context: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Validate deterministic output contracts and attach parsed values to step result."""
         expected_outputs = step.get('expected_outputs')
@@ -3705,6 +3708,7 @@ class WorkflowExecutor:
         resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
             step,
             state,
+            context=context,
         )
         if path_error is not None:
             return path_error

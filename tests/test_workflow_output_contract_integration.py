@@ -727,6 +727,83 @@ def test_command_step_persists_artifacts_from_output_bundle(tmp_path: Path):
     }
 
 
+def test_repeat_until_output_bundle_path_resolves_loop_index(tmp_path: Path):
+    """repeat_until body output_bundle paths can use loop variables."""
+    workflow = {
+        "version": "2.7",
+        "name": "repeat-until-output-bundle-loop-path",
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "max_iterations": 2,
+                    "outputs": {
+                        "loop_decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["DONE", "AGAIN"],
+                            "from": {
+                                "ref": "self.steps.WriteBundle.artifacts.loop_decision",
+                            },
+                        },
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {
+                                "ref": "self.outputs.loop_decision",
+                            },
+                            "op": "eq",
+                            "right": "DONE",
+                        },
+                    },
+                    "steps": [
+                        {
+                            "name": "WriteBundle",
+                            "id": "write_bundle",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state/repeat/${loop.index} && "
+                                "printf '{\"loop_decision\":\"DONE\"}\\n' "
+                                "> state/repeat/${loop.index}/summary.json",
+                            ],
+                            "output_bundle": {
+                                "path": "state/repeat/${loop.index}/summary.json",
+                                "fields": [
+                                    {
+                                        "name": "loop_decision",
+                                        "json_pointer": "/loop_decision",
+                                        "type": "enum",
+                                        "allowed": ["DONE", "AGAIN"],
+                                    },
+                                ],
+                            },
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loader = WorkflowLoader(tmp_path)
+    loaded = loader.load(workflow_file)
+
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {"loop_decision": "DONE"}
+    assert state["steps"]["ReviewLoop[0].WriteBundle"]["artifacts"] == {
+        "loop_decision": "DONE",
+    }
+
+
 def test_command_step_output_bundle_contract_violation_sets_exit_2(tmp_path: Path):
     """Missing output_bundle file converts successful command to contract_violation."""
     workflow = {
