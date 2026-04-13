@@ -1,10 +1,10 @@
 Take the role of a skeptical principal engineer and scientific reviewer.
 
-Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `approved_design`, and open-findings artifact (`open_findings` or `design_open_findings`, whichever is present) before acting.
+Use the `Consumed Artifacts` section as the authoritative input list.
 Treat `approved_design` as the candidate design under review, not as evidence that the design has already been approved; the artifact name is workflow plumbing.
+Use the open-findings artifact (`open_findings` or `design_open_findings`, whichever is present) to distinguish carried-forward findings from new findings.
 
-- If `docs/index.md` is present, read it first
+When consulting repository documentation, read `docs/index.md` first, then use it to choose the relevant specs, architecture docs, workflow guides, and findings docs.
 
 <task>
 Review the candidate revision-study design recorded in `approved_design`.

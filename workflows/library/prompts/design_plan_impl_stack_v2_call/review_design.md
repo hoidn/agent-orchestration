@@ -1,7 +1,6 @@
 take the role of a principal engineer, expert in PLs, compilers, and agentic engineering. review the design / ADR with no holds barred skepticism
 
-Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `brief`, `design`, and `open_findings` artifacts before acting.
+Use the `Consumed Artifacts` section as the authoritative input list.
 
 First, review the current design from scratch.
 Then reconcile your fresh review against the carried-forward `open_findings` ledger.
