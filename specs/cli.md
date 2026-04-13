@@ -8,6 +8,12 @@
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
     - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
     - v2.10 report output may surface provider-session metadata paths and quarantine context from the persisted run-level error.
+  - `orchestrate dashboard --workspace <root> [--workspace <root> ...] [--host 127.0.0.1] [--port <port>]`
+    - Serves a local, read-only dashboard for explicit workspace roots.
+    - The dashboard scans `<workspace>/.orchestrate/runs/*/state.json` at request time and keys runs by `(resolved workspace root, run directory name)`.
+    - The default bind host is `127.0.0.1`; binding to another host is an explicit operator choice.
+    - Routes include `/runs`, `/runs/<workspace_id>/<run_dir>`, step detail, state preview, and route-scoped workspace/run file previews.
+    - Dashboard routes must not execute `resume`, `report`, tmux, provider CLIs, shell commands, or child processes. Copyable commands are rendered as inert text only.
   - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <file>`, `orchestrate watch <workflow.yaml>`
 
 - Debugging and recovery flags
@@ -44,6 +50,9 @@ orchestrate resume <run_id>
 
 # Render status report for latest run
 orchestrate report --format md
+
+# Serve local dashboard for one or more explicit workspaces
+orchestrate dashboard --workspace "$(pwd)" --host 127.0.0.1 --port 8765
 
 # Validate and show advisory lint warnings without executing
 orchestrate run workflows/demo.yaml --dry-run

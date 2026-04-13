@@ -30,6 +30,11 @@
 Orchestrator interaction: The orchestrator does not consume or act on status JSON files. They are for observability and external tooling only; control flow derives solely from the workflow YAML and `state.json`.
 
 - Status/report surfaces
+  - Dashboard status projection is advisory and read-only: it may expose both persisted `state.status` and dashboard-derived `display_status`, but it must not reconcile stale running state, write `context.status_reconciled_*`, or otherwise mutate `state.json`.
+  - The existing `orchestrate report` command may continue to self-heal stale running state when it derives a terminal status; dashboard routes must reuse only pure projection helpers, not the mutating report command path.
+  - Dashboard run identity is the resolved workspace root plus the scanned run directory name. `state.run_id` is display metadata and mismatch context only.
+  - Dashboard index and detail pages may support an optional `refresh=<seconds>` query parameter using page-level meta refresh. Invalid or out-of-range values are ignored, and refresh support must not add background workers or route-triggered state changes.
+  - Dashboard file previews are observability views over existing artifacts and logs only; missing prompt audits, stdout/stderr spill files, provider-session files, and backups are display states rather than run failures.
   - Step snapshots may include normalized `output.outcome` fields when present in `state.json`.
   - The normalized outcome surface is intended for human-readable reports and typed routing; it does not replace the underlying `status`, `exit_code`, or `error` fields.
   - v1.7 scalar bookkeeping steps report distinct kinds (`set_scalar`, `increment_scalar`) and expose their local produced values through the normal `output.artifacts` surface.

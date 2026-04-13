@@ -100,37 +100,77 @@ def _coerce_step_status(step_result: Any) -> Optional[str]:
     return None
 
 
-def _derive_run_status(state: Dict[str, Any], step_entries: list[Dict[str, Any]]) -> tuple[str, Optional[str]]:
+def derive_status_projection(
+    state: Mapping[str, Any],
+    step_entries: list[Mapping[str, Any]],
+    *,
+    now: Optional[datetime] = None,
+) -> Dict[str, Optional[str]]:
+    """Derive display status from state without mutating the input."""
     status = state.get("status")
-    if status != "running":
-        return str(status), None
+    persisted_status = str(status)
+    display_status = persisted_status
+    display_status_reason: Optional[str] = None
 
-    now = datetime.now(timezone.utc)
+    if status != "running":
+        return {
+            "persisted_status": persisted_status,
+            "display_status": display_status,
+            "display_status_reason": display_status_reason,
+        }
+
+    if now is None:
+        now = datetime.now(timezone.utc)
     current_step = state.get("current_step")
 
     if isinstance(current_step, dict):
         heartbeat = _parse_iso_datetime(
             current_step.get("last_heartbeat_at") or current_step.get("started_at")
         )
-        if heartbeat is None:
-            return "running", None
-        if (now - heartbeat).total_seconds() > _STALE_RUNNING_TIMEOUT_SEC:
-            return "failed", "stale_running_step_heartbeat_timeout"
-        return "running", None
+        if heartbeat is not None and (now - heartbeat).total_seconds() > _STALE_RUNNING_TIMEOUT_SEC:
+            display_status = "failed"
+            display_status_reason = "stale_running_step_heartbeat_timeout"
+        return {
+            "persisted_status": persisted_status,
+            "display_status": display_status,
+            "display_status_reason": display_status_reason,
+        }
 
     updated_at = _parse_iso_datetime(state.get("updated_at"))
     if updated_at is None:
-        return "running", None
+        return {
+            "persisted_status": persisted_status,
+            "display_status": display_status,
+            "display_status_reason": display_status_reason,
+        }
 
     if (now - updated_at).total_seconds() <= _STALE_RUNNING_TIMEOUT_SEC:
-        return "running", None
+        return {
+            "persisted_status": persisted_status,
+            "display_status": display_status,
+            "display_status_reason": display_status_reason,
+        }
 
     step_statuses = {entry.get("status") for entry in step_entries}
     if "pending" in step_statuses or "running" in step_statuses:
-        return "failed", "stale_running_without_current_step"
+        display_status = "failed"
+        display_status_reason = "stale_running_without_current_step"
     if "failed" in step_statuses:
-        return "failed", "stale_running_terminal_not_finalized"
-    return "completed", "stale_running_terminal_not_finalized"
+        display_status = "failed"
+        display_status_reason = "stale_running_terminal_not_finalized"
+    elif display_status_reason is None:
+        display_status = "completed"
+        display_status_reason = "stale_running_terminal_not_finalized"
+    return {
+        "persisted_status": persisted_status,
+        "display_status": display_status,
+        "display_status_reason": display_status_reason,
+    }
+
+
+def _derive_run_status(state: Dict[str, Any], step_entries: list[Dict[str, Any]]) -> tuple[str, Optional[str]]:
+    projection = derive_status_projection(state, step_entries)
+    return str(projection["display_status"]), projection["display_status_reason"]
 
 
 def build_status_snapshot(
@@ -236,7 +276,9 @@ def build_status_snapshot(
         - progress["skipped"]
     )
 
-    run_status, status_reason = _derive_run_status(state, step_entries)
+    status_projection = derive_status_projection(state, step_entries)
+    run_status = str(status_projection["display_status"])
+    status_reason = status_projection["display_status_reason"]
     if run_status != "running":
         if run_status == "completed":
             progress["running"] = 0
@@ -256,6 +298,9 @@ def build_status_snapshot(
         "run_log_path": str(run_log_path) if run_log_path else None,
         "transition_count": state.get("transition_count", 0),
         "max_transitions": bundle.surface.max_transitions,
+        "persisted_status": status_projection["persisted_status"],
+        "display_status": status_projection["display_status"],
+        "display_status_reason": status_projection["display_status_reason"],
     }
     if status_reason:
         run_payload["status_reason"] = status_reason

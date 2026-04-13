@@ -4,6 +4,9 @@
   - Reject absolute paths and any path containing `..` during validation.
   - Follow symlinks; if the resolved path escapes WORKSPACE, reject the path.
   - Apply checks at load time and before filesystem operations.
+  - Dashboard file routes may serve only files under the selected resolved workspace root or the selected scanned run root after validation.
+  - Dashboard route references must be workspace-relative or run-relative; dashboard HTML must not expose raw absolute filesystem links.
+  - Dashboard paths recorded in state, logs, artifacts, provider metadata, and lineage are untrusted data. State-provided `run_root` must not define the server's file-serving authority.
   - Reusable-call additions:
     - `imports` and nested import targets resolve relative to the authored workflow file and must remain within WORKSPACE.
     - `asset_file` and `asset_depends_on` resolve from the directory containing the authored workflow file and must remain within that workflow source tree.
@@ -31,3 +34,10 @@ Note: These safety checks apply to paths the orchestrator resolves (e.g., `input
 
 - Cross-platform note
   - Examples use POSIX tools (`bash`, `find`, `mv`, `test`). On Windows, use WSL or adapt to PowerShell equivalents.
+
+- Dashboard content isolation
+  - Dashboard previews render approved file bodies as escaped text or escaped JSON only; prompt, log, provider transport, state, backup, artifact, HTML, and SVG payloads must not execute in the dashboard origin.
+  - Preview and raw responses set `X-Content-Type-Options: nosniff`.
+  - Dashboard HTML routes set a restrictive Content Security Policy with `default-src 'none'`, `base-uri 'none'`, `object-src 'none'`, `frame-ancestors 'none'`, and `script-src 'none'`, plus only the minimal style/image allowances needed by the server-rendered UI.
+  - Raw file responses default to `Content-Disposition: attachment` and `text/plain; charset=utf-8` for textual files or `application/octet-stream` for non-text files.
+  - Dashboard routes must be read-only: they must not mutate workflow YAML, run state, logs, artifacts, backups, provider session files, or workspace source files, and must not execute operator commands.

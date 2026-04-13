@@ -226,6 +226,25 @@ def create_parser() -> argparse.ArgumentParser:
         help='Optional output file path'
     )
 
+    dashboard_parser = subparsers.add_parser('dashboard', help='Serve local workflow dashboard')
+    dashboard_parser.add_argument(
+        '--workspace',
+        action='append',
+        required=True,
+        help='Workspace root to scan; can be specified multiple times'
+    )
+    dashboard_parser.add_argument(
+        '--host',
+        default='127.0.0.1',
+        help='Host interface to bind (default: 127.0.0.1)'
+    )
+    dashboard_parser.add_argument(
+        '--port',
+        type=int,
+        default=8765,
+        help='Port to bind (default: 8765)'
+    )
+
     return parser
 
 
@@ -250,6 +269,13 @@ def main(args: Optional[list] = None) -> int:
             runs_root=parsed_args.runs_root,
             format=parsed_args.format,
             output=parsed_args.output,
+        )
+    elif parsed_args.command == 'dashboard':
+        from orchestrator.cli.commands import dashboard_workflow
+        return dashboard_workflow(
+            workspace=parsed_args.workspace,
+            host=parsed_args.host,
+            port=parsed_args.port,
         )
     else:
         parser.print_help()

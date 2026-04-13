@@ -10,7 +10,11 @@ import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
-from orchestrator.observability.report import build_status_snapshot, render_status_markdown
+from orchestrator.observability.report import (
+    build_status_snapshot,
+    derive_status_projection,
+    render_status_markdown,
+)
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -883,6 +887,34 @@ def test_snapshot_marks_stale_running_without_current_step_as_failed(tmp_path: P
 
     assert snapshot["run"]["status"] == "failed"
     assert snapshot["run"]["status_reason"] == "stale_running_without_current_step"
+
+
+def test_status_projection_is_pure_for_stale_running_state():
+    stale_updated_at = datetime(2026, 2, 27, tzinfo=timezone.utc)
+    now = stale_updated_at + timedelta(minutes=30)
+    state = {
+        "status": "running",
+        "updated_at": stale_updated_at.isoformat(),
+        "context": {},
+    }
+    read_only_state = MappingProxyType(state)
+
+    projection = derive_status_projection(
+        read_only_state,
+        [{"status": "completed"}, {"status": "pending"}],
+        now=now,
+    )
+
+    assert projection == {
+        "persisted_status": "running",
+        "display_status": "failed",
+        "display_status_reason": "stale_running_without_current_step",
+    }
+    assert state == {
+        "status": "running",
+        "updated_at": stale_updated_at.isoformat(),
+        "context": {},
+    }
 
 
 def test_snapshot_surfaces_provider_session_quarantine_and_metadata_paths(tmp_path: Path):
