@@ -294,6 +294,7 @@ Before running a new workflow, confirm the basics:
 | Dataflow | `publishes.from` references a real produced artifact name; `consumes` matches real runtime dependencies. |
 | Prompts | Prompt text does not conflict with injected blocks. |
 | Control flow | Gates encode completion, not just "a file exists"; loops have bounded retries/cycles. |
+| New DSL surface combinations | If a workflow combines structured loops, calls, or matches with deterministic output contracts or dynamic paths, copy an exact current working example or run a minimal runtime smoke for that exact contract shape. `--dry-run` validates schema and dependencies, not post-execution contract substitution. |
 | First run | Use `--debug` so you can inspect composed prompts. |
 
 ## 8) Debugging Where Things Go Wrong

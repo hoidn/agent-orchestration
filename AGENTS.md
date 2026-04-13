@@ -5,7 +5,8 @@ Read `docs/index.md` before making changes.
 Repo expectations:
 - Read `docs/index.md` before deciding what docs or specs govern the task.
 - Use the `tmux` skill when launching long-running commands.
-- When launching workflows for `/home/ollie/Documents/PtychoPINN` or its paper repo `/home/ollie/Documents/ptychopinnpaper2`, run the workflow process in the `ptycho311` environment, including tmux-launched workflows. Prefer an explicit launch command such as `conda run -n ptycho311 ...` or activate `ptycho311` inside the tmux command before invoking `python -m orchestrator`.
+- When launching workflows for EasySpin, `/home/ollie/Documents/PtychoPINN`, or its paper repo `/home/ollie/Documents/ptychopinnpaper2`, run the workflow process in the `ptycho311` environment, including tmux-launched workflows.
+- For tmux-launched EasySpin, PtychoPINN, or paper workflows, prefer sourcing conda, activating `ptycho311`, and then invoking `python -m orchestrator` directly so tmux shows live output; if you use `conda run`, include `--no-capture-output`.
 - Write plans under `docs/plans/` before large edits.
 - Keep changes scoped to the task; avoid unrelated refactors.
 - Run commands from the repo root so imports, relative paths, and fixture layout stay stable.
