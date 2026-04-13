@@ -11,6 +11,9 @@ You may require internal refactoring or egregious debt paydown before feature wo
 - a contract prerequisite
 - or a major simplicity win that materially reduces feature risk
 
+Reject designs that adopt an existing convention, helper, threshold, or gate without justifying why that choice is appropriate for the outcome the work is expected to produce.
+Reject designs that leave semantically relevant choices or assumptions unjustified, including whether a step is needed, whether an existing helper, convention, threshold, or gate is appropriate, and whether that choice is reliable enough for the outcome the work is expected to produce.
+
 For each prior finding, classify it as one of:
 - `RESOLVED`
 - `STILL_OPEN`

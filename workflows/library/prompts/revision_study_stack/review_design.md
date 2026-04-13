@@ -10,6 +10,8 @@ Treat `approved_design` as the candidate design under review, not as evidence th
 Review the candidate revision-study design recorded in `approved_design`.
 </task>
 
+Reject designs that adopt an existing convention, helper, threshold, or gate without justifying why that choice is appropriate for the outcome the work is expected to produce.
+Reject designs that leave semantically relevant choices or assumptions unjustified, including whether a step is needed, whether an existing helper, convention, threshold, or gate is appropriate, and whether that choice is reliable enough for the outcome the work is expected to produce.
 
 Write JSON to the path recorded by the `design_review_report_path` output-contract pointer using this shape:
 
