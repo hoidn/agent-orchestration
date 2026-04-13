@@ -9,4 +9,4 @@ Focus on:
 - whether internal refactoring or debt paydown is required before feature work
 - explicit non-goals and sequencing constraints
 
-Write the design to the `design_path` path specified in the Output Contract.
+For the output contract's `design_path`, read the path recorded in that file and write the design document to that current-checkout-relative path. Leave the `design_path` file containing only the path.

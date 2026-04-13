@@ -6,4 +6,4 @@ Read the consumed `design`, `plan`, and `plan_review_report` artifacts before ac
 Revise the plan in place to address every unresolved or new in-scope finding.
 Keep tranche order coherent and verification explicit.
 
-Write the updated plan to the `plan_path` path specified in the Output Contract.
+For the output contract's `plan_path`, read the path recorded in that file and write the updated plan document to that current-checkout-relative path. Leave the `plan_path` file containing only the path.

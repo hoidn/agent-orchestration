@@ -9,4 +9,4 @@ The plan should:
 - include verification for each tranche
 - call out migrations, compatibility boundaries, and explicit non-goals
 
-Write the plan to the `plan_path` path specified in the Output Contract.
+For the output contract's `plan_path`, read the path recorded in that file and write the plan document to that current-checkout-relative path. Leave the `plan_path` file containing only the path.

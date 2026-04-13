@@ -18,7 +18,7 @@ When reviewing:
   - non-blocking defects in already-implemented work
   - optional later work or deliberate deferrals
 
-Write the review as markdown to the `implementation_review_report_path` path specified in the Output Contract.
+For the output contract's `implementation_review_report_path`, read the path recorded in that file and write the review markdown to that current-checkout-relative path. Leave the `implementation_review_report_path` file containing only the path.
 Write `APPROVE` or `REVISE` to the `implementation_review_decision` path specified in the Output Contract.
 
 Group findings by severity.

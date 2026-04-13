@@ -13,7 +13,7 @@ For each prior finding, classify it as one of:
 You may add `NEW` findings only if they are materially distinct.
 Do not preserve a finding only because it existed before.
 
-Write JSON to the `plan_review_report_path` path specified in the Output Contract using this shape:
+For the output contract's `plan_review_report_path`, read the path recorded in that file and write JSON to that current-checkout-relative path using this shape. Leave the `plan_review_report_path` file containing only the path.
 
 ```json
 {

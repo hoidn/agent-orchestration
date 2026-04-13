@@ -182,7 +182,7 @@ class SurfaceStep:
     asset_depends_on: tuple[Any, ...] = ()
     inject_output_contract: Optional[bool] = None
     inject_consumes: Optional[bool] = None
-    prompt_consumes: tuple[Any, ...] = ()
+    prompt_consumes: Optional[tuple[Any, ...]] = None
     consumes_injection_position: Optional[str] = None
     wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)

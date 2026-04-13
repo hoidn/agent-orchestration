@@ -187,9 +187,8 @@ class RuntimeStep(Mapping[str, Any]):
             if key == "inject_consumes" and config.inject_consumes is not None:
                 return config.inject_consumes
             if key == "prompt_consumes":
-                value = thaw_runtime_value(config.prompt_consumes)
-                if _include_value(value):
-                    return value
+                if config.prompt_consumes is not None:
+                    return thaw_runtime_value(config.prompt_consumes)
             if key == "consumes_injection_position" and config.consumes_injection_position is not None:
                 return config.consumes_injection_position
             raise KeyError(key)

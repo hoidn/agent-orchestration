@@ -79,6 +79,77 @@ def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Pa
     assert "type: enum" in captured["prompt"]
 
 
+def test_provider_expected_outputs_prompt_uses_resolved_path_templates(tmp_path: Path):
+    """Output contract prompt suffix shows runtime-resolved expected output paths."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "review.md").write_text("Review this patch.\n")
+
+    workflow = {
+        "version": "2.1",
+        "name": "prompt-contract-resolved-path",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+                "default": "state/default-root",
+            }
+        },
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Review",
+            "provider": "mock_provider",
+            "input_file": "prompts/review.md",
+            "expected_outputs": [{
+                "name": "review_decision",
+                "path": "${inputs.state_root}/review_decision.txt",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            }],
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={"state_root": "state/run-root"},
+    )
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        (tmp_path / "state" / "run-root").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "state" / "run-root" / "review_decision.txt").write_text("APPROVE\n")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Review"]["exit_code"] == 0
+    assert "path: state/run-root/review_decision.txt" in captured["prompt"]
+    assert "path: ${inputs.state_root}/review_decision.txt" not in captured["prompt"]
+
+
 def test_provider_asset_file_reads_prompt_relative_to_workflow_source(tmp_path: Path):
     """Provider asset_file resolves from the workflow file's source tree."""
     workflow_dir = tmp_path / "workflows" / "library"

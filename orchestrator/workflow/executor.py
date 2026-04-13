@@ -3233,6 +3233,17 @@ class WorkflowExecutor:
         step_name = step.get('name', f'step_{self.current_step}')
         runtime_context = self._runtime_context(context, state)
         variables = runtime_context.build_variables(self.variable_substitutor, state)
+        resolved_expected_outputs, _resolved_output_bundle, path_error = self._resolve_output_contract_paths(
+            step,
+            state,
+            context=context,
+        )
+        if path_error is not None:
+            return path_error
+        prompt_contract_step = step
+        if resolved_expected_outputs is not None:
+            prompt_contract_step = dict(step)
+            prompt_contract_step['expected_outputs'] = resolved_expected_outputs
 
         # Initialize prompt variable from either input_file or asset_file.
         prompt, prompt_error = self.prompt_composer.read_prompt_source(
@@ -3318,7 +3329,7 @@ class WorkflowExecutor:
         )
 
         # Deterministic output contract prompt suffix (provider steps only).
-        prompt = self.prompt_composer.apply_output_contract_prompt_suffix(step, prompt)
+        prompt = self.prompt_composer.apply_output_contract_prompt_suffix(prompt_contract_step, prompt)
 
         # AT-70: Prompt audit with debug mode (when no dependencies)
         if self.debug and prompt:

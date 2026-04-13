@@ -418,7 +418,11 @@ def _elaborate_step(
             if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("inject_consumes"), bool)
             else None
         ),
-        prompt_consumes=_frozen_sequence(step.get("prompt_consumes")) if kind is SurfaceStepKind.PROVIDER else (),
+        prompt_consumes=(
+            _frozen_sequence(step["prompt_consumes"])
+            if kind is SurfaceStepKind.PROVIDER and "prompt_consumes" in step
+            else None
+        ),
         consumes_injection_position=(
             step.get("consumes_injection_position")
             if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("consumes_injection_position"), str)

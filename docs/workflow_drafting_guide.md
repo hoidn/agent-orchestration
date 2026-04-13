@@ -40,7 +40,7 @@ Provider prompt text is composed deterministically:
 | 2 | Prepend `asset_depends_on` blocks (v2.5+) if enabled. | Workflow-source-relative assets are injected in declared order before the base prompt. |
 | 3 | Apply `depends_on.inject` (v1.1.1+) if enabled. | Injects resolved workspace dependencies in-memory around the already-expanded prompt. |
 | 4 | Inject `## Consumed Artifacts` (v1.2+) if the step has `consumes`. | `inject_consumes`, `consumes_injection_position`, `prompt_consumes`. Uses resolved consume values from preflight. |
-| 5 | Append `## Output Contract` if the step has `expected_outputs`. | `inject_output_contract` controls suffix injection. This is validation, not execution. |
+| 5 | Append `## Output Contract` if the step has `expected_outputs`. | `inject_output_contract` controls suffix injection. `expected_outputs.path` entries are rendered after runtime path substitution. This is validation, not execution. |
 
 Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
 
@@ -72,6 +72,10 @@ Pointer ownership note (v1.4): consume preflight for relpath artifacts is read-o
 Use when each deterministic value naturally maps to one file path (pointers, enums, counts, relpaths).
 
 Why it works: the orchestrator can validate presence, type, and path safety (`under`, `must_exist_target`) without parsing prose.
+
+When a provider must write a document or report whose location is carried by a `relpath` artifact file, make the prompt say to read the recorded path from that artifact file and write the content to that current-checkout-relative target, leaving the artifact file path-only. Do not ask the provider to write rich content "to the artifact path" when that artifact path is really a pointer file.
+
+Do not point a `relpath` expected output at a rich JSON, markdown, or log file unless that file's entire contents are the relative path value. For ledgers and reports, either publish a separate path-only pointer file or use `output_bundle` to extract typed fields from the JSON body.
 
 ### B) `output_bundle` (v1.3+, single JSON file)
 
@@ -201,6 +205,8 @@ For execute/review/fix loops, separate "doing" from "deciding":
 `Execute` -> `Checks` -> `Assess` -> `Review` -> `Gate` -> (`Fix` -> back to `Checks`)
 
 Add at least one hard closure assertion step if "looks done" is not good enough.
+
+When a review step publishes a report and the immediately selected revise/fix step consumes that same report, prefer `freshness: any` for the report consume. The route decision already proves the report is the current iteration's review output, and a killed or retried provider step can otherwise mark the report version as consumed before the revise/fix step finishes. Use `freshness: since_last_consume` only when the same consumer must require a genuinely newer publication before each visit.
 
 For raw-graph review/fix loops, add an explicit cycle cap:
 - use `max_visits` when one particular gate or work step should own the retry budget

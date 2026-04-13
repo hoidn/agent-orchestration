@@ -23,7 +23,7 @@ Prioritize in this order:
 2. identify the earliest required unfinished plan task or coherent tranche
 3. implement that tranche before optional later work
 
-Write a concise execution report to the `execution_report_path` path specified in the Output Contract.
+For the output contract's `execution_report_path`, read the path recorded in that file and write the concise execution report to that current-checkout-relative path. Leave the `execution_report_path` file containing only the path.
 
 The execution report must include:
 - `Completed In This Pass`

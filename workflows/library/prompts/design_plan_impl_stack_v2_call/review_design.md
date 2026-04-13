@@ -28,7 +28,7 @@ Each finding must include a `scope_classification` of:
 - `recommended_followup`
 - `out_of_scope`
 
-Write JSON to the `design_review_report_path` path specified in the Output Contract using this shape:
+For the output contract's `design_review_report_path`, read the path recorded in that file and write JSON to that current-checkout-relative path using this shape. Leave the `design_review_report_path` file containing only the path.
 
 ```json
 {
