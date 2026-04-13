@@ -612,10 +612,13 @@ class RunProjector:
         warnings: Optional[list[str]] = None,
         availability: Optional[Mapping[str, bool]] = None,
     ) -> DashboardIndexRow:
-        try:
-            state_mtime = run.state_path.stat().st_mtime
-        except OSError:
+        if run.read_error is not None:
             state_mtime = None
+        else:
+            try:
+                state_mtime = run.state_path.stat().st_mtime
+            except OSError:
+                state_mtime = None
         state = run.state if isinstance(run.state, Mapping) else {}
         heartbeat_at = self._heartbeat_at(state)
         heartbeat_age_seconds = self._heartbeat_age_seconds(heartbeat_at)

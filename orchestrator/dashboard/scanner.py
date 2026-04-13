@@ -72,7 +72,7 @@ class RunScanner:
             return RunRecord(
                 workspace=workspace,
                 run_dir_id=run_dir_id,
-                run_root=resolved_scanned_run_root,
+                run_root=run_root,
                 state_path=state_path,
                 read_error=f"run root escapes workspace: {run_root}",
             )
@@ -94,8 +94,8 @@ class RunScanner:
             return RunRecord(
                 workspace=workspace,
                 run_dir_id=run_dir_id,
-                run_root=resolved_run_root,
-                state_path=resolved_state_path,
+                run_root=resolved_scanned_run_root,
+                state_path=state_path,
                 read_error=f"state.json resolves outside workspace: {state_path}",
             )
 

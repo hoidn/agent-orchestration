@@ -105,3 +105,5 @@ def test_scanner_rejects_state_json_symlink_escape(tmp_path: Path):
     assert run.state_run_id is None
     assert run.read_error is not None
     assert "outside workspace" in run.read_error
+    assert run.run_root == run_dir.resolve()
+    assert run.state_path == run_dir / "state.json"

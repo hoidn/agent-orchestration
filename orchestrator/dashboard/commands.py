@@ -35,6 +35,10 @@ class CommandBuilder:
 
     def build(self, run: RunRecord) -> CommandSet:
         warnings = list(run.warnings)
+        if run.read_error is not None:
+            warnings.append("commands unavailable because state could not be read safely")
+            return CommandSet(report=None, resume=None, tmux=[], warnings=warnings)
+
         mismatch = bool(run.state_run_id and run.state_run_id != run.run_dir_id)
         if mismatch:
             warnings.append(

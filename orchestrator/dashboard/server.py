@@ -164,6 +164,8 @@ class DashboardApp:
             lines.append("</ul></section>")
 
         lines.extend(["<section><h2>Commands</h2>"])
+        if commands.report is None and commands.resume is None and not commands.tmux:
+            lines.append("<p>Commands unavailable for this run.</p>")
         if commands.report is not None:
             lines.append(f"<p>cwd: <code>{self._e(str(commands.report.cwd))}</code></p>")
             lines.append(f"<pre>{self._e(commands.report.shell_text)}</pre>")
@@ -310,7 +312,21 @@ class DashboardApp:
         return self._html_response("\n".join(lines))
 
     def _state_preview(self, detail) -> DashboardResponse:
-        preview = PreviewRenderer().preview(detail.row.state_path)
+        try:
+            resolver = FileReferenceResolver(detail.row.workspace_root, detail.row.run_root)
+            file_ref = resolver.run_ref("state.json", label="state json")
+        except UnsafePathError:
+            return self._response(400, "Unsafe state path")
+        if file_ref.status != "ok":
+            body = (
+                "<!doctype html><html><body><main>"
+                f"<h1>{self._e(file_ref.status)}</h1>"
+                "<p>state.json</p>"
+                "</main></body></html>"
+            )
+            return self._html_response(body)
+
+        preview = PreviewRenderer().preview(file_ref.absolute_path)
         lines = [
             "<!doctype html>",
             "<html><head><meta charset=\"utf-8\"><title>State Preview</title></head><body><main>",
@@ -340,16 +356,16 @@ class DashboardApp:
         route_path: str,
         raw: bool,
     ) -> DashboardResponse:
-        resolver = FileReferenceResolver(detail.row.workspace_root, detail.row.run_root)
         try:
+            resolver = FileReferenceResolver(detail.row.workspace_root, detail.row.run_root)
             if scope == "workspace":
                 file_ref = resolver.workspace_ref(route_path)
             elif scope == "run":
                 file_ref = resolver.run_ref(route_path)
             else:
                 return self._response(404, "Unknown file scope")
-        except UnsafePathError as exc:
-            return self._response(400, f"Unsafe path: {exc}")
+        except UnsafePathError:
+            return self._response(400, "Unsafe path")
 
         renderer = PreviewRenderer()
         if raw:

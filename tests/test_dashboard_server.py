@@ -27,6 +27,26 @@ def _app(workspace: Path) -> DashboardApp:
     return DashboardApp(RunScanner([workspace]))
 
 
+def _write_state_json_symlink_escape(workspace: Path) -> Path:
+    outside = workspace.parent / f"{workspace.name}-outside"
+    outside.mkdir()
+    external_state = outside / "state.json"
+    external_state.write_text(
+        json.dumps(
+            {
+                "run_id": "external-run",
+                "status": "completed",
+                "payload": "outside-secret",
+            }
+        ),
+        encoding="utf-8",
+    )
+    run_dir = workspace / ".orchestrate" / "runs" / "run1"
+    run_dir.mkdir(parents=True)
+    (run_dir / "state.json").symlink_to(external_state)
+    return outside
+
+
 def test_root_redirects_to_runs(tmp_path: Path):
     response = _app(tmp_path).handle("GET", "/")
 
@@ -572,3 +592,47 @@ def test_file_preview_route_displays_truncated_large_files(tmp_path: Path):
     body = response.body.decode("utf-8")
     assert response.status == 200
     assert "truncated" in body.lower()
+
+
+def test_rejected_state_json_symlink_detail_does_not_render_outside_commands(
+    tmp_path: Path,
+):
+    outside = _write_state_json_symlink_escape(tmp_path)
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "state.json resolves outside workspace" in body
+    assert "Commands unavailable" in body
+    assert "orchestrate report" not in body
+    assert "orchestrate resume" not in body
+    assert str(outside) not in body
+    assert "outside-secret" not in body
+
+
+def test_rejected_state_json_symlink_state_preview_is_not_served(tmp_path: Path):
+    outside = _write_state_json_symlink_escape(tmp_path)
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/state")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 400
+    assert "Unsafe state path" in body
+    assert "external-run" not in body
+    assert "outside-secret" not in body
+    assert str(outside) not in body
+
+
+def test_rejected_state_json_symlink_file_route_uses_scanned_run_root(
+    tmp_path: Path,
+):
+    outside = _write_state_json_symlink_escape(tmp_path)
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/files/run/foo")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "missing" in body
+    assert "outside-secret" not in body
+    assert str(outside) not in body
