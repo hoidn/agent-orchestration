@@ -100,6 +100,35 @@ def test_projector_uses_injected_time_for_workflow_aware_stale_heartbeat(
     assert detail.row.display_status_reason == "stale_running_step_heartbeat_timeout"
 
 
+def test_projector_exposes_elapsed_current_step_start_and_heartbeat_separately(
+    tmp_path: Path,
+):
+    _write_state(
+        tmp_path,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "running",
+            "started_at": "2026-04-13T12:00:00+00:00",
+            "updated_at": "2026-04-13T12:02:00+00:00",
+            "current_step": {
+                "name": "Step",
+                "started_at": "2026-04-13T12:01:00+00:00",
+                "last_heartbeat_at": "2026-04-13T12:01:30+00:00",
+            },
+        },
+    )
+
+    detail = RunProjector(
+        now=datetime(2026, 4, 13, 12, 2, 30, tzinfo=timezone.utc),
+    ).project_detail(_scan_one(tmp_path))
+
+    assert detail.row.elapsed_seconds == 150
+    assert detail.row.current_step_started_at == "2026-04-13T12:01:00+00:00"
+    assert detail.row.heartbeat_at == "2026-04-13T12:01:30+00:00"
+    assert detail.row.heartbeat_age_seconds == 60
+
+
 def test_projector_falls_back_to_state_only_when_workflow_file_is_unsafe(tmp_path: Path):
     outside = tmp_path.parent / "outside-workflow.yaml"
     state = {

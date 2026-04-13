@@ -60,6 +60,47 @@ def test_cursor_traverses_running_call_frames_recursively_and_breaks_cycles():
     assert any("cycle detected" in warning for warning in cursor.warnings)
 
 
+def test_cursor_detects_reused_call_frame_ids_across_nested_state():
+    state = {
+        "current_step": {"name": "OuterCall", "step_id": "root.outer", "status": "running"},
+        "call_frames": {
+            "frame-a": {
+                "status": "running",
+                "caller_step_id": "root.outer",
+                "state": {
+                    "current_step": {
+                        "name": "InnerCall",
+                        "step_id": "callee.inner",
+                        "status": "running",
+                    },
+                    "call_frames": {
+                        "frame-a": {
+                            "status": "running",
+                            "caller_step_id": "callee.inner",
+                            "state": {
+                                "current_step": {
+                                    "name": "RepeatedFrame",
+                                    "step_id": "nested.step",
+                                    "status": "running",
+                                }
+                            },
+                        }
+                    },
+                },
+            }
+        },
+    }
+
+    cursor = ExecutionCursorProjector(max_depth=5).project(state)
+
+    assert [node.frame_id for node in cursor.nodes if node.kind == "call_frame"] == ["frame-a"]
+    assert [node.name for node in cursor.nodes if node.kind == "current_step"] == [
+        "OuterCall",
+        "InnerCall",
+    ]
+    assert any("call frame id frame-a" in warning for warning in cursor.warnings)
+
+
 def test_cursor_projects_loop_and_finalization_state():
     cursor = ExecutionCursorProjector().project(
         {

@@ -44,6 +44,7 @@ class ExecutionCursorProjector:
                 nodes,
                 warnings,
                 seen_step_ids=set(),
+                seen_frame_ids=set(),
                 depth=0,
                 root_state=state,
             )
@@ -71,6 +72,7 @@ class ExecutionCursorProjector:
         warnings: list[str],
         *,
         seen_step_ids: set[str],
+        seen_frame_ids: set[str],
         depth: int,
         root_state: Mapping[str, Any],
     ) -> None:
@@ -97,7 +99,13 @@ class ExecutionCursorProjector:
             return
         seen_step_ids.add(step_id)
 
-        for frame_id, frame in self._matching_call_frames(state, step_id, root_state):
+        for frame_id, frame in self._matching_call_frames(
+            state,
+            step_id,
+            root_state,
+            seen_frame_ids,
+            warnings,
+        ):
             frame_state = self._frame_state(frame)
             nested_current = self._nested_current_step(frame)
             frame_details = {
@@ -124,6 +132,7 @@ class ExecutionCursorProjector:
                     nodes,
                     warnings,
                     seen_step_ids=seen_step_ids,
+                    seen_frame_ids=seen_frame_ids,
                     depth=depth + 1,
                     root_state=root_state,
                 )
@@ -133,19 +142,28 @@ class ExecutionCursorProjector:
         state: Mapping[str, Any],
         step_id: str,
         root_state: Mapping[str, Any],
+        seen_frame_ids: set[str],
+        warnings: list[str],
     ) -> list[tuple[str, Mapping[str, Any]]]:
         matches: list[tuple[str, Mapping[str, Any]]] = []
-        seen_frame_ids: set[str] = set()
+        seen_candidate_states: set[int] = set()
         for candidate_state in (state, root_state):
+            state_identity = id(candidate_state)
+            if state_identity in seen_candidate_states:
+                continue
+            seen_candidate_states.add(state_identity)
             call_frames = candidate_state.get("call_frames")
             if not isinstance(call_frames, Mapping):
                 continue
             for frame_id, frame in call_frames.items():
                 frame_id_text = str(frame_id)
-                if frame_id_text in seen_frame_ids or not isinstance(frame, Mapping):
+                if not isinstance(frame, Mapping):
                     continue
                 caller_step_id = frame.get("call_step_id") or frame.get("caller_step_id")
                 if caller_step_id == step_id and frame.get("status") == "running":
+                    if frame_id_text in seen_frame_ids:
+                        warnings.append(f"cycle detected at call frame id {frame_id_text}")
+                        continue
                     seen_frame_ids.add(frame_id_text)
                     matches.append((frame_id_text, frame))
         return matches

@@ -620,6 +620,7 @@ class RunProjector:
             except OSError:
                 state_mtime = None
         state = run.state if isinstance(run.state, Mapping) else {}
+        current_step_started_at = self._current_step_started_at(state)
         heartbeat_at = self._heartbeat_at(state)
         heartbeat_age_seconds = self._heartbeat_age_seconds(heartbeat_at)
         return DashboardIndexRow(
@@ -638,6 +639,9 @@ class RunProjector:
             cursor_summary=cursor_summary,
             started_at=state.get("started_at"),
             updated_at=state.get("updated_at"),
+            elapsed_seconds=self._elapsed_seconds(state, persisted_status),
+            current_step_started_at=current_step_started_at,
+            current_step_age_seconds=self._timestamp_age_seconds(current_step_started_at),
             state_mtime=state_mtime,
             read_time=read_time,
             heartbeat_at=heartbeat_at,
@@ -668,13 +672,40 @@ class RunProjector:
         current_step = state.get("current_step")
         if not isinstance(current_step, Mapping):
             return None
-        heartbeat = current_step.get("last_heartbeat_at") or current_step.get("started_at")
+        heartbeat = current_step.get("last_heartbeat_at")
         return heartbeat if isinstance(heartbeat, str) and heartbeat else None
 
     def _heartbeat_age_seconds(self, heartbeat_at: Optional[str]) -> Optional[float]:
-        if heartbeat_at is None:
+        return self._timestamp_age_seconds(heartbeat_at)
+
+    def _current_step_started_at(self, state: Mapping[str, Any]) -> Optional[str]:
+        current_step = state.get("current_step")
+        if not isinstance(current_step, Mapping):
             return None
-        parsed = self._parse_datetime(heartbeat_at)
+        started_at = current_step.get("started_at")
+        return started_at if isinstance(started_at, str) and started_at else None
+
+    def _elapsed_seconds(self, state: Mapping[str, Any], persisted_status: str) -> Optional[float]:
+        started_at = state.get("started_at")
+        if not isinstance(started_at, str) or not started_at:
+            return None
+        start = self._parse_datetime(started_at)
+        if start is None:
+            return None
+        end: Optional[datetime]
+        if persisted_status == "running":
+            end = self.now
+        else:
+            updated_at = state.get("updated_at")
+            end = self._parse_datetime(updated_at) if isinstance(updated_at, str) else None
+            if end is None:
+                end = self.now
+        return max(0.0, (end - start).total_seconds())
+
+    def _timestamp_age_seconds(self, value: Optional[str]) -> Optional[float]:
+        if value is None:
+            return None
+        parsed = self._parse_datetime(value)
         if parsed is None:
             return None
         return max(0.0, (self.now - parsed).total_seconds())

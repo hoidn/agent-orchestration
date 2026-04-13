@@ -54,7 +54,7 @@ class RunScanner:
                 continue
             for run_root in run_dirs:
                 state_path = run_root / "state.json"
-                if not state_path.exists():
+                if not state_path.exists() and not state_path.is_symlink():
                     continue
                 runs.append(self._read_run(workspace, run_root, state_path))
         return ScanResult(workspaces=list(self.workspaces), runs=runs, errors=errors)

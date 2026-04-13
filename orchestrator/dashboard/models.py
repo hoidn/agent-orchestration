@@ -117,6 +117,9 @@ class DashboardIndexRow:
     cursor_summary: str = ""
     started_at: Any = None
     updated_at: Any = None
+    elapsed_seconds: Optional[float] = None
+    current_step_started_at: Optional[str] = None
+    current_step_age_seconds: Optional[float] = None
     state_mtime: Optional[float] = None
     read_time: Optional[str] = None
     heartbeat_at: Optional[str] = None

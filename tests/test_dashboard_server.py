@@ -124,6 +124,10 @@ def test_runs_index_renders_cursor_freshness_and_availability_fields(tmp_path: P
     assert "Cursor" in body
     assert "Step" in body
     assert "Started" in body
+    assert "Elapsed" in body
+    assert "2m 30s" in body
+    assert "Current step start" in body
+    assert "2026-04-13T12:01:00+00:00" in body
     assert "State mtime" in body
     assert "Read time" in body
     assert "Heartbeat" in body

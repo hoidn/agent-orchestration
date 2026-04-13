@@ -107,3 +107,19 @@ def test_scanner_rejects_state_json_symlink_escape(tmp_path: Path):
     assert "outside workspace" in run.read_error
     assert run.run_root == run_dir.resolve()
     assert run.state_path == run_dir / "state.json"
+
+
+def test_scanner_preserves_broken_state_json_symlink_candidate(tmp_path: Path):
+    run_dir = tmp_path / ".orchestrate" / "runs" / "broken"
+    run_dir.mkdir(parents=True)
+    (run_dir / "state.json").symlink_to(run_dir / "missing-state.json")
+
+    result = RunScanner([tmp_path]).scan()
+
+    assert len(result.runs) == 1
+    run = result.runs[0]
+    assert run.run_dir_id == "broken"
+    assert run.state is None
+    assert run.read_error is not None
+    assert run.run_root == run_dir.resolve()
+    assert run.state_path == run_dir / "state.json"

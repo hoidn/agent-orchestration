@@ -91,17 +91,28 @@ class DashboardApp:
             "<h1>Workflow Runs</h1>",
             '<p><a href="/runs">Refresh</a></p>',
             "<table>",
-            "<thead><tr><th>Workspace</th><th>Run</th><th>State Run ID</th><th>Workflow</th><th>Persisted</th><th>Display</th><th>Cursor</th><th>Started</th><th>Updated</th><th>State mtime</th><th>Read time</th><th>Heartbeat</th><th>Availability</th><th>Failure</th></tr></thead>",
+            "<thead><tr><th>Workspace</th><th>Run</th><th>State Run ID</th><th>Workflow</th><th>Persisted</th><th>Display</th><th>Cursor</th><th>Started</th><th>Elapsed</th><th>Updated</th><th>Current step start</th><th>State mtime</th><th>Read time</th><th>Heartbeat</th><th>Availability</th><th>Failure</th></tr></thead>",
             "<tbody>",
         ])
         if not rows:
-            lines.append("<tr><td colspan=\"14\">No runs matched.</td></tr>")
+            lines.append("<tr><td colspan=\"16\">No runs matched.</td></tr>")
         for row in rows:
             detail_href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}"
             workflow = row.workflow_name or row.workflow_file or ""
             display = row.display_status
             if row.display_status_reason:
                 display = f"{display} ({row.display_status_reason})"
+            elapsed = (
+                self._format_duration(row.elapsed_seconds)
+                if row.elapsed_seconds is not None
+                else ""
+            )
+            current_step_started = row.current_step_started_at or ""
+            if row.current_step_age_seconds is not None:
+                current_step_started = (
+                    f"{current_step_started} "
+                    f"({self._format_duration(row.current_step_age_seconds)})"
+                )
             heartbeat = row.heartbeat_at or ""
             if row.heartbeat_age_seconds is not None:
                 heartbeat = f"{heartbeat} ({self._format_duration(row.heartbeat_age_seconds)})"
@@ -115,7 +126,9 @@ class DashboardApp:
                 f"<td>{self._e(display)}</td>"
                 f"<td>{self._e(row.cursor_summary)}</td>"
                 f"<td>{self._e(row.started_at or '')}</td>"
+                f"<td>{self._e(elapsed)}</td>"
                 f"<td>{self._e(row.updated_at or '')}</td>"
+                f"<td>{self._e(current_step_started)}</td>"
                 f"<td>{self._e(self._format_timestamp(row.state_mtime))}</td>"
                 f"<td>{self._e(row.read_time or '')}</td>"
                 f"<td>{self._e(heartbeat)}</td>"
