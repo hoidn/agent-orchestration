@@ -1,0 +1,476 @@
+version: "2.7"
+name: "major-project-roadmap-phase"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  project_brief_path:
+    type: relpath
+    must_exist_target: true
+  project_roadmap_target_path:
+    type: relpath
+    under: docs/plans
+  tranche_manifest_target_path:
+    type: relpath
+    under: state
+  roadmap_review_report_target_path:
+    type: relpath
+    under: artifacts/review
+
+outputs:
+  project_roadmap_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeRoadmapPhaseOutputs.artifacts.project_roadmap_path
+  tranche_manifest_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeRoadmapPhaseOutputs.artifacts.tranche_manifest_path
+  roadmap_review_report_path:
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeRoadmapPhaseOutputs.artifacts.roadmap_review_report_path
+  roadmap_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "BLOCK"]
+    from:
+      ref: root.steps.FinalizeRoadmapPhaseOutputs.artifacts.roadmap_review_decision
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+
+artifacts:
+  project_brief:
+    pointer: ${inputs.state_root}/project_brief_path.txt
+    type: relpath
+    must_exist_target: true
+  project_roadmap:
+    pointer: ${inputs.state_root}/project_roadmap_path.txt
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  tranche_manifest:
+    pointer: ${inputs.state_root}/tranche_manifest_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
+  roadmap_review_report:
+    pointer: ${inputs.state_root}/roadmap_review_report_path.txt
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+  roadmap_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "BLOCK"]
+  open_findings:
+    pointer: ${inputs.state_root}/open_findings_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "BLOCK"]
+
+steps:
+  - name: InitializeRoadmapPhasePaths
+    id: initialize_roadmap_phase_paths
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p \
+          "${inputs.state_root}" \
+          "$(dirname "${inputs.project_roadmap_target_path}")" \
+          "$(dirname "${inputs.tranche_manifest_target_path}")" \
+          "$(dirname "${inputs.roadmap_review_report_target_path}")"
+        printf '%s\n' "${inputs.project_roadmap_target_path}" > "${inputs.state_root}/project_roadmap_path.txt"
+        printf '%s\n' "${inputs.tranche_manifest_target_path}" > "${inputs.state_root}/tranche_manifest_path.txt"
+        printf '%s\n' "${inputs.roadmap_review_report_target_path}" > "${inputs.state_root}/roadmap_review_report_path.txt"
+        printf '%s\n' "${inputs.state_root}/open_findings.json" > "${inputs.state_root}/open_findings_path.txt"
+        cat > "${inputs.state_root}/open_findings.json" <<'JSON'
+        {
+          "findings": []
+        }
+        JSON
+    expected_outputs:
+      - name: project_roadmap_path
+        path: ${inputs.state_root}/project_roadmap_path.txt
+        type: relpath
+        under: docs/plans
+      - name: tranche_manifest_path
+        path: ${inputs.state_root}/tranche_manifest_path.txt
+        type: relpath
+        under: state
+      - name: roadmap_review_report_path
+        path: ${inputs.state_root}/roadmap_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+      - name: open_findings_path
+        path: ${inputs.state_root}/open_findings_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+    publishes:
+      - artifact: open_findings
+        from: open_findings_path
+
+  - name: PublishProjectBriefInput
+    id: publish_project_brief_input
+    command:
+      - bash
+      - -lc
+      - |
+        if [ ! -f "${inputs.project_brief_path}" ]; then
+          echo "Missing project brief file: ${inputs.project_brief_path}" >&2
+          exit 1
+        fi
+        printf '%s\n' "${inputs.project_brief_path}" > "${inputs.state_root}/project_brief_path.txt"
+    expected_outputs:
+      - name: project_brief_path
+        path: ${inputs.state_root}/project_brief_path.txt
+        type: relpath
+        must_exist_target: true
+    publishes:
+      - artifact: project_brief
+        from: project_brief_path
+
+  - name: DraftProjectRoadmap
+    id: draft_project_roadmap
+    provider: codex
+    asset_file: prompts/major_project_stack/draft_project_roadmap.md
+    timeout_sec: 3600
+    consumes:
+      - artifact: project_brief
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["project_brief"]
+    expected_outputs:
+      - name: project_roadmap_path
+        path: ${inputs.state_root}/project_roadmap_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+      - name: tranche_manifest_path
+        path: ${inputs.state_root}/tranche_manifest_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+    publishes:
+      - artifact: project_roadmap
+        from: project_roadmap_path
+      - artifact: tranche_manifest
+        from: tranche_manifest_path
+
+  - name: ValidateDraftTrancheManifest
+    id: validate_draft_tranche_manifest
+    command:
+      - python
+      - workflows/library/scripts/validate_major_project_tranche_manifest.py
+      - --project-brief-path
+      - ${inputs.project_brief_path}
+      - --project-roadmap-pointer
+      - ${inputs.state_root}/project_roadmap_path.txt
+      - --tranche-manifest-pointer
+      - ${inputs.state_root}/tranche_manifest_path.txt
+      - --state-root
+      - ${inputs.state_root}
+    expected_outputs:
+      - name: project_roadmap_path
+        path: ${inputs.state_root}/project_roadmap_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+      - name: tranche_manifest_path
+        path: ${inputs.state_root}/tranche_manifest_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+      - name: validated_tranche_count
+        path: ${inputs.state_root}/validated_tranche_count.txt
+        type: integer
+      - name: ready_tranche_count
+        path: ${inputs.state_root}/ready_tranche_count.txt
+        type: integer
+    publishes:
+      - artifact: project_roadmap
+        from: project_roadmap_path
+      - artifact: tranche_manifest
+        from: tranche_manifest_path
+
+  - name: RoadmapReviewLoop
+    id: roadmap_review_loop
+    repeat_until:
+      id: roadmap_review_iteration
+      max_iterations: 20
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: ["APPROVE", "REVISE", "BLOCK"]
+          from:
+            ref: self.steps.RouteRoadmapDecision.artifacts.review_decision
+      condition:
+        compare:
+          left:
+            ref: self.outputs.review_decision
+          op: eq
+          right: APPROVE
+      steps:
+        - name: ReviewProjectRoadmap
+          id: review_project_roadmap
+          provider: codex
+          asset_file: prompts/major_project_stack/review_project_roadmap.md
+          timeout_sec: 1800
+          consumes:
+            - artifact: project_brief
+              policy: latest_successful
+              freshness: any
+            - artifact: project_roadmap
+              policy: latest_successful
+              freshness: any
+            - artifact: tranche_manifest
+              policy: latest_successful
+              freshness: any
+            - artifact: open_findings
+              policy: latest_successful
+              freshness: any
+          prompt_consumes: ["project_brief", "project_roadmap", "tranche_manifest", "open_findings"]
+          expected_outputs:
+            - name: roadmap_review_report_path
+              path: ${inputs.state_root}/roadmap_review_report_path.txt
+              type: relpath
+              under: artifacts/review
+              must_exist_target: true
+            - name: roadmap_review_decision
+              path: ${inputs.state_root}/roadmap_review_decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE", "BLOCK"]
+            - name: unresolved_high_count
+              path: ${inputs.state_root}/unresolved_high_count.txt
+              type: integer
+            - name: unresolved_medium_count
+              path: ${inputs.state_root}/unresolved_medium_count.txt
+              type: integer
+          publishes:
+            - artifact: roadmap_review_report
+              from: roadmap_review_report_path
+            - artifact: roadmap_review_decision
+              from: roadmap_review_decision
+
+        - name: RouteRoadmapDecision
+          id: route_roadmap_decision
+          match:
+            ref: self.steps.ReviewProjectRoadmap.artifacts.roadmap_review_decision
+            cases:
+              APPROVE:
+                id: approve_roadmap_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteApprovedRoadmapDecision.artifacts.review_decision
+                steps:
+                  - name: WriteApprovedRoadmapDecision
+                    id: write_approved_roadmap_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: APPROVE
+              REVISE:
+                id: revise_roadmap_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteRevisedRoadmapDecision.artifacts.review_decision
+                steps:
+                  - name: ReviseProjectRoadmap
+                    id: revise_project_roadmap
+                    provider: codex
+                    asset_file: prompts/major_project_stack/revise_project_roadmap.md
+                    timeout_sec: 3600
+                    consumes:
+                      - artifact: project_brief
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: project_roadmap
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: tranche_manifest
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: roadmap_review_report
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: open_findings
+                        policy: latest_successful
+                        freshness: any
+                    prompt_consumes: ["project_brief", "project_roadmap", "tranche_manifest", "roadmap_review_report", "open_findings"]
+                    expected_outputs:
+                      - name: project_roadmap_path
+                        path: ${inputs.state_root}/project_roadmap_path.txt
+                        type: relpath
+                        under: docs/plans
+                        must_exist_target: true
+                      - name: tranche_manifest_path
+                        path: ${inputs.state_root}/tranche_manifest_path.txt
+                        type: relpath
+                        under: state
+                        must_exist_target: true
+                    publishes:
+                      - artifact: project_roadmap
+                        from: project_roadmap_path
+                      - artifact: tranche_manifest
+                        from: tranche_manifest_path
+                  - name: ValidateRevisedTrancheManifest
+                    id: validate_revised_tranche_manifest
+                    command:
+                      - python
+                      - workflows/library/scripts/validate_major_project_tranche_manifest.py
+                      - --project-brief-path
+                      - ${inputs.project_brief_path}
+                      - --project-roadmap-pointer
+                      - ${inputs.state_root}/project_roadmap_path.txt
+                      - --tranche-manifest-pointer
+                      - ${inputs.state_root}/tranche_manifest_path.txt
+                      - --state-root
+                      - ${inputs.state_root}
+                    expected_outputs:
+                      - name: project_roadmap_path
+                        path: ${inputs.state_root}/project_roadmap_path.txt
+                        type: relpath
+                        under: docs/plans
+                        must_exist_target: true
+                      - name: tranche_manifest_path
+                        path: ${inputs.state_root}/tranche_manifest_path.txt
+                        type: relpath
+                        under: state
+                        must_exist_target: true
+                      - name: validated_tranche_count
+                        path: ${inputs.state_root}/validated_tranche_count.txt
+                        type: integer
+                      - name: ready_tranche_count
+                        path: ${inputs.state_root}/ready_tranche_count.txt
+                        type: integer
+                    publishes:
+                      - artifact: project_roadmap
+                        from: project_roadmap_path
+                      - artifact: tranche_manifest
+                        from: tranche_manifest_path
+                  - name: ExtractOpenRoadmapFindings
+                    id: extract_open_roadmap_findings
+                    command:
+                      - bash
+                      - -lc
+                      - |
+                        python - <<'PY'
+                        import json
+                        from pathlib import Path
+
+                        review_pointer = Path("${inputs.state_root}/roadmap_review_report_path.txt")
+                        review_path = Path(review_pointer.read_text(encoding="utf-8").strip())
+                        report = json.loads(review_path.read_text(encoding="utf-8"))
+
+                        carried = []
+                        for finding in report.get("findings", []):
+                            if finding.get("status") in {"STILL_OPEN", "NEW", "SPLIT"}:
+                                carried.append(finding)
+
+                        open_findings_pointer = Path("${inputs.state_root}/open_findings_path.txt")
+                        open_findings_path = Path(open_findings_pointer.read_text(encoding="utf-8").strip())
+                        open_findings_path.parent.mkdir(parents=True, exist_ok=True)
+                        open_findings_path.write_text(
+                            json.dumps({"findings": carried}, indent=2) + "\n",
+                            encoding="utf-8",
+                        )
+                        PY
+                    expected_outputs:
+                      - name: open_findings_path
+                        path: ${inputs.state_root}/open_findings_path.txt
+                        type: relpath
+                        under: state
+                        must_exist_target: true
+                    publishes:
+                      - artifact: open_findings
+                        from: open_findings_path
+                  - name: WriteRevisedRoadmapDecision
+                    id: write_revised_roadmap_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: REVISE
+              BLOCK:
+                id: block_roadmap_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteBlockedRoadmapDecision.artifacts.review_decision
+                steps:
+                  - name: WriteBlockedRoadmapDecision
+                    id: write_blocked_roadmap_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: BLOCK
+                  - name: FailBlockedRoadmap
+                    id: fail_blocked_roadmap
+                    command:
+                      - bash
+                      - -lc
+                      - |
+                        echo "Project roadmap review blocked further work." >&2
+                        exit 1
+
+  - name: FinalizeRoadmapPhaseOutputs
+    id: finalize_roadmap_phase_outputs
+    command:
+      - bash
+      - -lc
+      - |
+        cat "${inputs.state_root}/project_roadmap_path.txt" > "${inputs.state_root}/final_project_roadmap_path.txt"
+        cat "${inputs.state_root}/tranche_manifest_path.txt" > "${inputs.state_root}/final_tranche_manifest_path.txt"
+        cat "${inputs.state_root}/roadmap_review_report_path.txt" > "${inputs.state_root}/final_roadmap_review_report_path.txt"
+        cat "${inputs.state_root}/roadmap_review_decision.txt" > "${inputs.state_root}/final_roadmap_review_decision.txt"
+    expected_outputs:
+      - name: project_roadmap_path
+        path: ${inputs.state_root}/final_project_roadmap_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+      - name: tranche_manifest_path
+        path: ${inputs.state_root}/final_tranche_manifest_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+      - name: roadmap_review_report_path
+        path: ${inputs.state_root}/final_roadmap_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: roadmap_review_decision
+        path: ${inputs.state_root}/final_roadmap_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE", "BLOCK"]
