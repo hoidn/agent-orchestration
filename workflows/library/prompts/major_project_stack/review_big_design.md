@@ -5,7 +5,7 @@ Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, `tranche_
 
 Treat `design` as the candidate design under review, not as evidence that the design has already been approved.
 
-If `docs/index.md` is present, read it first, then use it to select relevant specs, architecture docs, workflow guides, and findings docs before reviewing.
+If `docs/index.md` is present, read it first, then use it to select relevant specs, architecture docs, development docs, and findings docs before reviewing.
 
 Review the candidate design from scratch before reconciling carried-forward findings.
 

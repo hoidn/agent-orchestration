@@ -5,7 +5,7 @@ Create a design document for the selected tranche.
 
 This is a design-only step. Do not implement the tranche, edit source files, edit tests, or write the implementation plan. Treat the project brief, project roadmap, and tranche manifest as context and provenance; do not mutate them.
 
-If `docs/index.md` is present, read it first, then use it to select relevant specs, architecture docs, workflow guides, and findings docs for the design decisions.
+If `docs/index.md` is present, read it first, then use it to select relevant specs, architecture docs, development docs, and findings docs for the design decisions.
 
 The design must decide the right implementation shape for this tranche. Include heavier sections only where they are relevant, but do not omit them when the tranche affects architecture, APIs, data contracts, stable modules, or long-lived project structure.
 
