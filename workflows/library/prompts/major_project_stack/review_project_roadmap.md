@@ -10,6 +10,7 @@ Review the project roadmap and tranche manifest from scratch before reconciling 
 Reject or block the roadmap if:
 - tranches are not coherent sequential units of work
 - prerequisites are missing, circular, hidden, or too vague for deterministic selection
+- the roadmap decomposes by implementation domain while burying the brief's conceptually distinct prerequisite phases inside each domain tranche, unless it explicitly justifies why that preserves the brief's intended sequencing and gates production work on the required evidence, validation, contracts, and architecture decisions
 - a tranche hides architecture, API, data-flow, oracle, migration, compatibility, or verification decisions inside implementation work
 - generated tranche briefs are too thin to feed a design phase
 - a tranche is too broad to review or too small to verify

@@ -7,6 +7,12 @@ This is a project-decomposition step. Do not implement source changes, edit the 
 
 If `docs/index.md` is present, read it first, then use it to select relevant specs, architecture docs, workflow guides, and findings docs for the roadmap decisions.
 
+Before defining tranches, extract the conceptually distinct sequential phases required by the project brief. Preserve those phases as the controlling roadmap structure unless the roadmap explicitly justifies a different ordering.
+
+Do not collapse prerequisite phases into each production implementation tranche when the brief presents them as ordered project phases. Examples of prerequisite phases include repository or documentation setup, architecture discovery, interface or API classification, test or validation coverage expansion, reference-data or oracle generation, data-contract design, migration planning, and implementation architecture.
+
+A tranche may produce documentation, specs, tests, validation assets, inventories, architecture decisions, data contracts, or migration plans without producing production feature code. Production implementation tranches should depend on the relevant prerequisite evidence, coverage, validation, contract, and architecture tranches.
+
 The roadmap must:
 - state the high-level project shape and sequencing rationale
 - divide the project into sequential tranches that can each be designed, planned, implemented, and reviewed independently
