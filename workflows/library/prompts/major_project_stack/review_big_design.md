@@ -16,7 +16,6 @@ Reject designs that:
 - omit semantically material choices or fail to justify them
 - carry forward unnecessary or counterproductive transformations, adapters, defaults, or inherited conventions
 - omit required architecture, interface, data-flow, ownership, oracle, provenance, migration, or compatibility decisions
-- omit spec or documentation updates required by the tranche
 - propose implementation before blocking design decisions are resolved
 - hide work in vague "follow existing pattern" language where the existing pattern may be wrong for the tranche outcome
 - provide weak verification for the tranche risk

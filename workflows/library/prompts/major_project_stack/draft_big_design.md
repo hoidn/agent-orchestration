@@ -23,7 +23,7 @@ Address where relevant:
 - module, package, and integration boundaries
 - migration, compatibility, and rollback strategy
 - performance, batching, device, or parallelization implications
-- spec and documentation updates required by the tranche
+- discoverability, spec, and documentation impact: when the tranche changes behavioral specs, public or internal APIs, architectural conventions, development processes, test conventions, data or oracle contracts, creates important docs, or changes other durable project knowledge, identify the authoritative docs, specs, documentation indexes such as `docs/index.md`, templates, or guides that should be updated by the implementation plan; state when no durable documentation update is needed
 - risks, pivots, blockers, and deferred decisions
 - verification strategy with visible checks and reviewable artifacts
 
