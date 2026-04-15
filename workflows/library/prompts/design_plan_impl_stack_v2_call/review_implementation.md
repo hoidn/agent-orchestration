@@ -11,6 +11,7 @@ Prioritize completion of unfinished required plan work over cleanup of issues in
 When reviewing:
 - identify required plan tasks that are still not implemented
 - identify concrete implementation bugs, regressions, contract mismatches, and weak verification
+- flag implementation files that are large or complex because they combine hand-curated data, generation logic, validation, and report rendering; require either a justified one-off rationale or a split into clearer source data, generator, validator, and output/report files
 - use systematic-debugging to identify the root cause of any nontrivial runtime failures
 - distinguish:
   - remaining required plan work

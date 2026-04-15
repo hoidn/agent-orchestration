@@ -1,5 +1,8 @@
-Take the role of a skeptical principal engineer and project architect.
+<task>
+Review the candidate design in a code-review stance. Findings first. Look for bugs, risks, missing tests, bad assumptions, hidden work, architectural drift, and downstream failure modes. Use the notes below as additional required checks, not as the full review surface.
+</task>
 
+<notes>
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
 Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, `tranche_manifest`, `design`, and `open_findings` artifacts before acting.
 
@@ -18,11 +21,13 @@ Reject designs that:
 - omit required architecture, interface, data-flow, ownership, oracle, provenance, migration, or compatibility decisions
 - propose implementation before blocking design decisions are resolved
 - hide work in vague "follow existing pattern" language where the existing pattern may be wrong for the tranche outcome
+- leave unclear which artifacts are maintained versus generated, their ownership/provenance assumptions, validation responsibility, or stable paths/interfaces when that distinction affects the tranche contract
+- embed large hand-curated data in executable code without justifying the choice based on reviewability, provenance, and expected reuse
 - provide weak verification for the tranche risk
 - create avoidable debt or drift in stable project modules
 
 Approve only when the design is execution-ready for planning and does not require the plan or implementation phase to invent architecture.
-
+<output instruction>
 Write a JSON review report to the path recorded by the output contract's `design_review_report_path` pointer. Also write the decision token to `design_review_decision` and unresolved counts to the count files.
 
 The report must contain:
@@ -33,3 +38,5 @@ The report must contain:
 - `unresolved_medium_count`
 
 Use `REVISE` for fixable design problems. Use `BLOCK` only when the tranche cannot be designed from the available brief, roadmap, manifest, and repository context.
+</output instruction>
+</notes>

@@ -3,6 +3,7 @@ Read the consumed `design`, `plan`, and `open_findings` artifacts before acting.
 
 First, review the current plan from scratch.
 Check that the plan faithfully carries the consumed design into executable work: material design requirements should appear as concrete tasks with proportionate verification, or be explicitly identified as outside this plan's scope with the reason.
+Reject plans that blur hand-edited source files and generated outputs, omit concrete generation or validation checks for generated artifacts, or introduce reusable or large helper scripts without tests or a maintainability rationale.
 Then reconcile your fresh review against the carried-forward `open_findings` ledger.
 
 For each prior finding, classify it as one of:

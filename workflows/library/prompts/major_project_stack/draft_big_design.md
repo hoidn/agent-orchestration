@@ -15,6 +15,8 @@ The design must be self-contained for the downstream generic plan and implementa
 - roadmap constraints and sequencing dependencies that the plan and implementation must preserve
 - project-level decisions from the roadmap that govern this tranche
 
+For any tranche that creates generated artifacts, helper scripts, validators, or curated data, identify which artifacts are maintained versus generated, the ownership/provenance assumptions, validation responsibility, and any stable paths or interfaces that are part of the tranche contract. Leave internal file layout and exact commands to the plan unless a concrete path or command is part of the contract. Justify any large hand-curated data stored inside executable code.
+
 Address where relevant:
 - tranche objective, scope, non-goals, and relationship to the project roadmap
 - ADR or architecture decision section

@@ -9,4 +9,6 @@ Preserve the project roadmap unless the review finding identifies a necessary co
 
 Keep resolved decisions stable. Reconcile carried-forward findings by either fixing them in the design or clearly explaining why they are no longer applicable.
 
+If the tranche creates generated artifacts, helper scripts, validators, or curated data, ensure the revised design identifies which artifacts are maintained versus generated, the ownership/provenance assumptions, validation responsibility, and any stable paths or interfaces that are part of the tranche contract. Leave internal file layout and exact commands to the plan unless a concrete path or command is part of the contract. Justify any large hand-curated data stored inside executable code.
+
 For the output contract's `design_path`, read the path recorded in that pointer file and write the revised design document there. Leave the pointer file as a path-only file.
