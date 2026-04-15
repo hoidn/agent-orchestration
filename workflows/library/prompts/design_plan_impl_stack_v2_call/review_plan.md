@@ -2,6 +2,7 @@ Read the `Consumed Artifacts` section first and treat it as the authoritative in
 Read the consumed `design`, `plan`, and `open_findings` artifacts before acting.
 
 First, review the current plan from scratch.
+Check that the plan faithfully carries the consumed design into executable work: material design requirements should appear as concrete tasks with proportionate verification, or be explicitly identified as outside this plan's scope with the reason.
 Then reconcile your fresh review against the carried-forward `open_findings` ledger.
 
 For each prior finding, classify it as one of:
@@ -39,4 +40,4 @@ Also write:
 - the unresolved high count integer to the `unresolved_high_count` path specified in the Output Contract
 - the unresolved medium count integer to the `unresolved_medium_count` path specified in the Output Contract
 
-Approve only if there are no unresolved high findings and the plan is ready to execute.
+Approve only if there are no unresolved high findings and the plan is ready to execute without inventing architecture or silently dropping material design requirements.
