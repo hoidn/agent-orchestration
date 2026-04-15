@@ -47,6 +47,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** prompts, catalog, canonical, review, plan, implementation
 **Use this when:** You want to reuse or adapt an existing prompt instead of inventing one from scratch.
 
+### [Design Template](templates/design_template.md)
+**Description:** Optional design-document structure for design -> plan -> implementation workflows, including modularity, contracts, invariants, verification, docs impact, rollback, and handoff sections.
+**Keywords:** design, template, modularity, contracts, invariants
+**Use this when:** Drafting or reviewing a design artifact that will feed a plan and implementation phase.
+
 ### [Workflow Prompt Map](workflow_prompt_map.md)
 **Description:** Exhaustive generated map of workflow provider prompt sources, including `input_file`, `asset_file`, and `asset_depends_on` resolution and missing-file status.  
 **Keywords:** workflows, prompts, input_file, asset_file, prompt-assets  
