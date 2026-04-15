@@ -12,6 +12,7 @@ Reject or block the roadmap if:
 - prerequisites are missing, circular, hidden, or too vague for deterministic selection
 - the roadmap decomposes by implementation domain while burying the brief's conceptually distinct prerequisite phases inside each domain tranche, unless it explicitly justifies why that preserves the brief's intended sequencing and gates production work on the required evidence, validation, contracts, and architecture decisions
 - the roadmap uses evidence, prior artifacts, status labels, or review decisions beyond the scope they actually support, or lets narrow or pilot-scoped evidence unlock broader downstream work without explicit remaining-work gates
+- a broad multi-tranche roadmap does not define enough layout and ownership conventions for later designs to place durable work and artifacts without inventing ad hoc locations
 - a tranche hides architecture, API, data-flow, oracle, migration, compatibility, or verification decisions inside implementation work
 - generated tranche briefs are too thin to feed a design phase
 - a tranche is too broad to review or too small to verify

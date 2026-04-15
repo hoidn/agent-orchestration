@@ -4,8 +4,9 @@ Read the consumed `design`, `plan`, and `open_findings` artifacts before acting.
 First, review the current plan from scratch.
 Check that the plan faithfully carries the consumed design into executable work: material design requirements should appear as concrete tasks with proportionate verification, or be explicitly identified as outside this plan's scope with the reason.
 Reject plans that collapse the design's component boundaries, interfaces, invariants, or durable artifact contracts into undifferentiated implementation work instead of assigning tasks and tests along those boundaries.
-Reject plans for work with multiple meaningful responsibilities, future dependents, cross-boundary behavior, or meaningful review or verification risk if they do not define implementable units, owned boundaries, dependency direction, and focused tests, unless the design explicitly justifies a small single-unit implementation.
-Reject plans that blur hand-edited source files and generated outputs, omit concrete generation or validation checks for generated artifacts, or introduce reusable or large helper scripts without tests or a maintainability rationale.
+Reject plans that ignore or weaken design or roadmap layout and ownership decisions, or change locations or unit boundaries without explicit rationale.
+Reject plans for work that creates or changes multiple distinct things, has future dependents, crosses boundaries, or has meaningful review or verification risk if they do not define implementable units, owned boundaries, dependency direction, and focused tests, unless the design explicitly justifies a small single-unit implementation.
+Reject plans that blur authored and derived artifacts, omit checks for derived artifacts, or introduce reusable code without tests or a maintainability rationale.
 Then reconcile your fresh review against the carried-forward `open_findings` ledger.
 
 For each prior finding, classify it as one of:

@@ -15,9 +15,50 @@ A tranche may produce documentation, specs, tests, validation assets, inventorie
 
 Do not let evidence, prior artifacts, status labels, or review decisions unlock broader downstream work than they actually support. Narrow or pilot-scoped evidence may justify a correspondingly narrow follow-on tranche, but broader work needs explicit remaining-work gates.
 
+For broad multi-tranche projects, include a `Project Organization Conventions` section. Base it on the project brief, existing repository layout, existing docs/specs/architecture notes, and the roadmap's planned work.
+
+Define where each relevant kind of work belongs and how to subdivide it when several components exist. Do not stop at top-level roots if later tranches would still need to invent internal ownership.
+
+Include a concrete layout sketch using the target repo's real paths and naming style. Replace the example placeholders with the target repository's actual source roots, tooling roots, artifact roots, test layout, and documentation conventions. Omit irrelevant categories and add project-specific ones when needed.
+
+Example shape:
+
+```text
+src/<package>/
+  <component_a>/              # production code for one coherent domain/component
+    __init__.py
+    public_api.py             # stable API surface, if applicable
+    internal_logic.py         # reusable implementation logic
+  <component_b>/
+    ...
+
+tools/<project_or_domain>/
+  <command_name>.py           # thin CLI entrypoint
+  <component_a>/              # reusable tooling logic for component_a
+    generate.py
+    validate.py
+    render.py
+
+docs/specs/
+  <contract_or_catalog>.md    # source-of-truth contracts
+  <contract_or_catalog>.json  # machine-readable source of truth, when needed
+
+artifacts/work/<project>/<tranche_or_run>/
+  ...                         # generated candidates, reports, logs, temporary outputs
+
+artifacts/<durable_kind>/<owner>/<case_or_dataset>/
+  ...                         # promoted/persistent artifacts with provenance
+
+tests/
+  <component_or_suite>/        # tests mirror source/tooling component boundaries
+```
+
+After the sketch, state which locations reuse existing conventions, which are new roadmap decisions, how each root is subdivided, which entries are thin entrypoints versus reusable modules, and which outputs are maintained, generated, temporary, or promoted.
+
 The roadmap must:
 - state the high-level project shape and sequencing rationale
 - divide the project into sequential tranches that can each be designed, planned, implemented, and reviewed independently
+- include layout and ownership conventions when the project is broad enough that later tranches would otherwise invent file or component locations
 - record prerequisites and blocker conditions for each tranche
 - identify architecture, API, data-flow, oracle, compatibility, migration, and verification decisions that must be resolved before or inside specific tranches
 - keep tranche boundaries practical: not so broad that a tranche cannot be reviewed, and not so small that it produces no verifiable project progress

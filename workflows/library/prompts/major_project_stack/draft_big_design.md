@@ -17,14 +17,19 @@ The design must be self-contained for the downstream generic plan and implementa
 - roadmap constraints and sequencing dependencies that the plan and implementation must preserve
 - project-level decisions from the roadmap that govern this tranche
 
-For any tranche that creates generated artifacts, helper scripts, validators, or curated data, identify which artifacts are maintained versus generated, the ownership/provenance assumptions, validation responsibility, and any stable paths or interfaces that are part of the tranche contract. Leave internal file layout and exact commands to the plan unless a concrete path or command is part of the contract. Justify any large hand-curated data stored inside executable code.
+If the project roadmap defines layout or ownership conventions, apply the relevant parts in this tranche design. Do not leave later phases to invent file locations, ownership boundaries, maintained-input locations, generated output locations, or internal component boundaries when the roadmap already made or requires those decisions.
 
-If the tranche introduces or changes a nontrivial subsystem, workflow, integration surface, automation, or durable artifact contract, include an architecture section that defines:
-- component boundaries and responsibilities
+For any tranche that creates source code, tools, durable artifacts, or curated data, identify stable locations, stable interfaces, provenance assumptions, and required checks that are part of the tranche contract. Distinguish authored from derived files when both exist. Define layout at the level needed to fix component ownership and stable locations; leave complete file lists, function-level structure, and exact commands to the plan unless they are part of the contract. For example, the design might place a new package under `src/<package>/<component>/` and its command entrypoint under `tools/<project>/`, while leaving exact module names and command flags to the plan. Or it might decide that promoted reference data lives under `artifacts/<kind>/<owner>/` and run reports live under `artifacts/work/<project>/`, while leaving exact filenames to the plan. Justify any large hand-curated data stored inside executable code.
+
+If the tranche introduces or changes a nontrivial subsystem, process, integration surface, automation, or durable artifact contract, include an `Implementation Architecture` section that defines:
+- component boundaries and what each component owns
+- owned files, directories, modules, or artifact roots for each concrete thing being created or changed
 - data, control-flow, API, or artifact interfaces between components
 - invariants and failure modes the design relies on
 - stable decisions, contracts, and invariants downstream work may rely on, without over-specifying plan-level mechanics
 - test or review boundaries for the component contracts and invariants
+
+When the tranche creates or changes concrete things that should change or be reviewed independently, keep them separate unless the design explains why they belong together.
 
 Address where relevant:
 - tranche objective, scope, non-goals, and relationship to the project roadmap

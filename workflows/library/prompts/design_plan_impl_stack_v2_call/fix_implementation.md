@@ -5,6 +5,7 @@ Use executing-plans to address the implementation review while staying aligned w
 Do not use `git worktree` or another checkout.
 If the repo is dirty, stay in the current checkout and leave unrelated files alone.
 Do not modify workflow YAML, prompt files, or runtime state files unless the plan explicitly requires it.
+Preserve layout and ownership decisions from the design and plan. If implementation needs to change a location or unit boundary, record the deviation and rationale in the execution report.
 
 Your task may include either or both of:
 - fixing defects or regressions in already-implemented work

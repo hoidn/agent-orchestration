@@ -6,6 +6,6 @@ Read the consumed `design`, `plan`, and `plan_review_report` artifacts before ac
 Revise the plan in place to address every unresolved or new in-scope finding.
 Keep tranche order coherent and verification explicit.
 
-When revising a plan for work with multiple meaningful responsibilities, future dependents, cross-boundary behavior, or meaningful review or verification risk, preserve or add an Implementation Architecture section and make the task sequence and verification checks align with it.
+When revising a plan for work that creates or changes multiple distinct things, has future dependents, crosses boundaries, or has meaningful review or verification risk, preserve or add an Implementation Architecture section and make the task sequence and verification checks align with it.
 
 For the output contract's `plan_path`, read the path recorded in that file and write the updated plan document to that current-checkout-relative path. Leave the `plan_path` file containing only the path.

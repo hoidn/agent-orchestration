@@ -18,11 +18,13 @@ Reject designs that:
 - omit the selected tranche objective, relevant manifest fields, prerequisites, roadmap constraints, target artifacts, design depth, or completion gate
 - omit semantically material choices or fail to justify them
 - carry forward unnecessary or counterproductive transformations, adapters, defaults, or inherited conventions
+- ignore relevant roadmap layout or ownership conventions, or invent conflicting locations without explicit justification
 - omit required architecture, interface, data-flow, ownership, oracle, provenance, migration, or compatibility decisions
 - propose implementation before blocking design decisions are resolved
 - hide work in vague "follow existing pattern" language where the existing pattern may be wrong for the tranche outcome
-- leave unclear which artifacts are maintained versus generated, their ownership/provenance assumptions, validation responsibility, or stable paths/interfaces when that distinction affects the tranche contract
-- introduce or change a nontrivial subsystem, workflow, integration surface, automation, or durable artifact contract without explicit component boundaries, interfaces, invariants, failure modes, and test or review boundaries
+- leave unclear what is authored versus derived, the provenance assumptions, required checks, or stable paths/interfaces when that distinction affects the tranche contract
+- introduce or change a nontrivial subsystem, process, integration surface, automation, or durable artifact contract without explicit component boundaries, ownership, interfaces, invariants, failure modes, and test or review boundaries
+- group concrete things that should change or be reviewed independently without a clear reason
 - embed large hand-curated data in executable code without justifying the choice based on reviewability, provenance, and expected reuse
 - provide weak verification for the tranche risk
 - create avoidable debt or drift in stable project modules
