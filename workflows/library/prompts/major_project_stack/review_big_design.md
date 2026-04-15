@@ -22,6 +22,7 @@ Reject designs that:
 - propose implementation before blocking design decisions are resolved
 - hide work in vague "follow existing pattern" language where the existing pattern may be wrong for the tranche outcome
 - leave unclear which artifacts are maintained versus generated, their ownership/provenance assumptions, validation responsibility, or stable paths/interfaces when that distinction affects the tranche contract
+- introduce or change a nontrivial subsystem, workflow, integration surface, automation, or durable artifact contract without explicit component boundaries, interfaces, invariants, failure modes, and test or review boundaries
 - embed large hand-curated data in executable code without justifying the choice based on reviewability, provenance, and expected reuse
 - provide weak verification for the tranche risk
 - create avoidable debt or drift in stable project modules

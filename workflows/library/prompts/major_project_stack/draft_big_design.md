@@ -17,6 +17,13 @@ The design must be self-contained for the downstream generic plan and implementa
 
 For any tranche that creates generated artifacts, helper scripts, validators, or curated data, identify which artifacts are maintained versus generated, the ownership/provenance assumptions, validation responsibility, and any stable paths or interfaces that are part of the tranche contract. Leave internal file layout and exact commands to the plan unless a concrete path or command is part of the contract. Justify any large hand-curated data stored inside executable code.
 
+If the tranche introduces or changes a nontrivial subsystem, workflow, integration surface, automation, or durable artifact contract, include an architecture section that defines:
+- component boundaries and responsibilities
+- data, control-flow, API, or artifact interfaces between components
+- invariants and failure modes the design relies on
+- stable decisions, contracts, and invariants downstream work may rely on, without over-specifying plan-level mechanics
+- test or review boundaries for the component contracts and invariants
+
 Address where relevant:
 - tranche objective, scope, non-goals, and relationship to the project roadmap
 - ADR or architecture decision section
