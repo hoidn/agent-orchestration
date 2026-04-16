@@ -15,6 +15,23 @@ A tranche may produce documentation, specs, tests, validation assets, inventorie
 
 Do not let evidence, prior artifacts, status labels, or review decisions unlock broader downstream work than they actually support. Narrow or pilot-scoped evidence may justify a correspondingly narrow follow-on tranche, but broader work needs explicit remaining-work gates.
 
+For broad projects, identify the outcome the brief is asking for before finalizing tranches: which users, user workflows, systems, integrations, or consumers should be supported; in what context; and what evidence would demonstrate that support.
+
+If the roadmap covers only a foundation, pilot, or selected subset of a broader target, state that it does not complete the broader goal. Include the later tranches, acceptance gates, deferred-work owners, and return conditions needed to reach the full requested outcome.
+
+When the brief's goal names or implies users, user workflows, downstream systems, integrations, or consumers, include representative end-to-end tasks, examples, conformance scenarios, or consumer paths as acceptance targets. The acceptance targets should exercise the outcome the brief asks for unless the brief explicitly limits success to narrower intermediate milestones.
+
+For broad multi-tranche projects, look for repeated work shapes before finalizing the tranche list. A repeated work shape is a set of tranches that appear to solve a similar kind of problem, create or change similar components, expose similar interfaces or entrypoints, maintain similar data or assets, follow similar implementation or review steps, or serve similar later consumers, even if each member has different domain content.
+
+Record likely cross-tranche family relationships as hypotheses, not as final abstractions. For each likely family, state:
+- candidate member tranches
+- the repeated work shape
+- which tranche is the likely pilot
+- when a later tranche should run a consolidation checkpoint before copying the pilot shape
+- which parts are expected to remain domain-specific
+
+Do not hardcode shared helpers before there is evidence. It is acceptable for the first pilot tranche to build local work. The roadmap should, however, prevent the second or later family member from blindly copying the pilot by requiring an explicit reuse/consolidation decision.
+
 For broad multi-tranche projects, include a `Project Organization Conventions` section. Base it on the project brief, existing repository layout, existing docs/specs/architecture notes, and the roadmap's planned work.
 
 Define where each relevant kind of work belongs and how to subdivide it when several components exist. Do not stop at top-level roots if later tranches would still need to invent internal ownership.
@@ -59,6 +76,8 @@ The roadmap must:
 - state the high-level project shape and sequencing rationale
 - divide the project into sequential tranches that can each be designed, planned, implemented, and reviewed independently
 - include layout and ownership conventions when the project is broad enough that later tranches would otherwise invent file or component locations
+- identify cross-tranche family hypotheses and reuse/consolidation checkpoints when several tranches have repeated work shapes
+- define the brief's requested outcome and end-to-end acceptance gates when success depends on users, user workflows, downstream systems, integrations, or consumers
 - record prerequisites and blocker conditions for each tranche
 - identify architecture, API, data-flow, oracle, compatibility, migration, and verification decisions that must be resolved before or inside specific tranches
 - keep tranche boundaries practical: not so broad that a tranche cannot be reviewed, and not so small that it produces no verifiable project progress
@@ -90,5 +109,7 @@ Use `status: "pending"` for tranches ready to be selected once prerequisites are
 Use `design_depth: "big"` for tranches that require the big-design phase. Use `completion_gate: "implementation_approved"` for first-driver tranches.
 
 When tranche brief paths are included in the manifest, write concise standalone tranche brief files at those paths. Each brief should be enough for a later design phase to understand the tranche objective, scope, required context, expected outputs, and verification concerns. Do not turn those briefs into full designs or implementation plans.
+
+When a tranche belongs to a likely cross-tranche family, its brief should mention the family relationship, prior or future related tranches, and whether the tranche is expected to be a pilot, consolidation point, later family member, or intentionally separate despite superficial similarity.
 
 For output contract relpath artifacts, read each recorded path from the pointer file and write the rich content to that target path. Leave pointer files as path-only files.

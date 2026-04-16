@@ -19,6 +19,18 @@ The design must be self-contained for the downstream generic plan and implementa
 
 If the project roadmap defines layout or ownership conventions, apply the relevant parts in this tranche design. Do not leave later phases to invent file locations, ownership boundaries, maintained-input locations, generated output locations, or internal component boundaries when the roadmap already made or requires those decisions.
 
+If the roadmap identifies this tranche as part of a cross-tranche family, or repo inspection shows that this tranche has a repeated work shape already used by an earlier tranche, include a `Cross-Tranche Reuse And Family Fit` section. A repeated work shape may involve solving a similar kind of problem, creating or changing similar components, exposing similar interfaces or entrypoints, maintaining similar data or assets, following similar implementation or review steps, or serving similar later consumers.
+
+In that section, classify the tranche as one of:
+- first pilot
+- second instance needing a reuse/consolidation decision
+- later family member expected to consume shared machinery
+- intentionally separate local fork
+
+State the evidence for the classification, the closest prior tranche or comparable result, which parts should be reused or refactored into shared helpers, which parts remain tranche-specific, and which prior interfaces, entrypoints, artifacts, or behavior must remain compatible.
+
+A tranche may refactor prior tranche-local work into shared helpers when that refactor is needed for the current tranche. Keep the refactor limited to parts the current tranche will consume, preserve prior tranche behavior and interfaces, and require regression checks for the prior tranche.
+
 For any tranche that creates source code, tools, durable artifacts, or curated data, identify stable locations, stable interfaces, provenance assumptions, and required checks that are part of the tranche contract. Distinguish authored from derived files when both exist. Define layout at the level needed to fix component ownership and stable locations; leave complete file lists, function-level structure, and exact commands to the plan unless they are part of the contract. For example, the design might place a new package under `src/<package>/<component>/` and its command entrypoint under `tools/<project>/`, while leaving exact module names and command flags to the plan. Or it might decide that promoted reference data lives under `artifacts/<kind>/<owner>/` and run reports live under `artifacts/work/<project>/`, while leaving exact filenames to the plan. Justify any large hand-curated data stored inside executable code.
 
 If the tranche introduces or changes a nontrivial subsystem, process, integration surface, automation, or durable artifact contract, include an `Implementation Architecture` section that defines:
@@ -37,6 +49,7 @@ Address where relevant:
 - type-driven interfaces and public contracts
 - data flow, ownership, source-of-truth, oracle, and provenance contracts
 - module, package, and integration boundaries
+- cross-tranche reuse and family fit: whether this tranche is a pilot, consolidation point, later family member, or justified local fork; what prior work is reused or refactored; and what compatibility checks protect earlier tranches
 - migration, compatibility, and rollback strategy
 - performance, batching, device, or parallelization implications
 - discoverability, spec, and documentation impact: when the tranche changes behavioral specs, public or internal APIs, architectural conventions, development processes, test conventions, data or oracle contracts, creates important docs, or changes other durable project knowledge, identify the authoritative docs, specs, documentation indexes such as `docs/index.md`, templates, or guides that should be updated by the implementation plan; state when no durable documentation update is needed

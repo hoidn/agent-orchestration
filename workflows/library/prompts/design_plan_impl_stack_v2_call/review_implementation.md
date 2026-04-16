@@ -7,6 +7,7 @@ Review the implementation against the design and the full approved plan.
 
 Your job is not only to find correctness bugs in the implemented tranche, but also to determine whether required approved plan tasks remain unimplemented.
 Prioritize completion of unfinished required plan work over cleanup of issues in already-implemented portions, unless those issues block or materially distort subsequent required implementation or its verification.
+Weight implementation correctness, API behavior, and maintainability at least as heavily as required completion and verification issues when assigning severity.
 
 When reviewing:
 - identify required plan tasks that are still not implemented

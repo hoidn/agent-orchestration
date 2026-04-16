@@ -7,6 +7,10 @@ Do not implement source changes, edit the broad project brief, or draft full des
 
 Keep the broad project brief immutable provenance. Preserve correct roadmap decisions that were not challenged. Update tranche ordering, prerequisites, generated tranche briefs, and manifest fields only where the review findings require it or where a directly related consistency fix is necessary.
 
+If review findings concern a mismatch between the outcome requested by the brief and the roadmap's tranche scope, revise the roadmap to distinguish foundation or selected-subset work from acceptance-ready work. Add or repair user-workflow, system, integration, consumer, or other end-to-end acceptance gates; later tranches; deferred-work owners; return conditions; generated tranche briefs; and manifest consistency as needed.
+
+If review findings concern repeated tranche shapes, cross-tranche family relationships, pilot/consolidation timing, or reuse boundaries, update the roadmap, generated tranche briefs, and manifest consistency as needed. Treat family relationships as roadmap hypotheses and checkpoints, not as implementation plans. Do not hardcode shared helpers unless the roadmap review specifically requires a prerequisite consolidation tranche.
+
 When changing the manifest, keep it valid JSON and preserve the required field set for every tranche:
 - `tranche_id`
 - `title`
