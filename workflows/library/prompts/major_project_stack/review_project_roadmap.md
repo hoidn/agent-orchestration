@@ -7,6 +7,8 @@ If `docs/index.md` is present, read it first, then use it to select relevant spe
 
 Review the project roadmap and tranche manifest from scratch before reconciling carried-forward findings.
 
+Treat the rejection bullets as review aids, not an equal-weight checklist. Focus findings on gaps that would materially affect the project outcome, tranche dependency graph, downstream maintainability, or acceptance evidence.
+
 Reject or block the roadmap if:
 - tranches are not coherent sequential units of work
 - prerequisites are missing, circular, hidden, or too vague for deterministic selection

@@ -12,6 +12,8 @@ If `docs/index.md` is present, read it first, then use it to select relevant spe
 
 Review the candidate design from scratch before reconciling carried-forward findings.
 
+Treat the rejection bullets as review aids, not an equal-weight checklist. Focus findings on gaps that would materially affect the tranche outcome, force later phases to invent important decisions, or create avoidable long-lived debt.
+
 Reject designs that:
 - conflict with the project roadmap or selected tranche brief without explaining and justifying the change
 - are not self-contained enough for generic plan and implementation phases that will consume only the design and plan
