@@ -15,11 +15,11 @@ A tranche may produce documentation, specs, tests, validation assets, inventorie
 
 Do not let evidence, prior artifacts, status labels, or review decisions unlock broader downstream work than they actually support. Narrow or pilot-scoped evidence may justify a correspondingly narrow follow-on tranche, but broader work needs explicit remaining-work gates.
 
-For broad projects, identify the outcome the brief is asking for before finalizing tranches: which users, user workflows, systems, integrations, or consumers should be supported; in what context; and what evidence would demonstrate that support.
+Before finalizing tranches, define the project's completion boundary: what outcome the brief asks for, which users or consumers must be served, which behaviors, artifacts, interfaces, data, workflows, quality constraints, and compatibility promises are in scope, and what evidence would show the project is complete.
 
-If the roadmap covers only a foundation, pilot, or selected subset of a broader target, state that it does not complete the broader goal. Include the later tranches, acceptance gates, deferred-work owners, and return conditions needed to reach the full requested outcome.
+If the roadmap covers only a subset, pilot, representative path, or intermediate milestone, state that explicitly. Name the remaining in-scope work at the same semantic level as the brief, and assign it to later tranches, blockers, explicit non-goals, or follow-up owners. Do not let terms like "selected", "practical", "representative", "initial", or "workhorse" become the final definition of done unless the brief itself sets that narrower goal.
 
-When the brief's goal names or implies users, user workflows, downstream systems, integrations, or consumers, include representative end-to-end tasks, examples, conformance scenarios, or consumer paths as acceptance targets. The acceptance targets should exercise the outcome the brief asks for unless the brief explicitly limits success to narrower intermediate milestones.
+When the completion boundary includes users, workflows, integrations, downstream systems, operational paths, or data/artifact consumers, include representative end-to-end tasks, examples, conformance scenarios, or consumer paths as acceptance targets. The acceptance targets should exercise the requested outcome unless the brief explicitly limits success to narrower intermediate milestones.
 
 For broad multi-tranche projects, look for repeated work shapes before finalizing the tranche list. A repeated work shape is a set of tranches that appear to solve a similar kind of problem, create or change similar components, expose similar interfaces or entrypoints, maintain similar data or assets, follow similar implementation or review steps, or serve similar later consumers, even if each member has different domain content.
 
@@ -77,7 +77,8 @@ The roadmap must:
 - divide the project into sequential tranches that can each be designed, planned, implemented, and reviewed independently
 - include layout and ownership conventions when the project is broad enough that later tranches would otherwise invent file or component locations
 - identify cross-tranche family hypotheses and reuse/consolidation checkpoints when several tranches have repeated work shapes
-- define the brief's requested outcome and end-to-end acceptance gates when success depends on users, user workflows, downstream systems, integrations, or consumers
+- define the project's completion boundary, including the requested outcome, in-scope promises, omitted in-scope work, and evidence for completion
+- define end-to-end acceptance gates when success depends on users, workflows, downstream systems, integrations, operations, or data/artifact consumers
 - record prerequisites and blocker conditions for each tranche
 - identify architecture, API, data-flow, oracle, compatibility, migration, and verification decisions that must be resolved before or inside specific tranches
 - keep tranche boundaries practical: not so broad that a tranche cannot be reviewed, and not so small that it produces no verifiable project progress
