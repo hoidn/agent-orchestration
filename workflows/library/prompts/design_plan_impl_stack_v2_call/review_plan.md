@@ -7,6 +7,7 @@ Reject plans that collapse the design's component boundaries, interfaces, invari
 Reject plans that ignore or weaken design or roadmap layout and ownership decisions, or change locations or unit boundaries without explicit rationale.
 Reject plans for work that creates or changes multiple distinct things, has future dependents, crosses boundaries, or has meaningful review or verification risk if they do not define implementable units, owned boundaries, dependency direction, and focused tests, unless the design explicitly justifies a small single-unit implementation.
 Reject plans that blur authored and derived artifacts, omit checks for derived artifacts, or introduce reusable code without tests or a maintainability rationale.
+For numerical parity or regression checks, require material comparisons and any planned `atol`/`rtol` or comparison standard to be stated with a scale and precision rationale.
 Then reconcile your fresh review against the carried-forward `open_findings` ledger.
 
 For each prior finding, classify it as one of:

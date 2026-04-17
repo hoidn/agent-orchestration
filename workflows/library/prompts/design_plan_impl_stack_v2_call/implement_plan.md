@@ -16,4 +16,6 @@ The execution report must include:
 - `Verification`
 - `Residual Risks`
 
+For numerical parity or regression checks, report the `atol`/`rtol` or comparison standard used when the plan identifies one.
+
 Finally, stage and commit only changes required for the current task with a descriptive commit message. Include durable design, plan, report, summary, and docs-index updates; exclude unrelated files, `.orchestrate/`, `state/`, and caches unless the plan requires them.

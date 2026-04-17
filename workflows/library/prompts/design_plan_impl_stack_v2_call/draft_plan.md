@@ -34,5 +34,6 @@ The plan should:
 - avoid vague shared-work tasks such as "implement the validator" or "update the helper"; split nontrivial shared work by owned interface, data flow, validation, IO, command or reporting surface, and tests as appropriate
 - include discoverability or documentation update steps when the work changes behavioral specs, public or internal APIs, architectural conventions, development processes, test conventions, data or oracle contracts, creates important docs, or changes other durable project knowledge; when qualifying docs are created or materially changed, include a task for updating the relevant documentation index such as `docs/index.md` when present; avoid documentation churn for purely local implementation details
 - when the design identifies source code, tools, durable artifacts, or curated data, plan the concrete file targets, applicable commands, checks, and tests needed to make the work executable
+- for numerical parity or regression checks, state the material comparisons, planned `atol`/`rtol` or comparison standard, and rationale tied to output scale, dtype/backend precision, and reference precision
 
 For the output contract's `plan_path`, read the path recorded in that file and write the plan document to that current-checkout-relative path. Leave the `plan_path` file containing only the path.

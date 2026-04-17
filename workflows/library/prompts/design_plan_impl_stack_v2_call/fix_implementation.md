@@ -24,6 +24,8 @@ Prioritize in this order:
 2. identify the earliest required unfinished plan task or coherent tranche
 3. implement that tranche before optional later work
 
+For numerical parity failures, first rule out semantic causes: inputs, units, axes, shapes, metadata, row meanings, normalization, physical assumptions, and domain-relevant features. If repeated debugging shows the remaining discrepancy is numerical-method drift rather than different physics or semantics, propose a scientifically justified tolerance or comparison-standard change in the execution report and preserve the failing check or blocker. For tolerance changes, name the affected comparison, current and proposed `atol`/`rtol`, output scale, dtype/backend precision, reference precision, and residual evidence supporting the change. Do not relax tolerances, remove expected failures, or close blockers directly.
+
 For the output contract's `execution_report_path`, read the path recorded in that file and write the concise execution report to that current-checkout-relative path. Leave the `execution_report_path` file containing only the path.
 
 The execution report must include:
