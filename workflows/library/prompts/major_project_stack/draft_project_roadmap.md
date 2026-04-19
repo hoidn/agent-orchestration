@@ -17,6 +17,8 @@ Do not let evidence, prior artifacts, status labels, or review decisions unlock 
 
 Before finalizing tranches, define the project's completion boundary: what outcome the brief asks for, which users or consumers must be served, which behaviors, artifacts, interfaces, data, workflows, quality constraints, and compatibility promises are in scope, and what evidence would show the project is complete.
 
+For technology-port roadmaps, identify material runtime capability dimensions implied by the brief, such as backend, device, dtype, precision, batching, public execution path, and performance claims. Each material dimension must be assigned to an implementation tranche, an acceptance gate, an explicit blocker, or an explicit non-goal.
+
 If the roadmap covers only a subset, pilot, representative path, or intermediate milestone, state that explicitly. Name the remaining in-scope work at the same semantic level as the brief, and assign it to later tranches, blockers, explicit non-goals, or follow-up owners. Do not let terms like "selected", "practical", "representative", "initial", or "workhorse" become the final definition of done unless the brief itself sets that narrower goal.
 
 When the completion boundary includes users, workflows, integrations, downstream systems, operational paths, or data/artifact consumers, include representative end-to-end tasks, examples, conformance scenarios, or consumer paths as acceptance targets. The acceptance targets should exercise the requested outcome unless the brief explicitly limits success to narrower intermediate milestones.
