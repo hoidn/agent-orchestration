@@ -3784,6 +3784,17 @@ class WorkflowExecutor:
         visit_count = step_visits.get(step_name, 1) if isinstance(step_visits, dict) else 1
         visit_paths = adjudication_visit_paths(run_root, frame_scope, step_id, int(visit_count or 1))
 
+        adjudicated = dict(adjudicated)
+        ledger_path_error = self._resolve_adjudication_score_ledger_path(
+            adjudicated,
+            state,
+            context,
+            step_name=step_name,
+            visit_paths=visit_paths,
+        )
+        if ledger_path_error is not None:
+            return ledger_path_error
+
         candidates_config = adjudicated.get("candidates", [])
         evaluator_config = adjudicated.get("evaluator", {})
         selection_config = adjudicated.get("selection", {})
@@ -3948,7 +3959,7 @@ class WorkflowExecutor:
                                 "failure_message": "candidate provider failed",
                             }
                         )
-                        if exec_result.exit_code == 124:
+                        if exec_result.exit_code == 124 and self._adjudication_deadline_expired(deadline):
                             candidates.append(candidate_record)
                             return self._adjudication_failure_result(
                                 "timeout",
@@ -4117,6 +4128,28 @@ class WorkflowExecutor:
                 return ledger_failure
             return self._adjudication_failure_result("ledger_path_collision", collision_message, candidates=candidates, visit_paths=visit_paths)
         try:
+            deadline.require_time_remaining("pending ledger materialization")
+            self._write_adjudication_ledgers(
+                adjudicated=adjudicated,
+                visit_paths=visit_paths,
+                state=state,
+                step_id=step_id,
+                step_name=step_name,
+                visit_count=int(visit_count or 1),
+                candidates=candidates,
+                selected_candidate_id=str(selection.selected_candidate_id),
+                selection_reason=selection.selection_reason,
+                promotion_status="pending",
+                promoted_paths={},
+                execution_frame_id=execution_frame_id,
+                call_frame_id=call_frame_id,
+                materialize_mirror=False,
+            )
+        except TimeoutError as exc:
+            return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
+        except OSError as exc:
+            return self._adjudication_failure_result("ledger_mirror_failed", str(exc), candidates=candidates, visit_paths=visit_paths)
+        try:
             deadline.require_time_remaining("promotion")
             promotion = promote_candidate_outputs(
                 expected_outputs=resolved_expected_outputs,
@@ -4204,6 +4237,10 @@ class WorkflowExecutor:
             ),
         }
 
+    def _adjudication_deadline_expired(self, deadline: AdjudicationDeadline) -> bool:
+        remaining = deadline.remaining_timeout_sec()
+        return remaining is not None and remaining <= 0
+
     def _adjudication_required_path_surfaces(self, step: Dict[str, Any]) -> list[PathSurface]:
         surfaces: list[PathSurface] = []
         input_file = step.get("input_file")
@@ -4227,6 +4264,60 @@ class WorkflowExecutor:
         if isinstance(output_bundle, dict) and isinstance(output_bundle.get("path"), str):
             surfaces.append(PathSurface("output_bundle.path", Path(output_bundle["path"])))
         return surfaces
+
+    def _resolve_adjudication_score_ledger_path(
+        self,
+        adjudicated: dict[str, Any],
+        state: Dict[str, Any],
+        context: Dict[str, Any],
+        *,
+        step_name: str,
+        visit_paths: Any,
+    ) -> Optional[Dict[str, Any]]:
+        ledger_path = adjudicated.get("score_ledger_path")
+        if not isinstance(ledger_path, str):
+            return None
+        resolved_path, path_error = self._substitute_path_template(
+            ledger_path,
+            state,
+            step_name=step_name,
+            field_name="adjudicated_provider.score_ledger_path",
+            context=context,
+        )
+        if path_error is not None:
+            return path_error
+        if not isinstance(resolved_path, str):
+            return self._adjudication_failure_result(
+                "ledger_path_collision",
+                "score_ledger_path must resolve to a workspace-relative artifacts path",
+                visit_paths=visit_paths,
+            )
+
+        path = Path(resolved_path)
+        normalized = path.as_posix()
+        if path.is_absolute() or ".." in path.parts or not normalized.startswith("artifacts/"):
+            return self._adjudication_failure_result(
+                "ledger_path_collision",
+                "score_ledger_path must resolve under artifacts/",
+                visit_paths=visit_paths,
+            )
+        ledger_abs = (self.workspace / path).resolve()
+        workspace_root = self.workspace.resolve()
+        if not self._path_under(ledger_abs, workspace_root):
+            return self._adjudication_failure_result(
+                "ledger_path_collision",
+                "score_ledger_path must not escape the parent workspace",
+                visit_paths=visit_paths,
+            )
+        artifacts_root = (self.workspace / "artifacts").resolve()
+        if not self._path_under(ledger_abs, artifacts_root):
+            return self._adjudication_failure_result(
+                "ledger_path_collision",
+                "score_ledger_path must not escape artifacts/",
+                visit_paths=visit_paths,
+            )
+        adjudicated["score_ledger_path"] = normalized
+        return None
 
     def _candidate_step_from_adjudicated_step(
         self,
@@ -4497,7 +4588,7 @@ class WorkflowExecutor:
                     "failure_message": "evaluator provider failed",
                 }
             )
-            if exec_result.exit_code == 124:
+            if exec_result.exit_code == 124 and self._adjudication_deadline_expired(deadline):
                 raise TimeoutError("adjudicated provider deadline expired during evaluator execution")
             return
         try:
@@ -4553,6 +4644,12 @@ class WorkflowExecutor:
             promotion_status=promotion_status,
             promoted_paths=promoted_paths,
         )
+        rows_by_candidate = {str(row.get("candidate_id")): row for row in rows}
+        for candidate in candidates:
+            row = rows_by_candidate.get(str(candidate.get("candidate_id")))
+            if row is not None:
+                candidate["candidate_run_key"] = row["candidate_run_key"]
+                candidate["score_run_key"] = row["score_run_key"]
         materialize_run_score_ledger(rows, visit_paths.run_score_ledger_path)
         mirror = adjudicated.get("score_ledger_path")
         if materialize_mirror and isinstance(mirror, str):
@@ -4693,6 +4790,11 @@ class WorkflowExecutor:
                 "selected": bool(candidate.get("selected", False)),
                 "promotion_status": candidate.get("promotion_status", "not_selected"),
                 "candidate_root": candidate.get("candidate_root"),
+                "candidate_run_key": candidate.get("candidate_run_key"),
+                "score_run_key": candidate.get("score_run_key"),
+                "provider_exit_code": candidate.get("provider_exit_code"),
+                "attempt_count": candidate.get("attempt_count"),
+                "evaluator_attempt_count": candidate.get("evaluator_attempt_count"),
                 "failure_type": candidate.get("failure_type"),
                 "failure_message": candidate.get("failure_message"),
                 "scorer_resolution_failure_key": candidate.get("scorer_resolution_failure_key"),

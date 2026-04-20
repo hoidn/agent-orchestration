@@ -1,11 +1,16 @@
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
-from orchestrator.workflow.adjudication import adjudication_visit_paths, candidate_paths
+from orchestrator.workflow.adjudication import (
+    PromotionConflictError,
+    adjudication_visit_paths,
+    candidate_paths,
+)
 from orchestrator.workflow.executor import WorkflowExecutor
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -121,6 +126,9 @@ def test_adjudicated_provider_selects_highest_scored_candidate_and_publishes(tmp
     assert result["adjudication"]["selected_candidate_id"] == "b"
     assert result["adjudication"]["selected_score"] == 0.9
     assert result["adjudication"]["promotion_status"] == "committed"
+    selected_state = result["adjudication"]["candidates"]["b"]
+    assert selected_state["candidate_run_key"].startswith("sha256:")
+    assert selected_state["score_run_key"].startswith("sha256:")
     assert "output" not in result
     assert "json" not in result
     ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
@@ -129,6 +137,34 @@ def test_adjudicated_provider_selects_highest_scored_candidate_and_publishes(tmp
     assert [row["candidate_id"] for row in rows] == ["a", "b"]
     assert [row["selected"] for row in rows] == [False, True]
     assert state["artifact_versions"]["result_path"][-1]["value"] == "docs/plans/b.md"
+
+
+def test_score_ledger_path_is_substituted_before_mirror_materialization(tmp_path: Path) -> None:
+    workflow = _workflow()
+    workflow["steps"][0]["adjudicated_provider"]["score_ledger_path"] = (
+        "artifacts/evaluations/${run.id}/draft_scores.jsonl"
+    )
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["adjudication"]["score_ledger_path"] == "artifacts/evaluations/run-1/draft_scores.jsonl"
+    assert (tmp_path / "artifacts/evaluations/run-1/draft_scores.jsonl").exists()
+    assert not (tmp_path / "artifacts/evaluations/${run.id}/draft_scores.jsonl").exists()
+
+
+def test_score_ledger_path_rejects_artifacts_symlink_escape(tmp_path: Path) -> None:
+    outside = tmp_path.parent / f"{tmp_path.name}-outside"
+    outside.mkdir()
+    (tmp_path / "artifacts").symlink_to(outside, target_is_directory=True)
+
+    state = _run(tmp_path, _workflow())
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "ledger_path_collision"
+    assert not (outside / "evaluations/draft_scores.jsonl").exists()
 
 
 def test_adjudicated_provider_tie_breaks_by_candidate_order(tmp_path: Path) -> None:
@@ -352,6 +388,22 @@ def test_candidate_timeout_returns_logical_step_timeout(tmp_path: Path) -> None:
     assert result["adjudication"]["candidates"]["a"]["candidate_status"] == "timeout"
 
 
+def test_candidate_exit_124_does_not_mask_later_valid_candidate_when_deadline_remains(tmp_path: Path) -> None:
+    workflow = _workflow(scores={"b": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 60
+    workflow["providers"]["candidate_a"]["command"] = ["python", "-c", "raise SystemExit(124)"]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["adjudication"]["selected_candidate_id"] == "b"
+    candidate_a = result["adjudication"]["candidates"]["a"]
+    assert candidate_a["candidate_status"] == "timeout"
+    assert candidate_a["score_status"] == "not_evaluated"
+    assert result["artifacts"]["result_path"] == "docs/plans/b.md"
+
+
 def test_candidate_and_evaluator_stdout_stderr_are_sidecars_only(tmp_path: Path) -> None:
     workflow = _workflow(scores={"a": 0.9})
     workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
@@ -439,6 +491,41 @@ def test_candidate_retry_starts_from_fresh_baseline_and_records_attempt_count(tm
     assert rows[0]["attempt_count"] == 2
 
 
+def test_candidate_exit_124_can_retry_when_deadline_remains(tmp_path: Path) -> None:
+    attempt_file = tmp_path / "candidate_timeout_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 60
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({attempt_file.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "if attempt == 1:\n"
+            "    raise SystemExit(124)\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('retry success', encoding='utf-8')\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert attempt_file.read_text(encoding="utf-8") == "2"
+    ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    assert rows[0]["attempt_count"] == 2
+
+
 def test_evaluator_retry_reuses_packet_without_rerunning_candidate(tmp_path: Path) -> None:
     candidate_attempt_file = tmp_path / "candidate_attempts.txt"
     evaluator_attempt_file = tmp_path / "evaluator_attempts.txt"
@@ -493,6 +580,37 @@ def test_evaluator_retry_reuses_packet_without_rerunning_candidate(tmp_path: Pat
     rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
     assert rows[0]["score_status"] == "scored"
     assert rows[0]["attempt_count"] == 1
+
+
+def test_run_local_ledger_records_pending_selection_before_promotion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    run_ledger = adjudication_visit_paths(
+        tmp_path / ".orchestrate/runs/run-1",
+        "root",
+        "root.draft",
+        1,
+    ).run_score_ledger_path
+
+    def fail_after_pending_ledger(**_: object) -> object:
+        rows = [json.loads(line) for line in run_ledger.read_text(encoding="utf-8").splitlines()]
+        assert rows[0]["selected"] is True
+        assert rows[0]["promotion_status"] == "pending"
+        assert rows[0]["promoted_paths"] == {}
+        raise PromotionConflictError("stop after pending ledger")
+
+    monkeypatch.setattr("orchestrator.workflow.executor.promote_candidate_outputs", fail_after_pending_ledger)
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "promotion_conflict"
 
 
 def test_mirror_conflict_does_not_mask_no_valid_candidates_failure(tmp_path: Path) -> None:
