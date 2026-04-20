@@ -1,9 +1,12 @@
 """Adjudicated-provider runtime helpers.
 
 This module owns deterministic sidecar paths, baseline snapshots, evidence
-packet construction, selection, ledgers, and selected-output promotion. The
-executor coordinates these helpers; it should not duplicate their filesystem or
-scoring rules.
+packet construction, selection, ledgers, and selected-output promotion. These
+helpers remain together for the first adjudicated-provider tranche because the
+transaction, ledger, and scorer identities share private path, hash, and preimage
+primitives. Split the module once resume/retry work introduces stable submodule
+boundaries. The executor coordinates these helpers; it should not duplicate
+their filesystem or scoring rules.
 """
 
 from __future__ import annotations
@@ -419,17 +422,34 @@ def promote_candidate_outputs(
             else:
                 validate_expected_outputs(expected_outputs or [], workspace=parent_workspace)
         except OutputContractError as exc:
-            for dest in reversed(created_from_absent):
-                if dest.exists():
-                    dest.unlink()
-            for dest, backup in reversed(backups):
-                if backup.exists():
-                    _replace_file(backup, dest)
+            try:
+                _rollback_promoted_files(
+                    files=files,
+                    parent_workspace=parent_workspace,
+                    backups_root=backups_root,
+                )
+            except PromotionConflictError as rollback_exc:
+                manifest["status"] = "rolling_back"
+                manifest["failure_type"] = rollback_exc.failure_type
+                manifest["failure_message"] = str(rollback_exc)
+                _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
+                raise
             manifest["status"] = "failed"
             manifest["failure_type"] = "promotion_validation_failed"
             manifest["failure_message"] = str(exc)
             _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
             raise PromotionConflictError(str(exc), failure_type="promotion_validation_failed") from exc
+    except PromotionConflictError as exc:
+        if promotion_manifest_path.exists():
+            try:
+                if manifest.get("status") != "rolling_back":
+                    manifest["status"] = "failed"
+                    manifest["failure_type"] = exc.failure_type
+                    manifest["failure_message"] = str(exc)
+                _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
+            except Exception:
+                pass
+        raise
     except Exception:
         if promotion_manifest_path.exists():
             try:
@@ -462,6 +482,20 @@ def scorer_identity_hash(scorer: Mapping[str, Any]) -> str:
             "secret_detection_policy": SECRET_DETECTION_POLICY,
         }
     )
+
+
+def persist_scorer_snapshot(scorer: Mapping[str, Any], scorer_root: Path) -> Path:
+    """Persist the resolved scorer identity snapshot for replay and resume checks."""
+    path = scorer_root / "metadata.json"
+    _atomic_write_text(path, _canonical_json(dict(scorer)) + "\n")
+    return path
+
+
+def persist_scorer_resolution_failure(failure: Mapping[str, Any], scorer_root: Path) -> Path:
+    """Persist normalized scorer-resolution failure metadata."""
+    path = scorer_root / "resolution_failure.json"
+    _atomic_write_text(path, _canonical_json(dict(failure)) + "\n")
+    return path
 
 
 def build_evaluation_packet(
@@ -673,16 +707,7 @@ def generate_score_ledger_rows(
                 "composed_prompt_hash": candidate.get("composed_prompt_hash"),
             }
         )
-        score_run_key = _stable_hash(
-            {
-                "candidate_run_key": candidate_run_key,
-                "score_status": candidate.get("score_status"),
-                "score": candidate.get("score"),
-                "scorer_identity_hash": candidate.get("scorer_identity_hash"),
-                "evaluation_packet_hash": candidate.get("evaluation_packet_hash"),
-                "failure_type": candidate.get("failure_type"),
-            }
-        )
+        score_run_key = _stable_hash(_score_run_identity(candidate, candidate_run_key))
         if score_run_key in seen:
             continue
         seen.add(score_run_key)
@@ -1023,6 +1048,96 @@ def _promotion_manifest_file_entry(file_entry: Mapping[str, Any]) -> dict[str, A
         "source_sha256": file_entry["source_sha256"],
         "baseline_preimage": file_entry["baseline_preimage"],
         "current_preimage": file_entry["current_preimage"],
+    }
+
+
+def _rollback_promoted_files(
+    *,
+    files: Sequence[Mapping[str, Any]],
+    parent_workspace: Path,
+    backups_root: Path,
+) -> None:
+    for file_entry in reversed(files):
+        dest_rel = str(file_entry["dest_rel"])
+        baseline_preimage = dict(file_entry["baseline_preimage"])
+        source_sha256 = str(file_entry["source_sha256"])
+        current_preimage = _current_preimage(parent_workspace, dest_rel)
+        dest = parent_workspace / dest_rel
+
+        if baseline_preimage.get("state") == "file":
+            if _preimage_matches_hash(current_preimage, source_sha256):
+                backup = backups_root / dest_rel
+                if not backup.exists():
+                    raise PromotionConflictError(
+                        f"promotion rollback backup missing for '{dest_rel}'",
+                        failure_type="promotion_rollback_conflict",
+                    )
+                _replace_file(backup, dest)
+                continue
+            if _same_file_preimage(current_preimage, baseline_preimage):
+                continue
+            raise PromotionConflictError(
+                f"promotion destination '{dest_rel}' changed before rollback",
+                failure_type="promotion_rollback_conflict",
+            )
+
+        if baseline_preimage.get("state") == "absent":
+            if _preimage_matches_hash(current_preimage, source_sha256):
+                if dest.exists():
+                    dest.unlink()
+                continue
+            if current_preimage.get("state") == "absent":
+                continue
+            raise PromotionConflictError(
+                f"promotion destination '{dest_rel}' changed before rollback",
+                failure_type="promotion_rollback_conflict",
+            )
+
+        raise PromotionConflictError(
+            f"promotion destination '{dest_rel}' has unavailable baseline preimage",
+            failure_type="promotion_rollback_conflict",
+        )
+
+
+def _preimage_matches_hash(preimage: Mapping[str, Any], sha256_value: str) -> bool:
+    return preimage.get("state") == "file" and preimage.get("sha256") == sha256_value
+
+
+def _same_file_preimage(current: Mapping[str, Any], expected: Mapping[str, Any]) -> bool:
+    if current.get("state") != expected.get("state"):
+        return False
+    if current.get("state") != "file":
+        return current.get("state") == expected.get("state")
+    return current.get("sha256") == expected.get("sha256")
+
+
+def _score_run_identity(candidate: Mapping[str, Any], candidate_run_key: str) -> dict[str, Any]:
+    score_status = candidate.get("score_status")
+    if score_status == "scored":
+        return {
+            "candidate_run_key": candidate_run_key,
+            "score_status": score_status,
+            "scorer_identity_hash": candidate.get("scorer_identity_hash"),
+            "evaluation_packet_hash": candidate.get("evaluation_packet_hash"),
+        }
+    if score_status == "scorer_unavailable":
+        return {
+            "candidate_run_key": candidate_run_key,
+            "score_status": score_status,
+            "scorer_resolution_failure_key": candidate.get("scorer_resolution_failure_key"),
+        }
+    if score_status == "evaluation_failed":
+        return {
+            "candidate_run_key": candidate_run_key,
+            "score_status": score_status,
+            "scorer_identity_hash": candidate.get("scorer_identity_hash"),
+            "evaluation_packet_hash": candidate.get("evaluation_packet_hash"),
+            "failure_type": candidate.get("failure_type"),
+            "failure_message": candidate.get("failure_message"),
+        }
+    return {
+        "candidate_run_key": candidate_run_key,
+        "score_status": score_status or "not_evaluated",
     }
 
 

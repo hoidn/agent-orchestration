@@ -12,6 +12,7 @@ from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import is_dataclass
 from datetime import datetime, timezone
+from hashlib import sha256
 from pathlib import Path
 from typing import Any, Dict, List, Mapping, Optional
 
@@ -88,6 +89,7 @@ from .adjudication import (
     EVALUATION_PACKET_SCHEMA,
     EvaluatorOutputError,
     EvidencePacketError,
+    LedgerConflictError,
     PathSurface,
     PromotionConflictError,
     SECRET_DETECTION_POLICY,
@@ -100,6 +102,8 @@ from .adjudication import (
     materialize_run_score_ledger,
     materialize_score_ledger_mirror,
     parse_evaluator_output,
+    persist_scorer_resolution_failure,
+    persist_scorer_snapshot,
     prepare_candidate_workspace_from_baseline,
     promote_candidate_outputs,
     scorer_identity_hash,
@@ -512,6 +516,38 @@ class WorkflowExecutor:
         if projection_entry is not None:
             return projection_entry.step_id
         return runtime_step_id(step, self.current_step if fallback_index is None else fallback_index)
+
+    def _adjudication_frame_context(self) -> Dict[str, Any]:
+        """Return canonical run-root and current execution-frame identity."""
+        manager: Any = self.state_manager
+        call_frame_id = getattr(manager, "frame_id", None)
+        root_manager = manager
+        while hasattr(root_manager, "parent_manager"):
+            root_manager = getattr(root_manager, "parent_manager")
+        run_root = Path(getattr(root_manager, "run_root", self.state_manager.run_root))
+        if isinstance(call_frame_id, str) and call_frame_id:
+            return {
+                "run_root": run_root,
+                "frame_scope": self._path_safe_frame_scope(call_frame_id),
+                "execution_frame_id": call_frame_id,
+                "call_frame_id": call_frame_id,
+            }
+        return {
+            "run_root": run_root,
+            "frame_scope": "root",
+            "execution_frame_id": "root",
+            "call_frame_id": None,
+        }
+
+    def _path_safe_frame_scope(self, frame_id: str) -> str:
+        allowed = set("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
+        normalized = "".join(char if char in allowed else "_" for char in frame_id).strip("._-")
+        while ".." in normalized:
+            normalized = normalized.replace("..", "._")
+        if not normalized:
+            normalized = "call_frame"
+        digest = sha256(frame_id.encode("utf-8")).hexdigest()[:12]
+        return f"{normalized}_{digest}"
 
     def _step_identity(
         self,
@@ -3708,11 +3744,14 @@ class WorkflowExecutor:
         if resolved_output_bundle is not None:
             output_contract_step['output_bundle'] = resolved_output_bundle
 
-        run_state = self.state_manager.load()
-        run_root = Path(run_state.run_root)
+        frame_context = self._adjudication_frame_context()
+        run_root = frame_context["run_root"]
+        frame_scope = frame_context["frame_scope"]
+        execution_frame_id = frame_context["execution_frame_id"]
+        call_frame_id = frame_context["call_frame_id"]
         step_visits = state.get("step_visits", {})
         visit_count = step_visits.get(step_name, 1) if isinstance(step_visits, dict) else 1
-        visit_paths = adjudication_visit_paths(run_root, "root", step_id, int(visit_count or 1))
+        visit_paths = adjudication_visit_paths(run_root, frame_scope, step_id, int(visit_count or 1))
 
         required_surfaces = self._adjudication_required_path_surfaces(output_contract_step)
         try:
@@ -3745,7 +3784,7 @@ class WorkflowExecutor:
                 continue
             candidate_id = str(candidate_config.get("id"))
             candidate_provider = str(candidate_config.get("provider"))
-            paths = candidate_paths(run_root, "root", step_id, int(visit_count or 1), candidate_id)
+            paths = candidate_paths(run_root, frame_scope, step_id, int(visit_count or 1), candidate_id)
             candidate_step = self._candidate_step_from_adjudicated_step(step, candidate_config)
             candidate_record = {
                 "candidate_id": candidate_id,
@@ -3878,6 +3917,7 @@ class WorkflowExecutor:
                 evaluator_config if isinstance(evaluator_config, dict) else {},
                 context,
                 state,
+                visit_paths=visit_paths,
             )
         if scorer_failure is not None:
             for candidate in output_valid:
@@ -3899,6 +3939,8 @@ class WorkflowExecutor:
                     step=step,
                     output_contract_step=output_contract_step,
                     run_root=run_root,
+                    frame_scope=frame_scope,
+                    step_id=step_id,
                     visit_count=int(visit_count or 1),
                     context=context,
                     state=state,
@@ -3909,7 +3951,7 @@ class WorkflowExecutor:
             require_score_for_single_candidate=require_single_score,
         )
         if selection.error_type is not None:
-            rows = self._write_adjudication_ledgers(
+            ledger_failure = self._write_adjudication_ledgers_failure(
                 adjudicated=adjudicated,
                 visit_paths=visit_paths,
                 state=state,
@@ -3921,8 +3963,11 @@ class WorkflowExecutor:
                 selection_reason="none",
                 promotion_status="not_selected",
                 promoted_paths={},
+                execution_frame_id=execution_frame_id,
+                call_frame_id=call_frame_id,
             )
-            del rows
+            if ledger_failure is not None:
+                return ledger_failure
             return self._adjudication_failure_result(selection.error_type, selection.error_type, candidates=candidates, visit_paths=visit_paths)
 
         selected = next(candidate for candidate in candidates if candidate["candidate_id"] == selection.selected_candidate_id)
@@ -3932,7 +3977,7 @@ class WorkflowExecutor:
                 candidate["promotion_status"] = "pending"
             else:
                 candidate["promotion_status"] = "not_selected"
-        selected_paths = candidate_paths(run_root, "root", step_id, int(visit_count or 1), str(selection.selected_candidate_id))
+        selected_paths = candidate_paths(run_root, frame_scope, step_id, int(visit_count or 1), str(selection.selected_candidate_id))
         ledger_path = adjudicated.get("score_ledger_path")
         if isinstance(ledger_path, str):
             ledger_abs = (self.workspace / ledger_path).resolve()
@@ -3949,7 +3994,7 @@ class WorkflowExecutor:
                 promotion_manifest_path=visit_paths.promotion_manifest_path,
             )
         except PromotionConflictError as exc:
-            self._write_adjudication_ledgers(
+            ledger_failure = self._write_adjudication_ledgers_failure(
                 adjudicated=adjudicated,
                 visit_paths=visit_paths,
                 state=state,
@@ -3961,12 +4006,16 @@ class WorkflowExecutor:
                 selection_reason=selection.selection_reason,
                 promotion_status="failed",
                 promoted_paths={},
+                execution_frame_id=execution_frame_id,
+                call_frame_id=call_frame_id,
             )
+            if ledger_failure is not None:
+                return ledger_failure
             return self._adjudication_failure_result(getattr(exc, "failure_type", "promotion_conflict"), str(exc), candidates=candidates, visit_paths=visit_paths)
 
         selected["promotion_status"] = "committed"
         selected["promoted_paths"] = promotion.promoted_paths
-        rows = self._write_adjudication_ledgers(
+        ledger_failure = self._write_adjudication_ledgers_failure(
             adjudicated=adjudicated,
             visit_paths=visit_paths,
             state=state,
@@ -3978,7 +4027,11 @@ class WorkflowExecutor:
             selection_reason=selection.selection_reason,
             promotion_status="committed",
             promoted_paths=promotion.promoted_paths,
+            execution_frame_id=execution_frame_id,
+            call_frame_id=call_frame_id,
         )
+        if ledger_failure is not None:
+            return ledger_failure
         try:
             if resolved_output_bundle is not None:
                 artifacts = validate_output_bundle(resolved_output_bundle, workspace=self.workspace)
@@ -4004,6 +4057,8 @@ class WorkflowExecutor:
                 scorer_snapshot_path=visit_paths.scorer_root / "metadata.json",
                 promotion_manifest_path=visit_paths.promotion_manifest_path,
                 candidates=candidates,
+                execution_frame_id=execution_frame_id,
+                call_frame_id=call_frame_id,
             ),
         }
 
@@ -4056,27 +4111,79 @@ class WorkflowExecutor:
         evaluator_config: Mapping[str, Any],
         context: Dict[str, Any],
         state: Dict[str, Any],
+        *,
+        visit_paths: Any,
     ) -> tuple[Optional[dict[str, Any]], str, Optional[dict[str, Any]]]:
+        limits = dict(evaluator_config.get("evidence_limits") or {})
+        limits.setdefault("max_item_bytes", 262144)
+        limits.setdefault("max_packet_bytes", 1048576)
+        evaluator_prompt_source_kind = "asset_file" if "asset_file" in evaluator_config else "input_file"
+        evaluator_prompt_source = evaluator_config.get("asset_file") or evaluator_config.get("input_file")
+        rubric_source_kind = None
+        rubric_source = None
+        if "rubric_asset_file" in evaluator_config:
+            rubric_source_kind = "asset_file"
+            rubric_source = evaluator_config.get("rubric_asset_file")
+        elif "rubric_input_file" in evaluator_config:
+            rubric_source_kind = "input_file"
+            rubric_source = evaluator_config.get("rubric_input_file")
+
+        def scorer_failure(failure_type: str, failure_message: str) -> dict[str, Any]:
+            payload = {
+                "failure_type": failure_type,
+                "failure_message": failure_message,
+                "evaluator_provider": evaluator_config.get("provider"),
+                "evaluator_params": evaluator_config.get("provider_params", {}),
+                "evaluator_prompt_source_kind": evaluator_prompt_source_kind,
+                "evaluator_prompt_source": evaluator_prompt_source,
+                "rubric_source_kind": rubric_source_kind,
+                "rubric_source": rubric_source,
+                "evaluator_json_contract": "adjudication.evaluator_json.v1",
+                "evaluation_packet_schema": EVALUATION_PACKET_SCHEMA,
+                "evidence_limits": limits,
+                "evidence_confidentiality": evaluator_config.get("evidence_confidentiality"),
+                "secret_detection_policy": SECRET_DETECTION_POLICY,
+            }
+            payload["scorer_resolution_failure_key"] = self._stable_runtime_hash(
+                {
+                    key: value
+                    for key, value in payload.items()
+                    if key not in {"failure_message", "scorer_resolution_failure_key"}
+                }
+            )
+            persist_scorer_resolution_failure(payload, visit_paths.scorer_root)
+            return payload
+
         evaluator_prompt, prompt_error = self.prompt_composer.read_prompt_source(
             dict(evaluator_config),
             step_name="adjudication_evaluator",
             contract_violation_result=self._contract_violation_result,
         )
         if prompt_error is not None:
-            failure = {
-                "failure_type": prompt_error.get("error", {}).get("type", "scorer_unavailable"),
-                "failure_message": prompt_error.get("error", {}).get("message", "scorer prompt unavailable"),
-            }
-            failure["scorer_resolution_failure_key"] = self._stable_runtime_hash(failure)
-            return None, "", failure
+            return None, "", scorer_failure(
+                prompt_error.get("error", {}).get("type", "scorer_unavailable"),
+                prompt_error.get("error", {}).get("message", "scorer prompt unavailable"),
+            )
+        rubric_content = None
+        rubric_hash = None
+        if rubric_source_kind is not None and isinstance(rubric_source, str):
+            if rubric_source_kind == "input_file" and not (self.workspace / rubric_source).exists():
+                return None, "", scorer_failure("rubric_read_failed", f"rubric input file '{rubric_source}' does not exist")
+            rubric_step = {rubric_source_kind: rubric_source}
+            rubric_content, rubric_error = self.prompt_composer.read_prompt_source(
+                rubric_step,
+                step_name="adjudication_evaluator_rubric",
+                contract_violation_result=self._contract_violation_result,
+            )
+            if rubric_error is not None:
+                return None, "", scorer_failure(
+                    rubric_error.get("error", {}).get("type", "rubric_read_failed"),
+                    rubric_error.get("error", {}).get("message", "rubric unavailable"),
+                )
+            rubric_hash = self._text_hash(rubric_content)
         provider_name = evaluator_config.get("provider")
         if not isinstance(provider_name, str):
-            failure = {
-                "failure_type": "missing_evaluator_provider",
-                "failure_message": "evaluator provider is missing",
-            }
-            failure["scorer_resolution_failure_key"] = self._stable_runtime_hash(failure)
-            return None, "", failure
+            return None, "", scorer_failure("missing_evaluator_provider", "evaluator provider is missing")
         provider_context = self._create_provider_context(context, state)
         merged_params = self.provider_registry.merge_params(provider_name, evaluator_config.get("provider_params", {}))
         try:
@@ -4085,30 +4192,31 @@ class WorkflowExecutor:
             param_errors = [str(exc)]
             substituted_params = {}
         if param_errors:
-            failure = {
-                "failure_type": "evaluator_params_substitution_failed",
-                "failure_message": "; ".join(str(error) for error in param_errors),
-            }
-            failure["scorer_resolution_failure_key"] = self._stable_runtime_hash(failure)
-            return None, "", failure
-        limits = dict(evaluator_config.get("evidence_limits") or {})
-        limits.setdefault("max_item_bytes", 262144)
-        limits.setdefault("max_packet_bytes", 1048576)
+            return None, "", scorer_failure(
+                "evaluator_params_substitution_failed",
+                "; ".join(str(error) for error in param_errors),
+            )
         scorer = {
             "evaluator_provider": provider_name,
             "evaluator_model": self._provider_model(substituted_params),
             "evaluator_params": substituted_params,
             "evaluator_params_hash": self._stable_runtime_hash(substituted_params),
             "evaluator_config_hash": self._stable_runtime_hash(evaluator_config),
-            "evaluator_prompt_source_kind": "asset_file" if "asset_file" in evaluator_config else "input_file",
-            "evaluator_prompt_source": evaluator_config.get("asset_file") or evaluator_config.get("input_file"),
+            "evaluator_prompt_source_kind": evaluator_prompt_source_kind,
+            "evaluator_prompt_source": evaluator_prompt_source,
+            "evaluator_prompt_content": evaluator_prompt,
             "evaluator_prompt_hash": self._text_hash(evaluator_prompt),
+            "rubric_source_kind": rubric_source_kind,
+            "rubric_source": rubric_source,
+            "rubric_content": rubric_content,
+            "rubric_hash": rubric_hash,
             "evidence_confidentiality": evaluator_config.get("evidence_confidentiality"),
             "secret_detection_policy": SECRET_DETECTION_POLICY,
             "evaluation_packet_schema": EVALUATION_PACKET_SCHEMA,
             "evidence_limits": limits,
         }
         scorer["scorer_identity_hash"] = scorer_identity_hash(scorer)
+        persist_scorer_snapshot(scorer, visit_paths.scorer_root)
         return scorer, evaluator_prompt, None
 
     def _score_adjudicated_candidate(
@@ -4121,11 +4229,13 @@ class WorkflowExecutor:
         step: Dict[str, Any],
         output_contract_step: Dict[str, Any],
         run_root: Path,
+        frame_scope: str,
+        step_id: str,
         visit_count: int,
         context: Dict[str, Any],
         state: Dict[str, Any],
     ) -> None:
-        paths = candidate_paths(run_root, "root", self._step_id(step), visit_count, str(candidate["candidate_id"]))
+        paths = candidate_paths(run_root, frame_scope, step_id, visit_count, str(candidate["candidate_id"]))
         candidate.update(
             {
                 "scorer_identity_hash": scorer.get("scorer_identity_hash"),
@@ -4138,6 +4248,9 @@ class WorkflowExecutor:
                 "evaluator_prompt_hash": scorer.get("evaluator_prompt_hash"),
                 "evidence_confidentiality": scorer.get("evidence_confidentiality"),
                 "secret_detection_policy": scorer.get("secret_detection_policy"),
+                "rubric_source_kind": scorer.get("rubric_source_kind"),
+                "rubric_source": scorer.get("rubric_source"),
+                "rubric_hash": scorer.get("rubric_hash"),
             }
         )
         try:
@@ -4151,6 +4264,7 @@ class WorkflowExecutor:
                 scorer=scorer,
                 evidence_limits=scorer.get("evidence_limits"),
                 workflow_secret_values=self._workflow_secret_values(step),
+                rubric_content=scorer.get("rubric_content") if isinstance(scorer.get("rubric_content"), str) else None,
             )
             paths.evaluation_packet_path.parent.mkdir(parents=True, exist_ok=True)
             paths.evaluation_packet_path.write_text(json.dumps(packet, sort_keys=True, ensure_ascii=False), encoding="utf-8")
@@ -4233,14 +4347,16 @@ class WorkflowExecutor:
         selection_reason: str,
         promotion_status: str,
         promoted_paths: Mapping[str, str],
+        execution_frame_id: str,
+        call_frame_id: Optional[str],
     ) -> list[dict[str, Any]]:
         rows = generate_score_ledger_rows(
             run_id=str(state.get("run_id", self.state_manager.run_id)),
             workflow_file=str(state.get("workflow_file", "")),
             workflow_checksum=str(state.get("workflow_checksum", "")),
             dsl_version=self.workflow_version,
-            execution_frame_id="root",
-            call_frame_id=None,
+            execution_frame_id=execution_frame_id,
+            call_frame_id=call_frame_id,
             step_id=step_id,
             step_name=step_name,
             visit_count=visit_count,
@@ -4255,6 +4371,45 @@ class WorkflowExecutor:
         if isinstance(mirror, str):
             materialize_score_ledger_mirror(rows, self.workspace / mirror)
         return rows
+
+    def _write_adjudication_ledgers_failure(
+        self,
+        *,
+        adjudicated: Mapping[str, Any],
+        visit_paths: Any,
+        state: Dict[str, Any],
+        step_id: str,
+        step_name: str,
+        visit_count: int,
+        candidates: list[dict[str, Any]],
+        selected_candidate_id: Optional[str],
+        selection_reason: str,
+        promotion_status: str,
+        promoted_paths: Mapping[str, str],
+        execution_frame_id: str,
+        call_frame_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        try:
+            self._write_adjudication_ledgers(
+                adjudicated=adjudicated,
+                visit_paths=visit_paths,
+                state=state,
+                step_id=step_id,
+                step_name=step_name,
+                visit_count=visit_count,
+                candidates=candidates,
+                selected_candidate_id=selected_candidate_id,
+                selection_reason=selection_reason,
+                promotion_status=promotion_status,
+                promoted_paths=promoted_paths,
+                execution_frame_id=execution_frame_id,
+                call_frame_id=call_frame_id,
+            )
+        except LedgerConflictError as exc:
+            return self._adjudication_failure_result("ledger_conflict", str(exc), candidates=candidates, visit_paths=visit_paths)
+        except OSError as exc:
+            return self._adjudication_failure_result("ledger_mirror_failed", str(exc), candidates=candidates, visit_paths=visit_paths)
+        return None
 
     def _adjudication_failure_result(
         self,
@@ -4304,11 +4459,13 @@ class WorkflowExecutor:
         scorer_snapshot_path: Path,
         promotion_manifest_path: Path,
         candidates: list[dict[str, Any]],
+        execution_frame_id: str,
+        call_frame_id: Optional[str],
     ) -> dict[str, Any]:
         return {
             "schema": "adjudicated_provider.state.v1",
-            "execution_frame_id": "root",
-            "call_frame_id": None,
+            "execution_frame_id": execution_frame_id,
+            "call_frame_id": call_frame_id,
             "selected_candidate_id": selected_candidate_id,
             "selected_score": selected_score,
             "selection_reason": selection_reason,

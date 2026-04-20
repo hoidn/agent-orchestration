@@ -6,22 +6,24 @@ import yaml
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.executor import WorkflowExecutor
+from tests.workflow_bundle_helpers import bundle_context_dict
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return path
 
 
-def _candidate_command(label: str, body: str) -> list[str]:
+def _candidate_command(label: str, body: str, pointer_dir: str = "state") -> list[str]:
     return [
         "python",
         "-c",
         (
             "from pathlib import Path\n"
-            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            f"Path({pointer_dir!r}).mkdir(parents=True, exist_ok=True)\n"
             "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
-            f"Path('state/result_path.txt').write_text('docs/plans/{label}.md\\n', encoding='utf-8')\n"
+            f"Path({str(Path(pointer_dir) / 'result_path.txt')!r}).write_text('docs/plans/{label}.md\\n', encoding='utf-8')\n"
             f"Path('docs/plans/{label}.md').write_text({body!r}, encoding='utf-8')\n"
         ),
     ]
@@ -176,3 +178,123 @@ def test_multi_candidate_partial_scoring_fails_without_promotion(tmp_path: Path)
     assert result["exit_code"] == 2
     assert result["error"]["type"] == "adjudication_partial_scoring_failed"
     assert not (tmp_path / "docs/plans/b.md").exists()
+
+
+def test_ledger_mirror_conflict_returns_normalized_step_failure(tmp_path: Path) -> None:
+    ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text(
+        json.dumps(
+            {
+                "row_schema": "adjudicated_provider.score.v1",
+                "run_id": "other-run",
+                "execution_frame_id": "root",
+                "step_id": "root.draft",
+                "visit_count": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    state = _run(tmp_path, _workflow())
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["exit_code"] == 2
+    assert result["error"]["type"] == "ledger_conflict"
+    assert result["outcome"]["class"] == "ledger_conflict"
+    assert "result_path" not in state.get("artifact_versions", {})
+
+
+def test_scorer_snapshot_is_persisted_and_rubric_is_score_evidence(tmp_path: Path) -> None:
+    (tmp_path / "rubric.md").write_text("Prefer complete and specific artifacts.", encoding="utf-8")
+    workflow = _workflow()
+    workflow["steps"][0]["adjudicated_provider"]["evaluator"]["rubric_input_file"] = "rubric.md"
+    workflow["providers"]["evaluator"]["command"] = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "packet = json.loads(sys.stdin.read().split('Evaluator Packet:', 1)[1])\n"
+            "assert any(item['name'] == 'rubric' and 'Prefer complete' in item['content'] for item in packet['evidence_items'])\n"
+            "print(json.dumps({'candidate_id': packet['candidate_id'], 'score': 0.7, 'summary': 'rubric scored'}))\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    scorer_snapshot = tmp_path / result["adjudication"]["scorer_snapshot_path"]
+    assert scorer_snapshot.exists()
+    snapshot = json.loads(scorer_snapshot.read_text(encoding="utf-8"))
+    assert snapshot["evaluator_prompt_content"] == "Return strict JSON."
+    assert snapshot["rubric_content"] == "Prefer complete and specific artifacts."
+    assert snapshot["rubric_hash"].startswith("sha256:")
+    assert result["adjudication"]["candidates"]["a"]["score_status"] == "scored"
+
+
+def test_adjudicated_provider_inside_call_frame_uses_frame_scoped_sidecars(tmp_path: Path) -> None:
+    library = _workflow(scores={"a": 0.9, "b": 0.2})
+    library["name"] = "adjudicated-child"
+    library["inputs"] = {
+        "write_root": {
+            "type": "relpath",
+        }
+    }
+    library["artifacts"] = {
+        "result_path": {
+            "kind": "relpath",
+            "type": "relpath",
+            "pointer": "${inputs.write_root}/result_path.txt",
+            "under": "docs/plans",
+            "must_exist_target": True,
+        },
+    }
+    library["outputs"] = {
+        "result_path": {
+            "kind": "relpath",
+            "type": "relpath",
+            "from": {"ref": "root.steps.Draft.artifacts.result_path"},
+        }
+    }
+    library["providers"]["candidate_a"]["command"] = _candidate_command("a", "weaker", "state/adjudicated-call")
+    library["providers"]["candidate_b"]["command"] = _candidate_command("b", "better", "state/adjudicated-call")
+    library["steps"][0]["expected_outputs"][0]["path"] = "${inputs.write_root}/result_path.txt"
+    _write_yaml(tmp_path / "workflows/library/adjudicated_child.yaml", library)
+    caller = {
+        "version": "2.11",
+        "name": "call-adjudicated",
+        "imports": {"child": "workflows/library/adjudicated_child.yaml"},
+        "steps": [
+            {
+                "name": "RunChild",
+                "id": "run_child",
+                "call": "child",
+                "with": {
+                    "write_root": "state/adjudicated-call",
+                },
+            }
+        ],
+    }
+    (tmp_path / "prompt.md").write_text("Draft the best possible artifact.", encoding="utf-8")
+    (tmp_path / "evaluator.md").write_text("Return strict JSON.", encoding="utf-8")
+    workflow_file = _write_yaml(tmp_path / "workflow.yaml", caller)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="run-1")
+    state_manager.initialize("workflow.yaml", bundle_context_dict(loaded))
+    state = WorkflowExecutor(loaded, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    frame_id, frame = next(iter(state["call_frames"].items()))
+    child_result = frame["state"]["steps"]["Draft"]
+    adjudication = child_result["adjudication"]
+    ledger = tmp_path / adjudication["run_score_ledger_path"]
+    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+
+    assert state["status"] == "completed"
+    assert adjudication["execution_frame_id"] == frame_id
+    assert adjudication["call_frame_id"] == frame_id
+    assert "/adjudication/root/" not in adjudication["run_score_ledger_path"]
+    assert "/call_frames/" not in adjudication["run_score_ledger_path"]
+    assert {row["execution_frame_id"] for row in rows} == {frame_id}
+    assert {row["call_frame_id"] for row in rows} == {frame_id}

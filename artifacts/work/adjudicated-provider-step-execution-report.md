@@ -2,46 +2,46 @@
 
 ## Completed In This Pass
 
-- Added DSL `2.11` loader, surface AST, executable IR, lowering, runtime-step, and executor dispatch support for `adjudicated_provider`.
-- Added adjudication helpers for frame/visit paths, baseline copy manifests, candidate workspace preparation, scoring packets, evaluator JSON parsing, selection, score ledgers, ledger mirrors, outcome mapping, and selected-output promotion.
-- Added runtime execution for sequential adjudicated candidates using candidate workspaces, evaluator scoring, selected-output promotion, stdout suppression, adjudication state, and normal artifact publication after promotion.
-- Added the reusable evaluator prompt and `workflows/examples/adjudicated_provider_demo.yaml`, then indexed the example.
-- Updated normative specs, workflow author guidance, docs index, report projection, and this execution report.
-- Recorded one plan deviation: the approved plan called for per-task commits, but the user requested a single final scoped commit in the current checkout, so intermediate commits were intentionally skipped.
+- Fixed ledger mirror conflicts so `LedgerConflictError` is translated into a normalized adjudicated step failure with `error.type: ledger_conflict` instead of escaping as an uncaught runtime exception.
+- Persisted scorer snapshots to `scorer/metadata.json`, including evaluator prompt content/hash, provider identity, resolved params, evidence limits, confidentiality policy, optional rubric content/hash, and `scorer_identity_hash`.
+- Persisted scorer-resolution failure metadata to `scorer/resolution_failure.json` and keyed scorer-unavailable ledger rows from `scorer_resolution_failure_key`.
+- Passed optional evaluator rubric content into score-critical evaluation packets.
+- Tightened promotion rollback so parent validation failure rolls back only when touched destinations still match staged source hashes, and reports `promotion_rollback_conflict` without deleting or overwriting concurrent parent changes.
+- Scoped adjudication sidecars and ledger owner fields to the current execution frame. Root steps still use `root`; adjudicated steps inside reusable calls use the durable call-frame id with a path-safe sidecar scope under the canonical parent run root.
+- Removed numeric evaluator score from `score_run_key` identity for scored rows so non-deterministic score values do not change the row key for the same candidate packet and scorer snapshot.
+- Recorded the current rationale for keeping baseline, scoring, ledger, promotion, and outcome helpers in one adjudication module for this tranche.
 
 ## Completed Plan Tasks
 
-- Task 1: documentation for the `2.11` DSL surface, validation, provider/evaluator delivery, IO, state, observability, security, versioning, and acceptance.
-- Task 2 and Task 3: loader tests plus loader/IR/lowering/runtime-step support.
-- Task 4: baseline path/copy helpers and selected-output promotion helpers for the covered V1 cases.
-- Task 5: scorer identity, evidence packet, evaluator parsing, selection, score-row, and mirror helper coverage for the covered V1 cases.
-- Task 6: mocked-provider runtime execution for highest score, candidate-order tie-break, optional single-candidate score failure, partial multi-candidate scoring failure, stdout suppression, promotion, and publication.
-- Task 7: outcome mapping and deadline helper coverage.
-- Task 8: reusable evaluator prompt, demo workflow, workflow index, and adjudicated example smoke test.
-- Task 10: workflow drafting guide and docs index updates plus required verification commands.
+- Advanced Task 4 promotion completion by adding rollback-conflict behavior for parent validation failures after promotion writes.
+- Advanced Task 5 scorer and ledger completion by persisting scorer snapshots, persisting scorer-unavailable metadata, using rubric evidence, and correcting score-row key identity.
+- Advanced Task 6 runtime completion by normalizing ledger mirror conflicts and preserving adjudication failure outcomes through step-result persistence.
+- Advanced frame-scoped state/ledger ownership from the design by covering adjudicated provider execution inside reusable-call frames.
 
 ## Remaining Required Plan Tasks
 
-- Task 4 deeper promotion coverage remains: exhaustive destination preimage modes, duplicate destination roles, rollback conflict cases, and promotion resume-state tests are not complete.
-- Task 5 deeper scorer/ledger coverage remains: scorer-unavailable snapshot persistence, non-UTF-8/read-error packet cases, dynamic ledger/output collision checks, and full mirror ownership conflict matrix are not complete.
-- Task 6 runtime coverage remains partial for invalid candidate exclusion, scorer-resolution failure, required-score single-candidate failure, and log sidecar assertions.
-- Task 7 is not fully wired at runtime: one logical wall-clock deadline is represented by a helper, but candidate/evaluator subprocess retries do not yet fully share and enforce that deadline.
-- Task 9 resume reconciliation is not implemented: persisted baseline/candidate/scorer/packet/ledger/promotion state is not fully reconciled on `orchestrator resume`, and `adjudication_resume_mismatch` is covered as an outcome mapping rather than an end-to-end resume behavior.
-- No numerical parity or regression tolerances were specified by the plan, so no `atol`/`rtol` comparison standard applied.
+- Task 4 still needs exhaustive promotion coverage for destination preimage modes, duplicate destination roles, manifest-created directory cleanup, and promotion resume-state tests/implementation.
+- Task 5 still needs dynamic ledger/output collision coverage, full mirror ownership conflict matrix coverage, unreadable/non-UTF-8 rubric and evidence cases beyond the current packet tests, and broader scorer-unavailable runtime variants.
+- Task 6 runtime coverage remains incomplete for invalid candidate exclusion, required-score single-candidate failure, scorer-resolution failure paths, and stdout/stderr sidecar assertions.
+- Task 7 deadline/retry semantics remain incomplete: candidate and evaluator retry loops are not fully wired to one logical step deadline.
+- Task 9 resume reconciliation remains unimplemented for persisted baseline, candidate, scorer, packet, ledger, mirror, and promotion state.
+- No numerical parity comparison or tolerance changes were involved in this pass.
 
 ## Verification
 
-- `pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 77 passed.
-- `pytest --collect-only tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 77 tests collected.
-- `python -m orchestrator run workflows/examples/adjudicated_provider_demo.yaml --dry-run` -> workflow validation successful.
+- `pytest tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_runtime.py -q` -> 27 passed.
+- `pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 83 passed.
 - `pytest tests/test_workflow_examples_v0.py -k adjudicated -q` -> 1 passed, 27 deselected.
-- `pytest tests/test_workflow_examples_v0.py tests/test_prompt_contract_injection.py -q` -> 49 passed.
-- `pytest tests/test_observability_report.py -q` -> 21 passed.
-- `git diff --check` -> no whitespace errors after fixing docs-index trailing whitespace.
+- `python -m orchestrator run workflows/examples/adjudicated_provider_demo.yaml --dry-run` -> workflow validation successful.
+- `pytest tests/test_runtime_step_lifecycle.py tests/test_subworkflow_calls.py -q` -> 32 passed.
+- `pytest --collect-only tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_runtime.py -q` -> 27 tests collected.
+- `pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py tests/test_runtime_step_lifecycle.py tests/test_subworkflow_calls.py -q` -> 115 passed.
+- `git diff --check` -> no whitespace errors.
 
 ## Residual Risks
 
-- The feature is a sequential V1 runtime; no candidate concurrency is implemented.
-- Resume, retry, and promotion rollback semantics are narrower than the full design and should be treated as follow-up work before relying on interrupted-run recovery.
-- Score-critical evidence handling is text-focused and covered for size and declared-secret checks, but not the full binary/read-error matrix.
-- Candidate workspaces reduce orchestrator-managed output bleed-through but are not OS sandboxes; child providers retain the filesystem access permitted by the process environment.
+- Promotion remains narrower than the full resume-safe transaction design; interrupted promotion resume and manifest-created directory cleanup are still follow-up work.
+- Scorer snapshot persistence is now present, but full resume reconciliation against changed scorer identity is still missing.
+- Ledger mirror conflict handling is normalized, but the full dynamic collision and owner-conflict matrix remains incomplete.
+- Candidate/evaluator retries and logical deadline enforcement are still partial.
+- Candidate workspaces remain process-level copies, not OS sandboxes.

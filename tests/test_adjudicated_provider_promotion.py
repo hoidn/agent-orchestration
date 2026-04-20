@@ -3,6 +3,8 @@ from pathlib import Path
 
 import pytest
 
+import orchestrator.workflow.adjudication as adjudication
+from orchestrator.contracts.output_contract import ContractViolation, OutputContractError
 from orchestrator.workflow.adjudication import (
     PromotionConflictError,
     adjudication_visit_paths,
@@ -128,3 +130,49 @@ def test_promotion_detects_parent_preimage_conflict(tmp_path: Path) -> None:
         )
 
     assert (parent / "state/result.txt").read_text(encoding="utf-8") == "changed\n"
+
+
+def test_promotion_rollback_conflict_preserves_concurrent_parent_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    parent = tmp_path / "parent"
+    candidate = tmp_path / "candidate"
+    parent.mkdir()
+    candidate.mkdir()
+    (candidate / "state").mkdir()
+    (candidate / "state/result.txt").write_text("selected\n", encoding="utf-8")
+    visit, manifest = _baseline(tmp_path, parent)
+
+    def fail_after_concurrent_change(expected_outputs, workspace):
+        del expected_outputs
+        (workspace / "state/result.txt").write_text("concurrent\n", encoding="utf-8")
+        raise OutputContractError(
+            [
+                ContractViolation(
+                    type="forced_failure",
+                    message="validation failed after concurrent write",
+                    context={"path": "state/result.txt"},
+                )
+            ]
+        )
+
+    monkeypatch.setattr(adjudication, "validate_expected_outputs", fail_after_concurrent_change)
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        promote_candidate_outputs(
+            expected_outputs=[
+                {"name": "result", "path": "state/result.txt", "type": "string"},
+            ],
+            output_bundle=None,
+            candidate_workspace=candidate,
+            parent_workspace=parent,
+            baseline_manifest=manifest,
+            promotion_manifest_path=visit.promotion_manifest_path,
+        )
+
+    assert exc_info.value.failure_type == "promotion_rollback_conflict"
+    assert (parent / "state/result.txt").read_text(encoding="utf-8") == "concurrent\n"
+    manifest_doc = json.loads(visit.promotion_manifest_path.read_text(encoding="utf-8"))
+    assert manifest_doc["status"] == "rolling_back"
+    assert manifest_doc["failure_type"] == "promotion_rollback_conflict"

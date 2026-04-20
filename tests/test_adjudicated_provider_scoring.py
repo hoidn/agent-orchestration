@@ -200,3 +200,101 @@ def test_ledger_rows_are_one_per_candidate_and_mirror_checks_owner(tmp_path: Pat
     mirror.write_text(json.dumps({**rows[0], "run_id": "other"}) + "\n", encoding="utf-8")
     with pytest.raises(LedgerConflictError):
         materialize_score_ledger_mirror(rows, mirror)
+
+
+def test_score_run_key_ignores_nondeterministic_numeric_score() -> None:
+    base_candidate = {
+        "candidate_id": "a",
+        "candidate_index": 0,
+        "candidate_status": "output_valid",
+        "score_status": "scored",
+        "scorer_identity_hash": "sha256:scorer",
+        "evaluation_packet_hash": "sha256:packet",
+        "candidate_config_hash": "sha256:candidate",
+        "composed_prompt_hash": "sha256:prompt",
+        "summary": "ok",
+    }
+
+    first = generate_score_ledger_rows(
+        run_id="run-1",
+        workflow_file="workflow.yaml",
+        workflow_checksum="sha256:wf",
+        dsl_version="2.11",
+        execution_frame_id="root",
+        call_frame_id=None,
+        step_id="root.draft",
+        step_name="Draft",
+        visit_count=1,
+        candidates=[{**base_candidate, "score": 0.4}],
+        selected_candidate_id="a",
+        selection_reason="highest_score",
+        promotion_status="committed",
+        promoted_paths={"result": "state/result.txt"},
+    )
+    second = generate_score_ledger_rows(
+        run_id="run-1",
+        workflow_file="workflow.yaml",
+        workflow_checksum="sha256:wf",
+        dsl_version="2.11",
+        execution_frame_id="root",
+        call_frame_id=None,
+        step_id="root.draft",
+        step_name="Draft",
+        visit_count=1,
+        candidates=[{**base_candidate, "score": 0.9}],
+        selected_candidate_id="a",
+        selection_reason="highest_score",
+        promotion_status="committed",
+        promoted_paths={"result": "state/result.txt"},
+    )
+
+    assert first[0]["candidate_run_key"] == second[0]["candidate_run_key"]
+    assert first[0]["score_run_key"] == second[0]["score_run_key"]
+
+
+def test_scorer_unavailable_score_run_key_uses_resolution_failure_key() -> None:
+    base_candidate = {
+        "candidate_id": "a",
+        "candidate_index": 0,
+        "candidate_status": "output_valid",
+        "score_status": "scorer_unavailable",
+        "candidate_config_hash": "sha256:candidate",
+        "composed_prompt_hash": "sha256:prompt",
+        "failure_type": "evaluator_params_substitution_failed",
+        "failure_message": "missing variable",
+    }
+
+    first = generate_score_ledger_rows(
+        run_id="run-1",
+        workflow_file="workflow.yaml",
+        workflow_checksum="sha256:wf",
+        dsl_version="2.11",
+        execution_frame_id="root",
+        call_frame_id=None,
+        step_id="root.draft",
+        step_name="Draft",
+        visit_count=1,
+        candidates=[{**base_candidate, "scorer_resolution_failure_key": "sha256:first"}],
+        selected_candidate_id=None,
+        selection_reason="none",
+        promotion_status="not_selected",
+        promoted_paths={},
+    )
+    second = generate_score_ledger_rows(
+        run_id="run-1",
+        workflow_file="workflow.yaml",
+        workflow_checksum="sha256:wf",
+        dsl_version="2.11",
+        execution_frame_id="root",
+        call_frame_id=None,
+        step_id="root.draft",
+        step_name="Draft",
+        visit_count=1,
+        candidates=[{**base_candidate, "scorer_resolution_failure_key": "sha256:second"}],
+        selected_candidate_id=None,
+        selection_reason="none",
+        promotion_status="not_selected",
+        promoted_paths={},
+    )
+
+    assert first[0]["score_run_key"] != second[0]["score_run_key"]

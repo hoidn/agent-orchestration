@@ -65,6 +65,12 @@ class OutcomeRecorder:
             exit_code = finalized.get("exit_code", 0)
             status = "completed" if exit_code == 0 else "failed"
             finalized["status"] = status
+        existing_outcome = finalized.get("outcome")
+        if (
+            isinstance(existing_outcome, dict)
+            and {"status", "phase", "class", "retryable"}.issubset(existing_outcome)
+        ):
+            return finalized
 
         if status == "skipped":
             finalized["outcome"] = NormalizedStepOutcome(
