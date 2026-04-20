@@ -52,6 +52,10 @@ def _step_by_name(workflow: dict, name: str) -> dict:
     raise AssertionError(f"Missing step {name}")
 
 
+def _on_config(step: dict) -> dict:
+    return step.get("on", step.get(True, {}))
+
+
 def _copy_repo_file_to_workspace(workspace: Path, repo_relpath: str) -> None:
     src = ROOT / repo_relpath
     dest = workspace / repo_relpath
@@ -138,7 +142,9 @@ def _run_with_mocked_providers(
     def _execute(_self, _invocation, **kwargs):
         step_name = provider_sequence[call_index["value"]]
         call_index["value"] += 1
-        provider_writers[step_name](workspace)
+        writer_result = provider_writers[step_name](workspace)
+        if hasattr(writer_result, "exit_code"):
+            return writer_result
         return SimpleNamespace(
             exit_code=0,
             stdout=b"ok",
@@ -281,6 +287,54 @@ def test_generic_plan_and_implementation_interfaces_stay_narrow():
         "execution_report_target_path",
         "implementation_review_report_target_path",
     }
+
+
+def test_tranche_stack_does_not_convert_phase_call_failures_to_skipped_outcomes():
+    workflow = _load_yaml("workflows/library/major_project_tranche_design_plan_impl_stack.yaml")
+
+    run_big_design = _step_by_name(workflow, "RunBigDesignPhase")
+    approve_gate = _step_by_name(workflow, "AssertBigDesignApproved")
+    run_plan = _step_by_name(workflow, "RunPlanPhase")
+    run_implementation = _step_by_name(workflow, "RunImplementationPhase")
+
+    assert "on" not in run_big_design
+    assert approve_gate["assert"] == {
+        "compare": {
+            "left": {"ref": "root.steps.RunBigDesignPhase.artifacts.design_review_decision"},
+            "op": "eq",
+            "right": "APPROVE",
+        }
+    }
+    assert _on_config(approve_gate)["failure"]["goto"] == "FinalizeSkippedAfterDesign"
+    assert "on" not in run_plan
+    assert _on_config(run_implementation) == {"success": {"goto": "FinalizeApprovedItem"}}
+
+
+def test_big_design_block_is_a_phase_decision_not_provider_failure():
+    workflow = _load_yaml("workflows/library/tracked_big_design_phase.yaml")
+
+    review_loop = _step_by_name(workflow, "BigDesignReviewLoop")
+    block_case = review_loop["repeat_until"]["steps"][1]["match"]["cases"]["BLOCK"]
+
+    assert review_loop["repeat_until"]["condition"] == {
+        "any_of": [
+            {
+                "compare": {
+                    "left": {"ref": "self.outputs.review_decision"},
+                    "op": "eq",
+                    "right": "APPROVE",
+                }
+            },
+            {
+                "compare": {
+                    "left": {"ref": "self.outputs.review_decision"},
+                    "op": "eq",
+                    "right": "BLOCK",
+                }
+            },
+        ]
+    }
+    assert [step["name"] for step in block_case["steps"]] == ["WriteBlockedBigDesignDecision"]
 
 
 def test_select_next_tranche_publishes_typed_handoff_fields():

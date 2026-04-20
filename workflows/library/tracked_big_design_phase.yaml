@@ -224,11 +224,17 @@ steps:
           from:
             ref: self.steps.RouteBigDesignDecision.artifacts.review_decision
       condition:
-        compare:
-          left:
-            ref: self.outputs.review_decision
-          op: eq
-          right: APPROVE
+        any_of:
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: APPROVE
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: BLOCK
       steps:
         - name: ReviewBigDesign
           id: review_big_design
@@ -400,14 +406,6 @@ steps:
                     set_scalar:
                       artifact: review_decision
                       value: BLOCK
-                  - name: FailBlockedBigDesign
-                    id: fail_blocked_big_design
-                    command:
-                      - bash
-                      - -lc
-                      - |
-                        echo "Big-design review blocked further work." >&2
-                        exit 1
 
   - name: FinalizeBigDesignPhaseOutputs
     id: finalize_big_design_phase_outputs

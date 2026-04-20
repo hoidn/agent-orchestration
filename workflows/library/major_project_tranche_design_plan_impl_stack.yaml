@@ -111,6 +111,15 @@ steps:
         ref: inputs.design_target_path
       design_review_report_target_path:
         ref: inputs.design_review_report_target_path
+
+  - name: AssertBigDesignApproved
+    id: assert_big_design_approved
+    assert:
+      compare:
+        left:
+          ref: root.steps.RunBigDesignPhase.artifacts.design_review_decision
+        op: eq
+        right: APPROVE
     on:
       failure:
         goto: FinalizeSkippedAfterDesign
@@ -127,9 +136,6 @@ steps:
         ref: inputs.plan_target_path
       plan_review_report_target_path:
         ref: inputs.plan_review_report_target_path
-    on:
-      failure:
-        goto: FinalizeSkippedAfterPlan
 
   - name: RunImplementationPhase
     id: run_implementation_phase
@@ -148,8 +154,6 @@ steps:
     on:
       success:
         goto: FinalizeApprovedItem
-      failure:
-        goto: FinalizeSkippedAfterImplementation
 
   - name: FinalizeApprovedItem
     id: finalize_approved_item
