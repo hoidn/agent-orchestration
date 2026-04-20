@@ -16,7 +16,7 @@ Determine remaining work by:
 2. reading the consumed `implementation_review_report`
 3. inspecting the current codebase and execution report
 
-Do not expand the task just because the plan contains later work. Treat later plan tasks as follow-up unless they are required to fix the review findings or make the delivered behavior correct.
+Do not expand the task just because the plan contains explicitly justified later work. Treat later plan tasks as follow-up only when the plan gives clear authority, rationale, and handoff criteria for deferring them. If the review shows that a deferral is unjustified or required for the delivered behavior to be correct, handle it as current-scope work.
 
 Prioritize in this order:
 1. fix any blocking high-severity correctness or contract issues in already-implemented work

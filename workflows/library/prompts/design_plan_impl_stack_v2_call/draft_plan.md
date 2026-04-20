@@ -26,11 +26,11 @@ If the work is small enough for a single implementation unit, state that briefly
 
 If the design lacks a material architectural decision needed to plan safely, call out the missing decision explicitly instead of inventing conflicting architecture.
 
-The design may describe a full target system. The plan must choose a coherent current implementation slice; do not equate "the target system" or "the first release" with current scope. If the design spans multiple major behavioral surfaces, the current scope must be one slice, not the whole design. Major surfaces include contract/docs, schema/loading, runtime behavior, state/resume, observability/reporting, examples/integration, durable artifacts/data, and public API. Choose the earliest slice that can be implemented and reviewed coherently, and list later slices in Follow-Up Work with handoff criteria. Put work in current scope only when it is needed to make that selected slice truthful, preserve an existing contract touched by that slice, prevent data loss or corruption in that slice, or unblock the next immediate slice.
+Determine the implementation scope from the consumed design and any consumed brief, roadmap, or selection context. Preserve the intended deliverable: if the design calls for full implementation, plan all material design requirements. If the work is intentionally staged or too large to implement coherently in one pass, define the current slice and justify the boundary. Every material design requirement must be accounted for as current work or named Follow-Up Work with the reason it is deferred and the handoff criteria for picking it up. Do not use follow-up work to avoid required design obligations.
 
 The plan should:
-- define the current implementation scope as a coherent slice
-- separate current-scope work from follow-up work
+- define the current implementation scope, including whether it is the whole design or a justified slice
+- account for every material design requirement as current work or justified follow-up work
 - put prerequisites before dependent work
 - organize implementation units around the Implementation Architecture boundaries when that section is present
 - call out migrations, compatibility boundaries, and explicit non-goals
