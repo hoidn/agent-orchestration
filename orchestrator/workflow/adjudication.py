@@ -351,6 +351,18 @@ def promote_candidate_outputs(
 ) -> PromotionResult:
     candidate_workspace = candidate_workspace.resolve()
     parent_workspace = parent_workspace.resolve()
+
+    if promotion_manifest_path.exists():
+        manifest = _load_promotion_manifest(promotion_manifest_path)
+        if manifest.get("status") in {"prepared", "committing", "rolling_back", "failed", "committed"}:
+            return _resume_promotion_manifest(
+                manifest=manifest,
+                expected_outputs=expected_outputs,
+                output_bundle=output_bundle,
+                parent_workspace=parent_workspace,
+                promotion_manifest_path=promotion_manifest_path,
+            )
+
     files, promoted_paths = _promotion_file_plan(
         expected_outputs=expected_outputs,
         output_bundle=output_bundle,
@@ -360,6 +372,10 @@ def promote_candidate_outputs(
     _reject_duplicate_destinations(files)
     for file_entry in files:
         baseline_preimage = _baseline_preimage(baseline_manifest, file_entry["dest_rel"])
+        if baseline_preimage.get("state") == "unavailable":
+            raise PromotionConflictError(
+                f"promotion destination '{file_entry['dest_rel']}' has unavailable baseline preimage"
+            )
         current_preimage = _current_preimage(parent_workspace, file_entry["dest_rel"])
         if current_preimage != baseline_preimage:
             raise PromotionConflictError(
@@ -384,65 +400,27 @@ def promote_candidate_outputs(
         "status": "prepared",
         "files": [_promotion_manifest_file_entry(file_entry) for file_entry in files],
         "promoted_paths": promoted_paths,
+        "created_parent_dirs": _created_parent_dirs(parent_workspace, files),
     }
     promotion_manifest_path.parent.mkdir(parents=True, exist_ok=True)
     _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
 
-    for file_entry in files:
-        staged = staging_root / file_entry["dest_rel"]
-        staged.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(file_entry["source"], staged)
-        file_entry["staged"] = staged
-
-    backups: list[tuple[Path, Path]] = []
-    created_from_absent: list[Path] = []
     try:
-        manifest["status"] = "committing"
-        _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
-        for file_entry in files:
-            dest = parent_workspace / file_entry["dest_rel"]
-            current_preimage = _current_preimage(parent_workspace, file_entry["dest_rel"])
-            if current_preimage != file_entry["baseline_preimage"]:
-                raise PromotionConflictError(
-                    f"promotion destination '{file_entry['dest_rel']}' changed before commit"
-                )
-            dest.parent.mkdir(parents=True, exist_ok=True)
-            if dest.exists():
-                backup = backups_root / file_entry["dest_rel"]
-                backup.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copy2(dest, backup)
-                backups.append((dest, backup))
-            else:
-                created_from_absent.append(dest)
-            _replace_file(file_entry["staged"], dest)
-
-        try:
-            if output_bundle:
-                validate_output_bundle(output_bundle, workspace=parent_workspace)
-            else:
-                validate_expected_outputs(expected_outputs or [], workspace=parent_workspace)
-        except OutputContractError as exc:
-            try:
-                _rollback_promoted_files(
-                    files=files,
-                    parent_workspace=parent_workspace,
-                    backups_root=backups_root,
-                )
-            except PromotionConflictError as rollback_exc:
-                manifest["status"] = "rolling_back"
-                manifest["failure_type"] = rollback_exc.failure_type
-                manifest["failure_message"] = str(rollback_exc)
-                _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
-                raise
-            manifest["status"] = "failed"
-            manifest["failure_type"] = "promotion_validation_failed"
-            manifest["failure_message"] = str(exc)
-            _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
-            raise PromotionConflictError(str(exc), failure_type="promotion_validation_failed") from exc
+        _stage_manifest_sources(manifest, staging_root)
+        _validate_promotion_staging(expected_outputs, output_bundle, staging_root)
+        return _commit_promotion_manifest(
+            manifest=manifest,
+            expected_outputs=expected_outputs,
+            output_bundle=output_bundle,
+            parent_workspace=parent_workspace,
+            promotion_manifest_path=promotion_manifest_path,
+            staging_root=staging_root,
+            backups_root=backups_root,
+        )
     except PromotionConflictError as exc:
         if promotion_manifest_path.exists():
             try:
-                if manifest.get("status") != "rolling_back":
+                if manifest.get("status") not in {"rolling_back", "failed", "committed"}:
                     manifest["status"] = "failed"
                     manifest["failure_type"] = exc.failure_type
                     manifest["failure_message"] = str(exc)
@@ -458,14 +436,6 @@ def promote_candidate_outputs(
             except Exception:
                 pass
         raise
-
-    manifest["status"] = "committed"
-    _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
-    return PromotionResult(
-        status="committed",
-        promoted_paths=promoted_paths,
-        manifest_path=promotion_manifest_path,
-    )
 
 
 def scorer_identity_hash(scorer: Mapping[str, Any]) -> str:
@@ -1026,7 +996,10 @@ def _baseline_preimage(manifest: BaselineManifest, relpath: str) -> dict[str, An
 
 
 def _current_preimage(parent_workspace: Path, relpath: str) -> dict[str, Any]:
-    path = _workspace_file(parent_workspace, relpath, must_exist=False)
+    try:
+        path = _workspace_file(parent_workspace, relpath, must_exist=False)
+    except (OSError, ValueError):
+        return {"state": "unavailable"}
     if not path.exists():
         return {"state": "absent"}
     if not path.is_file():
@@ -1049,6 +1022,276 @@ def _promotion_manifest_file_entry(file_entry: Mapping[str, Any]) -> dict[str, A
         "baseline_preimage": file_entry["baseline_preimage"],
         "current_preimage": file_entry["current_preimage"],
     }
+
+
+def _load_promotion_manifest(path: Path) -> dict[str, Any]:
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise PromotionConflictError(f"promotion manifest cannot be read: {exc}") from exc
+    if not isinstance(document, dict):
+        raise PromotionConflictError("promotion manifest must be a JSON object")
+    return document
+
+
+def _resume_promotion_manifest(
+    *,
+    manifest: dict[str, Any],
+    expected_outputs: list[dict] | None,
+    output_bundle: dict | None,
+    parent_workspace: Path,
+    promotion_manifest_path: Path,
+) -> PromotionResult:
+    promotion_root = promotion_manifest_path.parent
+    staging_root = promotion_root / "staging"
+    backups_root = promotion_root / "backups"
+    status = manifest.get("status")
+
+    if status == "failed":
+        raise PromotionConflictError(
+            str(manifest.get("failure_message") or "promotion failed"),
+            failure_type=str(manifest.get("failure_type") or "promotion_conflict"),
+        )
+
+    if status == "committed":
+        try:
+            _validate_promotion_parent(expected_outputs, output_bundle, parent_workspace)
+        except OutputContractError as exc:
+            raise PromotionConflictError(str(exc), failure_type="promotion_validation_failed") from exc
+        return PromotionResult(
+            status="committed",
+            promoted_paths=dict(manifest.get("promoted_paths") or {}),
+            manifest_path=promotion_manifest_path,
+        )
+
+    if status == "rolling_back":
+        _complete_promotion_rollback(
+            manifest=manifest,
+            parent_workspace=parent_workspace,
+            promotion_manifest_path=promotion_manifest_path,
+            backups_root=backups_root,
+            failure_type=str(manifest.get("failure_type") or "promotion_validation_failed"),
+            failure_message=str(manifest.get("failure_message") or "promotion rollback resumed"),
+        )
+
+    if status == "prepared":
+        _verify_manifest_preimages(manifest, parent_workspace)
+        _stage_manifest_sources(manifest, staging_root)
+        _validate_promotion_staging(expected_outputs, output_bundle, staging_root)
+        return _commit_promotion_manifest(
+            manifest=manifest,
+            expected_outputs=expected_outputs,
+            output_bundle=output_bundle,
+            parent_workspace=parent_workspace,
+            promotion_manifest_path=promotion_manifest_path,
+            staging_root=staging_root,
+            backups_root=backups_root,
+        )
+
+    if status == "committing":
+        return _commit_promotion_manifest(
+            manifest=manifest,
+            expected_outputs=expected_outputs,
+            output_bundle=output_bundle,
+            parent_workspace=parent_workspace,
+            promotion_manifest_path=promotion_manifest_path,
+            staging_root=staging_root,
+            backups_root=backups_root,
+        )
+
+    raise PromotionConflictError(f"promotion manifest has unsupported status '{status}'")
+
+
+def _stage_manifest_sources(manifest: Mapping[str, Any], staging_root: Path) -> None:
+    for file_entry in manifest.get("files", []):
+        if not isinstance(file_entry, Mapping):
+            raise PromotionConflictError("promotion manifest contains an invalid file entry")
+        dest_rel = str(file_entry.get("dest_rel", ""))
+        source_hash = str(file_entry.get("source_sha256", ""))
+        staged = staging_root / _safe_relpath(dest_rel)
+        if staged.exists():
+            if _hash_file(staged) == source_hash:
+                continue
+            staged.unlink()
+        source = Path(str(file_entry.get("source", "")))
+        if not source.exists() or not source.is_file():
+            raise PromotionConflictError(f"promotion source '{source}' is missing")
+        staged.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(source, staged)
+        if _hash_file(staged) != source_hash:
+            raise PromotionConflictError(f"promotion source hash changed for '{dest_rel}'")
+
+
+def _verify_manifest_preimages(manifest: Mapping[str, Any], parent_workspace: Path) -> None:
+    for file_entry in manifest.get("files", []):
+        if not isinstance(file_entry, Mapping):
+            raise PromotionConflictError("promotion manifest contains an invalid file entry")
+        dest_rel = str(file_entry.get("dest_rel", ""))
+        baseline_preimage = dict(file_entry.get("baseline_preimage") or {})
+        if baseline_preimage.get("state") == "unavailable":
+            raise PromotionConflictError(f"promotion destination '{dest_rel}' has unavailable baseline preimage")
+        current_preimage = _current_preimage(parent_workspace, dest_rel)
+        if current_preimage != baseline_preimage:
+            raise PromotionConflictError(f"promotion destination '{dest_rel}' changed from baseline")
+
+
+def _commit_promotion_manifest(
+    *,
+    manifest: dict[str, Any],
+    expected_outputs: list[dict] | None,
+    output_bundle: dict | None,
+    parent_workspace: Path,
+    promotion_manifest_path: Path,
+    staging_root: Path,
+    backups_root: Path,
+) -> PromotionResult:
+    manifest["status"] = "committing"
+    _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
+    try:
+        for file_entry in manifest.get("files", []):
+            if not isinstance(file_entry, Mapping):
+                raise PromotionConflictError("promotion manifest contains an invalid file entry")
+            dest_rel = str(file_entry.get("dest_rel", ""))
+            source_sha256 = str(file_entry.get("source_sha256", ""))
+            baseline_preimage = dict(file_entry.get("baseline_preimage") or {})
+            if baseline_preimage.get("state") == "unavailable":
+                raise PromotionConflictError(f"promotion destination '{dest_rel}' has unavailable baseline preimage")
+
+            current_preimage = _current_preimage(parent_workspace, dest_rel)
+            if _preimage_matches_hash(current_preimage, source_sha256):
+                continue
+            if current_preimage != baseline_preimage:
+                raise PromotionConflictError(f"promotion destination '{dest_rel}' changed before commit")
+
+            staged = staging_root / _safe_relpath(dest_rel)
+            if not staged.exists() or not staged.is_file():
+                _stage_manifest_sources({"files": [file_entry]}, staging_root)
+            if _hash_file(staged) != source_sha256:
+                raise PromotionConflictError(f"promotion staged source hash changed for '{dest_rel}'")
+
+            dest = parent_workspace / dest_rel
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            if baseline_preimage.get("state") == "file":
+                backup = backups_root / dest_rel
+                if not backup.exists():
+                    backup.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(dest, backup)
+            _replace_file(staged, dest)
+
+        try:
+            _validate_promotion_parent(expected_outputs, output_bundle, parent_workspace)
+        except OutputContractError as exc:
+            manifest["status"] = "rolling_back"
+            manifest["failure_type"] = "promotion_validation_failed"
+            manifest["failure_message"] = str(exc)
+            _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
+            _complete_promotion_rollback(
+                manifest=manifest,
+                parent_workspace=parent_workspace,
+                promotion_manifest_path=promotion_manifest_path,
+                backups_root=backups_root,
+                failure_type="promotion_validation_failed",
+                failure_message=str(exc),
+            )
+    except PromotionConflictError as exc:
+        if manifest.get("status") != "rolling_back":
+            manifest["status"] = "failed"
+            manifest["failure_type"] = exc.failure_type
+            manifest["failure_message"] = str(exc)
+            _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
+        raise
+
+    manifest["status"] = "committed"
+    _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
+    return PromotionResult(
+        status="committed",
+        promoted_paths=dict(manifest.get("promoted_paths") or {}),
+        manifest_path=promotion_manifest_path,
+    )
+
+
+def _complete_promotion_rollback(
+    *,
+    manifest: dict[str, Any],
+    parent_workspace: Path,
+    promotion_manifest_path: Path,
+    backups_root: Path,
+    failure_type: str,
+    failure_message: str,
+) -> None:
+    try:
+        _rollback_promoted_files(
+            files=manifest.get("files", []),
+            parent_workspace=parent_workspace,
+            backups_root=backups_root,
+        )
+        _cleanup_created_parent_dirs(parent_workspace, manifest.get("created_parent_dirs", []))
+    except PromotionConflictError as rollback_exc:
+        manifest["status"] = "rolling_back"
+        manifest["failure_type"] = rollback_exc.failure_type
+        manifest["failure_message"] = str(rollback_exc)
+        _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
+        raise
+    manifest["status"] = "failed"
+    manifest["failure_type"] = failure_type
+    manifest["failure_message"] = failure_message
+    _atomic_write_text(promotion_manifest_path, _canonical_json(manifest) + "\n")
+    raise PromotionConflictError(failure_message, failure_type=failure_type)
+
+
+def _validate_promotion_staging(
+    expected_outputs: list[dict] | None,
+    output_bundle: dict | None,
+    workspace: Path,
+) -> None:
+    try:
+        if output_bundle:
+            validate_output_bundle(output_bundle, workspace=workspace)
+        else:
+            validate_expected_outputs(expected_outputs or [], workspace=workspace)
+    except OutputContractError as exc:
+        raise PromotionConflictError(str(exc), failure_type="promotion_validation_failed") from exc
+
+
+def _validate_promotion_parent(
+    expected_outputs: list[dict] | None,
+    output_bundle: dict | None,
+    workspace: Path,
+) -> None:
+    if output_bundle:
+        validate_output_bundle(output_bundle, workspace=workspace)
+    else:
+        validate_expected_outputs(expected_outputs or [], workspace=workspace)
+
+
+def _created_parent_dirs(parent_workspace: Path, files: Sequence[Mapping[str, Any]]) -> list[str]:
+    created: set[str] = set()
+    parent_workspace = parent_workspace.resolve()
+    for file_entry in files:
+        dest_parent = (parent_workspace / str(file_entry["dest_rel"])).parent
+        missing: list[Path] = []
+        current = dest_parent
+        while current != parent_workspace and _is_within(current, parent_workspace) and not current.exists():
+            missing.append(current)
+            current = current.parent
+        for path in reversed(missing):
+            created.add(path.relative_to(parent_workspace).as_posix())
+    return sorted(created, key=lambda item: (len(Path(item).parts), item))
+
+
+def _cleanup_created_parent_dirs(parent_workspace: Path, created_parent_dirs: Any) -> None:
+    if not isinstance(created_parent_dirs, Sequence) or isinstance(created_parent_dirs, (str, bytes)):
+        return
+    rel_dirs = [str(item) for item in created_parent_dirs if isinstance(item, str)]
+    for rel in sorted(rel_dirs, key=lambda item: (len(Path(item).parts), item), reverse=True):
+        try:
+            path = _workspace_file(parent_workspace, rel, must_exist=False)
+        except (OSError, ValueError):
+            continue
+        try:
+            path.rmdir()
+        except OSError:
+            continue
 
 
 def _rollback_promoted_files(

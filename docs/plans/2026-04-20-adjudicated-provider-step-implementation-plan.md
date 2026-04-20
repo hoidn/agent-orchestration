@@ -496,7 +496,7 @@ by the fixed baseline policy fails before provider launch with a
 baseline-excluded failure type. Assert optional excluded paths are recorded as
 absent rather than copied or redacted.
 
-- [ ] **Step 4: Write failing unit tests for baseline destination preimages**
+- [x] **Step 4: Write failing unit tests for baseline destination preimages**
 
 Assert promotion destination preimages are recorded as:
 
@@ -528,7 +528,7 @@ separate executor responsibility.
 Set up a bundle JSON with a relpath field and a target file. Assert promotion
 stages and commits the bundle plus the relpath target.
 
-- [ ] **Step 7: Write failing unit tests for promotion conflicts and rollback**
+- [x] **Step 7: Write failing unit tests for promotion conflicts and rollback**
 
 Cover:
 
@@ -543,7 +543,7 @@ Cover:
   `promotion_rollback_conflict` if a touched destination no longer matches the
   staged source or baseline preimage
 
-- [ ] **Step 8: Write failing unit tests for promotion resume states**
+- [x] **Step 8: Write failing unit tests for promotion resume states**
 
 Create manifest fixtures for `prepared`, `committing`, `rolling_back`, `failed`,
 and `committed`. Assert resume repeats safe preimage checks, treats destinations
