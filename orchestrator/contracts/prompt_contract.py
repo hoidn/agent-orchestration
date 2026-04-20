@@ -5,8 +5,27 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
+def _append_field_constraints(lines: List[str], spec: Dict[str, Any]) -> None:
+    """Append optional field-level contract constraints."""
+    if "allowed" in spec:
+        allowed_values = ", ".join(str(value) for value in spec["allowed"])
+        lines.append(f"  allowed: {allowed_values}")
+    if "under" in spec:
+        lines.append(f"  under: {spec['under']}")
+    if spec.get("must_exist_target"):
+        lines.append("  must_exist_target: true")
+    if spec.get("required") is False:
+        lines.append("  required: false")
+    if "description" in spec:
+        lines.append(f"  description: {spec['description']}")
+    if "format_hint" in spec:
+        lines.append(f"  format_hint: {spec['format_hint']}")
+    if "example" in spec:
+        lines.append(f"  example: {spec['example']}")
+
+
 def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
-    """Render a stable prompt suffix describing required output artifacts."""
+    """Render a stable prompt suffix describing required one-file-per-value artifacts."""
     lines: List[str] = [
         "## Output Contract",
         "Write the following artifacts exactly as specified.",
@@ -17,22 +36,34 @@ def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
         lines.append(f"- name: {spec['name']}")
         lines.append(f"  path: {spec['path']}")
         lines.append(f"  type: {spec['type']}")
+        _append_field_constraints(lines, spec)
 
+    return "\n".join(lines) + "\n"
+
+
+def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
+    """Render a stable prompt suffix describing a required JSON output bundle."""
+    lines: List[str] = [
+        "## Output Contract",
+        "Write the following JSON bundle exactly as specified.",
+        f"- path: {output_bundle['path']}",
+        "  format: JSON object",
+        "  fields:",
+    ]
+
+    for spec in output_bundle.get("fields", []):
+        lines.append(f"    - name: {spec['name']}")
+        lines.append(f"      json_pointer: {spec['json_pointer']}")
+        lines.append(f"      type: {spec['type']}")
         if "allowed" in spec:
             allowed_values = ", ".join(str(value) for value in spec["allowed"])
-            lines.append(f"  allowed: {allowed_values}")
+            lines.append(f"      allowed: {allowed_values}")
         if "under" in spec:
-            lines.append(f"  under: {spec['under']}")
+            lines.append(f"      under: {spec['under']}")
         if spec.get("must_exist_target"):
-            lines.append("  must_exist_target: true")
+            lines.append("      must_exist_target: true")
         if spec.get("required") is False:
-            lines.append("  required: false")
-        if "description" in spec:
-            lines.append(f"  description: {spec['description']}")
-        if "format_hint" in spec:
-            lines.append(f"  format_hint: {spec['format_hint']}")
-        if "example" in spec:
-            lines.append(f"  example: {spec['example']}")
+            lines.append("      required: false")
 
     return "\n".join(lines) + "\n"
 

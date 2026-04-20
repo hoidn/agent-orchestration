@@ -7,6 +7,7 @@ from typing import Any, Callable, Dict, Optional
 
 from ..contracts.prompt_contract import (
     render_consumed_artifacts_block,
+    render_output_bundle_contract_block,
     render_output_contract_block,
 )
 from .assets import AssetResolutionError, WorkflowAssetResolver
@@ -103,14 +104,18 @@ class PromptComposer:
 
     def apply_output_contract_prompt_suffix(self, step: Dict[str, Any], prompt: str) -> str:
         """Append deterministic output contract instructions to provider prompts."""
-        expected_outputs = step.get("expected_outputs")
-        if not expected_outputs:
-            return prompt
-
         if step.get("inject_output_contract", True) is False:
             return prompt
 
-        contract_block = render_output_contract_block(expected_outputs)
+        expected_outputs = step.get("expected_outputs")
+        output_bundle = step.get("output_bundle")
+        if expected_outputs:
+            contract_block = render_output_contract_block(expected_outputs)
+        elif isinstance(output_bundle, dict) and output_bundle:
+            contract_block = render_output_bundle_contract_block(output_bundle)
+        else:
+            return prompt
+
         if not prompt:
             return contract_block
         if prompt.endswith("\n"):

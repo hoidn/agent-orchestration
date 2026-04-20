@@ -12,6 +12,26 @@ from orchestrator.workflow.adjudication import (
 )
 
 
+def test_adjudication_runtime_helpers_are_split_into_public_submodules() -> None:
+    import orchestrator.workflow.adjudication.baseline as baseline
+    import orchestrator.workflow.adjudication.evidence as evidence
+    import orchestrator.workflow.adjudication.ledger as ledger
+    import orchestrator.workflow.adjudication.models as models
+    import orchestrator.workflow.adjudication.paths as paths
+    import orchestrator.workflow.adjudication.promotion as promotion
+    import orchestrator.workflow.adjudication.resume as resume
+    import orchestrator.workflow.adjudication.scoring as scoring
+
+    assert baseline.create_baseline_snapshot is create_baseline_snapshot
+    assert evidence.build_evaluation_packet
+    assert ledger.generate_score_ledger_rows
+    assert models.BASELINE_COPY_POLICY == "adjudicated_provider.baseline_copy.v1"
+    assert paths.adjudication_visit_paths is adjudication_visit_paths
+    assert promotion.promote_candidate_outputs
+    assert resume.adjudication_sidecars_exist
+    assert scoring.select_candidate
+
+
 def test_visit_and_candidate_paths_are_frame_visit_scoped(tmp_path: Path) -> None:
     run_root = tmp_path / ".orchestrate" / "runs" / "run-1"
 

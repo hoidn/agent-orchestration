@@ -244,9 +244,9 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 **Use this when:** You need the design rationale behind the v2.11 adjudicated provider runtime and its V1 constraints.
 
 ### [Adjudicated Provider Step Implementation Plan](plans/2026-04-20-adjudicated-provider-step-implementation-plan.md)
-**Description:** Task plan for implementing the v2.11 adjudicated provider surface and runtime.
-**Keywords:** implementation-plan, adjudicated-provider, v2.11, tests
-**Use this when:** You need to audit implementation progress or understand intentional deviations from the original staged plan.
+**Description:** Implementation plan for the v2.11 adjudicated provider first release, covering DSL validation, isolated candidate workspaces, same-trust-boundary scoring, ledgers, transactional promotion, resume reconciliation, observability, and docs/examples.
+**Keywords:** implementation-plan, adjudicated-provider, v2.11, candidates, scoring, promotion, resume
+**Use this when:** You need the accepted implementation task breakdown for the adjudicated provider runtime and its verification gates.
 
 ## Finding Information
 

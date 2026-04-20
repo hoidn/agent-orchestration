@@ -40,7 +40,7 @@ Provider prompt text is composed deterministically:
 | 2 | Prepend `asset_depends_on` blocks (v2.5+) if enabled. | Workflow-source-relative assets are injected in declared order before the base prompt. |
 | 3 | Apply `depends_on.inject` (v1.1.1+) if enabled. | Injects resolved workspace dependencies in-memory around the already-expanded prompt. |
 | 4 | Inject `## Consumed Artifacts` (v1.2+) if the step has `consumes`. | `inject_consumes`, `consumes_injection_position`, `prompt_consumes`. Uses resolved consume values from preflight. |
-| 5 | Append `## Output Contract` if the step has `expected_outputs`. | `inject_output_contract` controls suffix injection. `expected_outputs.path` entries are rendered after runtime path substitution. This is validation, not execution. |
+| 5 | Append `## Output Contract` if the step has `expected_outputs` or `output_bundle`. | `inject_output_contract` controls suffix injection. `expected_outputs.path` and `output_bundle.path` entries are rendered after runtime path substitution. This is validation, not execution. |
 
 Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
 
@@ -80,6 +80,8 @@ Do not point a `relpath` expected output at a rich JSON, markdown, or log file u
 ### B) `output_bundle` (v1.3+, single JSON file)
 
 Use when a step emits many scalar artifacts.
+
+For provider steps, the prompt suffix includes the concrete JSON bundle path and field-level JSON pointer contract after runtime path substitution. Do not duplicate that path in the prompt unless the step is unusually high-risk.
 
 Summary:
 
@@ -121,7 +123,7 @@ Keep prompts focused on decision-quality instructions, not DSL plumbing.
 | Do include | Usually avoid |
 | --- | --- |
 | Objective + scope boundaries. | Repeating file lists already injected via `depends_on.inject` or `consumes`. |
-| Completion criteria (done vs blocked). | Repeating output contracts already injected via `expected_outputs`. |
+| Completion criteria (done vs blocked). | Repeating output contracts already injected via `expected_outputs` or `output_bundle`. |
 | Forbidden shortcuts (when failure modes are predictable). | "Audit-only" language that can be mistaken for execution. |
 | Evidence format (what files to write and where). | Over-specifying pointer plumbing already enforced by contracts. |
 

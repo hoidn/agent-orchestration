@@ -84,7 +84,7 @@
 59. Output contract sequencing: contract validation runs only when execution exit code is `0`
 60. Output contract preserves execution failures: non-zero execution results are not replaced by contract errors
 61. Contract violation shape: failed step exposes `error.type:"contract_violation"` and `error.context.violations[]`
-62. Provider prompt contract suffix: provider steps with `expected_outputs` append deterministic `Output Contract` block by default
+62. Provider prompt contract suffix: provider steps with `expected_outputs` or `output_bundle` append deterministic `Output Contract` block by default
 63. Prompt suffix opt-out: `inject_output_contract:false` disables provider suffix injection
 64. Command compatibility: command steps accept `inject_output_contract` with no behavior change
 65. Artifact mirror opt-out: `persist_artifacts_in_state:false` still enforces `expected_outputs` but omits `steps.<Step>.artifacts` from `state.json`

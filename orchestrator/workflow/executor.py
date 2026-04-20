@@ -98,12 +98,19 @@ from .adjudication import (
     adjudication_outcome,
     adjudication_visit_paths,
     build_evaluation_packet,
+    candidate_metadata_path,
     candidate_paths,
     create_baseline_snapshot,
     generate_score_ledger_rows,
+    load_baseline_manifest,
+    load_candidate_metadata,
+    load_score_ledger_rows,
+    load_scorer_resolution_failure,
+    load_scorer_snapshot,
     materialize_run_score_ledger,
     materialize_score_ledger_mirror,
     parse_evaluator_output,
+    persist_candidate_metadata,
     persist_scorer_resolution_failure,
     persist_scorer_snapshot,
     prepare_candidate_workspace_from_baseline,
@@ -3803,7 +3810,68 @@ class WorkflowExecutor:
             for candidate_config in candidates_config
             if isinstance(candidate_config, dict)
         ] if isinstance(candidates_config, list) else []
-        if adjudication_sidecars_exist(visit_paths=visit_paths, candidate_roots=candidate_roots):
+        sidecars_exist = adjudication_sidecars_exist(visit_paths=visit_paths, candidate_roots=candidate_roots)
+        if (
+            not sidecars_exist
+            and getattr(self, "resume_mode", False)
+            and isinstance(visit_count, int)
+            and visit_count > 1
+        ):
+            previous_visit_count = visit_count - 1
+            previous_visit_paths = adjudication_visit_paths(run_root, frame_scope, step_id, previous_visit_count)
+            previous_candidate_roots = [
+                candidate_paths(run_root, frame_scope, step_id, previous_visit_count, str(candidate_config.get("id"))).candidate_root
+                for candidate_config in candidates_config
+                if isinstance(candidate_config, dict)
+            ] if isinstance(candidates_config, list) else []
+            if adjudication_sidecars_exist(
+                visit_paths=previous_visit_paths,
+                candidate_roots=previous_candidate_roots,
+            ):
+                visit_count = previous_visit_count
+                if isinstance(step_visits, dict):
+                    step_visits[step_name] = previous_visit_count
+                    self._persist_control_flow_state(state)
+                visit_paths = previous_visit_paths
+                candidate_roots = previous_candidate_roots
+                sidecars_exist = True
+
+        baseline_manifest = None
+        candidates: list[dict[str, Any]] = []
+        scorer: dict[str, Any] | None = None
+        evaluator_prompt = ""
+        scorer_failure: dict[str, Any] | None = None
+        resume_loaded = False
+        resume_baseline_only = False
+        if sidecars_exist:
+            if not getattr(self, "resume_mode", False):
+                return self._adjudication_failure_result(
+                    "adjudication_resume_mismatch",
+                    "existing adjudication sidecars require resume reconciliation before rerun",
+                    visit_paths=visit_paths,
+                )
+            resume_state = self._load_adjudication_resume_state(
+                candidates_config=candidates_config if isinstance(candidates_config, list) else [],
+                evaluator_config=evaluator_config if isinstance(evaluator_config, dict) else {},
+                context=context,
+                state=state,
+                run_root=run_root,
+                frame_scope=frame_scope,
+                step_id=step_id,
+                visit_count=int(visit_count or 1),
+                visit_paths=visit_paths,
+            )
+            if isinstance(resume_state.get("error"), dict):
+                return resume_state["error"]
+            baseline_manifest = resume_state["baseline_manifest"]
+            candidates = resume_state["candidates"]
+            scorer = resume_state.get("scorer")
+            evaluator_prompt = str(resume_state.get("evaluator_prompt") or "")
+            scorer_failure = resume_state.get("scorer_failure")
+            resume_baseline_only = bool(resume_state.get("baseline_only"))
+            resume_loaded = not resume_baseline_only
+
+        if sidecars_exist and not resume_loaded and not resume_baseline_only:
             return self._adjudication_failure_result(
                 "adjudication_resume_mismatch",
                 "existing adjudication sidecars require resume reconciliation before rerun",
@@ -3811,33 +3879,37 @@ class WorkflowExecutor:
             )
 
         required_surfaces = self._adjudication_required_path_surfaces(output_contract_step)
-        try:
-            deadline.require_time_remaining("baseline snapshot")
-            baseline_manifest = create_baseline_snapshot(
-                parent_workspace=self.workspace,
-                run_root=run_root,
-                visit_paths=visit_paths,
-                workflow_checksum=state.get("workflow_checksum", ""),
-                resolved_consumes=state.get("_resolved_consumes", {}),
-                required_path_surfaces=required_surfaces,
-                optional_path_surfaces=[],
-            )
-        except TimeoutError as exc:
-            return self._adjudication_failure_result("timeout", str(exc), visit_paths=visit_paths)
-        except Exception as exc:
-            return self._adjudication_failure_result(
-                getattr(exc, "failure_type", "adjudication_resume_mismatch"),
-                str(exc),
-            )
+        if baseline_manifest is None:
+            try:
+                deadline.require_time_remaining("baseline snapshot")
+                baseline_manifest = create_baseline_snapshot(
+                    parent_workspace=self.workspace,
+                    run_root=run_root,
+                    visit_paths=visit_paths,
+                    workflow_checksum=state.get("workflow_checksum", ""),
+                    resolved_consumes=state.get("_resolved_consumes", {}),
+                    required_path_surfaces=required_surfaces,
+                    optional_path_surfaces=[],
+                )
+            except TimeoutError as exc:
+                return self._adjudication_failure_result("timeout", str(exc), visit_paths=visit_paths)
+            except Exception as exc:
+                return self._adjudication_failure_result(
+                    getattr(exc, "failure_type", "adjudication_resume_mismatch"),
+                    str(exc),
+                )
 
         require_single_score = bool(
             isinstance(selection_config, dict)
             and selection_config.get("require_score_for_single_candidate") is True
         )
-        candidates: list[dict[str, Any]] = []
         retry_policy = self._adjudication_retry_policy(step)
 
-        for index, candidate_config in enumerate(candidates_config if isinstance(candidates_config, list) else []):
+        if resume_loaded:
+            candidate_configs_to_run = resume_state.get("pending_candidate_configs", [])
+        else:
+            candidate_configs_to_run = list(enumerate(candidates_config if isinstance(candidates_config, list) else []))
+        for index, candidate_config in candidate_configs_to_run:
             if not isinstance(candidate_config, dict):
                 continue
             candidate_id = str(candidate_config.get("id"))
@@ -3962,6 +4034,13 @@ class WorkflowExecutor:
                         )
                         if exec_result.exit_code == 124 and self._adjudication_deadline_expired(deadline):
                             candidates.append(candidate_record)
+                            self._persist_adjudication_candidates(
+                                run_root=run_root,
+                                frame_scope=frame_scope,
+                                step_id=step_id,
+                                visit_count=int(visit_count or 1),
+                                candidates=candidates,
+                            )
                             return self._adjudication_failure_result(
                                 "timeout",
                                 "adjudicated provider deadline expired during candidate provider execution",
@@ -4004,6 +4083,13 @@ class WorkflowExecutor:
                     }
                 )
                 candidates.append(candidate_record)
+                self._persist_adjudication_candidates(
+                    run_root=run_root,
+                    frame_scope=frame_scope,
+                    step_id=step_id,
+                    visit_count=int(visit_count or 1),
+                    candidates=candidates,
+                )
                 return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
             except Exception as exc:
                 candidate_record.update(
@@ -4016,12 +4102,21 @@ class WorkflowExecutor:
                     }
                 )
             candidates.append(candidate_record)
+            self._persist_adjudication_candidates(
+                run_root=run_root,
+                frame_scope=frame_scope,
+                step_id=step_id,
+                visit_count=int(visit_count or 1),
+                candidates=[candidate_record],
+            )
 
         output_valid = [candidate for candidate in candidates if candidate.get("candidate_status") == "output_valid"]
-        scorer: dict[str, Any] | None = None
-        evaluator_prompt = ""
-        scorer_failure: dict[str, Any] | None = None
-        if output_valid:
+        score_pending = [
+            candidate
+            for candidate in output_valid
+            if candidate.get("score_status") not in {"scored", "evaluation_failed", "scorer_unavailable"}
+        ]
+        if score_pending and scorer is None and scorer_failure is None:
             scorer, evaluator_prompt, scorer_failure = self._resolve_adjudication_scorer(
                 evaluator_config if isinstance(evaluator_config, dict) else {},
                 context,
@@ -4029,7 +4124,7 @@ class WorkflowExecutor:
                 visit_paths=visit_paths,
             )
         if scorer_failure is not None:
-            for candidate in output_valid:
+            for candidate in score_pending:
                 candidate.update(
                     {
                         "score_status": "scorer_unavailable",
@@ -4039,7 +4134,7 @@ class WorkflowExecutor:
                     }
                 )
         elif scorer is not None:
-            for candidate in output_valid:
+            for candidate in score_pending:
                 try:
                     self._score_adjudicated_candidate(
                         candidate=candidate,
@@ -4059,6 +4154,14 @@ class WorkflowExecutor:
                     )
                 except TimeoutError as exc:
                     return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
+        if score_pending:
+            self._persist_adjudication_candidates(
+                run_root=run_root,
+                frame_scope=frame_scope,
+                step_id=step_id,
+                visit_count=int(visit_count or 1),
+                candidates=candidates,
+            )
 
         try:
             deadline.require_time_remaining("selection")
@@ -4096,6 +4199,13 @@ class WorkflowExecutor:
                 candidate["promotion_status"] = "pending"
             else:
                 candidate["promotion_status"] = "not_selected"
+        self._persist_adjudication_candidates(
+            run_root=run_root,
+            frame_scope=frame_scope,
+            step_id=step_id,
+            visit_count=int(visit_count or 1),
+            candidates=candidates,
+        )
         selected_paths = candidate_paths(run_root, frame_scope, step_id, int(visit_count or 1), str(selection.selected_candidate_id))
         ledger_path = adjudicated.get("score_ledger_path")
         try:
@@ -4146,6 +4256,13 @@ class WorkflowExecutor:
                 call_frame_id=call_frame_id,
                 materialize_mirror=False,
             )
+            self._persist_adjudication_candidates(
+                run_root=run_root,
+                frame_scope=frame_scope,
+                step_id=step_id,
+                visit_count=int(visit_count or 1),
+                candidates=candidates,
+            )
         except TimeoutError as exc:
             return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
         except OSError as exc:
@@ -4185,6 +4302,13 @@ class WorkflowExecutor:
 
         selected["promotion_status"] = "committed"
         selected["promoted_paths"] = promotion.promoted_paths
+        self._persist_adjudication_candidates(
+            run_root=run_root,
+            frame_scope=frame_scope,
+            step_id=step_id,
+            visit_count=int(visit_count or 1),
+            candidates=candidates,
+        )
         try:
             deadline.require_time_remaining("terminal ledger materialization")
         except TimeoutError as exc:
@@ -4246,6 +4370,346 @@ class WorkflowExecutor:
     def _adjudication_deadline_expired(self, deadline: AdjudicationDeadline) -> bool:
         remaining = deadline.remaining_timeout_sec()
         return remaining is not None and remaining <= 0
+
+    def _load_adjudication_resume_state(
+        self,
+        *,
+        candidates_config: list[Any],
+        evaluator_config: Mapping[str, Any],
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+        run_root: Path,
+        frame_scope: str,
+        step_id: str,
+        visit_count: int,
+        visit_paths: Any,
+    ) -> dict[str, Any]:
+        if not visit_paths.baseline_manifest_path.exists() or not visit_paths.baseline_workspace.exists():
+            return {
+                "error": self._resume_mismatch(
+                    "baseline manifest or workspace is missing for adjudication resume",
+                    visit_paths=visit_paths,
+                )
+            }
+        try:
+            baseline_manifest = load_baseline_manifest(visit_paths.baseline_manifest_path)
+        except Exception as exc:
+            return {
+                "error": self._resume_mismatch(
+                    f"baseline manifest cannot be loaded for adjudication resume: {exc}",
+                    visit_paths=visit_paths,
+                )
+            }
+        if baseline_manifest.workflow_checksum != state.get("workflow_checksum", ""):
+            return {
+                "error": self._resume_mismatch(
+                    "baseline workflow checksum does not match current resume state",
+                    visit_paths=visit_paths,
+                )
+            }
+        if baseline_manifest.copy_policy != BASELINE_COPY_POLICY:
+            return {
+                "error": self._resume_mismatch(
+                    "baseline copy policy does not match the adjudication runtime",
+                    visit_paths=visit_paths,
+                )
+            }
+
+        try:
+            ledger_rows = load_score_ledger_rows(visit_paths.run_score_ledger_path)
+        except Exception as exc:
+            return {
+                "error": self._resume_mismatch(
+                    f"score ledger cannot be loaded for adjudication resume: {exc}",
+                    visit_paths=visit_paths,
+                )
+            }
+        ledger_by_candidate = {
+            str(row.get("candidate_id")): row
+            for row in ledger_rows
+            if isinstance(row.get("candidate_id"), str)
+        }
+
+        candidate_sidecars_exist = False
+        for candidate_config in candidates_config:
+            if not isinstance(candidate_config, dict):
+                continue
+            paths = candidate_paths(run_root, frame_scope, step_id, visit_count, str(candidate_config.get("id")))
+            if paths.candidate_root.exists():
+                candidate_sidecars_exist = True
+                break
+        if (
+            not ledger_rows
+            and not candidate_sidecars_exist
+            and not visit_paths.scorer_root.exists()
+            and not visit_paths.promotion_manifest_path.exists()
+        ):
+            return {
+                "baseline_manifest": baseline_manifest,
+                "candidates": [],
+                "scorer": None,
+                "evaluator_prompt": "",
+                "scorer_failure": None,
+                "baseline_only": True,
+            }
+
+        candidates: list[dict[str, Any]] = []
+        pending_candidate_configs: list[tuple[int, dict[str, Any]]] = []
+        for index, candidate_config in enumerate(candidates_config):
+            if not isinstance(candidate_config, dict):
+                continue
+            candidate_id = str(candidate_config.get("id"))
+            paths = candidate_paths(run_root, frame_scope, step_id, visit_count, candidate_id)
+            metadata_file = candidate_metadata_path(paths)
+            if not metadata_file.exists():
+                if paths.candidate_root.exists() or candidate_id in ledger_by_candidate:
+                    return {
+                        "error": self._resume_mismatch(
+                            f"candidate metadata missing for adjudication resume candidate '{candidate_id}'",
+                            visit_paths=visit_paths,
+                            candidates=candidates,
+                        )
+                    }
+                pending_candidate_configs.append((index, candidate_config))
+                continue
+            try:
+                candidate = load_candidate_metadata(paths)
+            except Exception as exc:
+                return {
+                    "error": self._resume_mismatch(
+                        f"candidate metadata cannot be loaded for adjudication resume candidate '{candidate_id}': {exc}",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            if candidate.get("candidate_id") != candidate_id:
+                return {
+                    "error": self._resume_mismatch(
+                        f"candidate metadata id mismatch for adjudication resume candidate '{candidate_id}'",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            if candidate.get("candidate_index") != index:
+                return {
+                    "error": self._resume_mismatch(
+                        f"candidate order mismatch for adjudication resume candidate '{candidate_id}'",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            expected_config_hash = self._stable_runtime_hash(candidate_config)
+            if candidate.get("candidate_config_hash") != expected_config_hash:
+                return {
+                    "error": self._resume_mismatch(
+                        f"candidate config hash mismatch for adjudication resume candidate '{candidate_id}'",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            if paths.prompt_path.exists() and isinstance(candidate.get("composed_prompt_hash"), str):
+                prompt_hash = self._text_hash(paths.prompt_path.read_text(encoding="utf-8"))
+                if candidate.get("composed_prompt_hash") != prompt_hash:
+                    return {
+                        "error": self._resume_mismatch(
+                            f"composed prompt hash mismatch for adjudication resume candidate '{candidate_id}'",
+                            visit_paths=visit_paths,
+                            candidates=candidates,
+                        )
+                    }
+            row = ledger_by_candidate.get(candidate_id)
+            if row is not None:
+                for key in ("candidate_run_key", "score_run_key"):
+                    if isinstance(row.get(key), str):
+                        candidate[key] = row[key]
+            candidates.append(candidate)
+
+        packet_candidates = []
+        for candidate in candidates:
+            paths = candidate_paths(run_root, frame_scope, step_id, visit_count, str(candidate.get("candidate_id")))
+            if paths.evaluation_packet_path.exists():
+                packet_candidates.append((candidate, paths.evaluation_packet_path))
+
+        scored_or_evaluation_failed = [
+            candidate
+            for candidate in candidates
+            if candidate.get("score_status") in {"scored", "evaluation_failed"}
+        ]
+        scorer_unavailable = [
+            candidate
+            for candidate in candidates
+            if candidate.get("score_status") == "scorer_unavailable"
+        ]
+
+        scorer: dict[str, Any] | None = None
+        evaluator_prompt = ""
+        scorer_failure: dict[str, Any] | None = None
+        if scored_or_evaluation_failed or packet_candidates:
+            try:
+                scorer = load_scorer_snapshot(visit_paths.scorer_root)
+            except Exception as exc:
+                return {
+                    "error": self._resume_mismatch(
+                        f"scorer snapshot cannot be loaded for adjudication resume: {exc}",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            if scorer is None:
+                return {
+                    "error": self._resume_mismatch(
+                        "scorer snapshot missing for terminal score metadata during adjudication resume",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            current_scorer, current_prompt, current_failure = self._resolve_adjudication_scorer(
+                evaluator_config,
+                context,
+                state,
+                visit_paths=visit_paths,
+                persist=False,
+            )
+            if current_failure is not None or current_scorer is None:
+                return {
+                    "error": self._resume_mismatch(
+                        "scorer identity no longer resolves during adjudication resume",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            if current_scorer.get("scorer_identity_hash") != scorer.get("scorer_identity_hash"):
+                return {
+                    "error": self._resume_mismatch(
+                        "scorer identity hash mismatch during adjudication resume",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            evaluator_prompt = (
+                scorer.get("evaluator_prompt_content")
+                if isinstance(scorer.get("evaluator_prompt_content"), str)
+                else current_prompt
+            )
+            for candidate in scored_or_evaluation_failed:
+                if candidate.get("scorer_identity_hash") != scorer.get("scorer_identity_hash"):
+                    return {
+                        "error": self._resume_mismatch(
+                            f"candidate scorer identity mismatch for adjudication resume candidate '{candidate.get('candidate_id')}'",
+                            visit_paths=visit_paths,
+                            candidates=candidates,
+                        )
+                    }
+            for candidate, packet_path in packet_candidates:
+                try:
+                    packet = json.loads(packet_path.read_text(encoding="utf-8"))
+                except Exception as exc:
+                    return {
+                        "error": self._resume_mismatch(
+                            f"evaluation packet cannot be loaded for adjudication resume candidate '{candidate.get('candidate_id')}': {exc}",
+                            visit_paths=visit_paths,
+                            candidates=candidates,
+                        )
+                    }
+                if packet.get("scorer_identity_hash") != scorer.get("scorer_identity_hash"):
+                    return {
+                        "error": self._resume_mismatch(
+                            f"evaluation packet scorer identity mismatch for adjudication resume candidate '{candidate.get('candidate_id')}'",
+                            visit_paths=visit_paths,
+                            candidates=candidates,
+                        )
+                    }
+                if (
+                    isinstance(candidate.get("evaluation_packet_hash"), str)
+                    and packet.get("evaluation_packet_hash") != candidate.get("evaluation_packet_hash")
+                ):
+                    return {
+                        "error": self._resume_mismatch(
+                            f"evaluation packet hash mismatch for adjudication resume candidate '{candidate.get('candidate_id')}'",
+                            visit_paths=visit_paths,
+                            candidates=candidates,
+                        )
+                    }
+
+        if scorer_unavailable:
+            try:
+                scorer_failure = load_scorer_resolution_failure(visit_paths.scorer_root)
+            except Exception as exc:
+                return {
+                    "error": self._resume_mismatch(
+                        f"scorer resolution failure cannot be loaded for adjudication resume: {exc}",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            if scorer_failure is None:
+                return {
+                    "error": self._resume_mismatch(
+                        "scorer resolution failure metadata missing for scorer_unavailable ledger rows during adjudication resume",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            current_scorer, _current_prompt, current_failure = self._resolve_adjudication_scorer(
+                evaluator_config,
+                context,
+                state,
+                visit_paths=visit_paths,
+                persist=False,
+            )
+            if current_scorer is not None or current_failure is None:
+                return {
+                    "error": self._resume_mismatch(
+                        "scorer resolution no longer fails during adjudication resume",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            if current_failure.get("scorer_resolution_failure_key") != scorer_failure.get("scorer_resolution_failure_key"):
+                return {
+                    "error": self._resume_mismatch(
+                        "scorer resolution failure key mismatch during adjudication resume",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            for candidate in scorer_unavailable:
+                if candidate.get("scorer_resolution_failure_key") != scorer_failure.get("scorer_resolution_failure_key"):
+                    return {
+                        "error": self._resume_mismatch(
+                            f"candidate scorer resolution key mismatch for adjudication resume candidate '{candidate.get('candidate_id')}'",
+                            visit_paths=visit_paths,
+                            candidates=candidates,
+                        )
+                    }
+
+        for row in ledger_rows:
+            score_status = row.get("score_status")
+            if score_status in {"scored", "evaluation_failed"} and scorer is None:
+                return {
+                    "error": self._resume_mismatch(
+                        "scorer snapshot missing for terminal score ledger rows during adjudication resume",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+            if score_status == "scorer_unavailable" and scorer_failure is None:
+                return {
+                    "error": self._resume_mismatch(
+                        "scorer resolution failure metadata missing for scorer_unavailable ledger rows during adjudication resume",
+                        visit_paths=visit_paths,
+                        candidates=candidates,
+                    )
+                }
+
+        return {
+            "baseline_manifest": baseline_manifest,
+            "candidates": candidates,
+            "scorer": scorer,
+            "evaluator_prompt": evaluator_prompt,
+            "scorer_failure": scorer_failure,
+            "pending_candidate_configs": pending_candidate_configs,
+        }
 
     def _adjudication_required_path_surfaces(self, step: Dict[str, Any]) -> list[PathSurface]:
         surfaces: list[PathSurface] = []
@@ -4352,6 +4816,7 @@ class WorkflowExecutor:
         state: Dict[str, Any],
         *,
         visit_paths: Any,
+        persist: bool = True,
     ) -> tuple[Optional[dict[str, Any]], str, Optional[dict[str, Any]]]:
         limits = dict(evaluator_config.get("evidence_limits") or {})
         limits.setdefault("max_item_bytes", 262144)
@@ -4390,7 +4855,8 @@ class WorkflowExecutor:
                     if key not in {"failure_message", "scorer_resolution_failure_key"}
                 }
             )
-            persist_scorer_resolution_failure(payload, visit_paths.scorer_root)
+            if persist:
+                persist_scorer_resolution_failure(payload, visit_paths.scorer_root)
             return payload
 
         provider_name = evaluator_config.get("provider")
@@ -4477,7 +4943,8 @@ class WorkflowExecutor:
             "evidence_limits": limits,
         }
         scorer["scorer_identity_hash"] = scorer_identity_hash(scorer)
-        persist_scorer_snapshot(scorer, visit_paths.scorer_root)
+        if persist:
+            persist_scorer_snapshot(scorer, visit_paths.scorer_root)
         return scorer, evaluator_prompt, None
 
     def _score_adjudicated_candidate(
@@ -4719,7 +5186,15 @@ class WorkflowExecutor:
                 materialize_mirror=False,
             )
         except OSError as exc:
-            return self._adjudication_failure_result("ledger_mirror_failed", str(exc), candidates=candidates, visit_paths=visit_paths)
+            return self._adjudication_failure_result(
+                "ledger_mirror_failed",
+                str(exc),
+                candidates=candidates,
+                visit_paths=visit_paths,
+                selected_candidate_id=selected_candidate_id,
+                selection_reason=selection_reason,
+                promotion_status=promotion_status,
+            )
         if materialize_mirror:
             mirror = adjudicated.get("score_ledger_path")
             if isinstance(mirror, str):
@@ -4728,11 +5203,27 @@ class WorkflowExecutor:
                 except LedgerConflictError as exc:
                     if preserve_primary_failure:
                         return None
-                    return self._adjudication_failure_result("ledger_conflict", str(exc), candidates=candidates, visit_paths=visit_paths)
+                    return self._adjudication_failure_result(
+                        "ledger_conflict",
+                        str(exc),
+                        candidates=candidates,
+                        visit_paths=visit_paths,
+                        selected_candidate_id=selected_candidate_id,
+                        selection_reason=selection_reason,
+                        promotion_status=promotion_status,
+                    )
                 except OSError as exc:
                     if preserve_primary_failure:
                         return None
-                    return self._adjudication_failure_result("ledger_mirror_failed", str(exc), candidates=candidates, visit_paths=visit_paths)
+                    return self._adjudication_failure_result(
+                        "ledger_mirror_failed",
+                        str(exc),
+                        candidates=candidates,
+                        visit_paths=visit_paths,
+                        selected_candidate_id=selected_candidate_id,
+                        selection_reason=selection_reason,
+                        promotion_status=promotion_status,
+                    )
         return None
 
     def _adjudication_failure_result(
@@ -4742,6 +5233,10 @@ class WorkflowExecutor:
         *,
         candidates: Optional[list[dict[str, Any]]] = None,
         visit_paths: Any = None,
+        selected_candidate_id: Optional[str] = None,
+        selected_score: Optional[float] = None,
+        selection_reason: Optional[str] = None,
+        promotion_status: Optional[str] = None,
     ) -> Dict[str, Any]:
         mapped = adjudication_outcome(error_type)
         result = {
@@ -4755,12 +5250,32 @@ class WorkflowExecutor:
             "outcome": mapped["outcome"],
         }
         if candidates is not None or visit_paths is not None:
+            if candidates:
+                selected_candidate = next(
+                    (
+                        candidate
+                        for candidate in candidates
+                        if candidate.get("selected")
+                        or (
+                            selected_candidate_id is not None
+                            and str(candidate.get("candidate_id")) == selected_candidate_id
+                        )
+                    ),
+                    None,
+                )
+                if selected_candidate is not None:
+                    if selected_candidate_id is None:
+                        selected_candidate_id = str(selected_candidate.get("candidate_id"))
+                    if selected_score is None:
+                        score = selected_candidate.get("score")
+                        selected_score = float(score) if isinstance(score, (int, float)) else None
+                    promotion_status = str(selected_candidate.get("promotion_status") or promotion_status or "failed")
             result["adjudication"] = {
                 "schema": "adjudicated_provider.state.v1",
-                "selected_candidate_id": None,
-                "selected_score": None,
-                "selection_reason": "none",
-                "promotion_status": "failed",
+                "selected_candidate_id": selected_candidate_id,
+                "selected_score": selected_score,
+                "selection_reason": selection_reason or ("none" if selected_candidate_id is None else "highest_score"),
+                "promotion_status": promotion_status or ("not_selected" if selected_candidate_id is None else "failed"),
                 "run_score_ledger_path": (
                     visit_paths.run_score_ledger_path.as_posix()
                     if visit_paths is not None
@@ -4827,6 +5342,36 @@ class WorkflowExecutor:
                 "evaluation_packet_hash": candidate.get("evaluation_packet_hash"),
             }
         return result
+
+    def _persist_adjudication_candidates(
+        self,
+        *,
+        run_root: Path,
+        frame_scope: str,
+        step_id: str,
+        visit_count: int,
+        candidates: list[dict[str, Any]],
+    ) -> None:
+        for candidate in candidates:
+            candidate_id = candidate.get("candidate_id")
+            if not isinstance(candidate_id, str) or not candidate_id:
+                continue
+            paths = candidate_paths(run_root, frame_scope, step_id, visit_count, candidate_id)
+            persist_candidate_metadata(candidate, paths)
+
+    def _resume_mismatch(
+        self,
+        message: str,
+        *,
+        visit_paths: Any,
+        candidates: Optional[list[dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
+        return self._adjudication_failure_result(
+            "adjudication_resume_mismatch",
+            message,
+            candidates=candidates,
+            visit_paths=visit_paths,
+        )
 
     def _output_paths_from_contract(self, step: Dict[str, Any]) -> dict[str, str]:
         paths: dict[str, str] = {}

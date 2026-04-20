@@ -1,5 +1,6 @@
 """Tests for deterministic output-contract prompt injection on provider steps."""
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -148,6 +149,108 @@ def test_provider_expected_outputs_prompt_uses_resolved_path_templates(tmp_path:
     assert state["steps"]["Review"]["exit_code"] == 0
     assert "path: state/run-root/review_decision.txt" in captured["prompt"]
     assert "path: ${inputs.state_root}/review_decision.txt" not in captured["prompt"]
+
+
+def test_provider_output_bundle_appends_contract_block_with_resolved_path(tmp_path: Path):
+    """Provider steps append concrete JSON output_bundle contracts to prompts."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "docs" / "backlog").mkdir(parents=True)
+    (tmp_path / "docs" / "backlog" / "item.md").write_text("# Item\n")
+    (tmp_path / "prompts" / "select.md").write_text("Select a backlog item.\n")
+
+    workflow = {
+        "version": "2.7",
+        "name": "prompt-contract-output-bundle",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+                "default": "state/default-root",
+            }
+        },
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Select",
+            "provider": "mock_provider",
+            "input_file": "prompts/select.md",
+            "output_bundle": {
+                "path": "${inputs.state_root}/${run.id}/selection.json",
+                "fields": [
+                    {
+                        "name": "selection_decision",
+                        "json_pointer": "/selection_decision",
+                        "type": "enum",
+                        "allowed": ["READY", "NONE_READY"],
+                    },
+                    {
+                        "name": "selected_item_path",
+                        "json_pointer": "/selected_item_path",
+                        "type": "relpath",
+                        "under": "docs/backlog",
+                        "must_exist_target": True,
+                    },
+                ],
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize(
+        "workflow.yaml",
+        bound_inputs={"state_root": "state/run-root"},
+    )
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        bundle_path = tmp_path / "state" / "run-root" / "test-run" / "selection.json"
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        bundle_path.write_text(
+            json.dumps({
+                "selection_decision": "READY",
+                "selected_item_path": "docs/backlog/item.md",
+            })
+            + "\n"
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Select"]["exit_code"] == 0
+    assert state["steps"]["Select"]["artifacts"] == {
+        "selection_decision": "READY",
+        "selected_item_path": "docs/backlog/item.md",
+    }
+    assert "Write the following JSON bundle exactly as specified." in captured["prompt"]
+    assert "path: state/run-root/test-run/selection.json" in captured["prompt"]
+    assert "path: ${inputs.state_root}/${run.id}/selection.json" not in captured["prompt"]
+    assert "name: selection_decision" in captured["prompt"]
+    assert "json_pointer: /selection_decision" in captured["prompt"]
+    assert "allowed: READY, NONE_READY" in captured["prompt"]
+    assert "name: selected_item_path" in captured["prompt"]
+    assert "must_exist_target: true" in captured["prompt"]
 
 
 def test_provider_asset_file_reads_prompt_relative_to_workflow_source(tmp_path: Path):

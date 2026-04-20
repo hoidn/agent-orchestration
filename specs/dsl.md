@@ -174,6 +174,7 @@
       - Steps that declare `publishes` must keep this as `true` (or omit it) so publish runtime can read `steps.<Step>.artifacts`.
     - `inject_output_contract: boolean` (optional; default true)
       - Consumed only by provider steps to control prompt suffix injection.
+      - Applies to provider steps with `expected_outputs` or `output_bundle`.
       - Accepted on non-provider steps as a compatibility no-op.
     - `inject_consumes: boolean` (optional; default true; v1.2+)
       - Provider steps only: controls automatic consumed-artifact prompt block injection for steps with `consumes`.

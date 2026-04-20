@@ -1,1330 +1,901 @@
 # Adjudicated Provider Step Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking. Do not create git worktrees; this repo's `AGENTS.md` explicitly forbids them.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add DSL/runtime support for adjudicated provider steps that run one logical provider step through one or more isolated candidates, score valid candidate outputs with a reusable evaluator prompt, and promote the highest-scoring candidate output into normal workflow artifacts.
+**Goal:** Implement the approved DSL `2.11` `adjudicated_provider` first release so one logical provider step can run isolated candidates, evaluate output-valid artifacts, select deterministically, promote only declared selected outputs, and record stable adjudication state and score ledgers.
 
-**Architecture:** Add a version-gated `adjudicated_provider` execution form in DSL `2.11`. Reuse existing provider prompt composition, provider invocation, output capture, and output-contract validation where possible, but execute candidates in run-owned child workspaces and add a small adjudication runtime module for candidate metadata, score ledgers, evaluator packets, selection, and promotion. Start with artifact-producing steps only; source-edit patch promotion is out of scope.
+**Architecture:** Treat the approved ADR at `docs/plans/2026-04-20-adjudicated-provider-step-design.md` as the full first-release contract. Keep authoring, candidate execution, scoring, ledger, promotion, resume, and publication as separate runtime responsibilities with explicit data contracts between them. Existing adjudication code and tests in the checkout are starting material only; this plan is not a preservation pass over the previous stale plan.
 
-**Tech Stack:** YAML DSL/specs, Python orchestrator loader and executable IR, provider executor, output-contract validators, state.json/run metadata, JSONL score ledgers, pytest loader/runtime/example smoke tests, workflow library prompt assets.
+**Tech Stack:** Python 3.11+, YAML DSL loader, typed workflow AST/IR, existing provider executor, output-contract validators, workflow state manager, pytest unit/integration suites, orchestrator dry-run smoke checks.
 
 ---
 
+## Current Scope
+
+Current scope is the whole approved first-release design, not a loader-only or scoring-only slice. The implementation must deliver the DSL `2.11` authored surface, isolated candidate workspaces, same-trust-boundary evaluator scoring, deterministic selection, transactional selected-output promotion, run-local and workspace-visible score ledgers, additive step state, timeout/retry behavior, resume reconciliation, observability projection, an example workflow, and updated specs/docs.
+
+The implementation is large, but it is still one coherent release because the material requirements are mutually dependent:
+
+- candidate isolation is needed before scoring because score evidence must come from deterministic candidate output state
+- scorer identity and evidence hashes are needed before selection because rows and resume keys depend on them
+- selection is not useful without promotion because downstream steps must consume ordinary deterministic artifacts
+- promotion is not safe without baseline preimages and resume-safe manifests
+- ledgers and step state cannot be finalized correctly until selection and promotion reach terminal state
+
+No material requirement from the design is deferred. Follow-up work is limited to the ADR's explicit future extensions and is listed at the end.
+
 ## Implementation Architecture
 
-Implement the feature as six explicit layers, and keep the task sequence aligned
-with those boundaries:
+Correctness and maintainability depend on boundary decisions across authored DSL validation, runtime sidecars, provider execution, scoring, promotion, state, and docs. This section translates the approved design into implementable ownership without changing the design.
 
-1. **DSL and loader contract.** Gate `adjudicated_provider` behind DSL `2.11`.
-   Loader validation is structural and must reject workflows that cannot satisfy
-   the design contract: missing `evaluator.evidence_confidentiality:
-   same_trust_boundary`, invalid evidence limits, stdout-derived step capture
-   surfaces, provider sessions, bad prompt-source combinations, missing output
-   contracts, and statically detectable ledger/output path collisions.
-2. **Frame-scoped adjudication paths and immutable baseline.** Add runtime-owned
-   helpers that create one immutable baseline snapshot per execution frame,
-   step id, and visit count, then copy every candidate attempt from that
-   baseline. The baseline helper owns the fixed copy policy, manifest, null-path
-   comparison, local-secret denylist behavior, required-path exclusion failures,
-   and baseline preimage records for promotion.
-3. **Scorer snapshot, evidence packets, and candidate scoring.** Resolve one
-   scorer snapshot before scoring, build complete UTF-8 score-critical evidence
-   packets only under the explicit same-trust-boundary attestation, scan packets
-   for workflow-declared secret values before persistence, parse evaluator
-   stdout as strict JSON, and suppress all stdout-derived adjudicated step state.
-4. **Selection, ledger, mirror, and promotion transaction.** Select only from
-   output-valid candidates. Materialize normative run-local ledger rows keyed by
-   `candidate_run_key` and `score_run_key`, write the workspace-visible mirror
-   only at terminal finalization, and promote selected outputs through a staged,
-   resume-safe transaction with destination preimage checks, backups, rollback,
-   and parent output revalidation before publication.
-5. **Deadline, retry, and terminal outcome semantics.** Treat
-   `timeout_sec` as one wall-clock deadline for the logical adjudicated step
-   visit, and apply the effective provider retry policy independently to each
-   candidate provider subprocess and each evaluator subprocess while deadline
-   remains. Candidate provider retries must start from fresh baseline copies,
-   evaluator retries must reuse the same persisted evaluation packet, terminal
-   ledger rows must stay one row per candidate per step visit with attempt
-   counts, and every adjudication-specific terminal failure must map to the
-   normalized `error.type`, `exit_code`, and `outcome` contract from the design.
-6. **Resume and observability.** Reconcile persisted baseline, candidate,
-   scorer, packet, ledger, mirror, and promotion state before reusing any prior
-   work. Resume must fail with `adjudication_resume_mismatch` when persisted
-   state cannot be matched to the current workflow/scorer contract, and reports
-   should expose selected candidate, score, ledger paths, promotion status, and
-   failure types without making candidate artifacts normal lineage.
+### Unit 1: Authored Surface, Validation, And Typed Workflow Preservation
 
-Do not collapse these layers into one executor method. `executor.py` should
-coordinate the flow; the adjudication module should contain deterministic
-helpers with focused unit tests.
+**Owned files:**
 
-## Design Reference
+- `orchestrator/loader.py`
+- `orchestrator/workflow/surface_ast.py`
+- `orchestrator/workflow/elaboration.py`
+- `orchestrator/workflow/executable_ir.py`
+- `orchestrator/workflow/lowering.py`
+- `orchestrator/workflow/runtime_step.py`
+- `specs/dsl.md`
+- `specs/providers.md`
+- `specs/io.md`
+- `specs/security.md`
+- `specs/state.md`
+- `specs/versioning.md`
+- `specs/acceptance/index.md`
+- `tests/test_adjudicated_provider_loader.py`
+- `tests/test_workflow_surface_ast.py`
+- `tests/test_workflow_ir_lowering.py`
 
-Use the companion design:
+**Stable interfaces owned:**
 
-- `docs/plans/2026-04-20-adjudicated-provider-step-design.md`
+- DSL step form `adjudicated_provider`, gated at `version: "2.11"`.
+- Candidate config shape: `id`, `provider`, optional `provider_params`, optional `asset_file` xor `input_file`, optional `prompt_variant_id`.
+- Evaluator config shape: `provider`, optional `provider_params`, `asset_file` xor `input_file`, optional rubric source, required `evidence_confidentiality: same_trust_boundary`, optional literal `evidence_limits`.
+- Selection config shape: `tie_break: candidate_order`, optional boolean `require_score_for_single_candidate`.
+- Optional `score_ledger_path`, loader-checked for static path safety and static collisions.
+- AST/IR preservation of the adjudicated config without turning it into an ordinary provider step.
 
-The key constraints from that design are:
+**Must not own:**
 
-- one global score only
-- no pass/fail evaluator status
-- invalid candidate outputs are ineligible rather than scored
-- highest finite score wins, tie-break by candidate order
-- candidate work happens in isolated child workspaces
-- every candidate attempt starts from the same immutable frame/step/visit
-  baseline snapshot and baseline manifest
-- selected candidate outputs are promoted into canonical workflow paths
-- promotion is a staged transaction with preimage checks, backups, rollback, and
-  publish withholding until committed
-- downstream steps see ordinary selected artifacts
-- evaluator prompt is a reusable library component
-- evaluator evidence requires explicit `same_trust_boundary` attestation, complete
-  UTF-8 score-critical packets, evidence-limit enforcement, and declared-secret
-  scanning before packet persistence
-- adjudicated steps do not expose candidate/evaluator stdout as
-  `steps.<Step>.output`, `.lines`, or `.json`
-- the score ledger row shape, idempotency keys, workspace-visible mirror
-  ownership checks, and resume mismatch behavior are normative
-- `timeout_sec` is one logical step-visit deadline, candidate/evaluator retries
-  share that deadline with fresh candidate retry workspaces and evaluator packet
-  reuse, and adjudication-specific terminal failures map to normalized outcomes
-- V1 does not support arbitrary source-edit/patch promotion
+- Provider subprocess execution.
+- Filesystem baseline copy and promotion logic.
+- Evaluator packet construction.
+- Score ledger row generation.
 
-## File Structure
+**Dependency direction:** loader/elaboration produce typed AST/IR; executor consumes typed IR. Runtime helpers must not revalidate authoring syntax that the loader can reject statically, except for dynamic path and resume integrity checks.
 
-Specs and docs:
+**Compatibility boundary:** existing `provider` steps keep current behavior. `adjudicated_provider` is invalid below DSL `2.11`; state schema remains `2.1`.
 
-- Modify: `specs/dsl.md` - new `2.11` step form, schema, validation rules, control-flow compatibility.
-- Modify: `specs/providers.md` - candidate provider prompt composition and evaluator invocation semantics.
-- Modify: `specs/io.md` - candidate-local output validation, selected-output promotion, stdout/stderr/log behavior.
-- Modify: `specs/state.md` - persisted adjudication state shape and resume rules.
-- Modify: `specs/observability.md` - debug/prompt audit/evaluation ledger visibility.
-- Modify: `specs/security.md` - child workspace path safety and candidate isolation limits.
-- Modify: `specs/versioning.md` - version gate `2.11`.
-- Modify: `specs/acceptance/index.md` - conformance bullets.
-- Modify: `docs/workflow_drafting_guide.md` - authoring guidance.
-- Modify: `docs/index.md` - index the new design if this repo keeps plan/design index entries current.
-- Modify: `workflows/README.md` - index the new example workflow.
-- Create: `workflows/library/prompts/adjudication/evaluate_candidate.md` - reusable evaluator prompt.
-- Create: `workflows/examples/adjudicated_provider_demo.yaml` - minimal runnable example.
+### Unit 2: Adjudication Runtime Package And Sidecar Data Model
 
-Runtime:
+**Owned files:**
 
-- Modify: `orchestrator/loader.py` - schema validation and `2.11` support.
-- Modify: `orchestrator/workflow/surface_ast.py` - surface AST kind/config for adjudicated provider steps.
-- Modify: `orchestrator/workflow/executable_ir.py` - executable IR config for adjudicated provider steps.
-- Modify: `orchestrator/workflow/elaboration.py` and/or `orchestrator/workflow/lowering.py` - lower surface step into executable node.
-- Modify: `orchestrator/workflow/runtime_step.py` - mapping view for adjudicated provider steps.
-- Modify: `orchestrator/workflow/executor.py` - dispatch to adjudicated provider execution.
-- Create: `orchestrator/workflow/adjudication.py` - frame/visit-scoped paths,
-  baseline snapshot manifests, candidate metadata, scorer snapshots, evaluator
-  packets, score ledger rows/mirrors, selection, logical deadline/retry helpers,
-  terminal outcome mapping, and transactional promotion helpers.
-- Modify: `orchestrator/workflow/prompting.py` - factor or expose prompt composition helpers if needed so candidate and evaluator prompts use the same contract as provider steps.
-- Modify: `orchestrator/state.py` - helper paths for run-owned candidates and score ledgers if current path helpers are insufficient.
-- Modify: `orchestrator/observability/report.py` - include selected candidate and score in reports.
+- Move/split: `orchestrator/workflow/adjudication.py` into a package rooted at `orchestrator/workflow/adjudication/`
+- Create: `orchestrator/workflow/adjudication/__init__.py`
+- Create: `orchestrator/workflow/adjudication/models.py`
+- Create: `orchestrator/workflow/adjudication/paths.py`
+- Create: `orchestrator/workflow/adjudication/baseline.py`
+- Create: `orchestrator/workflow/adjudication/evidence.py`
+- Create: `orchestrator/workflow/adjudication/scoring.py`
+- Create: `orchestrator/workflow/adjudication/ledger.py`
+- Create: `orchestrator/workflow/adjudication/promotion.py`
+- Create: `orchestrator/workflow/adjudication/resume.py`
+- Modify: import sites in `orchestrator/workflow/executor.py` and existing adjudication tests
 
-Tests:
+The current single-file module may already contain partial helpers. Split it only along the package boundaries above, and keep `orchestrator.workflow.adjudication` re-exporting the public helper names that tests and the executor import today.
 
-- Create: `tests/test_adjudicated_provider_loader.py`
-- Create: `tests/test_adjudicated_provider_baseline.py`
-- Create: `tests/test_adjudicated_provider_scoring.py`
-- Create: `tests/test_adjudicated_provider_runtime.py`
-- Create: `tests/test_adjudicated_provider_outcomes.py`
-- Create: `tests/test_adjudicated_provider_promotion.py`
-- Modify: `tests/test_workflow_examples_v0.py` or existing example registry to include the demo.
+**Stable interfaces owned:**
 
-## Task 1: Update Normative Specs First
+- Constants: `adjudicated_provider.baseline_copy.v1`, `adjudicated_provider.local_secret_denylist.v1`, `adjudication.evaluation_packet.v1`, `adjudication.evaluator_json.v1`, `workflow_declared_secrets.v1`, `adjudicated_provider.score.v1`.
+- Sidecar paths:
+  - `.orchestrate/runs/<run_id>/adjudication/<frame_scope>/<step_id>/<visit_count>/...`
+  - `.orchestrate/runs/<run_id>/candidates/<frame_scope>/<step_id>/<visit_count>/<candidate_id>/...`
+  - `.orchestrate/runs/<run_id>/promotions/<frame_scope>/<step_id>/<visit_count>/manifest.json`
+- Dataclasses for visit paths, candidate paths, baseline manifests, scorer snapshots, scorer-resolution failures, candidate metadata, selection results, promotion results, and deadline handling.
 
-**Files:**
-- Modify: `specs/dsl.md`
-- Modify: `specs/providers.md`
-- Modify: `specs/io.md`
-- Modify: `specs/state.md`
-- Modify: `specs/observability.md`
-- Modify: `specs/security.md`
-- Modify: `specs/versioning.md`
-- Modify: `specs/acceptance/index.md`
+**Must not own:**
 
-- [x] **Step 1: Add DSL `2.11` to the schema docs**
+- Workflow traversal or next-step routing.
+- Provider registry lookup semantics beyond data needed for hashing.
+- Artifact publication into state.
 
-Update `specs/dsl.md` to list `2.11` as a supported version and define `adjudicated_provider` as a mutually exclusive execution form.
+**Dependency direction:** executor calls package services; package services may use `orchestrator.contracts.output_contract` for deterministic validation and basic path helpers. The package must not import the workflow executor.
 
-Document the minimal shape:
+**Compatibility boundary:** the package split is internal. Public behavior and existing import path `orchestrator.workflow.adjudication` remain available through `__init__.py` re-exports during the release.
 
-```yaml
-adjudicated_provider:
-  candidates:
-    - id: codex_high
-      provider: codex
-      provider_params:
-        model: gpt-5.4
-        effort: high
-  evaluator:
-    provider: claude
-    asset_file: prompts/adjudication/evaluate_candidate.md
-    evidence_confidentiality: same_trust_boundary
-  selection:
-    tie_break: candidate_order
-  score_ledger_path: artifacts/evaluations/example.candidate_scores.jsonl
-```
+### Unit 3: Baseline Snapshot And Candidate Workspace Authority
 
-- [x] **Step 2: Document validation rules**
+**Owned files:**
 
-Add rules covering:
+- `orchestrator/workflow/adjudication/baseline.py`
+- `orchestrator/workflow/adjudication/paths.py`
+- `orchestrator/workflow/executor.py`
+- `orchestrator/contracts/output_contract.py` only if an existing generic path helper must be reused or lightly generalized
+- `tests/test_adjudicated_provider_baseline.py`
+- `tests/test_adjudicated_provider_runtime.py`
 
-- non-empty unique candidate ids
-- candidate/evaluator providers must exist
-- step must declare `expected_outputs` or `output_bundle`
-- step must declare exactly one base prompt source unless every candidate
-  declares a prompt override
-- `provider_session` invalid with `adjudicated_provider`
-- `output_file`, `output_capture`, and `allow_parse_error` invalid with
-  `adjudicated_provider` in V1
-- candidate prompt override may use only one of `asset_file` or `input_file`
-- candidate prompt overrides may not define `consumes`, `depends_on`,
-  `publishes`, `expected_outputs`, `output_bundle`, or `output_file`
-- evaluator prompt source may use only one of `asset_file` or `input_file`
-- evaluator rubric source may use only one of `rubric_asset_file` or
-  `rubric_input_file`
-- evaluator `evidence_confidentiality` is required and must be the literal
-  `same_trust_boundary`
-- evaluator `evidence_limits`, when present, may only contain literal positive
-  integer `max_item_bytes` and `max_packet_bytes`, with packet bytes greater than
-  or equal to item bytes
-- `selection.tie_break` must be `candidate_order` when present, and
-  `selection.require_score_for_single_candidate` must be boolean when present
-- `score_ledger_path` must be under `artifacts/`
-- statically known ledger/output path collisions fail validation
-- adjudicated candidate-managed paths that depend on `${run.root}` or name the
-  parent run root fail validation
-- evaluator score must be finite float in `[0.0, 1.0]`
+**Stable interfaces owned:**
 
-- [x] **Step 3: Document provider/evaluator prompt composition**
+- One immutable baseline per current-frame step visit after `when` and consume preflight.
+- Fixed baseline copy policy with excluded roots, local-secret denylist, and safe-relative-symlink handling.
+- Manifest fields for included entries, excluded entries, null-path comparison, workflow checksum, consume selections, policy versions, and `baseline_digest`.
+- Candidate workspace copy from immutable baseline for each candidate attempt.
+- Candidate WORKSPACE as the logical authority for candidate-managed paths even when physical path is under the parent run root.
 
-In `specs/providers.md`, state that candidate prompts use ordinary provider prompt composition with the step prompt unless the candidate supplies a prompt override. The evaluator prompt receives a runtime-built evaluation packet plus the reusable evaluator prompt, and its output is strict JSON independent of the step's `output_capture`.
+**Must not own:**
 
-Also document that evaluator scoring uses the persisted scorer snapshot and
-complete embedded score-critical evidence only. Evaluator providers must not
-depend on reading candidate or parent workspace files, bounded prompt previews,
-candidate stdout/stderr, or transport logs.
+- Arbitrary subprocess containment or OS sandboxing.
+- Prompt source resolution for workflow-source-relative `asset_file`; executor/prompting owns that.
+- Promotion commit behavior beyond baseline preimage calculation.
 
-- [x] **Step 4: Document IO and promotion semantics**
+**Dependency direction:** baseline is created before candidate execution and before scorer/evaluator work. Promotion reads baseline preimages; baseline code does not know selection or publication rules.
 
-In `specs/io.md`, document candidate workspace output validation and selected-output promotion rules for:
+**Compatibility boundary:** do not honor `.gitignore` or tool ignore files. Do not change ordinary provider path behavior.
 
-- non-relpath `expected_outputs`
-- relpath `expected_outputs` with `must_exist_target`
-- `output_bundle`
-- relpath bundle fields with `must_exist_target`
+### Unit 4: Candidate Provider Execution Adapter
 
-Specify the promotion transaction states and failure handling: manifest
-preparation, staging, duplicate destination rejection, baseline/current parent
-preimage checks, same-filesystem temp-file replacement, backup/tombstone
-rollback, parent output revalidation, publish withholding until committed, and
-resume behavior for `prepared`, `committing`, `rolling_back`, `failed`, and
-`committed` manifests.
+**Owned files:**
 
-- [x] **Step 5: Document state, observability, security, and acceptance**
+- `orchestrator/workflow/executor.py`
+- `orchestrator/workflow/prompting.py`
+- `orchestrator/providers/executor.py` only for narrowly reusable execution result fields if needed
+- `tests/test_adjudicated_provider_runtime.py`
+- `tests/test_provider_execution.py` only for provider-executor compatibility coverage
 
-Update the remaining specs with:
+**Stable interfaces owned:**
 
-- `steps.<Step>.adjudication` state shape and the fact that stdout-derived
-  `output`, `lines`, `json`, `truncated`, and parse-error state are absent
-- run-local score ledger paths, workspace-visible mirror ownership checks,
-  mirror atomic materialization, mirror conflict errors, and mirror publish
-  withholding
-- `candidate_run_key`, `score_run_key`, scorer snapshot, scorer-unavailable
-  metadata, evaluation packet hash, and row-shape requirements
-- logical `timeout_sec` deadline semantics, candidate/evaluator retry scope,
-  fresh candidate retry workspace copies, evaluator packet reuse across evaluator
-  retries, one ledger row per candidate visit with attempt counts, and the
-  normalized terminal `error.type` / `exit_code` / `outcome` mapping
-- resume mismatch rules for missing baseline, changed candidate config, changed
-  scorer identity, scorer-unavailable transitions, missing scorer snapshot, and
-  interrupted promotion or ledger materialization
-- candidate child-workspace isolation limits, fixed baseline copy policy,
-  local-secret denylist, symlink handling, and required-path exclusion failures
-- confidentiality and retention warnings for baseline snapshots, candidate
-  workspaces, composed prompts, packets, ledgers, logs, and promotion staging
-- acceptance bullets for evidence attestation/limits/secret detection, immutable
-  baseline reuse, promotion conflicts/rollback, ledger mirror ownership, and
-  resume idempotency
+- Consume preflight runs once in the current execution frame.
+- Each candidate gets uniform step-level `consumes`, `prompt_consumes`, `inject_consumes`, `asset_depends_on`, `depends_on`, and output contract suffix.
+- Candidate prompt override replaces only the base prompt source.
+- Provider command `cwd` is the candidate WORKSPACE.
+- Provider params substitution uses candidate execution context and active workflow provider namespace.
+- Candidate stdout/stderr are runtime-owned logs, not step-visible stdout capture.
+- Step-level retries apply independently to each candidate provider attempt; each retry starts from a fresh baseline copy.
+- Step-level `timeout_sec` is one logical deadline across baseline, candidates, evaluators, ledgers, promotion, and final validation.
 
-- [x] **Step 6: Inspect the edited docs**
+**Must not own:**
 
-Run:
+- Evaluator scoring decisions.
+- Ledger row shape.
+- Promotion file-copy transaction internals.
 
-```bash
-sed -n '1,260p' specs/dsl.md
-sed -n '1,220p' specs/providers.md
-sed -n '1,220p' specs/io.md
-```
+**Dependency direction:** executor coordinates candidate generation, then hands output-valid candidates to scoring. Provider executor remains provider-generic and must not embed adjudication policy.
 
-Expected: the new surface is described consistently and does not imply source-edit patch promotion.
+**Compatibility boundary:** ordinary provider execution, output capture, retries, and stdout state remain unchanged.
 
-- [ ] **Step 7: Commit docs/specs**
+### Unit 5: Scorer Snapshot, Evidence Packet, Evaluator Execution, And Selection
 
-```bash
-git add specs/dsl.md specs/providers.md specs/io.md specs/state.md specs/observability.md specs/security.md specs/versioning.md specs/acceptance/index.md
-git commit -m "docs: define adjudicated provider steps"
-```
+**Owned files:**
 
-## Task 2: Add Loader Tests For The New Surface
+- `orchestrator/workflow/adjudication/evidence.py`
+- `orchestrator/workflow/adjudication/scoring.py`
+- `orchestrator/workflow/executor.py`
+- `workflows/library/prompts/adjudication/evaluate_candidate.md`
+- `tests/test_adjudicated_provider_scoring.py`
+- `tests/test_adjudicated_provider_runtime.py`
 
-**Files:**
-- Create: `tests/test_adjudicated_provider_loader.py`
-- Modify: `orchestrator/loader.py`
+**Stable interfaces owned:**
 
-- [x] **Step 1: Write failing tests for valid minimal adjudicated step**
+- Scorer snapshot under the visit's `scorer/` directory before first evaluator launch.
+- `scorer_identity_hash` canonical object.
+- Scorer-resolution failure metadata and `scorer_resolution_failure_key`.
+- Evaluation packet schema `adjudication.evaluation_packet.v1`.
+- Evidence limits defaults: `max_item_bytes: 262144`, `max_packet_bytes: 1048576`.
+- Complete UTF-8 score-critical evidence only: rendered candidate prompt with output suffix, output value files, required relpath targets, bundle JSON and required bundle targets, optional rubric content, and injected consume relpath target content.
+- Secret detection for non-empty workflow-declared secret values before packet persistence and evaluator launch.
+- Evaluator stdout strict JSON with matching `candidate_id`, finite score in `[0.0, 1.0]`, and non-empty `summary`.
+- Selection rules for no valid candidates, optional-score single candidate, required-score single candidate, multi-candidate partial scoring, highest score, and candidate-order ties.
 
-Create a workflow fixture in the test with:
+**Must not own:**
 
-```yaml
-version: "2.11"
-name: adjudicated-loader-valid
-providers:
-  fake:
-    command: ["python", "-c", "print('ok')"]
-steps:
-  - name: Draft
-    id: draft
-    adjudicated_provider:
-      candidates:
-        - id: fake_a
-          provider: fake
-      evaluator:
-        provider: fake
-        input_file: evaluator.md
-        evidence_confidentiality: same_trust_boundary
-    input_file: prompt.md
-    expected_outputs:
-      - name: result
-        path: state/result.txt
-        type: string
-```
+- Runtime logs as scoring evidence.
+- Path-based evaluator reads from candidate or parent workspaces.
+- Pass/fail evaluator semantics or score thresholds.
 
-Assert loader validation succeeds.
+**Dependency direction:** scorer uses candidate metadata and validated output artifacts. Ledger consumes scorer/evaluation results; scorer does not write ledgers.
 
-- [x] **Step 2: Write failing tests for version gate and exclusivity**
+**Compatibility boundary:** evaluator packet evidence is sensitive unmasked run state. The runtime must not attempt broad redaction beyond declared-secret detection.
 
-Cover:
+### Unit 6: Score Ledger And Workspace-Visible Mirror
 
-- `version: "2.10"` with `adjudicated_provider` fails
-- step with both `provider` and `adjudicated_provider` fails
-- step with `command` and `adjudicated_provider` fails
-- step with `provider_session` and `adjudicated_provider` fails
+**Owned files:**
 
-- [x] **Step 3: Write failing tests for candidate validation**
+- `orchestrator/workflow/adjudication/ledger.py`
+- `orchestrator/workflow/executor.py`
+- `tests/test_adjudicated_provider_scoring.py`
+- `tests/test_adjudicated_provider_runtime.py`
 
-Cover:
+**Stable interfaces owned:**
 
-- empty candidates list
-- duplicate candidate ids
-- unknown candidate provider
-- candidate prompt override with both `asset_file` and `input_file`
-- candidate with forbidden `consumes`, `depends_on`, `publishes`,
-  `expected_outputs`, `output_bundle`, or `output_file`
-- missing step base prompt when not every candidate declares `asset_file` or
-  `input_file`
-- all candidates declare prompt overrides and the step base prompt is omitted
+- Run-local ledger path `candidate_scores.jsonl`.
+- Optional workspace-visible mirror under `artifacts/`.
+- Normative row schema `adjudicated_provider.score.v1`.
+- `candidate_run_key` and `score_run_key` idempotency semantics.
+- Owner tuple: `row_schema`, `run_id`, `execution_frame_id`, `step_id`, `visit_count`.
+- Terminal mirror materialization only after no-selection failure, promotion failure, or committed promotion plus parent validation.
+- Static and dynamic collision checks with step-managed dataflow paths.
 
-- [x] **Step 4: Write failing tests for evaluator validation**
+**Must not own:**
 
-Cover:
+- Artifact publication.
+- Promotion transaction.
+- Cross-run aggregation.
 
-- missing evaluator provider
-- unknown evaluator provider
-- evaluator with both `asset_file` and `input_file`
-- evaluator rubric with both `rubric_asset_file` and `rubric_input_file`
-- missing `evidence_confidentiality`
-- `evidence_confidentiality` value other than `same_trust_boundary`
-- evidence limits with unknown keys, non-integer values, zero/negative values,
-  substitution strings, or `max_packet_bytes < max_item_bytes`
-- missing step output contract
-- both `expected_outputs` and `output_bundle`
-- step-level `output_file`, `output_capture`, or `allow_parse_error`
-- invalid `selection.tie_break`
-- non-boolean `selection.require_score_for_single_candidate`
-- score ledger outside `artifacts/`
-- static score-ledger collision with an `expected_outputs.path`, `output_bundle.path`,
-  or published relpath artifact pointer path
-- candidate-managed `input_file`, `depends_on`, `consume_bundle.path`, or output
-  path that depends on `${run.root}` or resolves into the parent run root
+**Dependency direction:** ledger generation reads terminal candidate metadata, scorer metadata, selection, and promotion status. Publication waits for terminal mirror success when a mirror is configured.
 
-- [x] **Step 5: Run tests to confirm they fail**
+**Compatibility boundary:** mirror is observability, not an output artifact unless a workflow separately declares/export it through normal workflow outputs.
 
-```bash
-pytest tests/test_adjudicated_provider_loader.py -q
-```
+### Unit 7: Promotion Transaction
 
-Expected: failures showing `adjudicated_provider` is unknown or unsupported.
+**Owned files:**
 
-- [ ] **Step 6: Commit failing tests**
+- `orchestrator/workflow/adjudication/promotion.py`
+- `orchestrator/contracts/output_contract.py` only through existing deterministic validators
+- `tests/test_adjudicated_provider_promotion.py`
+- `tests/test_adjudicated_provider_runtime.py`
 
-```bash
-git add tests/test_adjudicated_provider_loader.py
-git commit -m "test: pin adjudicated provider loader contract"
-```
+**Stable interfaces owned:**
 
-## Task 3: Implement Loader And IR Support
+- Promotion manifest schema and statuses: `prepared`, `committing`, `rolling_back`, `failed`, `committed`.
+- Promotion source plan for non-`relpath` expected outputs, `relpath` value files and required targets, output bundle JSON, and required bundle relpath targets.
+- Baseline and current parent destination preimage comparison before staging and immediately before commit.
+- Staging validation before parent writes.
+- Atomic per-file replacement, backups, rollback, directory cleanup, and conflict detection.
+- Resume behavior for prepared, committing, rolling_back, failed, and committed manifests.
+
+**Must not own:**
+
+- Candidate selection.
+- Artifact lineage publication after commit.
+- General merge/conflict resolution for undeclared source edits.
+
+**Dependency direction:** promotion consumes the selected candidate workspace, output contract specs, and baseline manifest. State publication depends on committed promotion and canonical parent validation.
+
+**Compatibility boundary:** only selected declared outputs are promoted. Candidate-local source edits outside declared output contracts are retained for inspection only.
+
+### Unit 8: State, Resume, Publication, And Observability
+
+**Owned files:**
+
+- `orchestrator/workflow/executor.py`
+- `orchestrator/workflow/dataflow.py`
+- `orchestrator/workflow/resume_planner.py`
+- `orchestrator/workflow/outcomes.py`
+- `orchestrator/state.py`
+- `orchestrator/observability/report.py`
+- `orchestrator/cli/commands/report.py`
+- `tests/test_adjudicated_provider_runtime.py`
+- Create: `tests/test_adjudicated_provider_resume.py`
+- `tests/test_adjudicated_provider_outcomes.py`
+- `tests/test_observability_report.py`
+- `tests/test_subworkflow_calls.py`
+
+**Stable interfaces owned:**
+
+- Additive `steps.<Step>.adjudication` payload under state schema `2.1`.
+- No `steps.<Step>.output`, `.lines`, `.json`, `.truncated`, or `.debug.json_parse_error` from candidate/evaluator stdout.
+- Current-frame artifact publication only after promotion commit, terminal ledger regeneration, optional mirror materialization, and parent output validation.
+- Call-frame-local storage for adjudicated steps inside reusable calls.
+- Resume mismatch detection for baseline, candidate config, composed prompt, scorer identity/failure key, evaluation packets, ledger rows, and promotion manifest.
+- Outcome/error mapping for adjudication-specific terminal failures.
+- Report/status projection for selected candidate, score, ledger paths, promotion status, and failure type.
+
+**Must not own:**
+
+- Low-level promotion file writes.
+- Evaluator JSON parsing.
+- Baseline copy policy internals.
+
+**Dependency direction:** state and report layers read normalized adjudication state. They do not reconstruct candidate/evaluator behavior.
+
+**Compatibility boundary:** older runtimes reject DSL `2.11` before interpreting adjudication state. No state migration is required.
+
+### Unit 9: Examples, Prompts, And Durable Documentation
+
+**Owned files:**
+
+- `workflows/library/prompts/adjudication/evaluate_candidate.md`
+- `workflows/examples/adjudicated_provider_demo.yaml`
+- `workflows/README.md`
+- `docs/runtime_execution_lifecycle.md`
+- `docs/workflow_drafting_guide.md`
+- `docs/index.md`
+- `tests/test_workflow_examples_v0.py`
+
+**Stable interfaces owned:**
+
+- One reusable evaluator prompt that asks for strict JSON only.
+- One dry-run-valid example workflow demonstrating candidates, evaluator, selected artifact promotion, and score ledger mirror.
+- Docs that explain the stdout suppression contract, same-trust-boundary evidence attestation, sensitive sidecars, ledger mirror semantics, and first-release non-goals.
+
+**Must not own:**
+
+- Normative acceptance details that belong in `specs/`.
+- Workflow-specific evaluator rubrics as the shared prompt default.
+
+**Dependency direction:** docs/examples land after the runtime contract exists, except for the shared evaluator prompt which can be introduced with scoring.
+
+## Explicit Non-Goals
+
+- No pass/fail evaluator semantics, thresholds, or score bands.
+- No prompt-text-based provider routing or selection.
+- No provider sessions inside adjudicated candidates.
+- No arbitrary source-edit promotion, patch merging, or conflict resolution.
+- No stdout-derived downstream dataflow from adjudicated steps.
+- No OS-level sandboxing guarantee for provider/evaluator subprocesses.
+- No generic parallel execution framework.
+- No generic data-loss prevention or broad automatic redaction of score-critical evidence.
+- No aggregate append-only ledger mode.
+- No state schema bump unless implementation proves the additive `steps.<Step>.adjudication` boundary cannot hold; if that happens, stop and write a design update.
+
+## Task Checklist
+
+### Task 1: Baseline The Current Checkout And Lock The Execution Contract
 
 **Files:**
+
+- Read: `docs/plans/2026-04-20-adjudicated-provider-step-design.md`
+- Read/modify as needed: `specs/dsl.md`, `specs/providers.md`, `specs/io.md`, `specs/security.md`, `specs/state.md`, `specs/versioning.md`, `specs/acceptance/index.md`
+- Read: existing `orchestrator/workflow/adjudication.py`
+- Read: existing `tests/test_adjudicated_provider_*.py`
+
+- [ ] Run the current adjudication test collection:
+
+```bash
+pytest --collect-only -q tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py
+```
+
+Expected: collection succeeds. If it does not, fix test names/imports before adding behavior.
+
+- [ ] Run the current focused adjudication tests to establish the starting point:
+
+```bash
+pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -v
+```
+
+Expected: either pass or expose concrete gaps in the current partial implementation. Record failures in implementation notes before editing runtime code.
+
+- [ ] Compare the specs against the ADR and add missing normative bullets for every current-scope design requirement: DSL validation, path authority, baseline policy, confidentiality, evaluator evidence, selection, failure outcomes, ledger ownership, state, resume, and non-goals.
+
+- [ ] Run the spec-only diff through a quick review before runtime edits:
+
+```bash
+git diff -- specs/dsl.md specs/providers.md specs/io.md specs/security.md specs/state.md specs/versioning.md specs/acceptance/index.md
+```
+
+Expected: docs/spec changes describe the approved design; they do not introduce implementation-only behavior.
+
+### Task 2: Complete The DSL `2.11` Authored Surface And Loader Validation
+
+**Files:**
+
 - Modify: `orchestrator/loader.py`
 - Modify: `orchestrator/workflow/surface_ast.py`
-- Modify: `orchestrator/workflow/executable_ir.py`
 - Modify: `orchestrator/workflow/elaboration.py`
+- Modify: `orchestrator/workflow/executable_ir.py`
 - Modify: `orchestrator/workflow/lowering.py`
 - Modify: `orchestrator/workflow/runtime_step.py`
+- Modify: `tests/test_adjudicated_provider_loader.py`
+- Modify: `tests/test_workflow_surface_ast.py`
+- Modify: `tests/test_workflow_ir_lowering.py`
 
-- [x] **Step 1: Add `2.11` to supported versions**
+- [ ] Add or tighten failing loader tests for all static validation obligations:
+  - version gate below `2.11`
+  - execution-form mutual exclusivity
+  - non-empty unique candidate ids matching the step id token pattern
+  - known candidate/evaluator providers in the active workflow namespace
+  - candidate prompt override xor rules and unsupported candidate fields
+  - evaluator prompt/rubric xor rules
+  - required literal `same_trust_boundary`
+  - literal positive evidence limits and `max_packet_bytes >= max_item_bytes`
+  - exactly one of `expected_outputs` or `output_bundle`
+  - required base prompt source unless every candidate overrides it
+  - rejected `provider_session`, `output_file`, `output_capture`, and `allow_parse_error`
+  - selection and score-ledger static validation
+  - rejection of candidate-managed paths depending on `${run.root}`
 
-In `orchestrator/loader.py`, add `2.11` to `SUPPORTED_VERSIONS`.
-
-- [x] **Step 2: Add surface and IR step kinds**
-
-Add `ADJUDICATED_PROVIDER = "adjudicated_provider"` to `SurfaceStepKind` and the executable node kind/config equivalents.
-
-- [x] **Step 3: Add surface config fields**
-
-Store the raw `adjudicated_provider` mapping on `SurfaceStep`, similar to `provider` and `provider_params`.
-
-- [x] **Step 4: Validate adjudicated provider blocks**
-
-Add `_validate_adjudicated_provider(...)` in `orchestrator/loader.py`. Keep validation structural; do not evaluate prompt text.
-
-This validator must implement the full loader/schema rules from Task 1,
-including evidence confidentiality, evidence limits, stdout-surface rejection,
-rubric source exclusivity, base-prompt inheritance, static ledger collisions, and
-the first-release `${run.root}` restriction for candidate-managed paths.
-
-- [x] **Step 5: Update exclusivity logic**
-
-Include `adjudicated_provider` in the execution-field mutual exclusion checks, `wait_for` conflicts, and structured-step lowering checks where provider is currently considered.
-
-- [x] **Step 6: Lower to executable IR**
-
-Preserve the config through elaboration/lowering so runtime steps expose:
-
-```python
-step["adjudicated_provider"]
-step["input_file"] or step["asset_file"]
-step["expected_outputs"] or step["output_bundle"]
-```
-
-- [x] **Step 7: Run loader tests**
+- [ ] Run the failing-test selector:
 
 ```bash
-pytest tests/test_adjudicated_provider_loader.py -q
+pytest tests/test_adjudicated_provider_loader.py tests/test_workflow_surface_ast.py tests/test_workflow_ir_lowering.py -k "adjudicated or ADJUDICATED" -v
+```
+
+Expected: new tests fail only because the validation or typed preservation is incomplete.
+
+- [ ] Implement the loader and AST/IR preservation changes. Keep typed configs as immutable mappings and avoid normalizing adjudicated steps into ordinary provider steps.
+
+- [ ] Re-run:
+
+```bash
+pytest tests/test_adjudicated_provider_loader.py tests/test_workflow_surface_ast.py tests/test_workflow_ir_lowering.py -k "adjudicated or ADJUDICATED" -v
 ```
 
 Expected: pass.
 
-- [x] **Step 8: Run collect-only for touched test module**
-
-```bash
-pytest --collect-only tests/test_adjudicated_provider_loader.py -q
-```
-
-Expected: all new tests collect.
-
-- [ ] **Step 9: Commit loader support**
-
-```bash
-git add orchestrator/loader.py orchestrator/workflow/surface_ast.py orchestrator/workflow/executable_ir.py orchestrator/workflow/elaboration.py orchestrator/workflow/lowering.py orchestrator/workflow/runtime_step.py tests/test_adjudicated_provider_loader.py
-git commit -m "feat: validate adjudicated provider steps"
-```
-
-## Task 4: Add Baseline, Candidate Workspace, And Promotion Transaction Helpers
+### Task 3: Split The Adjudication Runtime Helpers Into Owned Submodules
 
 **Files:**
-- Create: `orchestrator/workflow/adjudication.py`
-- Create: `tests/test_adjudicated_provider_baseline.py`
-- Create: `tests/test_adjudicated_provider_promotion.py`
-- Modify: `orchestrator/state.py` if path helpers belong there
 
-- [x] **Step 1: Write failing unit tests for frame/visit-scoped paths**
-
-Test that a helper builds paths like:
-
-```text
-.orchestrate/runs/run-1/adjudication/root/root.draft/1/baseline/workspace
-.orchestrate/runs/run-1/adjudication/root/root.draft/1/candidate_scores.jsonl
-.orchestrate/runs/run-1/candidates/root/root.draft/1/fake_a/workspace
-.orchestrate/runs/run-1/candidates/root/root.draft/1/fake_a/evaluation_packet.json
-.orchestrate/runs/run-1/promotions/root/root.draft/1/manifest.json
-```
-
-Assert `frame_scope`, `step_id`, `visit_count`, and `candidate_id` are path-safe.
-Reject ids that would escape paths or collide after normalization.
-
-- [x] **Step 2: Write failing unit tests for immutable baseline copy policy**
-
-Create a parent workspace with ordinary files plus excluded roots and paths:
-
-```text
-.orchestrate/runs/old/state.json
-.git/config
-node_modules/pkg/index.js
-__pycache__/x.pyc
-.env
-.env.example
-docs/source.md
-state/input.txt
-relative-ok-symlink -> docs/source.md
-absolute-bad-symlink -> /tmp/outside
-escaping-bad-symlink -> ../outside
-```
-
-Assert baseline creation:
-
-- copies ordinary files, `.env.example`, and safe relative symlinks
-- excludes `.orchestrate/`, `.git/`, dependency/cache roots, local-secret
-  denylist files, absolute symlinks, escaping symlinks, broken symlinks, and
-  excluded-target symlinks
-- writes a deterministic manifest with copy policy version, local-secret
-  denylist version, included entries, excluded entries with reason codes, and
-  `baseline_digest`
-- does not honor `.gitignore`
-
-- [x] **Step 3: Write failing unit tests for required path null-path comparison**
-
-Model `input_file`, plain `depends_on`, `consume_bundle.path`, materialized
-consume pointer files, and declared output value-file destinations. Assert a
-required orchestrator-managed path that existed in the parent but was excluded
-by the fixed baseline policy fails before provider launch with a
-baseline-excluded failure type. Assert optional excluded paths are recorded as
-absent rather than copied or redacted.
-
-- [x] **Step 4: Write failing unit tests for baseline destination preimages**
-
-Assert promotion destination preimages are recorded as:
-
-- `file` with SHA-256 hash and mode metadata
-- `absent`
-- `unavailable` for paths that cross excluded roots, escaping symlinks,
-  directories-as-files, absolute paths, broken symlinks, or other unresolvable
-  states
-
-Assert `unavailable` is a promotion conflict.
-
-- [x] **Step 5: Write failing unit tests for relpath promotion transaction**
-
-Set up:
-
-```text
-candidate/workspace/state/design_path.txt -> docs/plans/demo-design.md
-candidate/workspace/docs/plans/demo-design.md
-```
-
-Run promotion for an expected output spec with `type: relpath` and
-`must_exist_target: true`. Assert both the pointer file and target document are
-staged, copied to the parent workspace, parent output validation runs after
-commit, the manifest reaches `committed`, and normal publication is still a
-separate executor responsibility.
-
-- [x] **Step 6: Write failing unit tests for output bundle promotion transaction**
-
-Set up a bundle JSON with a relpath field and a target file. Assert promotion
-stages and commits the bundle plus the relpath target.
-
-- [x] **Step 7: Write failing unit tests for promotion conflicts and rollback**
-
-Cover:
-
-- destination changed from the baseline preimage before staging
-- destination changed between staging and commit
-- existing directory at a file destination
-- duplicate destination paths with different source hashes or roles
-- parent output validation failure after commit triggers rollback of only files
-  touched by this transaction
-- rollback restores file backups, deletes absent-baseline tombstones, removes
-  only manifest-created empty parent directories, and fails with
-  `promotion_rollback_conflict` if a touched destination no longer matches the
-  staged source or baseline preimage
-
-- [x] **Step 8: Write failing unit tests for promotion resume states**
-
-Create manifest fixtures for `prepared`, `committing`, `rolling_back`, `failed`,
-and `committed`. Assert resume repeats safe preimage checks, treats destinations
-already matching staged sources as committed, completes rollback when needed,
-returns recorded failures without publication, and revalidates canonical parent
-outputs for committed manifests.
-
-- [x] **Step 9: Implement adjudication path helpers**
-
-In `orchestrator/workflow/adjudication.py`, add small dataclasses and helpers:
-
-```python
-@dataclass(frozen=True)
-class AdjudicationVisitPaths:
-    adjudication_root: Path
-    baseline_root: Path
-    baseline_workspace: Path
-    baseline_manifest_path: Path
-    run_score_ledger_path: Path
-    scorer_root: Path
-    promotion_manifest_path: Path
-
-@dataclass(frozen=True)
-class CandidateRuntimePaths:
-    candidate_root: Path
-    workspace: Path
-    stdout_log: Path
-    stderr_log: Path
-    prompt_path: Path
-    evaluation_packet_path: Path
-    evaluation_output_path: Path
-
-def adjudication_visit_paths(run_root: Path, frame_scope: str, step_id: str, visit_count: int) -> AdjudicationVisitPaths:
-    ...
-
-def candidate_paths(run_root: Path, frame_scope: str, step_id: str, visit_count: int, candidate_id: str) -> CandidateRuntimePaths:
-    ...
-```
-
-- [x] **Step 10: Implement baseline snapshot helpers**
-
-Add helpers that create and validate the immutable baseline:
-
-```python
-def create_baseline_snapshot(
-    *,
-    parent_workspace: Path,
-    run_root: Path,
-    visit_paths: AdjudicationVisitPaths,
-    workflow_checksum: str,
-    resolved_consumes: Mapping[str, Any],
-    required_path_surfaces: Sequence[PathSurface],
-    optional_path_surfaces: Sequence[PathSurface],
-) -> BaselineManifest:
-    ...
-
-def prepare_candidate_workspace_from_baseline(
-    *,
-    baseline_workspace: Path,
-    candidate_workspace: Path,
-) -> None:
-    ...
-```
-
-Implement fixed policy `adjudicated_provider.baseline_copy.v1`, local-secret
-denylist recording, safe relative symlink preservation, required-path
-exclusion failures, null-path comparison, and deterministic manifest digesting.
-Keep this copy-backed; do not use git worktrees.
-
-- [x] **Step 11: Implement transactional promotion helpers**
-
-Add:
-
-```python
-def promote_candidate_outputs(
-    *,
-    expected_outputs: list[dict] | None,
-    output_bundle: dict | None,
-    candidate_workspace: Path,
-    parent_workspace: Path,
-    baseline_manifest: BaselineManifest,
-    promotion_manifest_path: Path,
-) -> None:
-    ...
-```
-
-Use existing output-contract shapes. Copy only declared output files and
-referenced relpath targets with `must_exist_target`, but do it through the
-manifest/staging transaction from the design: source hashing, duplicate
-destination checks, baseline/current parent preimage comparison, staging
-validation, atomic per-file replacement, backups/tombstones, rollback, manifest
-state transitions, and resume entrypoints.
-
-- [x] **Step 12: Run baseline and promotion tests**
-
-```bash
-pytest tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py -q
-```
-
-Expected: pass.
-
-- [x] **Step 13: Run collect-only for new helper tests**
-
-```bash
-pytest --collect-only tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py -q
-```
-
-Expected: all new tests collect.
-
-- [ ] **Step 14: Commit helpers**
-
-```bash
-git add orchestrator/workflow/adjudication.py orchestrator/state.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py
-git commit -m "feat: add adjudicated baseline and promotion helpers"
-```
-
-## Task 5: Add Evidence, Scorer Snapshot, Selection, And Ledger Helpers
-
-**Files:**
-- Create: `tests/test_adjudicated_provider_scoring.py`
-- Modify: `orchestrator/workflow/adjudication.py`
-- Modify: `orchestrator/workflow/prompting.py` if prompt composition must expose
-  exact rendered candidate prompt content and output-contract suffix hashes
-
-- [x] **Step 1: Write failing unit tests for scorer snapshot identity**
-
-Assert scorer resolution stores evaluator provider, substituted provider params,
-base evaluator prompt content/hash, optional rubric content/hash, evaluator JSON
-contract version, evaluation packet schema version, evidence limits,
-`evidence_confidentiality`, secret-detection policy version, and
-`scorer_identity_hash`.
-
-Assert changing evaluator params, evaluator prompt content, rubric content,
-evidence limits, evidence confidentiality policy, or secret-detection policy
-changes `scorer_identity_hash`.
-
-- [x] **Step 2: Write failing unit tests for scorer-unavailable metadata**
-
-Assert missing evaluator provider, missing evaluator prompt, unreadable rubric,
-or provider-param substitution failure records normalized
-`scorer_resolution_failure_key` metadata without building packets. Assert
-output-valid candidates get `score_status: "scorer_unavailable"` and invalid
-candidates remain `score_status: "not_evaluated"`.
-
-- [x] **Step 3: Write failing unit tests for complete evidence packet construction**
-
-Build a candidate with a rendered prompt, expected-output value files, required
-relpath targets, injected consume relpath target content, an optional rubric, and
-an output bundle variant. Assert the packet embeds complete UTF-8 score-critical
-evidence, hashes every item, records byte sizes and read status, excludes
-candidate/evaluator stdout/stderr and bounded previews, and computes
-`evaluation_packet_hash`.
-
-- [x] **Step 4: Write failing unit tests for evidence rejection**
-
-Cover:
-
-- score-critical item exceeds `max_item_bytes`
-- total packet exceeds `max_packet_bytes`
-- score-critical item is non-UTF-8 or binary
-- score-critical item cannot be read
-- score-critical item contains a non-empty workflow-declared secret value
-
-Assert packet persistence and evaluator launch are skipped, the failure type is
-specific (`secret_detected_in_score_evidence` for declared secret values), and
-selection rules later treat the candidate as unscored.
-
-- [x] **Step 5: Write failing unit tests for evaluator JSON parsing**
-
-Assert evaluator stdout must be strict JSON with matching `candidate_id`, finite
-numeric `score` in `[0.0, 1.0]`, and non-empty `summary`. Reject NaN, infinity,
-strings for score, out-of-range scores, candidate mismatch, empty summaries,
-arrays, trailing text, and parse errors.
-
-- [x] **Step 6: Write failing unit tests for selection rules**
-
-Cover:
-
-- no output-valid candidates fails with `adjudication_no_valid_candidates`
-- one output-valid candidate with `require_score_for_single_candidate: false`
-  selects by `single_candidate_contract_valid` even when scorer resolution or
-  evaluation fails
-- one output-valid candidate with `require_score_for_single_candidate: true`
-  fails closed without a valid score
-- multi-candidate scorer resolution failure fails with
-  `adjudication_scorer_unavailable`
-- multi-candidate partial scoring fails with
-  `adjudication_partial_scoring_failed`
-- highest finite score wins and ties use declared candidate order
-
-- [x] **Step 7: Write failing unit tests for normative ledger row shape and keys**
-
-Assert one row is generated per candidate, including prompt/contract failures.
-Rows must include required fields from the design, nullable fields must match
-`score_status`, and `candidate_run_key`/`score_run_key` must change when their
-identity inputs change. Assert duplicate `score_run_key` rows are suppressed
-during regeneration.
-
-- [x] **Step 8: Write failing unit tests for workspace-visible ledger mirror**
-
-Cover:
-
-- `score_ledger_path` is substituted in the current frame, path-checked under
-  parent workspace, and must stay under `artifacts/`
-- dynamic collisions with required relpath targets, selected promotion
-  destinations, or published relpath artifact pointer paths fail with
-  `ledger_path_collision`
-- existing non-empty mirrors are replaceable only when every JSONL row has the
-  same owner tuple: `row_schema`, `run_id`, `execution_frame_id`, `step_id`, and
-  `visit_count`
-- invalid JSONL, missing ownership fields, different schema/run/frame/step/visit,
-  or two step visits sharing one mirror path fail with `ledger_conflict`
-- mirror materialization is atomic and only occurs at terminal finalization, not
-  while promotion is pending
-
-- [x] **Step 9: Implement scoring, selection, and ledger helpers**
-
-Add deterministic helpers in `orchestrator/workflow/adjudication.py` for scorer
-snapshot persistence, scorer-unavailable metadata, evidence packet construction,
-secret scanning, evaluator JSON parsing, selection, ledger row generation,
-run-local ledger regeneration, dynamic ledger collision checks, and atomic mirror
-materialization.
-
-- [x] **Step 10: Run scoring tests**
-
-```bash
-pytest tests/test_adjudicated_provider_scoring.py -q
-```
-
-Expected: pass.
-
-- [x] **Step 11: Run collect-only for scoring tests**
-
-```bash
-pytest --collect-only tests/test_adjudicated_provider_scoring.py -q
-```
-
-Expected: all new tests collect.
-
-- [ ] **Step 12: Commit scoring helpers**
-
-```bash
-git add orchestrator/workflow/adjudication.py orchestrator/workflow/prompting.py tests/test_adjudicated_provider_scoring.py
-git commit -m "feat: add adjudicated scoring and ledger helpers"
-```
-
-## Task 6: Add Runtime Execution With Mocked Providers
-
-**Files:**
-- Create: `tests/test_adjudicated_provider_runtime.py`
+- Move/split: `orchestrator/workflow/adjudication.py`
+- Create: `orchestrator/workflow/adjudication/__init__.py`
+- Create: `orchestrator/workflow/adjudication/models.py`
+- Create: `orchestrator/workflow/adjudication/paths.py`
+- Create: `orchestrator/workflow/adjudication/baseline.py`
+- Create: `orchestrator/workflow/adjudication/evidence.py`
+- Create: `orchestrator/workflow/adjudication/scoring.py`
+- Create: `orchestrator/workflow/adjudication/ledger.py`
+- Create: `orchestrator/workflow/adjudication/promotion.py`
+- Create: `orchestrator/workflow/adjudication/resume.py`
 - Modify: `orchestrator/workflow/executor.py`
-- Modify: `orchestrator/workflow/prompting.py` if prompt composition must be factored
-- Modify: `orchestrator/observability/report.py` if runtime reports need new fields immediately
+- Modify: `tests/test_adjudicated_provider_*.py`
 
-- [x] **Step 1: Write failing runtime test for two valid candidates**
+- [ ] Move constants, dataclasses, and small pure helpers into `models.py` and `paths.py`.
 
-Use a mocked `ProviderExecutor.execute` that writes different candidate outputs
-based on the provider/candidate invocation and returns successful stdout.
+- [ ] Move baseline copy/manifest code into `baseline.py`, evidence packet code into `evidence.py`, scorer/evaluator/selection code into `scoring.py`, ledger code into `ledger.py`, promotion code into `promotion.py`, and resume reconciliation primitives into `resume.py`.
 
-Use a mocked evaluator provider that returns:
+- [ ] Re-export the public helper names used by executor/tests from `orchestrator/workflow/adjudication/__init__.py`.
 
-```json
-{"candidate_id": "a", "score": 0.4, "summary": "Weaker"}
-{"candidate_id": "b", "score": 0.9, "summary": "Better"}
-```
+- [ ] Keep the executor importing from `orchestrator.workflow.adjudication` unless a narrower import materially improves clarity.
 
-Assert candidate `b` is promoted and published.
-
-- [x] **Step 2: Write failing runtime test for single-candidate scoring**
-
-Assert one candidate still runs evaluator, writes a ledger row, and promotes.
-
-Add variants where scorer resolution fails and where evaluation fails. With
-`require_score_for_single_candidate: false`, assert the output-valid candidate
-is promoted with `selected_score: null`, a ledger row records
-`score_status: "scorer_unavailable"` or `"evaluation_failed"`, and publication
-still occurs after terminal ledger finalization. With
-`require_score_for_single_candidate: true`, assert the same failures block
-promotion.
-
-- [x] **Step 3: Write failing runtime test for invalid candidate exclusion**
-
-Candidate `a` omits required output. Candidate `b` produces valid output.
-Assert only `b` is evaluated and selected, and `a` appears in the adjudication
-state as `contract_failed`.
-
-- [x] **Step 4: Write failing runtime test for multi-candidate partial scoring**
-
-Two candidates produce valid outputs. Make one evaluator return invalid JSON or
-fail evidence construction. Assert the step fails with
-`adjudication_partial_scoring_failed`, no promotion happens, no normal artifacts
-are published, and ledger rows identify the scored and unscored candidates.
-
-- [x] **Step 5: Write failing runtime test for stdout suppression**
-
-Make candidate and evaluator providers print valid-looking JSON/text to stdout.
-Assert stdout/stderr are stored only in runtime-owned logs and the completed
-adjudicated step result does not populate `output`, `lines`, `json`,
-`truncated`, or `debug.json_parse_error`.
-
-- [x] **Step 6: Write failing runtime test for tie-break**
-
-Two candidates receive the same score. Assert the earlier declared candidate is
-selected.
-
-- [x] **Step 7: Extract provider prompt composition helper if needed**
-
-`WorkflowExecutor._execute_provider_with_context` currently composes prompt text
-and immediately invokes the provider. Extract a private helper such as:
-
-```python
-def _compose_provider_prompt_for_step(self, step, context, state, *, output_contract_step=None) -> tuple[str | None, dict | None]:
-    ...
-```
-
-Keep ordinary provider-step behavior unchanged.
-
-- [x] **Step 8: Implement `_execute_adjudicated_provider_with_context`**
-
-In `orchestrator/workflow/executor.py`, add a runtime path that:
-
-1. resolves canonical output contract paths
-2. runs consume preflight once in the current execution frame
-3. creates or reuses the immutable baseline snapshot
-4. prepares each candidate workspace from the baseline
-5. composes candidate prompts, including prompt overrides and output-contract
-   suffixes, with candidate workspace path authority
-6. prepares provider invocations with each candidate provider/params
-7. executes provider invocations with `cwd=candidate_workspace`
-8. captures candidate stdout/stderr to candidate logs only
-9. validates candidate outputs with `workspace=candidate_workspace`
-10. resolves scorer snapshot or scorer-unavailable metadata
-11. builds evaluator packets only for output-valid candidates with complete
-    score-critical evidence
-12. runs evaluator provider with evaluator CWD and parses strict JSON
-13. computes selection or terminal adjudication failure
-14. writes run-local ledger rows after selection/failure state is known
-15. checks dynamic ledger collisions
-16. promotes selected outputs through the transaction helper
-17. regenerates terminal run-local ledger and materializes the mirror if
-    configured
-18. revalidates canonical parent output contract
-19. withholds `publishes` until promotion committed and mirror finalization has
-    succeeded
-20. returns a normal step result with selected artifacts plus an `adjudication`
-    state block
-
-- [x] **Step 9: Add dispatch paths**
-
-Update top-level and nested execution dispatch so `adjudicated_provider` works
-where provider steps currently work, except with `provider_session` rejected.
-
-- [x] **Step 10: Run runtime tests**
+- [ ] Run:
 
 ```bash
-pytest tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py -q
+pytest --collect-only -q tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py
+pytest tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_outcomes.py -v
 ```
 
-Expected: pass.
+Expected: collection and current helper-level tests pass with the package layout.
 
-- [ ] **Step 11: Commit runtime support**
-
-```bash
-git add orchestrator/workflow/executor.py orchestrator/workflow/prompting.py orchestrator/workflow/adjudication.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py
-git commit -m "feat: execute adjudicated provider candidates"
-```
-
-## Task 7: Add Deadline, Retry, And Outcome Semantics
+### Task 4: Implement Baseline Snapshot, Null-Path Comparison, And Candidate Workspace Copy
 
 **Files:**
-- Create: `tests/test_adjudicated_provider_outcomes.py`
+
+- Modify: `orchestrator/workflow/adjudication/baseline.py`
+- Modify: `orchestrator/workflow/adjudication/paths.py`
 - Modify: `orchestrator/workflow/executor.py`
-- Modify: `orchestrator/workflow/adjudication.py`
-- Modify: `orchestrator/exec/retry.py` only if a small reusable remaining-deadline helper belongs there
-- Modify: `orchestrator/state.py` only if normalized outcome helpers need shared state support
-
-- [x] **Step 1: Write failing tests for one logical step deadline**
-
-Use a fake monotonic clock or patched deadline helper so the tests do not sleep.
-Cover a step with `timeout_sec` where baseline creation, candidate copies,
-candidate subprocesses, evaluator subprocesses, retry delays, selection, ledger
-materialization, promotion, and final parent validation share one deadline that
-starts after `when` and consume preflight succeed.
-
-Assert candidate and evaluator provider invocations receive only the remaining
-deadline as their `timeout_sec`. The full step timeout must not restart per
-candidate, per evaluator, or per retry attempt. If the deadline expires between
-runtime-owned phases, assert the runtime starts no new candidate, evaluator,
-ledger mirror, or promotion operation and the step fails with `error.type:
-"timeout"`, `exit_code: 124`, and `outcome` class `timeout` with
-`retryable: true`.
-
-- [x] **Step 2: Write failing tests for candidate retry scope**
-
-Create a two-attempt candidate where the first provider attempt exits with `1`
-or `124` after writing partial files, and the second attempt succeeds. Set:
-
-```yaml
-retries:
-  max: 1
-  delay_ms: 10
-```
-
-Assert retries apply to that candidate provider subprocess only; the whole
-adjudicated step visit is not restarted, other candidates are not rerun, and the
-step visit count does not increment. Assert every candidate provider retry
-starts from a fresh copy of the immutable baseline, so partial files from the
-failed attempt are absent in the successful attempt workspace. Assert terminal
-candidate metadata records both attempt summaries, and the ledger still emits one
-row for that candidate visit with `attempt_count: 2`.
-
-- [x] **Step 3: Write failing tests for evaluator retry scope**
-
-Use one output-valid candidate and an evaluator that fails or times out once,
-then succeeds. Assert evaluator retries reuse the same persisted
-`evaluation_packet_hash`, do not rerun the candidate provider, and record
-evaluator attempt metadata while keeping one ledger row for the candidate visit.
-
-Add exhausted-evaluator variants:
-
-- single valid candidate with `require_score_for_single_candidate: false`
-  promotes with `selected_score: null` and `score_status:
-  "evaluation_failed"`
-- single valid candidate with `require_score_for_single_candidate: true` fails
-  with `adjudication_partial_scoring_failed`
-- multiple output-valid candidates fail with `adjudication_partial_scoring_failed`
-  and no promotion
-
-- [x] **Step 4: Write failing tests for non-retried terminal failures**
-
-Set `retries.max` on the adjudicated step and force each terminal runtime
-failure below. Assert the runtime does not rerun candidates or evaluators after
-the failure is known:
-
-- dynamic `ledger_path_collision`
-- workspace-visible `ledger_conflict`
-- `ledger_mirror_failed`
-- `promotion_conflict`
-- `promotion_validation_failed`
-- `promotion_rollback_conflict`
-
-Do not full-smoke resume mismatch here; Task 9 owns resume reconciliation. This
-task should only pin the non-retryable terminal mapping for
-`adjudication_resume_mismatch` through the shared outcome helper.
-
-- [x] **Step 5: Write failing tests for normalized terminal outcome mapping**
-
-Add direct helper tests or runtime tests for the design's terminal outcome
-matrix. Cover:
-
-- success: `status: "completed"`, `exit_code: 0`, outcome phase/class
-  `completed`, `retryable: false`
-- `adjudication_no_valid_candidates`
-- `adjudication_scorer_unavailable`
-- `adjudication_partial_scoring_failed`
-- `timeout`
-- `ledger_path_collision`
-- `ledger_conflict`
-- `ledger_mirror_failed`
-- `promotion_conflict`
-- `promotion_validation_failed`
-- `promotion_rollback_conflict`
-- `adjudication_resume_mismatch`
-
-Assert each failure writes the expected primary `error.type`, `exit_code`,
-`outcome.phase`, `outcome.class`, and `outcome.retryable` without exposing
-candidate/evaluator stdout-derived `output`, `lines`, or `json` state.
-
-- [x] **Step 6: Implement adjudication deadline and retry helpers**
-
-In `orchestrator/workflow/adjudication.py`, add focused helpers such as:
-
-```python
-@dataclass(frozen=True)
-class AdjudicationDeadline:
-    started_monotonic: float
-    timeout_sec: float | None
-
-    def remaining_timeout_sec(self, now: float) -> float | None:
-        ...
-
-    def require_time_remaining(self, phase: str, now: float) -> None:
-        ...
-```
-
-Use these helpers from `WorkflowExecutor._execute_adjudicated_provider_with_context`
-before every runtime-owned phase and when preparing provider invocations. Reuse
-the existing provider timeout behavior for subprocess termination, but pass the
-remaining logical budget instead of the original step timeout.
-
-- [x] **Step 7: Implement candidate and evaluator retry loops**
-
-Resolve the effective provider retry policy once for the adjudicated step, using
-the same precedence ordinary provider steps use for step `retries` and executor
-defaults. Apply that policy independently to:
-
-- each candidate provider subprocess
-- each evaluator subprocess for an output-valid candidate
-
-For candidate retries, recreate the candidate attempt workspace from the
-immutable baseline before each attempt. For evaluator retries, reuse the same
-persisted evaluation packet and never rerun candidate generation. Honor
-`delay_ms` only while the logical deadline still has enough remaining time; if
-the delay would cross the deadline, fail with the normalized timeout outcome.
-
-- [x] **Step 8: Implement normalized adjudication outcomes**
-
-Add a small mapping from adjudication terminal condition to primary
-`error.type`, `exit_code`, and normalized `outcome`. Keep candidate-level
-provider/evaluator exits in candidate metadata and ledger rows; the logical step
-result exposes only the primary adjudicated terminal condition. Ensure retry
-logic does not handle promotion, ledger, mirror, parent-validation, or resume
-mismatch failures as retryable subprocess failures.
-
-- [x] **Step 9: Run outcome tests**
-
-```bash
-pytest tests/test_adjudicated_provider_outcomes.py tests/test_adjudicated_provider_runtime.py -q
-```
-
-Expected: pass.
-
-- [x] **Step 10: Run collect-only for outcome tests**
-
-```bash
-pytest --collect-only tests/test_adjudicated_provider_outcomes.py -q
-```
-
-Expected: all new tests collect.
-
-- [ ] **Step 11: Commit deadline, retry, and outcome support**
-
-```bash
-git add orchestrator/workflow/executor.py orchestrator/workflow/adjudication.py orchestrator/exec/retry.py orchestrator/state.py tests/test_adjudicated_provider_outcomes.py tests/test_adjudicated_provider_runtime.py
-git commit -m "feat: pin adjudicated provider outcomes"
-```
-
-## Task 8: Add Library Evaluator Prompt And Example Workflow
-
-**Files:**
-- Create: `workflows/library/prompts/adjudication/evaluate_candidate.md`
-- Create: `workflows/examples/adjudicated_provider_demo.yaml`
-- Modify: `tests/test_workflow_examples_v0.py`
-- Modify: `workflows/README.md`
-
-- [x] **Step 1: Write the reusable evaluator prompt**
-
-Create `workflows/library/prompts/adjudication/evaluate_candidate.md` with a
-generic task:
-
-```md
-Review the candidate artifact described in the evaluation packet.
-
-Score the candidate as a single global value from 0.0 to 1.0 based on how well
-it satisfies the original task, consumed artifacts, and output contract.
-
-Do not use pass/fail categories. Do not prefer verbosity for its own sake.
-Write strict JSON with candidate_id, score, and summary.
-```
-
-Keep the prompt generic. Do not mention EasySpin or major-project tranches.
-
-- [x] **Step 2: Add a minimal example workflow**
-
-Create `workflows/examples/adjudicated_provider_demo.yaml` using local/mockable
-providers that can be patched in tests. It should run one adjudicated provider
-step that writes a simple document artifact, evaluates two candidates, and
-publishes the selected output. Include `evaluator.evidence_confidentiality:
-same_trust_boundary`, an `artifacts/` score ledger mirror path, and only
-artifact-based downstream dataflow.
-
-- [x] **Step 3: Add mocked-provider example smoke test**
-
-Update the example test registry or add a focused test that executes the demo
-with provider executor patched. Assert:
-
-- two candidate rows exist in the score ledger
-- ledger rows have owner tuple fields, stable `candidate_run_key` and
-  `score_run_key`, evaluator identity fields, score status, selection reason, and
-  terminal promotion status
-- the workspace-visible ledger mirror is materialized only after terminal
-  finalization
-- selected candidate output was promoted
-- downstream workflow output reads the selected artifact
-
-- [x] **Step 4: Update workflow index**
-
-Add the example to `workflows/README.md`.
-
-- [x] **Step 5: Run example tests**
-
-```bash
-pytest tests/test_workflow_examples_v0.py -k adjudicated -q
-```
-
-Expected: pass.
-
-- [ ] **Step 6: Commit prompt and example**
-
-```bash
-git add workflows/library/prompts/adjudication/evaluate_candidate.md workflows/examples/adjudicated_provider_demo.yaml workflows/README.md tests/test_workflow_examples_v0.py
-git commit -m "test: add adjudicated provider workflow example"
-```
-
-## Task 9: Add Resume And Observability Coverage
-
-**Files:**
+- Modify: `tests/test_adjudicated_provider_baseline.py`
 - Modify: `tests/test_adjudicated_provider_runtime.py`
-- Modify: `tests/test_adjudicated_provider_scoring.py`
-- Modify: `orchestrator/workflow/executor.py`
-- Modify: `orchestrator/state.py`
-- Modify: `orchestrator/observability/report.py`
-- Modify: `specs/state.md` if implementation exposes any extra state detail
 
-- [ ] **Step 1: Add failing resume-after-candidates test**
+- [ ] Add failing tests for the fixed copy policy:
+  - includes regular files, directories, executable bit, hashes, and safe relative symlinks
+  - excludes `.orchestrate/`, `.git/`, dependency/cache roots, and local-secret denylist entries
+  - rejects absolute, broken, escaping, and excluded-target symlinks
+  - does not honor `.gitignore`
+  - required excluded paths fail before provider launch
+  - optional excluded paths are recorded as absent/excluded
+  - physical candidate path under run root still uses logical candidate workspace authority
 
-Simulate a run where candidate outputs and score ledger entries exist but
-promotion has not happened. Resume should verify baseline metadata, candidate
-metadata, scorer identity or scorer-unavailable metadata, and packet hashes
-before reusing scores, then promote once without duplicating ledger rows.
-
-- [ ] **Step 2: Add failing resume-after-promotion test**
-
-Simulate interrupted state after promotion but before step result finalization.
-Resume should follow the promotion manifest state, revalidate canonical outputs,
-regenerate the terminal run-local ledger, materialize the mirror if configured,
-withhold publication if mirror materialization fails, and not duplicate ledger
-rows.
-
-- [ ] **Step 3: Add failing resume mismatch tests**
-
-Cover:
-
-- baseline missing while candidate workspace, packet, terminal metadata, or
-  ledger row exists
-- candidate config hash or composed prompt hash changed for unfinished candidate
-- current scorer identity differs from persisted scorer snapshot
-- persisted scorer-unavailable key differs from current scorer-resolution failure
-  or current scorer would now resolve successfully
-- terminal score/evaluation metadata exists without matching scorer snapshot
-- ledger rows with `scorer_unavailable` lack matching scorer-resolution failure
-  metadata
-
-Assert each case fails with `adjudication_resume_mismatch` unless a future
-explicit force-rerun path is being tested.
-
-- [ ] **Step 4: Add report projection test**
-
-Assert `orchestrator report` or the observability projection includes selected
-candidate id, selected score or null score, selection reason, score ledger path,
-run-local ledger path, promotion status, and adjudication failure type when
-present.
-
-- [ ] **Step 5: Implement resume reconciliation**
-
-Persist enough metadata under the step `adjudication` state and candidate roots
-to detect:
-
-- baseline created and manifest digest
-- candidate completed
-- scorer snapshot or scorer-unavailable metadata completed
-- evaluation packet persisted
-- evaluation completed or failed
-- selection completed
-- run-local ledger materialized
-- promotion manifest prepared, committing, rolling back, failed, or committed
-- workspace-visible mirror materialized
-- publication completed
-
-Keep markers runtime-owned; prompts do not write them.
-
-- [ ] **Step 6: Run resume/observability tests**
+- [ ] Run:
 
 ```bash
-pytest tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_scoring.py -k "resume or observability or mismatch" -q
+pytest tests/test_adjudicated_provider_baseline.py -v
+```
+
+Expected: new tests fail for missing policy details only.
+
+- [ ] Implement or tighten baseline manifest creation, sorted included/excluded entries, `baseline_digest`, null-path comparison, and candidate workspace copy from immutable baseline.
+
+- [ ] Wire executor order so consume preflight and parent-side consume materialization happen before baseline creation, and every candidate attempt copies from the same baseline.
+
+- [ ] Re-run:
+
+```bash
+pytest tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_runtime.py -k "baseline or candidate_workspace or excluded or symlink" -v
 ```
 
 Expected: pass.
 
-- [ ] **Step 7: Commit resume and observability**
-
-```bash
-git add orchestrator/workflow/executor.py orchestrator/state.py orchestrator/observability/report.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_scoring.py specs/state.md
-git commit -m "feat: make adjudicated provider resume-safe"
-```
-
-## Task 10: Final Docs, Validation, And Smoke Checks
+### Task 5: Execute Candidates With Ordinary Provider Semantics In Candidate Workspaces
 
 **Files:**
+
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/workflow/prompting.py`
+- Modify: `orchestrator/providers/executor.py` only if an execution-result extension is required
+- Modify: `tests/test_adjudicated_provider_runtime.py`
+- Modify: `tests/test_provider_execution.py` if provider executor compatibility is touched
+
+- [ ] Add failing runtime tests for:
+  - candidate provider `cwd` is candidate workspace
+  - candidate prompt override changes only the base prompt source
+  - step-level dependencies/consumes/output suffix remain uniform across candidates
+  - provider params substitution uses candidate context
+  - candidate stdout/stderr are logs only and not projected as step output
+  - provider failure, timeout, prompt failure, and contract failure map to candidate metadata
+  - provider retries start from fresh baseline copies
+  - logical `timeout_sec` is not restarted per candidate or retry
+
+- [ ] Run:
+
+```bash
+pytest tests/test_adjudicated_provider_runtime.py tests/test_provider_execution.py -k "adjudicated or candidate or timeout or retry or stdout" -v
+```
+
+Expected: new tests fail only where candidate execution orchestration is incomplete.
+
+- [ ] Implement candidate execution in the workflow executor. The executor may adapt an adjudicated candidate into an ordinary provider-shaped step for prompt composition and output validation, but the original logical step result must remain adjudicated-only.
+
+- [ ] Persist candidate sidecar metadata after terminal candidate generation states so resume can reconcile candidates without rerunning completed work.
+
+- [ ] Re-run the selector above.
+
+Expected: pass and ordinary provider tests remain unchanged.
+
+### Task 6: Resolve Scorer Identity And Build Complete Evaluation Packets
+
+**Files:**
+
+- Modify: `orchestrator/workflow/adjudication/evidence.py`
+- Modify: `orchestrator/workflow/adjudication/scoring.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/security/secrets.py` only if existing secret-value extraction needs a reusable helper
+- Modify: `tests/test_adjudicated_provider_scoring.py`
+- Modify: `tests/test_adjudicated_provider_runtime.py`
+
+- [ ] Add failing tests for scorer resolution:
+  - evaluator provider, params, prompt, optional rubric, evidence limits, confidentiality, and contract versions produce stable `scorer_identity_hash`
+  - scorer snapshot persists before first evaluator launch
+  - scorer resolution failure persists separate `resolution_failure.json`
+  - unresolved scorer blocks required scoring but allows optional-score single candidate promotion
+
+- [ ] Add failing tests for packet evidence:
+  - full rendered candidate prompt including output suffix is embedded
+  - output value files and required relpath targets are embedded
+  - output bundle JSON and required bundle relpath targets are embedded
+  - injected consume relpath target content is embedded
+  - optional rubric content is embedded
+  - non-UTF-8, read error, truncation/size overflow, and declared-secret evidence prevent packet persistence and evaluator launch
+  - non-scoring sidecars, stdout/stderr, and bounded previews are not included
+
+- [ ] Run:
+
+```bash
+pytest tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py -k "scorer or evidence or packet or secret or rubric" -v
+```
+
+Expected: new tests fail for missing scorer/evidence behavior only.
+
+- [ ] Implement scorer snapshot/failure metadata and packet construction. Keep packet construction deterministic and hash canonicalized.
+
+- [ ] Re-run the selector above.
+
+Expected: pass.
+
+### Task 7: Invoke Evaluators, Parse Scores, And Apply Selection Semantics
+
+**Files:**
+
+- Modify: `orchestrator/workflow/adjudication/scoring.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `tests/test_adjudicated_provider_scoring.py`
+- Modify: `tests/test_adjudicated_provider_runtime.py`
+
+- [ ] Add failing tests for:
+  - evaluator `cwd` is runtime-owned evaluator workspace
+  - evaluator receives reusable prompt plus one `Evaluator Packet` block through normal prompt delivery
+  - stdout strict JSON rejects invalid JSON, NaN/Infinity, wrong candidate id, out-of-range score, empty summary, and non-object output
+  - evaluator retries reuse the same packet and never rerun the candidate
+  - exactly one output-valid candidate with optional score promotes despite scorer/evaluator/evidence failure
+  - exactly one output-valid candidate with required score fails without a valid finite score
+  - multi-candidate selection fails closed on scorer unavailable or partial scoring
+  - all-scored multi-candidate selection chooses highest score and candidate-order ties
+
+- [ ] Run:
+
+```bash
+pytest tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py -k "evaluator or selection or score or tie" -v
+```
+
+Expected: new tests fail only for evaluator/selection gaps.
+
+- [ ] Implement evaluator launch, retry/deadline integration, JSON parsing, candidate metadata updates, and selection.
+
+- [ ] Re-run the selector above.
+
+Expected: pass.
+
+### Task 8: Materialize Run-Local Ledgers And Terminal Workspace Mirrors
+
+**Files:**
+
+- Modify: `orchestrator/workflow/adjudication/ledger.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `tests/test_adjudicated_provider_scoring.py`
+- Modify: `tests/test_adjudicated_provider_runtime.py`
+
+- [ ] Add failing tests for the normative row schema, nullable fields, `candidate_run_key`, `score_run_key`, candidate statuses, score statuses, selection reasons, and promotion statuses.
+
+- [ ] Add failing tests for mirror semantics:
+  - `score_ledger_path` substitution in current frame
+  - path must resolve under parent workspace `artifacts/`
+  - symlink escapes are rejected
+  - static output path collisions fail before candidate launch
+  - dynamic relpath target and selected promotion destination collisions fail before promotion
+  - existing non-empty mirror must contain valid JSONL with matching owner tuple
+  - terminal mirror write happens only after no-selection failure, promotion failure, or committed promotion plus parent validation
+  - mirror failure after committed promotion withholds publication and can be retried on resume
+
+- [ ] Run:
+
+```bash
+pytest tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py -k "ledger or mirror or score_run_key or candidate_run_key or collision" -v
+```
+
+Expected: new tests fail for missing ledger/mirror behavior only.
+
+- [ ] Implement ledger row generation from terminal metadata and atomic materialization of run-local and mirror ledgers.
+
+- [ ] Re-run the selector above.
+
+Expected: pass.
+
+### Task 9: Promote Selected Declared Outputs Transactionally
+
+**Files:**
+
+- Modify: `orchestrator/workflow/adjudication/promotion.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `tests/test_adjudicated_provider_promotion.py`
+- Modify: `tests/test_adjudicated_provider_runtime.py`
+
+- [ ] Add failing promotion tests for:
+  - non-`relpath` expected output value files
+  - `relpath` value files plus required targets
+  - output bundle JSON plus required bundle relpath targets
+  - duplicate destinations allowed only for exact same source hash and role
+  - baseline preimage `file`, `absent`, and `unavailable`
+  - parent destination changed since baseline fails before parent writes
+  - staging validation before touching parent outputs
+  - parent validation after commit
+  - rollback restores only transaction-touched files and empty transaction-created directories
+  - rollback conflict maps to `promotion_rollback_conflict`
+  - resume for `prepared`, `committing`, `rolling_back`, `failed`, and `committed`
+
+- [ ] Run:
+
+```bash
+pytest tests/test_adjudicated_provider_promotion.py -v
+```
+
+Expected: new tests fail only where promotion transaction semantics are incomplete.
+
+- [ ] Implement promotion manifest/staging/commit/rollback/resume behavior.
+
+- [ ] Re-run:
+
+```bash
+pytest tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_runtime.py -k "promotion or promoted or parent validation or rollback" -v
+```
+
+Expected: pass.
+
+### Task 10: Finalize Step State, Publication, Outcomes, And Stdout Suppression
+
+**Files:**
+
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/workflow/dataflow.py`
+- Modify: `orchestrator/workflow/outcomes.py`
+- Modify: `orchestrator/state.py`
+- Modify: `tests/test_adjudicated_provider_runtime.py`
+- Modify: `tests/test_adjudicated_provider_outcomes.py`
+- Modify: `tests/test_artifact_dataflow_integration.py`
+- Modify: `tests/test_subworkflow_calls.py`
+
+- [ ] Add failing tests that a successful step records:
+  - `status: completed`, `exit_code: 0`, completed outcome
+  - promoted selected artifacts in normal current-frame artifact state
+  - `steps.<Step>.adjudication` with selected id, score/null, selection reason, promotion status, scorer fields, ledger paths, manifest paths, and per-candidate terminal metadata
+  - no stdout-derived output fields
+  - publication only after promotion commit and terminal ledger/mirror success
+
+- [ ] Add failing tests for terminal failure outcome mapping:
+  - no valid candidates
+  - scorer unavailable
+  - partial scoring
+  - timeout
+  - ledger path collision
+  - ledger conflict
+  - ledger mirror failed
+  - promotion conflict
+  - promotion validation failed
+  - promotion rollback conflict
+  - adjudication resume mismatch
+
+- [ ] Add call-frame tests proving adjudicated state and artifact lineage remain callee-local unless exported through normal call outputs.
+
+- [ ] Run:
+
+```bash
+pytest tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py tests/test_artifact_dataflow_integration.py tests/test_subworkflow_calls.py -k "adjudicated or publish or outcome or output or call_frame" -v
+```
+
+Expected: new tests fail only where state/publication/outcome behavior is incomplete.
+
+- [ ] Implement final state block, publication ordering, stdout suppression, and call-frame integration.
+
+- [ ] Re-run the selector above.
+
+Expected: pass.
+
+### Task 11: Implement Resume Reconciliation, Deadline Continuation, And Idempotency
+
+**Files:**
+
+- Create: `tests/test_adjudicated_provider_resume.py`
+- Modify: `orchestrator/workflow/adjudication/resume.py`
+- Modify: `orchestrator/workflow/executor.py`
+- Modify: `orchestrator/workflow/resume_planner.py`
+- Modify: `tests/test_resume_command.py`
+- Modify: `tests/test_adjudicated_provider_runtime.py`
+
+- [ ] Add resume tests for:
+  - no sidecars means a not-yet-started step can create a baseline normally
+  - missing baseline with candidate/scorer/packet/ledger sidecars fails `adjudication_resume_mismatch`
+  - candidate config hash and composed prompt hash mismatch fail
+  - persisted scorer snapshot is reused and current scorer identity mismatch fails
+  - persisted scorer-resolution failure is reused and mismatch or later success fails
+  - terminal scored/evaluation-failed metadata without matching scorer snapshot fails
+  - scorer-unavailable rows without matching failure metadata fail
+  - candidate generation resumes into evaluation
+  - evaluation resumes into ledger materialization
+  - ledger materialization resumes into promotion
+  - promotion resumes through manifest status rules
+  - committed promotion resumes into terminal ledger/mirror/publication if needed
+  - failed candidates are not retried on resume
+  - previous visit sidecars block accidental fresh rerun unless the operator explicitly forces rerun through an existing supported force mechanism
+
+- [ ] Run collection for the new test module:
+
+```bash
+pytest --collect-only -q tests/test_adjudicated_provider_resume.py
+```
+
+Expected: collection succeeds.
+
+- [ ] Run failing resume tests:
+
+```bash
+pytest tests/test_adjudicated_provider_resume.py tests/test_resume_command.py -k "adjudicated or resume or mismatch or promotion" -v
+```
+
+Expected: new tests fail for missing resume behavior only.
+
+- [ ] Implement resume reconciliation in the adjudication package and executor. Reuse terminal sidecars and regenerate ledgers idempotently instead of appending duplicate rows.
+
+- [ ] Re-run:
+
+```bash
+pytest tests/test_adjudicated_provider_resume.py tests/test_resume_command.py tests/test_adjudicated_provider_runtime.py -k "adjudicated or resume or mismatch or timeout" -v
+```
+
+Expected: pass.
+
+### Task 12: Add Observability, Report Projection, And Operator-Facing Failure Context
+
+**Files:**
+
+- Modify: `orchestrator/observability/report.py`
+- Modify: `orchestrator/cli/commands/report.py`
+- Modify: `orchestrator/workflow/outcomes.py`
+- Modify: `tests/test_observability_report.py`
+- Modify: `tests/test_cli_report_command.py`
+- Modify: `tests/test_adjudicated_provider_runtime.py`
+
+- [ ] Add failing tests for status JSON and markdown projection of selected candidate, selected score/null, selection reason, score ledger paths, promotion status, and failure type.
+
+- [ ] Ensure report output does not expose full evaluator packets, score-critical evidence, or candidate stdout/stderr content by default.
+
+- [ ] Run:
+
+```bash
+pytest tests/test_observability_report.py tests/test_cli_report_command.py tests/test_adjudicated_provider_runtime.py -k "adjudication or selected_candidate or promotion_status or score_ledger" -v
+```
+
+Expected: new tests fail only for missing report projection.
+
+- [ ] Implement projection and rendering.
+
+- [ ] Re-run the selector above.
+
+Expected: pass.
+
+### Task 13: Ship The Shared Evaluator Prompt, Example Workflow, And Docs
+
+**Files:**
+
+- Create/modify: `workflows/library/prompts/adjudication/evaluate_candidate.md`
+- Create/modify: `workflows/examples/adjudicated_provider_demo.yaml`
+- Modify: `workflows/README.md`
+- Modify: `docs/runtime_execution_lifecycle.md`
 - Modify: `docs/workflow_drafting_guide.md`
 - Modify: `docs/index.md`
-- Modify: `specs/acceptance/index.md` if gaps remain
-- Modify: `docs/plans/2026-04-20-adjudicated-provider-step-design.md` only if implementation reveals needed corrections
-- Modify: `docs/plans/2026-04-20-adjudicated-provider-step-implementation-plan.md` to mark completed tasks if executing in-place
+- Modify: `tests/test_workflow_examples_v0.py`
 
-- [x] **Step 1: Update workflow drafting guidance**
+- [ ] Write the shared evaluator prompt so it requests strict JSON with `candidate_id`, `score`, and `summary`, and does not ask the evaluator to read files from paths.
 
-Add a short section explaining when to use `adjudicated_provider`:
+- [ ] Add or update one example workflow that validates under DSL `2.11` and demonstrates:
+  - two candidate providers
+  - same-trust-boundary evaluator
+  - deterministic `expected_outputs` or `output_bundle`
+  - selected artifact promotion
+  - workspace-visible score ledger mirror under `artifacts/`
 
-- use for high-value artifact-producing provider steps where multiple providers
-  or prompt variants should be compared
-- do not use for arbitrary implementation/source edits in V1
-- keep evaluator prompt reusable and task rubrics small
-- require explicit same-trust-boundary attestation and treat packets, ledgers,
-  baseline snapshots, and promotion staging as sensitive run state
-- keep adjudicated steps artifact-producing; do not rely on stdout-derived step
-  variables
-- downstream steps should consume promoted artifacts normally
+- [ ] Update docs to explain authoring guidance, runtime lifecycle, sidecar sensitivity, stdout suppression, and first-release non-goals.
 
-- [x] **Step 2: Update docs index**
+- [ ] Update `docs/index.md` if new durable docs or examples are added, or if existing index entries no longer describe the implemented behavior.
 
-Add discoverability entries for the design and any new docs if the repo index is
-being kept current.
-
-- [x] **Step 3: Run narrow unit tests**
+- [ ] Run:
 
 ```bash
-pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q
+pytest tests/test_workflow_examples_v0.py -k "adjudicated" -v
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/adjudicated_provider_demo.yaml --dry-run
+```
+
+Expected: tests pass and dry-run validation succeeds.
+
+### Task 14: Final Integration Gate
+
+**Files:**
+
+- All files touched above.
+
+- [ ] Run the complete adjudicated-provider suite:
+
+```bash
+pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_resume.py tests/test_adjudicated_provider_outcomes.py -v
 ```
 
 Expected: pass.
 
-- [x] **Step 4: Run collect-only for new tests**
+- [ ] Run affected cross-module suites:
 
 ```bash
-pytest --collect-only tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q
-```
-
-Expected: all tests collect.
-
-- [x] **Step 5: Run workflow/example smoke**
-
-```bash
-python -m orchestrator run workflows/examples/adjudicated_provider_demo.yaml --dry-run
-pytest tests/test_workflow_examples_v0.py -k adjudicated -q
-```
-
-Expected: dry-run validates and mocked runtime smoke passes.
-
-- [x] **Step 6: Run related workflow tests**
-
-```bash
-pytest tests/test_workflow_examples_v0.py tests/test_prompt_contract_injection.py -q
+pytest tests/test_workflow_surface_ast.py tests/test_workflow_ir_lowering.py tests/test_provider_execution.py tests/test_artifact_dataflow_integration.py tests/test_subworkflow_calls.py tests/test_resume_command.py tests/test_observability_report.py tests/test_cli_report_command.py tests/test_workflow_examples_v0.py -k "adjudicated or provider or output or call or resume or report" -v
 ```
 
 Expected: pass.
 
-- [x] **Step 7: Inspect git diff**
+- [ ] Run a broader regression set for loader, contracts, runtime, and examples:
 
 ```bash
-git diff --stat
-git diff --check
+pytest tests/test_loader_validation.py tests/test_output_contract.py tests/test_dependency_injection.py tests/test_provider_integration.py tests/test_workflow_executor_characterization.py tests/test_workflow_output_contract_integration.py tests/test_workflow_examples_v0.py -v
 ```
 
-Expected: no whitespace errors and no unrelated changes.
+Expected: pass.
 
-- [x] **Step 8: Commit final docs**
+- [ ] Run the smoke workflow:
 
 ```bash
-git add docs/workflow_drafting_guide.md docs/index.md specs/acceptance/index.md docs/plans/2026-04-20-adjudicated-provider-step-design.md docs/plans/2026-04-20-adjudicated-provider-step-implementation-plan.md
-git commit -m "docs: document adjudicated provider authoring"
+PYTHONPATH=/home/ollie/Documents/agent-orchestration python -m orchestrator run workflows/examples/adjudicated_provider_demo.yaml --dry-run
 ```
 
-## Resolved V1 Constraints
+Expected: dry-run succeeds. If the smoke is changed from dry-run to a real run, inspect `state.json`, selected promoted files, run-local ledger, workspace-visible mirror, and report output before claiming completion.
 
-- Candidate workspace copies exclude `.git` and the fixed dependency/cache and
-  local-secret denylist roots from the design.
-- V1 supports one evaluator prompt source plus an optional rubric source. It does
-  not support evaluator prompt variants.
-- The run-local score ledger is always written. `score_ledger_path` is an
-  optional workspace-visible terminal mirror under `artifacts/`.
-- `timeout_sec` is one logical step-visit deadline. Candidate and evaluator
-  retries share that deadline, do not retry the whole adjudicated step, and do
-  not retry ledger, mirror, promotion, validation, or resume mismatch failures.
-- Candidate execution is sequential in V1. Preserve the data model so
-  `max_concurrency` can be added later without changing ledger semantics.
+## Release Exit Criteria
 
-## Rollback Plan
+- DSL `2.11` accepts valid `adjudicated_provider` workflows and rejects invalid authoring shapes at load time.
+- Candidate workspaces are copied from one immutable baseline, and orchestrator-managed candidate paths use candidate WORKSPACE authority.
+- Output-valid candidates are evaluated from complete same-trust-boundary score-critical evidence packets only.
+- Selection follows the approved single-candidate and multi-candidate rules, with no silent demotion of unscored output-valid candidates when a score is required.
+- Score ledgers use the normative row schema and idempotency keys; workspace-visible mirrors are terminal, owner-checked, and collision-checked.
+- Promotion is transactional, resume-safe, and limited to declared selected outputs.
+- `steps.<Step>.adjudication` is additive under state schema `2.1`; stdout-derived step output fields remain absent.
+- Resume reconciles persisted adjudication sidecars and fails closed on mismatches.
+- Docs/specs/examples describe the implemented first-release contract and its confidentiality/non-goal boundaries.
+- All final integration commands above pass with fresh command output.
 
-If runtime implementation becomes too invasive, keep the spec/design documents
-and stop after loader/schema validation behind version `2.11`. Since existing
-workflows do not use `adjudicated_provider`, the feature is isolated by version
-gate and new step form. Remove the example workflow from the index if the runtime
-does not ship.
+## Follow-Up Work
+
+The following items are intentionally outside the current first-release scope because the approved design lists them as future extensions, not V1 obligations:
+
+- `max_concurrency` for parallel candidate execution.
+- Command evaluators for deterministic score extraction.
+- Source-edit candidate promotion through selected patch application.
+- Candidate workspace overlays instead of full copies.
+- Provider-session support inside candidate workspaces.
+- Aggregate score-report tooling over per-run JSONL ledgers.
+- Optional aggregate append-only ledger mode with cross-run duplicate reconciliation.

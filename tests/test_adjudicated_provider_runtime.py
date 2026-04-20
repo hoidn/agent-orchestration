@@ -6,6 +6,7 @@ import yaml
 
 import orchestrator.workflow.executor as executor_module
 from orchestrator.loader import WorkflowLoader
+from orchestrator.observability.report import build_status_snapshot, render_status_markdown
 from orchestrator.state import StateManager
 from orchestrator.workflow.adjudication import (
     PromotionConflictError,
@@ -135,6 +136,16 @@ def _run(workspace: Path, workflow: dict, *, mutate_executor: object = None) -> 
     if callable(mutate_executor):
         mutate_executor(executor)
     return executor.execute()
+
+
+def _resume(workspace: Path, workflow: dict, *, mutate_executor: object = None) -> dict:
+    workflow_file = _write_yaml(workspace / "workflow.yaml", workflow)
+    loaded = WorkflowLoader(workspace).load(workflow_file)
+    state_manager = StateManager(workspace=workspace, run_id="run-1")
+    executor = WorkflowExecutor(loaded, workspace, state_manager, retry_delay_ms=0)
+    if callable(mutate_executor):
+        mutate_executor(executor)
+    return executor.execute(resume=True)
 
 
 def test_adjudicated_provider_selects_highest_scored_candidate_and_publishes(tmp_path: Path) -> None:
@@ -1294,6 +1305,11 @@ def test_ledger_mirror_failure_is_not_retried_by_step_retries(
     result = state["steps"]["Draft"]
     assert result["status"] == "failed"
     assert result["error"]["type"] == "ledger_mirror_failed"
+    assert result["adjudication"]["selected_candidate_id"] == "a"
+    assert result["adjudication"]["selected_score"] == 0.9
+    assert result["adjudication"]["selection_reason"] == "highest_score"
+    assert result["adjudication"]["promotion_status"] == "committed"
+    assert result["adjudication"]["candidates"]["a"]["promotion_status"] == "committed"
     assert candidate_attempts.read_text(encoding="utf-8") == "1"
     assert "result_path" not in state.get("artifact_versions", {})
 
@@ -1392,6 +1408,368 @@ def test_scorer_snapshot_is_persisted_and_rubric_is_score_evidence(tmp_path: Pat
     assert snapshot["rubric_content"] == "Prefer complete and specific artifacts."
     assert snapshot["rubric_hash"].startswith("sha256:")
     assert result["adjudication"]["candidates"]["a"]["score_status"] == "scored"
+
+
+def test_resume_after_scored_candidates_promotes_without_rerunning_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_a_attempts = tmp_path / "candidate_a_attempts.txt"
+    candidate_b_attempts = tmp_path / "candidate_b_attempts.txt"
+    workflow = _workflow(scores={"a": 0.4, "b": 0.9})
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_a_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('weaker', encoding='utf-8')\n"
+        ),
+    ]
+    workflow["providers"]["candidate_b"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_b_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/b.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/b.md').write_text('better', encoding='utf-8')\n"
+        ),
+    ]
+
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_before_promotion(**_: object) -> object:
+        raise SystemExit("interrupted after pending ledger")
+
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", interrupt_before_promotion)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    run_ledger = adjudication_visit_paths(
+        tmp_path / ".orchestrate/runs/run-1",
+        "root",
+        "root.draft",
+        1,
+    ).run_score_ledger_path
+    pending_rows = [json.loads(line) for line in run_ledger.read_text(encoding="utf-8").splitlines()]
+    assert len(pending_rows) == 2
+    assert {row["promotion_status"] for row in pending_rows} == {"not_selected", "pending"}
+
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", original_promote)
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["artifacts"]["result_path"] == "docs/plans/b.md"
+    assert (tmp_path / "docs/plans/b.md").read_text(encoding="utf-8") == "better"
+    assert candidate_a_attempts.read_text(encoding="utf-8") == "1"
+    assert candidate_b_attempts.read_text(encoding="utf-8") == "1"
+    rows = [json.loads(line) for line in run_ledger.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 2
+    assert {row["candidate_id"]: row["promotion_status"] for row in rows} == {
+        "a": "not_selected",
+        "b": "committed",
+    }
+    assert (tmp_path / "artifacts/evaluations/draft_scores.jsonl").exists()
+    assert state["artifact_versions"]["result_path"][-1]["value"] == "docs/plans/b.md"
+
+
+def test_resume_after_baseline_snapshot_reuses_baseline_and_runs_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected after baseline resume', encoding='utf-8')\n"
+        ),
+    ]
+    original_prepare_workspace = executor_module.prepare_candidate_workspace_from_baseline
+
+    def interrupt_after_baseline(**_: object) -> None:
+        raise SystemExit("interrupted after baseline")
+
+    monkeypatch.setattr(executor_module, "prepare_candidate_workspace_from_baseline", interrupt_after_baseline)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    visit = adjudication_visit_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1)
+    baseline_manifest = json.loads(visit.baseline_manifest_path.read_text(encoding="utf-8"))
+    assert not candidate_attempts.exists()
+
+    monkeypatch.setattr(executor_module, "prepare_candidate_workspace_from_baseline", original_prepare_workspace)
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["artifacts"]["result_path"] == "docs/plans/a.md"
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+    assert json.loads(visit.baseline_manifest_path.read_text(encoding="utf-8"))["baseline_digest"] == baseline_manifest["baseline_digest"]
+
+
+def test_resume_after_partial_candidate_generation_runs_remaining_candidates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_a_attempts = tmp_path / "candidate_a_attempts.txt"
+    candidate_b_attempts = tmp_path / "candidate_b_attempts.txt"
+    workflow = _workflow(scores={"a": 0.4, "b": 0.9})
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_a_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('first candidate', encoding='utf-8')\n"
+        ),
+    ]
+    workflow["providers"]["candidate_b"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_b_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/b.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/b.md').write_text('remaining candidate', encoding='utf-8')\n"
+        ),
+    ]
+    original_prepare_workspace = executor_module.prepare_candidate_workspace_from_baseline
+    copy_calls = 0
+
+    def interrupt_on_second_candidate_copy(**kwargs) -> None:
+        nonlocal copy_calls
+        copy_calls += 1
+        if copy_calls == 2:
+            raise SystemExit("interrupted before second candidate")
+        return original_prepare_workspace(**kwargs)
+
+    monkeypatch.setattr(executor_module, "prepare_candidate_workspace_from_baseline", interrupt_on_second_candidate_copy)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    assert candidate_a_attempts.read_text(encoding="utf-8") == "1"
+    assert not candidate_b_attempts.exists()
+
+    monkeypatch.setattr(executor_module, "prepare_candidate_workspace_from_baseline", original_prepare_workspace)
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["artifacts"]["result_path"] == "docs/plans/b.md"
+    assert candidate_a_attempts.read_text(encoding="utf-8") == "1"
+    assert candidate_b_attempts.read_text(encoding="utf-8") == "1"
+    assert result["adjudication"]["candidates"]["a"]["score_status"] == "scored"
+    assert result["adjudication"]["candidates"]["b"]["score_status"] == "scored"
+
+
+def test_resume_after_committed_promotion_finalizes_ledger_mirror_and_publication(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected once', encoding='utf-8')\n"
+        ),
+    ]
+    original_materialize = executor_module.materialize_run_score_ledger
+    calls = 0
+
+    def interrupt_before_terminal_ledger(*args, **kwargs) -> None:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise SystemExit("interrupted after promotion commit")
+        return original_materialize(*args, **kwargs)
+
+    monkeypatch.setattr(executor_module, "materialize_run_score_ledger", interrupt_before_terminal_ledger)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    visit = adjudication_visit_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1)
+    promotion_manifest = json.loads(visit.promotion_manifest_path.read_text(encoding="utf-8"))
+    assert promotion_manifest["status"] == "committed"
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+    assert "result_path" not in json.loads((tmp_path / ".orchestrate/runs/run-1/state.json").read_text(encoding="utf-8")).get("artifact_versions", {})
+
+    monkeypatch.setattr(executor_module, "materialize_run_score_ledger", original_materialize)
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["adjudication"]["promotion_status"] == "committed"
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+    run_rows = [json.loads(line) for line in visit.run_score_ledger_path.read_text(encoding="utf-8").splitlines()]
+    mirror_rows = [
+        json.loads(line)
+        for line in (tmp_path / "artifacts/evaluations/draft_scores.jsonl").read_text(encoding="utf-8").splitlines()
+    ]
+    assert [row["promotion_status"] for row in run_rows] == ["committed"]
+    assert mirror_rows == run_rows
+    assert state["artifact_versions"]["result_path"][-1]["value"] == "docs/plans/a.md"
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_message"),
+    [
+        ("missing_baseline", "baseline"),
+        ("changed_candidate_config", "candidate config"),
+        ("changed_scorer_identity", "scorer identity"),
+        ("missing_scorer_snapshot", "scorer snapshot"),
+    ],
+)
+def test_resume_rejects_mismatched_adjudication_sidecars(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    mutation: str,
+    expected_message: str,
+) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_before_promotion(**_: object) -> object:
+        raise SystemExit("interrupted after pending ledger")
+
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", interrupt_before_promotion)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    visit = adjudication_visit_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1)
+    if mutation == "missing_baseline":
+        visit.baseline_manifest_path.unlink()
+    elif mutation == "changed_candidate_config":
+        workflow["steps"][0]["adjudicated_provider"]["candidates"][0]["provider_params"] = {"model": "changed"}
+    elif mutation == "changed_scorer_identity":
+        (tmp_path / "evaluator.md").write_text("Return strict JSON with a changed rubric.", encoding="utf-8")
+    elif mutation == "missing_scorer_snapshot":
+        (visit.scorer_root / "metadata.json").unlink()
+
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", original_promote)
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "adjudication_resume_mismatch"
+    assert expected_message in result["error"]["message"]
+
+
+def test_resume_rejects_scorer_unavailable_sidecars_that_no_longer_match(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["steps"][0]["adjudicated_provider"]["evaluator"]["input_file"] = "missing-evaluator.md"
+
+    original_promote = executor_module.promote_candidate_outputs
+
+    def interrupt_before_promotion(**_: object) -> object:
+        raise SystemExit("interrupted after pending ledger")
+
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", interrupt_before_promotion)
+    with pytest.raises(SystemExit):
+        _run(tmp_path, workflow)
+
+    (tmp_path / "missing-evaluator.md").write_text("Now available.", encoding="utf-8")
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", original_promote)
+    state = _resume(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "adjudication_resume_mismatch"
+    assert "scorer resolution" in result["error"]["message"]
+
+
+def test_report_projects_adjudication_fields_for_success_and_failure(tmp_path: Path) -> None:
+    success_state = _run(tmp_path, _workflow(scores={"a": 0.4, "b": 0.9}))
+    loaded = WorkflowLoader(tmp_path).load(tmp_path / "workflow.yaml")
+    success_snapshot = build_status_snapshot(
+        loaded,
+        success_state,
+        tmp_path / ".orchestrate/runs/run-1",
+    )
+    success_adjudication = success_snapshot["steps"][0]["output"]["adjudication"]
+
+    assert success_adjudication == {
+        "selected_candidate_id": "b",
+        "selected_score": 0.9,
+        "selection_reason": "highest_score",
+        "score_ledger_path": "artifacts/evaluations/draft_scores.jsonl",
+        "run_score_ledger_path": success_state["steps"]["Draft"]["adjudication"]["run_score_ledger_path"],
+        "promotion_status": "committed",
+        "failure_type": None,
+    }
+    success_markdown = render_status_markdown(success_snapshot)
+    assert "selected_candidate_id: `b`" in success_markdown
+    assert "promotion_status: `committed`" in success_markdown
+
+    failure_workspace = tmp_path / "failure"
+    failure_workspace.mkdir()
+    failure_workflow = _workflow(scores={"a": 0.4, "b": 0.9})
+    failure_workflow["providers"]["evaluator"]["command"] = ["python", "-c", "print('not json')"]
+    failure_state = _run(failure_workspace, failure_workflow)
+    failure_loaded = WorkflowLoader(failure_workspace).load(failure_workspace / "workflow.yaml")
+    failure_snapshot = build_status_snapshot(
+        failure_loaded,
+        failure_state,
+        failure_workspace / ".orchestrate/runs/run-1",
+    )
+    failure_adjudication = failure_snapshot["steps"][0]["output"]["adjudication"]
+
+    assert failure_adjudication["selected_candidate_id"] is None
+    assert failure_adjudication["promotion_status"] == "not_selected"
+    assert failure_adjudication["failure_type"] == "adjudication_partial_scoring_failed"
 
 
 def test_adjudicated_provider_inside_call_frame_uses_frame_scoped_sidecars(tmp_path: Path) -> None:

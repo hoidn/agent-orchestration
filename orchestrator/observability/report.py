@@ -53,6 +53,20 @@ def _report_compatible_value(value: Any) -> Any:
     return value
 
 
+def _adjudication_projection(payload: Mapping[str, Any], result: Mapping[str, Any]) -> Dict[str, Any]:
+    error = result.get("error")
+    failure_type = error.get("type") if isinstance(error, Mapping) else None
+    return {
+        "selected_candidate_id": payload.get("selected_candidate_id"),
+        "selected_score": payload.get("selected_score"),
+        "selection_reason": payload.get("selection_reason"),
+        "score_ledger_path": payload.get("score_ledger_path"),
+        "run_score_ledger_path": payload.get("run_score_ledger_path"),
+        "promotion_status": payload.get("promotion_status"),
+        "failure_type": failure_type,
+    }
+
+
 def _read_prompt_audit(run_root: Path, step_name: str) -> Optional[str]:
     prompt_file = run_root / "logs" / f"{step_name}.prompt.txt"
     if not prompt_file.exists():
@@ -250,7 +264,7 @@ def build_status_snapshot(
                 entry["output"]["provider_session"] = debug_payload.get("provider_session")
             adjudication_payload = result.get("adjudication")
             if isinstance(adjudication_payload, dict):
-                entry["output"]["adjudication"] = adjudication_payload
+                entry["output"]["adjudication"] = _adjudication_projection(adjudication_payload, result)
 
         if status == "completed":
             entry["summary"] = "completed"
@@ -439,7 +453,9 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
                 lines.append(f"  - provider_session: `{provider_session}`")
             adjudication = output_payload.get("adjudication")
             if adjudication:
-                lines.append(f"  - adjudication: `{adjudication}`")
+                lines.append("  - adjudication:")
+                for key, value in adjudication.items():
+                    lines.append(f"    - {key}: `{value}`")
 
         lines.append("")
 
