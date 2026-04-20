@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REAL_CODEX="${EASYSPIN_REAL_CODEX:-/home/ollie/.nvm/versions/node/v20.19.4/bin/codex}"
+REAL_CLAUDE="${EASYSPIN_REAL_CLAUDE:-/home/ollie/.local/bin/claude}"
+CLAUDE_DEFAULT_MODEL="${EASYSPIN_WORKFLOW_PROVIDER_SHIM:-claude-opus-4-7}"
+CLAUDE_IMPLEMENTATION_MODEL="${EASYSPIN_IMPLEMENTATION_PROVIDER_SHIM:-claude-sonnet-4-6}"
+
+original_args=("$@")
+effort="high"
+
+parse_args=("$@")
+if [[ "${parse_args[0]:-}" == "exec" ]]; then
+  parse_args=("${parse_args[@]:1}")
+fi
+
+i=0
+while [[ "$i" -lt "${#parse_args[@]}" ]]; do
+  case "${parse_args[$i]}" in
+    --config)
+      value="${parse_args[$((i + 1))]:-}"
+      if [[ "$value" == *reasoning_effort=* ]]; then
+        effort="${value##*=}"
+      elif [[ "$value" == *model_reasoning_effort=* ]]; then
+        effort="${value##*=}"
+      fi
+      i=$((i + 2))
+      ;;
+    --model)
+      i=$((i + 2))
+      ;;
+    *)
+      i=$((i + 1))
+      ;;
+  esac
+done
+
+prompt_file="$(mktemp "${TMPDIR:-/tmp}/easyspin-provider-prompt.XXXXXX")"
+trap 'rm -f "$prompt_file"' EXIT
+cat > "$prompt_file"
+
+route="claude"
+reason="default"
+claude_model="$CLAUDE_DEFAULT_MODEL"
+
+if grep -Fq "Create a design document for the selected tranche." "$prompt_file"; then
+  route="codex"
+  reason="draft_big_design"
+elif grep -Fq "Revise only the selected tranche design to address unresolved in-scope findings." "$prompt_file"; then
+  route="codex"
+  reason="revise_big_design"
+elif grep -Fq "Use executing-plans to implement the approved plan" "$prompt_file"; then
+  reason="implement_plan"
+  claude_model="$CLAUDE_IMPLEMENTATION_MODEL"
+elif grep -Fq "Use executing-plans to address the implementation review" "$prompt_file"; then
+  reason="fix_implementation"
+  claude_model="$CLAUDE_IMPLEMENTATION_MODEL"
+fi
+
+echo "[easyspin-provider-shim] route=${route} reason=${reason} model=${claude_model} effort=${effort}" >&2
+
+if [[ "${EASYSPIN_PROVIDER_SHIM_DRY_RUN:-0}" == "1" ]]; then
+  exit 0
+fi
+
+if [[ "$route" == "codex" ]]; then
+  if [[ ! -x "$REAL_CODEX" ]]; then
+    echo "[easyspin-provider-shim] real Codex binary not executable: $REAL_CODEX" >&2
+    exit 127
+  fi
+  "$REAL_CODEX" "${original_args[@]}" < "$prompt_file"
+else
+  if [[ ! -x "$REAL_CLAUDE" ]]; then
+    echo "[easyspin-provider-shim] Claude binary not executable: $REAL_CLAUDE" >&2
+    exit 127
+  fi
+  "$REAL_CLAUDE" \
+    -p \
+    --model "$claude_model" \
+    --effort "$effort" \
+    --dangerously-skip-permissions \
+    < "$prompt_file"
+fi

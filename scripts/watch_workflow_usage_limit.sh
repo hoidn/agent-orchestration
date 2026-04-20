@@ -17,6 +17,8 @@ Environment:
   AGENT_ORCHESTRATION    path prepended to PYTHONPATH (default: /home/ollie/Documents/agent-orchestration)
   PROVIDER_SHIM_PATH     path prepended to PATH, optional (default: /tmp/easyspin-claude-provider)
   PROVIDER_SHIM          EASYSPIN_WORKFLOW_PROVIDER_SHIM value, optional (default: claude-opus-4-7)
+  IMPLEMENTATION_PROVIDER_SHIM
+                         EASYSPIN_IMPLEMENTATION_PROVIDER_SHIM value, optional (default: claude-sonnet-4-6)
   RESUME_EXTRA_ARGS      extra args for orchestrator resume (default: --stream-output)
   RUN_EXTRA_ARGS         extra args for orchestrator run after provider-limit blocked recovery (default: --stream-output)
   CLAUDE_BIN             Claude CLI used for readiness probes (default: /home/ollie/.local/bin/claude)
@@ -119,6 +121,7 @@ CONDA_ENV="${CONDA_ENV:-ptycho311}"
 AGENT_ORCHESTRATION="${AGENT_ORCHESTRATION:-/home/ollie/Documents/agent-orchestration}"
 PROVIDER_SHIM_PATH="${PROVIDER_SHIM_PATH:-/tmp/easyspin-claude-provider}"
 PROVIDER_SHIM="${PROVIDER_SHIM:-claude-opus-4-7}"
+IMPLEMENTATION_PROVIDER_SHIM="${IMPLEMENTATION_PROVIDER_SHIM:-claude-sonnet-4-6}"
 RESUME_EXTRA_ARGS="${RESUME_EXTRA_ARGS:---stream-output}"
 RUN_EXTRA_ARGS="${RUN_EXTRA_ARGS:---stream-output}"
 CLAUDE_BIN="${CLAUDE_BIN:-/home/ollie/.local/bin/claude}"
@@ -250,6 +253,9 @@ resume_command() {
   if [[ -n "$PROVIDER_SHIM" ]]; then
     cmd+=" && export EASYSPIN_WORKFLOW_PROVIDER_SHIM=$(quote "$PROVIDER_SHIM")"
   fi
+  if [[ -n "$IMPLEMENTATION_PROVIDER_SHIM" ]]; then
+    cmd+=" && export EASYSPIN_IMPLEMENTATION_PROVIDER_SHIM=$(quote "$IMPLEMENTATION_PROVIDER_SHIM")"
+  fi
   cmd+=" && python -m orchestrator resume $(quote "$RUN_ID") ${RESUME_EXTRA_ARGS}"
   printf '%s\n' "$cmd"
 }
@@ -299,6 +305,9 @@ run_command() {
   fi
   if [[ -n "$PROVIDER_SHIM" ]]; then
     cmd+=" && export EASYSPIN_WORKFLOW_PROVIDER_SHIM=$(quote "$PROVIDER_SHIM")"
+  fi
+  if [[ -n "$IMPLEMENTATION_PROVIDER_SHIM" ]]; then
+    cmd+=" && export EASYSPIN_IMPLEMENTATION_PROVIDER_SHIM=$(quote "$IMPLEMENTATION_PROVIDER_SHIM")"
   fi
   cmd+=" && python -m orchestrator run $(quote "$WORKFLOW_FILE") ${BOUND_INPUT_ARGS//$'\n'/ } ${RUN_EXTRA_ARGS}"
   printf '%s\n' "$cmd"
