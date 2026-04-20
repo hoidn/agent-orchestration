@@ -171,6 +171,30 @@ def test_adjudicated_provider_selects_highest_scored_candidate_and_publishes(tmp
     assert state["artifact_versions"]["result_path"][-1]["value"] == "docs/plans/b.md"
 
 
+def test_optional_depends_on_paths_are_recorded_in_baseline_null_comparison(tmp_path: Path) -> None:
+    (tmp_path / ".env").write_text("TOKEN=secret\n", encoding="utf-8")
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["steps"][0]["depends_on"] = {
+        "optional": [".env"],
+        "inject": True,
+    }
+
+    state = _run(tmp_path, workflow)
+
+    assert state["steps"]["Draft"]["status"] == "completed"
+    visit = adjudication_visit_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1)
+    manifest = json.loads(visit.baseline_manifest_path.read_text(encoding="utf-8"))
+    optional_result = manifest["null_path_results"]["depends_on.optional[0]"]
+    assert optional_result == {
+        "path": ".env",
+        "required": False,
+        "state": "excluded",
+    }
+
+
 def test_evaluator_packet_includes_consumed_relpath_target_content(tmp_path: Path) -> None:
     workflow = _workflow(
         {"a": 1.0},
@@ -1307,7 +1331,7 @@ def test_ledger_mirror_failure_is_not_retried_by_step_retries(
     assert result["error"]["type"] == "ledger_mirror_failed"
     assert result["adjudication"]["selected_candidate_id"] == "a"
     assert result["adjudication"]["selected_score"] == 0.9
-    assert result["adjudication"]["selection_reason"] == "highest_score"
+    assert result["adjudication"]["selection_reason"] == "single_candidate_contract_valid"
     assert result["adjudication"]["promotion_status"] == "committed"
     assert result["adjudication"]["candidates"]["a"]["promotion_status"] == "committed"
     assert candidate_attempts.read_text(encoding="utf-8") == "1"
@@ -1354,7 +1378,7 @@ def test_promotion_terminal_failures_are_not_retried_by_step_retries(
     assert candidate_attempts.read_text(encoding="utf-8") == "1"
 
 
-def test_mirror_conflict_does_not_mask_no_valid_candidates_failure(tmp_path: Path) -> None:
+def test_mirror_conflict_on_no_valid_candidates_is_reported_as_ledger_conflict(tmp_path: Path) -> None:
     ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
     ledger.parent.mkdir(parents=True)
     ledger.write_text(
@@ -1378,8 +1402,8 @@ def test_mirror_conflict_does_not_mask_no_valid_candidates_failure(tmp_path: Pat
 
     result = state["steps"]["Draft"]
     assert result["status"] == "failed"
-    assert result["error"]["type"] == "adjudication_no_valid_candidates"
-    assert result["outcome"]["class"] == "adjudication_no_valid_candidates"
+    assert result["error"]["type"] == "ledger_conflict"
+    assert result["outcome"]["class"] == "ledger_conflict"
     assert "result_path" not in state.get("artifact_versions", {})
 
 

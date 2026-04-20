@@ -77,6 +77,46 @@ def test_build_evaluation_packet_embeds_complete_text_evidence(tmp_path: Path) -
     assert all(item["read_status"] == "embedded" for item in packet["evidence_items"])
 
 
+def test_build_evaluation_packet_uses_validated_output_bundle_artifact_values(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "state").mkdir()
+    (candidate / "docs/plans").mkdir(parents=True)
+    (candidate / "state/bundle.json").write_text(
+        json.dumps({"design_path": "bundle-design.md"}),
+        encoding="utf-8",
+    )
+    (candidate / "docs/plans/bundle-design.md").write_text("bundle result\n", encoding="utf-8")
+
+    packet = build_evaluation_packet(
+        candidate_id="a",
+        candidate_workspace=candidate,
+        rendered_prompt="Write the artifact.",
+        expected_outputs=None,
+        output_bundle={
+            "path": "state/bundle.json",
+            "fields": [
+                {
+                    "name": "design_path",
+                    "json_pointer": "/design_path",
+                    "type": "relpath",
+                    "under": "docs/plans",
+                    "must_exist_target": True,
+                }
+            ],
+        },
+        artifacts={"design_path": "docs/plans/bundle-design.md"},
+        scorer={"scorer_identity_hash": "sha256:scorer"},
+        evidence_limits={"max_item_bytes": 1024, "max_packet_bytes": 4096},
+        workflow_secret_values=[],
+    )
+
+    contents = {item["name"]: item["content"] for item in packet["evidence_items"]}
+    assert contents["output_bundle"] == json.dumps({"design_path": "bundle-design.md"})
+    assert contents["design_path.target"] == "bundle result\n"
+    assert packet["artifacts"] == {"design_path": "docs/plans/bundle-design.md"}
+
+
 def test_build_evaluation_packet_embeds_injected_consumed_relpath_targets(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()
@@ -252,6 +292,14 @@ def test_selection_rules_cover_single_optional_multi_partial_and_ties() -> None:
     )
     assert single.selected_candidate_id == "a"
     assert single.selection_reason == "single_candidate_contract_valid"
+
+    single_scored_optional = select_candidate(
+        [{"candidate_id": "a", "candidate_status": "output_valid", "score_status": "scored", "score": 0.8}],
+        require_score_for_single_candidate=False,
+    )
+    assert single_scored_optional.selected_candidate_id == "a"
+    assert single_scored_optional.selected_score == 0.8
+    assert single_scored_optional.selection_reason == "single_candidate_contract_valid"
 
     required = select_candidate(
         [{"candidate_id": "a", "candidate_status": "output_valid", "score_status": "evaluation_failed"}],

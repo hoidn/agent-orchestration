@@ -102,11 +102,12 @@ def build_evaluation_packet(
             ):
                 found, relpath_value = _resolve_json_pointer(bundle_doc, str(field_spec.get("json_pointer", "")))
                 if found and isinstance(relpath_value, str):
+                    artifact_name = str(field_spec.get("name"))
                     _add_file_evidence(
                         evidence_items,
                         candidate_workspace=candidate_workspace,
-                        name=f"{field_spec.get('name')}.target",
-                        relpath=relpath_value,
+                        name=f"{artifact_name}.target",
+                        relpath=str(artifacts.get(artifact_name, relpath_value)),
                         limits=limits,
                         workflow_secret_values=workflow_secret_values,
                     )

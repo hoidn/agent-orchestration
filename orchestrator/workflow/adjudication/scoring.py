@@ -86,7 +86,8 @@ def select_candidate(
     if len(valid) == 1:
         candidate = valid[0]
         if candidate.get("score_status") == "scored" and _is_finite_score(candidate.get("score")):
-            return SelectionResult(str(candidate["candidate_id"]), float(candidate["score"]), "highest_score")
+            reason = "highest_score" if require_score_for_single_candidate else "single_candidate_contract_valid"
+            return SelectionResult(str(candidate["candidate_id"]), float(candidate["score"]), reason)
         if require_score_for_single_candidate:
             if candidate.get("score_status") == "scorer_unavailable":
                 return SelectionResult(None, None, "none", "adjudication_scorer_unavailable")

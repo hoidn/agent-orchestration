@@ -3879,6 +3879,7 @@ class WorkflowExecutor:
             )
 
         required_surfaces = self._adjudication_required_path_surfaces(output_contract_step)
+        optional_surfaces = self._adjudication_optional_path_surfaces(output_contract_step)
         if baseline_manifest is None:
             try:
                 deadline.require_time_remaining("baseline snapshot")
@@ -3889,7 +3890,7 @@ class WorkflowExecutor:
                     workflow_checksum=state.get("workflow_checksum", ""),
                     resolved_consumes=state.get("_resolved_consumes", {}),
                     required_path_surfaces=required_surfaces,
-                    optional_path_surfaces=[],
+                    optional_path_surfaces=optional_surfaces,
                 )
             except TimeoutError as exc:
                 return self._adjudication_failure_result("timeout", str(exc), visit_paths=visit_paths)
@@ -4276,6 +4277,7 @@ class WorkflowExecutor:
                 parent_workspace=self.workspace,
                 baseline_manifest=baseline_manifest,
                 promotion_manifest_path=visit_paths.promotion_manifest_path,
+                selected_candidate_id=str(selection.selected_candidate_id),
             )
         except TimeoutError as exc:
             return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
@@ -4733,6 +4735,17 @@ class WorkflowExecutor:
         output_bundle = step.get("output_bundle")
         if isinstance(output_bundle, dict) and isinstance(output_bundle.get("path"), str):
             surfaces.append(PathSurface("output_bundle.path", Path(output_bundle["path"])))
+        return surfaces
+
+    def _adjudication_optional_path_surfaces(self, step: Dict[str, Any]) -> list[PathSurface]:
+        surfaces: list[PathSurface] = []
+        depends_on = step.get("depends_on")
+        if isinstance(depends_on, dict):
+            values = depends_on.get("optional")
+            if isinstance(values, list):
+                for index, value in enumerate(values):
+                    if isinstance(value, str):
+                        surfaces.append(PathSurface(f"depends_on.optional[{index}]", Path(value)))
         return surfaces
 
     def _resolve_adjudication_score_ledger_path(
@@ -5201,8 +5214,6 @@ class WorkflowExecutor:
                 try:
                     materialize_score_ledger_mirror(rows, self.workspace / mirror)
                 except LedgerConflictError as exc:
-                    if preserve_primary_failure:
-                        return None
                     return self._adjudication_failure_result(
                         "ledger_conflict",
                         str(exc),

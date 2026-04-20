@@ -34,12 +34,23 @@ def promote_candidate_outputs(
     parent_workspace: Path,
     baseline_manifest: BaselineManifest,
     promotion_manifest_path: Path,
+    selected_candidate_id: str | None = None,
 ) -> PromotionResult:
     candidate_workspace = candidate_workspace.resolve()
     parent_workspace = parent_workspace.resolve()
 
     if promotion_manifest_path.exists():
         manifest = _load_promotion_manifest(promotion_manifest_path)
+        manifest_candidate_id = manifest.get("selected_candidate_id")
+        if (
+            selected_candidate_id is not None
+            and manifest_candidate_id is not None
+            and manifest_candidate_id != selected_candidate_id
+        ):
+            raise PromotionConflictError(
+                "promotion manifest selected candidate does not match current selection",
+                failure_type="adjudication_resume_mismatch",
+            )
         if manifest.get("status") in {"prepared", "committing", "rolling_back", "failed", "committed"}:
             return _resume_promotion_manifest(
                 manifest=manifest,
@@ -49,11 +60,20 @@ def promote_candidate_outputs(
                 promotion_manifest_path=promotion_manifest_path,
             )
 
+    try:
+        if output_bundle:
+            artifacts = validate_output_bundle(output_bundle, workspace=candidate_workspace)
+        else:
+            artifacts = validate_expected_outputs(expected_outputs or [], workspace=candidate_workspace)
+    except OutputContractError as exc:
+        raise PromotionConflictError(str(exc), failure_type="promotion_validation_failed") from exc
+
     files, promoted_paths = _promotion_file_plan(
         expected_outputs=expected_outputs,
         output_bundle=output_bundle,
         candidate_workspace=candidate_workspace,
         parent_workspace=parent_workspace,
+        artifacts=artifacts,
     )
     _reject_duplicate_destinations(files)
     for file_entry in files:
@@ -84,6 +104,7 @@ def promote_candidate_outputs(
     manifest = {
         "schema": "adjudicated_provider.promotion.v1",
         "status": "prepared",
+        "selected_candidate_id": selected_candidate_id,
         "files": [_promotion_manifest_file_entry(file_entry) for file_entry in files],
         "promoted_paths": promoted_paths,
         "created_parent_dirs": _created_parent_dirs(parent_workspace, files),
@@ -129,6 +150,7 @@ def _promotion_file_plan(
     output_bundle: dict | None,
     candidate_workspace: Path,
     parent_workspace: Path,
+    artifacts: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], dict[str, str]]:
     files: list[dict[str, Any]] = []
     promoted_paths: dict[str, str] = {}
@@ -145,7 +167,7 @@ def _promotion_file_plan(
             if field_spec.get("type") == "relpath" and field_spec.get("must_exist_target"):
                 found, relpath_value = _resolve_json_pointer(bundle_doc, str(field_spec.get("json_pointer", "")))
                 if found and isinstance(relpath_value, str):
-                    target_rel = _safe_relpath(Path(relpath_value))
+                    target_rel = _safe_relpath(Path(str(artifacts.get(artifact_name, relpath_value))))
                     target_source = _workspace_file(candidate_workspace, target_rel)
                     files.append({"role": "relpath_target", "artifact": artifact_name, "source": target_source, "dest_rel": target_rel})
                     promoted_paths[f"{artifact_name}.target"] = target_rel
@@ -160,7 +182,8 @@ def _promotion_file_plan(
         files.append({"role": "value_file", "artifact": artifact_name, "source": value_source, "dest_rel": value_rel})
         promoted_paths[artifact_name] = value_rel
         if spec.get("type") == "relpath" and spec.get("must_exist_target"):
-            target_rel = _safe_relpath(Path(value_source.read_text(encoding="utf-8").strip()))
+            raw_target_rel = value_source.read_text(encoding="utf-8").strip()
+            target_rel = _safe_relpath(Path(str(artifacts.get(artifact_name, raw_target_rel))))
             target_source = _workspace_file(candidate_workspace, target_rel)
             files.append({"role": "relpath_target", "artifact": artifact_name, "source": target_source, "dest_rel": target_rel})
             promoted_paths[f"{artifact_name}.target"] = target_rel
