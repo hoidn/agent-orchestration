@@ -207,6 +207,86 @@ def test_ledger_mirror_conflict_returns_normalized_step_failure(tmp_path: Path) 
     assert "result_path" not in state.get("artifact_versions", {})
 
 
+def test_output_bundle_relpath_target_ledger_collision_fails_before_promotion(tmp_path: Path) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["artifacts"] = {
+        "doc": {
+            "kind": "relpath",
+            "type": "relpath",
+            "pointer": "state/bundle.json",
+            "under": "artifacts/evaluations",
+            "must_exist_target": True,
+        },
+    }
+    step = workflow["steps"][0]
+    step["adjudicated_provider"]["candidates"] = [{"id": "a", "provider": "candidate_a"}]
+    step["adjudicated_provider"]["score_ledger_path"] = "artifacts/evaluations/draft_scores.jsonl"
+    step.pop("expected_outputs")
+    step["output_bundle"] = {
+        "path": "state/bundle.json",
+        "fields": [
+            {
+                "name": "doc",
+                "json_pointer": "/doc",
+                "type": "relpath",
+                "under": "artifacts/evaluations",
+                "must_exist_target": True,
+            }
+        ],
+    }
+    step["publishes"] = [{"artifact": "doc", "from": "doc"}]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "import json\n"
+            "from pathlib import Path\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('artifacts/evaluations').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/bundle.json').write_text(json.dumps({'doc': 'artifacts/evaluations/draft_scores.jsonl'}), encoding='utf-8')\n"
+            "Path('artifacts/evaluations/draft_scores.jsonl').write_text('selected artifact\\n', encoding='utf-8')\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "ledger_path_collision"
+    assert not (tmp_path / "state/bundle.json").exists()
+    assert not (tmp_path / "artifacts/evaluations/draft_scores.jsonl").exists()
+    assert "doc" not in state.get("artifact_versions", {})
+
+
+def test_mirror_conflict_does_not_mask_no_valid_candidates_failure(tmp_path: Path) -> None:
+    ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+    ledger.parent.mkdir(parents=True)
+    ledger.write_text(
+        json.dumps(
+            {
+                "row_schema": "adjudicated_provider.score.v1",
+                "run_id": "other-run",
+                "execution_frame_id": "root",
+                "step_id": "root.draft",
+                "visit_count": 1,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    workflow = _workflow()
+    workflow["providers"]["candidate_a"]["command"] = ["python", "-c", "pass"]
+    workflow["providers"]["candidate_b"]["command"] = ["python", "-c", "pass"]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "adjudication_no_valid_candidates"
+    assert result["outcome"]["class"] == "adjudication_no_valid_candidates"
+    assert "result_path" not in state.get("artifact_versions", {})
+
+
 def test_scorer_snapshot_is_persisted_and_rubric_is_score_evidence(tmp_path: Path) -> None:
     (tmp_path / "rubric.md").write_text("Prefer complete and specific artifacts.", encoding="utf-8")
     workflow = _workflow()

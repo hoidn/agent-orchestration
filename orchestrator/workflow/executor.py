@@ -3965,6 +3965,7 @@ class WorkflowExecutor:
                 promoted_paths={},
                 execution_frame_id=execution_frame_id,
                 call_frame_id=call_frame_id,
+                preserve_primary_failure=True,
             )
             if ledger_failure is not None:
                 return ledger_failure
@@ -3979,11 +3980,32 @@ class WorkflowExecutor:
                 candidate["promotion_status"] = "not_selected"
         selected_paths = candidate_paths(run_root, frame_scope, step_id, int(visit_count or 1), str(selection.selected_candidate_id))
         ledger_path = adjudicated.get("score_ledger_path")
-        if isinstance(ledger_path, str):
-            ledger_abs = (self.workspace / ledger_path).resolve()
-            dynamic_paths = set(self._promotion_destination_paths(output_contract_step, selected.get("artifacts", {})))
-            if ledger_abs in dynamic_paths:
-                return self._adjudication_failure_result("ledger_path_collision", "score ledger path collides with promoted outputs")
+        collision_message = self._adjudication_ledger_path_collision_message(
+            adjudicated=adjudicated,
+            output_contract_step=output_contract_step,
+            candidates=candidates,
+        )
+        if collision_message is not None:
+            selected["promotion_status"] = "failed"
+            ledger_failure = self._write_adjudication_ledgers_failure(
+                adjudicated=adjudicated,
+                visit_paths=visit_paths,
+                state=state,
+                step_id=step_id,
+                step_name=step_name,
+                visit_count=int(visit_count or 1),
+                candidates=candidates,
+                selected_candidate_id=str(selection.selected_candidate_id),
+                selection_reason=selection.selection_reason,
+                promotion_status="failed",
+                promoted_paths={},
+                execution_frame_id=execution_frame_id,
+                call_frame_id=call_frame_id,
+                materialize_mirror=False,
+            )
+            if ledger_failure is not None:
+                return ledger_failure
+            return self._adjudication_failure_result("ledger_path_collision", collision_message, candidates=candidates, visit_paths=visit_paths)
         try:
             promotion = promote_candidate_outputs(
                 expected_outputs=resolved_expected_outputs,
@@ -4008,6 +4030,7 @@ class WorkflowExecutor:
                 promoted_paths={},
                 execution_frame_id=execution_frame_id,
                 call_frame_id=call_frame_id,
+                preserve_primary_failure=True,
             )
             if ledger_failure is not None:
                 return ledger_failure
@@ -4349,6 +4372,7 @@ class WorkflowExecutor:
         promoted_paths: Mapping[str, str],
         execution_frame_id: str,
         call_frame_id: Optional[str],
+        materialize_mirror: bool = True,
     ) -> list[dict[str, Any]]:
         rows = generate_score_ledger_rows(
             run_id=str(state.get("run_id", self.state_manager.run_id)),
@@ -4368,7 +4392,7 @@ class WorkflowExecutor:
         )
         materialize_run_score_ledger(rows, visit_paths.run_score_ledger_path)
         mirror = adjudicated.get("score_ledger_path")
-        if isinstance(mirror, str):
+        if materialize_mirror and isinstance(mirror, str):
             materialize_score_ledger_mirror(rows, self.workspace / mirror)
         return rows
 
@@ -4388,9 +4412,11 @@ class WorkflowExecutor:
         promoted_paths: Mapping[str, str],
         execution_frame_id: str,
         call_frame_id: Optional[str],
+        preserve_primary_failure: bool = False,
+        materialize_mirror: bool = True,
     ) -> Optional[Dict[str, Any]]:
         try:
-            self._write_adjudication_ledgers(
+            rows = self._write_adjudication_ledgers(
                 adjudicated=adjudicated,
                 visit_paths=visit_paths,
                 state=state,
@@ -4404,11 +4430,23 @@ class WorkflowExecutor:
                 promoted_paths=promoted_paths,
                 execution_frame_id=execution_frame_id,
                 call_frame_id=call_frame_id,
+                materialize_mirror=False,
             )
-        except LedgerConflictError as exc:
-            return self._adjudication_failure_result("ledger_conflict", str(exc), candidates=candidates, visit_paths=visit_paths)
         except OSError as exc:
             return self._adjudication_failure_result("ledger_mirror_failed", str(exc), candidates=candidates, visit_paths=visit_paths)
+        if materialize_mirror:
+            mirror = adjudicated.get("score_ledger_path")
+            if isinstance(mirror, str):
+                try:
+                    materialize_score_ledger_mirror(rows, self.workspace / mirror)
+                except LedgerConflictError as exc:
+                    if preserve_primary_failure:
+                        return None
+                    return self._adjudication_failure_result("ledger_conflict", str(exc), candidates=candidates, visit_paths=visit_paths)
+                except OSError as exc:
+                    if preserve_primary_failure:
+                        return None
+                    return self._adjudication_failure_result("ledger_mirror_failed", str(exc), candidates=candidates, visit_paths=visit_paths)
         return None
 
     def _adjudication_failure_result(
@@ -4507,6 +4545,28 @@ class WorkflowExecutor:
             paths["output_bundle"] = output_bundle["path"]
         return paths
 
+    def _adjudication_ledger_path_collision_message(
+        self,
+        *,
+        adjudicated: Mapping[str, Any],
+        output_contract_step: Dict[str, Any],
+        candidates: list[dict[str, Any]],
+    ) -> Optional[str]:
+        ledger_path = adjudicated.get("score_ledger_path")
+        if not isinstance(ledger_path, str):
+            return None
+        ledger_abs = (self.workspace / ledger_path).resolve()
+        dynamic_paths: set[Path] = set()
+        for candidate in candidates:
+            if candidate.get("candidate_status") != "output_valid":
+                continue
+            artifacts = candidate.get("artifacts")
+            if isinstance(artifacts, Mapping):
+                dynamic_paths.update(self._promotion_destination_paths(output_contract_step, artifacts))
+        if ledger_abs in dynamic_paths:
+            return "score ledger path collides with step-managed output path"
+        return None
+
     def _promotion_destination_paths(self, step: Dict[str, Any], artifacts: Mapping[str, Any]) -> set[Path]:
         paths: set[Path] = set()
         for spec in step.get("expected_outputs", []) if isinstance(step.get("expected_outputs"), list) else []:
@@ -4521,6 +4581,15 @@ class WorkflowExecutor:
         output_bundle = step.get("output_bundle")
         if isinstance(output_bundle, dict) and isinstance(output_bundle.get("path"), str):
             paths.add((self.workspace / output_bundle["path"]).resolve())
+            fields = output_bundle.get("fields")
+            if isinstance(fields, list):
+                for field_spec in fields:
+                    if not isinstance(field_spec, dict):
+                        continue
+                    if field_spec.get("type") == "relpath" and field_spec.get("must_exist_target") and isinstance(field_spec.get("name"), str):
+                        value = artifacts.get(field_spec["name"])
+                        if isinstance(value, str):
+                            paths.add((self.workspace / value).resolve())
         return paths
 
     def _workflow_secret_values(self, step: Dict[str, Any]) -> list[str]:
