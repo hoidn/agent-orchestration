@@ -7,6 +7,7 @@
   - Injection (v1.1.1): modes, default instruction, prepend/append position, truncation record.
   - IO capture: modes, limits, tee semantics, JSON parse behavior and `allow_parse_error`.
   - Providers: argv vs stdin, placeholder validation, unresolved placeholders, parameter merge.
+  - Adjudicated providers (v2.11): version gating, candidate isolation, same-trust-boundary evaluator evidence, selection, promotion, ledger ownership, and stdout suppression.
   - Deterministic artifact contracts: `expected_outputs`/`output_bundle` validation, typed parsing, publish/consume lineage, and contract violation handling.
   - Wait-for: exclusivity, timeout semantics, state metrics.
   - State integrity: atomic writes, backups, resume/repair, checksum.
@@ -184,6 +185,15 @@
 174. v2.10 session runtime publication: successful fresh session steps atomically persist their final step result, same-visit artifact-lineage updates, and exact-match `current_step` clearance before the session metadata record is finalized
 175. v2.10 interrupted-visit quarantine: `orchestrate resume` quarantines interrupted session-enabled visits keyed by `current_step.step_id` plus `visit_count`, preserves older same-name terminal results, clears `current_step`, and records a durable run-level quarantine error with metadata/spool paths
 176. v2.10 provider-session observability: report/status surfaces expose run-level quarantine context and step-level `provider_session` summaries without printing raw metadata transport to console stdout
+177. v2.11 loader gating: `adjudicated_provider` is rejected below `version: "2.11"` and is mutually exclusive with every other execution form, provider sessions, and stdout-derived capture surfaces
+178. v2.11 candidate/evaluator validation: candidates are non-empty with unique stable ids and known providers; evaluator provider/prompt/rubric/evidence fields obey the same-trust-boundary and evidence-limit contract
+179. v2.11 baseline isolation: every candidate attempt starts from one immutable frame/step/visit baseline using the fixed copy policy, required excluded paths fail before provider launch, and safe/unsafe symlink behavior is deterministic
+180. v2.11 evidence packet contract: scoring packets contain complete bounded UTF-8 score-critical evidence, reject declared secret values, persist packet hashes, and exclude stdout/stderr, transport logs, and bounded prompt previews
+181. v2.11 evaluator parsing and selection: evaluator stdout is strict JSON with matching candidate id, finite score in `[0.0, 1.0]`, and non-empty summary; invalid candidate outputs are ineligible, highest score wins, and ties use candidate order
+182. v2.11 promotion transaction: selected outputs are promoted only through staged manifest-backed replacement with destination preimage checks, duplicate-destination rejection, rollback metadata, parent output revalidation, and publish withholding until commit
+183. v2.11 score ledger ownership: run-local ledgers and workspace-visible mirrors use stable candidate/score keys and owner tuples; mirror conflicts, dynamic ledger/output collisions, and invalid JSONL ownership fail before publication
+184. v2.11 stdout suppression and observability: adjudicated step results do not expose candidate/evaluator stdout as `output`, `lines`, `json`, `truncated`, or parse-error debug state, while reports may expose selected candidate, score, ledger paths, promotion status, and failure type
+185. v2.11 resume/retry contract: logical deadlines, candidate/evaluator retry scopes, resume idempotency, promotion-state reconciliation, and `adjudication_resume_mismatch` are covered by implementation tests before full production rollout
 
 ## DSL Evolution Rollout Crosswalk
 
@@ -216,6 +226,7 @@
 - Task 11 executable proof: `tests/test_subworkflow_calls.py`, `tests/test_loader_validation.py`, `tests/test_artifact_dataflow_integration.py`, `tests/test_state_manager.py`, `tests/test_resume_command.py`, `tests/test_dependency_resolution.py`, `tests/test_dependency_injection.py`, `tests/test_prompt_contract_injection.py`, `tests/test_provider_execution.py`, `tests/test_provider_integration.py`, `tests/test_secrets.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/call_subworkflow_demo.yaml`
 - Task 12 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/match_demo.yaml`
 - Task 13 executable proof: `tests/test_loader_validation.py`, `tests/test_structured_control_flow.py`, `tests/test_resume_command.py`, `tests/test_workflow_examples_v0.py`, and `workflows/examples/repeat_until_demo.yaml`
+- Task 15 executable proof: `tests/test_adjudicated_provider_loader.py`, `tests/test_adjudicated_provider_baseline.py`, `tests/test_adjudicated_provider_promotion.py`, `tests/test_adjudicated_provider_scoring.py`, `tests/test_adjudicated_provider_runtime.py`, `tests/test_adjudicated_provider_outcomes.py`, `tests/test_workflow_examples_v0.py -k adjudicated`, and `workflows/examples/adjudicated_provider_demo.yaml` dry-run verification
 
 ## Future Acceptance (v1.2)
 

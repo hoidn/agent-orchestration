@@ -404,28 +404,53 @@ def _elaborate_step(
         command=_frozen_command(step.get("command")) if kind is SurfaceStepKind.COMMAND else (),
         provider=step.get("provider") if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("provider"), str) else None,
         provider_params=freeze_value(step["provider_params"]) if kind is SurfaceStepKind.PROVIDER and "provider_params" in step else None,
-        input_file=freeze_value(step["input_file"]) if kind is SurfaceStepKind.PROVIDER and "input_file" in step else None,
-        asset_file=freeze_value(step["asset_file"]) if kind is SurfaceStepKind.PROVIDER and "asset_file" in step else None,
-        depends_on=freeze_mapping(step.get("depends_on")) if kind is SurfaceStepKind.PROVIDER else freeze_mapping(None),
-        asset_depends_on=_frozen_sequence(step.get("asset_depends_on")) if kind is SurfaceStepKind.PROVIDER else (),
+        adjudicated_provider=(
+            freeze_mapping(step.get("adjudicated_provider"))
+            if kind is SurfaceStepKind.ADJUDICATED_PROVIDER
+            else freeze_mapping(None)
+        ),
+        input_file=(
+            freeze_value(step["input_file"])
+            if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER} and "input_file" in step
+            else None
+        ),
+        asset_file=(
+            freeze_value(step["asset_file"])
+            if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER} and "asset_file" in step
+            else None
+        ),
+        depends_on=(
+            freeze_mapping(step.get("depends_on"))
+            if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}
+            else freeze_mapping(None)
+        ),
+        asset_depends_on=(
+            _frozen_sequence(step.get("asset_depends_on"))
+            if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}
+            else ()
+        ),
         inject_output_contract=(
             step.get("inject_output_contract")
-            if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("inject_output_contract"), bool)
+            if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}
+            and isinstance(step.get("inject_output_contract"), bool)
             else None
         ),
         inject_consumes=(
             step.get("inject_consumes")
-            if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("inject_consumes"), bool)
+            if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}
+            and isinstance(step.get("inject_consumes"), bool)
             else None
         ),
         prompt_consumes=(
             _frozen_sequence(step["prompt_consumes"])
-            if kind is SurfaceStepKind.PROVIDER and "prompt_consumes" in step
+            if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}
+            and "prompt_consumes" in step
             else None
         ),
         consumes_injection_position=(
             step.get("consumes_injection_position")
-            if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("consumes_injection_position"), str)
+            if kind in {SurfaceStepKind.PROVIDER, SurfaceStepKind.ADJUDICATED_PROVIDER}
+            and isinstance(step.get("consumes_injection_position"), str)
             else None
         ),
         wait_for=freeze_mapping(step.get("wait_for")) if kind is SurfaceStepKind.WAIT_FOR else freeze_mapping(None),
@@ -718,6 +743,8 @@ def _surface_step_kind(step: Mapping[str, Any]) -> SurfaceStepKind:
         return SurfaceStepKind.FOR_EACH
     if "call" in step:
         return SurfaceStepKind.CALL
+    if "adjudicated_provider" in step:
+        return SurfaceStepKind.ADJUDICATED_PROVIDER
     if "provider" in step:
         return SurfaceStepKind.PROVIDER
     if "command" in step:

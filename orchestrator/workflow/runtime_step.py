@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .executable_ir import (
+    AdjudicatedProviderStepConfig,
     CallBoundaryNode,
     CallStepConfig,
     CommandStepConfig,
@@ -193,6 +194,36 @@ class RuntimeStep(Mapping[str, Any]):
                 return config.consumes_injection_position
             raise KeyError(key)
 
+        if isinstance(config, AdjudicatedProviderStepConfig):
+            if key == "adjudicated_provider":
+                return thaw_runtime_value(config.adjudicated_provider)
+            if key == "input_file":
+                value = thaw_runtime_value(config.input_file)
+                if _include_value(value):
+                    return value
+            if key == "asset_file":
+                value = thaw_runtime_value(config.asset_file)
+                if _include_value(value):
+                    return value
+            if key == "depends_on":
+                value = thaw_runtime_value(config.depends_on)
+                if _include_value(value):
+                    return value
+            if key == "asset_depends_on":
+                value = thaw_runtime_value(config.asset_depends_on)
+                if _include_value(value):
+                    return value
+            if key == "inject_output_contract" and config.inject_output_contract is not None:
+                return config.inject_output_contract
+            if key == "inject_consumes" and config.inject_consumes is not None:
+                return config.inject_consumes
+            if key == "prompt_consumes":
+                if config.prompt_consumes is not None:
+                    return thaw_runtime_value(config.prompt_consumes)
+            if key == "consumes_injection_position" and config.consumes_injection_position is not None:
+                return config.consumes_injection_position
+            raise KeyError(key)
+
         if isinstance(config, WaitForStepConfig):
             if key == "wait_for":
                 return thaw_runtime_value(config.wait_for)
@@ -254,6 +285,25 @@ class RuntimeStep(Mapping[str, Any]):
             yield "provider"
             for key in (
                 "provider_params",
+                "input_file",
+                "asset_file",
+                "depends_on",
+                "asset_depends_on",
+                "inject_output_contract",
+                "inject_consumes",
+                "prompt_consumes",
+                "consumes_injection_position",
+            ):
+                try:
+                    self[key]
+                except KeyError:
+                    continue
+                yield key
+            return
+
+        if isinstance(config, AdjudicatedProviderStepConfig):
+            yield "adjudicated_provider"
+            for key in (
                 "input_file",
                 "asset_file",
                 "depends_on",

@@ -177,6 +177,15 @@
   - Session-enabled visits create canonical observability artifacts under `.orchestrate/runs/<run_id>/provider_sessions/`.
   - `orchestrate resume` quarantines interrupted session-enabled visits instead of replaying them; `--force-restart` remains the explicit escape hatch.
 
+- v2.11 additions (adjudicated provider steps)
+  - Step-level `adjudicated_provider` runs one logical artifact-producing provider step through one or more isolated candidates, scores output-valid candidates with an evaluator provider, selects the highest finite score, and promotes only the selected candidate's declared deterministic outputs.
+  - `adjudicated_provider` is mutually exclusive with `provider`, `command`, `wait_for`, `assert`, scalar bookkeeping, structured control forms, and `call`.
+  - Adjudicated steps must declare `expected_outputs` or `output_bundle`, must not use stdout-derived step capture surfaces, and do not populate `steps.<Step>.output`, `.lines`, or `.json` from candidate/evaluator stdout.
+  - Candidate workspaces are copied from one immutable frame/step/visit baseline using `adjudicated_provider.baseline_copy.v1`; V1 supports artifact promotion only, not arbitrary source-edit patch promotion.
+  - Evaluator scoring requires `evaluator.evidence_confidentiality: same_trust_boundary`, complete bounded UTF-8 score-critical evidence packets, and strict JSON evaluator output with `candidate_id`, finite `score` in `[0.0, 1.0]`, and `summary`.
+  - Selected outputs are promoted through a manifest-backed transaction with preimage checks, staged replacements, rollback metadata, parent output revalidation, and publication withholding until promotion and any score-ledger mirror finalization succeed.
+  - State schema remains `2.1`; adjudication state is additive under `steps.<Step>.adjudication` and run-owned sidecars under `.orchestrate/runs/<run_id>/adjudication/`, `candidates/`, and `promotions/`.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -193,6 +202,7 @@
   - `v2.8`: D13 score-aware gates
   - `v2.9`: D14 authoring linting and normalization
   - `v2.10`: first-class provider-session resume
+  - `v2.11`: adjudicated provider steps
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -319,5 +329,7 @@ Planned acceptance:
 | 2.7 | Top-level post-test `repeat_until` with loop-frame outputs and resume-safe iteration bookkeeping | Loop conditions read only `self.outputs.*`; downstream refs target the loop frame outputs on the authored step; direct nested `call`, `match`, and `if/else` bodies are allowed. |
 | 2.8 | Score-aware predicate helper `score` for thresholds and score bands | Thin sugar over numeric typed predicates; keeps benchmark gating inside the existing `when` / `assert` / structured-control surfaces. |
 | 2.9 | Advisory authoring linting / normalization hints surfaced in CLI dry-run and report output | Warns about migration candidates without turning valid workflows into validation failures. |
+| 2.10 | Scalar `string` contracts and first-class provider-session resume | Adds runtime-owned fresh/resume session handles for root-level provider steps plus interrupted-visit quarantine. |
+| 2.11 | `adjudicated_provider` steps | Runs isolated artifact-producing candidates, scores valid outputs through a same-trust-boundary evaluator, promotes the selected declared outputs, and records adjudication ledgers/state without stdout-derived step output. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |

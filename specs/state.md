@@ -223,3 +223,13 @@ orchestrate clean --older-than 7d
 Schema boundary note:
 - Post-v2.0 runtimes reject resume from pre-v2.0 state rather than silently remapping old name-keyed lineage/freshness data.
 - When a resumed run reaches a terminal state, `current_step` must be cleared.
+
+## Adjudicated Provider State (v2.11)
+
+- State schema remains `2.1`; adjudication state is an additive `steps.<Step>.adjudication` payload plus run-root sidecars.
+- Normal artifact lineage contains only promoted selected outputs. Candidate outputs are not published as ordinary artifacts.
+- `steps.<Step>.adjudication` records selected candidate id, selected score or `null`, selection reason, promotion status, scorer identity, evaluator prompt hash, evidence confidentiality, score ledger paths, scorer snapshot path, promotion manifest path, and per-candidate terminal metadata.
+- Candidate/evaluator stdout-derived state is absent: `output`, `lines`, `json`, `truncated`, and `debug.json_parse_error` are not populated for adjudicated provider steps.
+- Run-local score ledgers live under `.orchestrate/runs/<run_id>/adjudication/<frame_scope>/<step_id>/<visit_count>/candidate_scores.jsonl`. Workspace-visible ledgers configured by `score_ledger_path` are terminal mirrors only.
+- Ledger rows are keyed by `candidate_run_key` and `score_run_key` and include candidate provider/model/prompt identity, scorer identity or scorer-unavailable metadata, packet hash when present, score status, selection status, promotion status, and attempt counts.
+- Resume must reconcile baseline manifest, candidate metadata, scorer snapshot or scorer-unavailable metadata, evaluation packets, ledger rows, and promotion manifests. Missing or mismatched state fails with `adjudication_resume_mismatch` unless a future explicit force-rerun path is used.

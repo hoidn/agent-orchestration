@@ -5,7 +5,9 @@ Implements AT-3, AT-13: Dynamic for-each execution with pointer resolution.
 
 import json
 import logging
+import os
 import threading
+import time
 from copy import deepcopy
 from contextlib import contextmanager
 from dataclasses import is_dataclass
@@ -18,7 +20,7 @@ from ..exec.step_executor import StepExecutor
 from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
 from ..providers.registry import ProviderRegistry
-from ..providers.types import ProviderSessionMode, ProviderSessionRequest
+from ..providers.types import ProviderParams, ProviderSessionMode, ProviderSessionRequest
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
 from ..contracts.output_contract import (
@@ -81,6 +83,28 @@ from .runtime_context import RuntimeContext
 from .runtime_step import RuntimeStep
 from .runtime_types import RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
+from .adjudication import (
+    BASELINE_COPY_POLICY,
+    EVALUATION_PACKET_SCHEMA,
+    EvaluatorOutputError,
+    EvidencePacketError,
+    PathSurface,
+    PromotionConflictError,
+    SECRET_DETECTION_POLICY,
+    adjudication_outcome,
+    adjudication_visit_paths,
+    build_evaluation_packet,
+    candidate_paths,
+    create_baseline_snapshot,
+    generate_score_ledger_rows,
+    materialize_run_score_ledger,
+    materialize_score_ledger_mirror,
+    parse_evaluator_output,
+    prepare_candidate_workspace_from_baseline,
+    promote_candidate_outputs,
+    scorer_identity_hash,
+    select_candidate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -2039,6 +2063,8 @@ class WorkflowExecutor:
             return 'structured_match_join'
         if execution_kind is ExecutableNodeKind.PROVIDER:
             return 'provider'
+        if execution_kind is ExecutableNodeKind.ADJUDICATED_PROVIDER:
+            return 'adjudicated_provider'
         if execution_kind is ExecutableNodeKind.COMMAND:
             return 'command'
         if execution_kind is ExecutableNodeKind.WAIT_FOR:
@@ -2796,6 +2822,14 @@ class WorkflowExecutor:
                 self._execute_call(step, state),
             )
 
+        if execution_kind is ExecutableNodeKind.ADJUDICATED_PROVIDER:
+            return self._execute_top_level_publish_and_persist(
+                step,
+                step_name,
+                state,
+                self._execute_adjudicated_provider_with_context(step, {}, state),
+            )
+
         if execution_kind is ExecutableNodeKind.PROVIDER:
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -2846,6 +2880,13 @@ class WorkflowExecutor:
             result = self._execute_command_with_context(step, context, state)
         elif execution_kind is ExecutableNodeKind.PROVIDER:
             result = self._execute_provider_with_context(
+                step,
+                context,
+                state,
+                runtime_step_id=runtime_step_id,
+            )
+        elif execution_kind is ExecutableNodeKind.ADJUDICATED_PROVIDER:
+            result = self._execute_adjudicated_provider_with_context(
                 step,
                 context,
                 state,
@@ -3562,6 +3603,806 @@ class WorkflowExecutor:
 
         return self._apply_expected_outputs_contract(step, result, state, context=context)
 
+    def _compose_provider_prompt_for_step(
+        self,
+        step: Dict[str, Any],
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        workspace: Optional[Path] = None,
+        output_contract_step: Optional[Dict[str, Any]] = None,
+        runtime_step_id: Optional[str] = None,
+    ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Compose a provider prompt without invoking the provider."""
+        step_name = step.get('name', f'step_{self.current_step}')
+        workspace = self.workspace if workspace is None else workspace
+        composer = self.prompt_composer if workspace == self.workspace else PromptComposer(
+            workspace=workspace,
+            asset_resolver=self.asset_resolver,
+        )
+        prompt, prompt_error = composer.read_prompt_source(
+            step,
+            step_name=step_name,
+            contract_violation_result=self._contract_violation_result,
+        )
+        if prompt_error is not None:
+            return None, prompt_error
+
+        prompt, asset_error = composer.apply_asset_depends_on_prompt_injection(
+            step,
+            prompt,
+            step_name=step_name,
+            contract_violation_result=self._contract_violation_result,
+        )
+        if asset_error is not None:
+            return None, asset_error
+
+        if 'depends_on' in step:
+            depends_on = step['depends_on']
+            substitution_vars = self._build_substitution_variables(context, state)
+            resolver = self.dependency_resolver if workspace == self.workspace else DependencyResolver(str(workspace))
+            resolution = resolver.resolve(
+                depends_on=depends_on,
+                variables=substitution_vars,
+            )
+            if not resolution.is_valid:
+                return None, {
+                    'status': 'failed',
+                    'exit_code': 2,
+                    'error': {
+                        'type': 'dependency_validation',
+                        'message': 'Missing required dependencies',
+                        'context': {
+                            'missing_dependencies': resolution.errors
+                        }
+                    }
+                }
+            inject_config = depends_on.get('inject', False)
+            if inject_config:
+                injector = self.dependency_injector if workspace == self.workspace else DependencyInjector(str(workspace))
+                injection_result = injector.inject(
+                    prompt=prompt,
+                    files=resolution.files,
+                    inject_config=inject_config,
+                    is_required='required' in depends_on and len(depends_on['required']) > 0,
+                )
+                prompt = injection_result.modified_prompt
+
+        resolved_consumes = state.get('_resolved_consumes', {})
+        prompt = composer.apply_consumes_prompt_injection(
+            step,
+            prompt,
+            resolved_consumes=resolved_consumes if isinstance(resolved_consumes, dict) else {},
+            step_name=step_name,
+            consume_identity=runtime_step_id or self._step_id(step),
+            uses_qualified_identities=self._uses_qualified_identities(),
+        )
+        prompt = composer.apply_output_contract_prompt_suffix(output_contract_step or step, prompt)
+        return prompt, None
+
+    def _execute_adjudicated_provider_with_context(
+        self,
+        step: Dict[str, Any],
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+        runtime_step_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Execute a DSL 2.11 adjudicated provider step sequentially."""
+        started = time.monotonic()
+        step_name = step.get('name', f'step_{self.current_step}')
+        step_id = runtime_step_id or self._step_id(step)
+        adjudicated = step.get('adjudicated_provider', {})
+        if not isinstance(adjudicated, dict):
+            return self._adjudication_failure_result("adjudication_resume_mismatch", "Missing adjudicated_provider config")
+
+        resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
+            step,
+            state,
+            context=context,
+        )
+        if path_error is not None:
+            return path_error
+        output_contract_step = dict(step)
+        if resolved_expected_outputs is not None:
+            output_contract_step['expected_outputs'] = resolved_expected_outputs
+        if resolved_output_bundle is not None:
+            output_contract_step['output_bundle'] = resolved_output_bundle
+
+        run_state = self.state_manager.load()
+        run_root = Path(run_state.run_root)
+        step_visits = state.get("step_visits", {})
+        visit_count = step_visits.get(step_name, 1) if isinstance(step_visits, dict) else 1
+        visit_paths = adjudication_visit_paths(run_root, "root", step_id, int(visit_count or 1))
+
+        required_surfaces = self._adjudication_required_path_surfaces(output_contract_step)
+        try:
+            baseline_manifest = create_baseline_snapshot(
+                parent_workspace=self.workspace,
+                run_root=run_root,
+                visit_paths=visit_paths,
+                workflow_checksum=state.get("workflow_checksum", ""),
+                resolved_consumes=state.get("_resolved_consumes", {}),
+                required_path_surfaces=required_surfaces,
+                optional_path_surfaces=[],
+            )
+        except Exception as exc:
+            return self._adjudication_failure_result(
+                getattr(exc, "failure_type", "adjudication_resume_mismatch"),
+                str(exc),
+            )
+
+        candidates_config = adjudicated.get("candidates", [])
+        evaluator_config = adjudicated.get("evaluator", {})
+        selection_config = adjudicated.get("selection", {})
+        require_single_score = bool(
+            isinstance(selection_config, dict)
+            and selection_config.get("require_score_for_single_candidate") is True
+        )
+        candidates: list[dict[str, Any]] = []
+
+        for index, candidate_config in enumerate(candidates_config if isinstance(candidates_config, list) else []):
+            if not isinstance(candidate_config, dict):
+                continue
+            candidate_id = str(candidate_config.get("id"))
+            candidate_provider = str(candidate_config.get("provider"))
+            paths = candidate_paths(run_root, "root", step_id, int(visit_count or 1), candidate_id)
+            candidate_step = self._candidate_step_from_adjudicated_step(step, candidate_config)
+            candidate_record = {
+                "candidate_id": candidate_id,
+                "candidate_index": index,
+                "candidate_provider": candidate_provider,
+                "candidate_model": self._provider_model(candidate_config.get("provider_params")),
+                "candidate_params_hash": self._stable_runtime_hash(candidate_config.get("provider_params", {})),
+                "candidate_config_hash": self._stable_runtime_hash(candidate_config),
+                "prompt_variant_id": candidate_config.get("prompt_variant_id") or candidate_id,
+                "candidate_root": paths.candidate_root.relative_to(self.workspace).as_posix()
+                if self._path_under(paths.candidate_root, self.workspace)
+                else paths.candidate_root.as_posix(),
+                "candidate_workspace": paths.workspace.relative_to(self.workspace).as_posix()
+                if self._path_under(paths.workspace, self.workspace)
+                else paths.workspace.as_posix(),
+                "attempt_count": 1,
+                "output_paths": {},
+            }
+            try:
+                prepare_candidate_workspace_from_baseline(
+                    baseline_workspace=visit_paths.baseline_workspace,
+                    candidate_workspace=paths.workspace,
+                )
+                prompt, prompt_error = self._compose_provider_prompt_for_step(
+                    candidate_step,
+                    context,
+                    state,
+                    workspace=paths.workspace,
+                    output_contract_step=output_contract_step,
+                    runtime_step_id=step_id,
+                )
+                if prompt_error is not None:
+                    candidate_record.update(
+                        {
+                            "candidate_status": "prompt_failed",
+                            "score_status": "not_evaluated",
+                            "provider_exit_code": None,
+                            "failure_type": prompt_error.get("error", {}).get("type", "prompt_failed"),
+                            "failure_message": prompt_error.get("error", {}).get("message", "prompt failed"),
+                        }
+                    )
+                    candidates.append(candidate_record)
+                    continue
+                paths.prompt_path.parent.mkdir(parents=True, exist_ok=True)
+                paths.prompt_path.write_text(prompt or "", encoding="utf-8")
+                candidate_record["composed_prompt_hash"] = self._text_hash(prompt or "")
+
+                invocation, error = self.provider_executor.prepare_invocation(
+                    provider_name=candidate_provider,
+                    params=ProviderParams(
+                        params=candidate_config.get("provider_params", {}),
+                        input_file=candidate_step.get("input_file"),
+                        output_file=None,
+                    ),
+                    context=self._create_provider_context(context, state),
+                    prompt_content=prompt,
+                    env=candidate_step.get("env"),
+                    secrets=candidate_step.get("secrets"),
+                    timeout_sec=step.get("timeout_sec"),
+                )
+                if error or invocation is None:
+                    candidate_record.update(
+                        {
+                            "candidate_status": "prompt_failed",
+                            "score_status": "not_evaluated",
+                            "provider_exit_code": None,
+                            "failure_type": (error or {}).get("type", "provider_preparation_failed"),
+                            "failure_message": (error or {}).get("message", "provider preparation failed"),
+                        }
+                    )
+                    candidates.append(candidate_record)
+                    continue
+                exec_result = self._execute_provider_invocation(invocation, cwd=paths.workspace)
+                paths.stdout_log.write_bytes(exec_result.stdout)
+                paths.stderr_log.write_bytes(exec_result.stderr)
+                candidate_record["provider_exit_code"] = exec_result.exit_code
+                if exec_result.exit_code != 0:
+                    candidate_record.update(
+                        {
+                            "candidate_status": "timeout" if exec_result.exit_code == 124 else "provider_failed",
+                            "score_status": "not_evaluated",
+                            "failure_type": "timeout" if exec_result.exit_code == 124 else "provider_failed",
+                            "failure_message": "candidate provider failed",
+                        }
+                    )
+                    candidates.append(candidate_record)
+                    continue
+                try:
+                    if resolved_output_bundle is not None:
+                        artifacts = validate_output_bundle(resolved_output_bundle, workspace=paths.workspace)
+                    else:
+                        artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=paths.workspace)
+                except OutputContractError as exc:
+                    candidate_record.update(
+                        {
+                            "candidate_status": "contract_failed",
+                            "score_status": "not_evaluated",
+                            "failure_type": "contract_failed",
+                            "failure_message": str(exc),
+                        }
+                    )
+                    candidates.append(candidate_record)
+                    continue
+                candidate_record.update(
+                    {
+                        "candidate_status": "output_valid",
+                        "score_status": "not_evaluated",
+                        "artifacts": artifacts,
+                        "output_paths": self._output_paths_from_contract(output_contract_step),
+                    }
+                )
+            except Exception as exc:
+                candidate_record.update(
+                    {
+                        "candidate_status": "prompt_failed",
+                        "score_status": "not_evaluated",
+                        "provider_exit_code": None,
+                        "failure_type": getattr(exc, "failure_type", "candidate_failed"),
+                        "failure_message": str(exc),
+                    }
+                )
+            candidates.append(candidate_record)
+
+        output_valid = [candidate for candidate in candidates if candidate.get("candidate_status") == "output_valid"]
+        scorer: dict[str, Any] | None = None
+        evaluator_prompt = ""
+        scorer_failure: dict[str, Any] | None = None
+        if output_valid:
+            scorer, evaluator_prompt, scorer_failure = self._resolve_adjudication_scorer(
+                evaluator_config if isinstance(evaluator_config, dict) else {},
+                context,
+                state,
+            )
+        if scorer_failure is not None:
+            for candidate in output_valid:
+                candidate.update(
+                    {
+                        "score_status": "scorer_unavailable",
+                        "scorer_resolution_failure_key": scorer_failure["scorer_resolution_failure_key"],
+                        "failure_type": scorer_failure["failure_type"],
+                        "failure_message": scorer_failure["failure_message"],
+                    }
+                )
+        elif scorer is not None:
+            for candidate in output_valid:
+                self._score_adjudicated_candidate(
+                    candidate=candidate,
+                    scorer=scorer,
+                    evaluator_prompt=evaluator_prompt,
+                    evaluator_config=evaluator_config if isinstance(evaluator_config, dict) else {},
+                    step=step,
+                    output_contract_step=output_contract_step,
+                    run_root=run_root,
+                    visit_count=int(visit_count or 1),
+                    context=context,
+                    state=state,
+                )
+
+        selection = select_candidate(
+            candidates,
+            require_score_for_single_candidate=require_single_score,
+        )
+        if selection.error_type is not None:
+            rows = self._write_adjudication_ledgers(
+                adjudicated=adjudicated,
+                visit_paths=visit_paths,
+                state=state,
+                step_id=step_id,
+                step_name=step_name,
+                visit_count=int(visit_count or 1),
+                candidates=candidates,
+                selected_candidate_id=None,
+                selection_reason="none",
+                promotion_status="not_selected",
+                promoted_paths={},
+            )
+            del rows
+            return self._adjudication_failure_result(selection.error_type, selection.error_type, candidates=candidates, visit_paths=visit_paths)
+
+        selected = next(candidate for candidate in candidates if candidate["candidate_id"] == selection.selected_candidate_id)
+        for candidate in candidates:
+            candidate["selected"] = candidate["candidate_id"] == selection.selected_candidate_id
+            if candidate["selected"]:
+                candidate["promotion_status"] = "pending"
+            else:
+                candidate["promotion_status"] = "not_selected"
+        selected_paths = candidate_paths(run_root, "root", step_id, int(visit_count or 1), str(selection.selected_candidate_id))
+        ledger_path = adjudicated.get("score_ledger_path")
+        if isinstance(ledger_path, str):
+            ledger_abs = (self.workspace / ledger_path).resolve()
+            dynamic_paths = set(self._promotion_destination_paths(output_contract_step, selected.get("artifacts", {})))
+            if ledger_abs in dynamic_paths:
+                return self._adjudication_failure_result("ledger_path_collision", "score ledger path collides with promoted outputs")
+        try:
+            promotion = promote_candidate_outputs(
+                expected_outputs=resolved_expected_outputs,
+                output_bundle=resolved_output_bundle,
+                candidate_workspace=selected_paths.workspace,
+                parent_workspace=self.workspace,
+                baseline_manifest=baseline_manifest,
+                promotion_manifest_path=visit_paths.promotion_manifest_path,
+            )
+        except PromotionConflictError as exc:
+            self._write_adjudication_ledgers(
+                adjudicated=adjudicated,
+                visit_paths=visit_paths,
+                state=state,
+                step_id=step_id,
+                step_name=step_name,
+                visit_count=int(visit_count or 1),
+                candidates=candidates,
+                selected_candidate_id=str(selection.selected_candidate_id),
+                selection_reason=selection.selection_reason,
+                promotion_status="failed",
+                promoted_paths={},
+            )
+            return self._adjudication_failure_result(getattr(exc, "failure_type", "promotion_conflict"), str(exc), candidates=candidates, visit_paths=visit_paths)
+
+        selected["promotion_status"] = "committed"
+        selected["promoted_paths"] = promotion.promoted_paths
+        rows = self._write_adjudication_ledgers(
+            adjudicated=adjudicated,
+            visit_paths=visit_paths,
+            state=state,
+            step_id=step_id,
+            step_name=step_name,
+            visit_count=int(visit_count or 1),
+            candidates=candidates,
+            selected_candidate_id=str(selection.selected_candidate_id),
+            selection_reason=selection.selection_reason,
+            promotion_status="committed",
+            promoted_paths=promotion.promoted_paths,
+        )
+        try:
+            if resolved_output_bundle is not None:
+                artifacts = validate_output_bundle(resolved_output_bundle, workspace=self.workspace)
+            else:
+                artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=self.workspace)
+        except OutputContractError as exc:
+            return self._adjudication_failure_result("promotion_validation_failed", str(exc), candidates=candidates, visit_paths=visit_paths)
+
+        duration_ms = int((time.monotonic() - started) * 1000)
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": duration_ms,
+            "artifacts": artifacts,
+            "adjudication": self._adjudication_state_block(
+                selected_candidate_id=str(selection.selected_candidate_id),
+                selected_score=selection.selected_score,
+                selection_reason=selection.selection_reason,
+                promotion_status="committed",
+                scorer=scorer,
+                score_ledger_path=ledger_path if isinstance(ledger_path, str) else None,
+                run_score_ledger_path=visit_paths.run_score_ledger_path,
+                scorer_snapshot_path=visit_paths.scorer_root / "metadata.json",
+                promotion_manifest_path=visit_paths.promotion_manifest_path,
+                candidates=candidates,
+            ),
+        }
+
+    def _adjudication_required_path_surfaces(self, step: Dict[str, Any]) -> list[PathSurface]:
+        surfaces: list[PathSurface] = []
+        input_file = step.get("input_file")
+        if isinstance(input_file, str):
+            surfaces.append(PathSurface("input_file", Path(input_file)))
+        depends_on = step.get("depends_on")
+        if isinstance(depends_on, dict):
+            for key in ("required",):
+                values = depends_on.get(key)
+                if isinstance(values, list):
+                    for index, value in enumerate(values):
+                        if isinstance(value, str):
+                            surfaces.append(PathSurface(f"depends_on.{key}[{index}]", Path(value)))
+        consume_bundle = step.get("consume_bundle")
+        if isinstance(consume_bundle, dict) and isinstance(consume_bundle.get("path"), str):
+            surfaces.append(PathSurface("consume_bundle.path", Path(consume_bundle["path"])))
+        for index, spec in enumerate(step.get("expected_outputs", []) if isinstance(step.get("expected_outputs"), list) else []):
+            if isinstance(spec, dict) and isinstance(spec.get("path"), str):
+                surfaces.append(PathSurface(f"expected_outputs[{index}].path", Path(spec["path"])))
+        output_bundle = step.get("output_bundle")
+        if isinstance(output_bundle, dict) and isinstance(output_bundle.get("path"), str):
+            surfaces.append(PathSurface("output_bundle.path", Path(output_bundle["path"])))
+        return surfaces
+
+    def _candidate_step_from_adjudicated_step(
+        self,
+        step: Dict[str, Any],
+        candidate_config: Mapping[str, Any],
+    ) -> Dict[str, Any]:
+        candidate_step = dict(step)
+        candidate_step.pop("adjudicated_provider", None)
+        candidate_step["provider"] = candidate_config.get("provider")
+        if "provider_params" in candidate_config:
+            candidate_step["provider_params"] = candidate_config.get("provider_params")
+        else:
+            candidate_step.pop("provider_params", None)
+        if "asset_file" in candidate_config:
+            candidate_step["asset_file"] = candidate_config["asset_file"]
+            candidate_step.pop("input_file", None)
+        elif "input_file" in candidate_config:
+            candidate_step["input_file"] = candidate_config["input_file"]
+            candidate_step.pop("asset_file", None)
+        return candidate_step
+
+    def _resolve_adjudication_scorer(
+        self,
+        evaluator_config: Mapping[str, Any],
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> tuple[Optional[dict[str, Any]], str, Optional[dict[str, Any]]]:
+        evaluator_prompt, prompt_error = self.prompt_composer.read_prompt_source(
+            dict(evaluator_config),
+            step_name="adjudication_evaluator",
+            contract_violation_result=self._contract_violation_result,
+        )
+        if prompt_error is not None:
+            failure = {
+                "failure_type": prompt_error.get("error", {}).get("type", "scorer_unavailable"),
+                "failure_message": prompt_error.get("error", {}).get("message", "scorer prompt unavailable"),
+            }
+            failure["scorer_resolution_failure_key"] = self._stable_runtime_hash(failure)
+            return None, "", failure
+        provider_name = evaluator_config.get("provider")
+        if not isinstance(provider_name, str):
+            failure = {
+                "failure_type": "missing_evaluator_provider",
+                "failure_message": "evaluator provider is missing",
+            }
+            failure["scorer_resolution_failure_key"] = self._stable_runtime_hash(failure)
+            return None, "", failure
+        provider_context = self._create_provider_context(context, state)
+        merged_params = self.provider_registry.merge_params(provider_name, evaluator_config.get("provider_params", {}))
+        try:
+            substituted_params, param_errors = self.provider_executor._substitute_params(merged_params, provider_context)
+        except Exception as exc:
+            param_errors = [str(exc)]
+            substituted_params = {}
+        if param_errors:
+            failure = {
+                "failure_type": "evaluator_params_substitution_failed",
+                "failure_message": "; ".join(str(error) for error in param_errors),
+            }
+            failure["scorer_resolution_failure_key"] = self._stable_runtime_hash(failure)
+            return None, "", failure
+        limits = dict(evaluator_config.get("evidence_limits") or {})
+        limits.setdefault("max_item_bytes", 262144)
+        limits.setdefault("max_packet_bytes", 1048576)
+        scorer = {
+            "evaluator_provider": provider_name,
+            "evaluator_model": self._provider_model(substituted_params),
+            "evaluator_params": substituted_params,
+            "evaluator_params_hash": self._stable_runtime_hash(substituted_params),
+            "evaluator_config_hash": self._stable_runtime_hash(evaluator_config),
+            "evaluator_prompt_source_kind": "asset_file" if "asset_file" in evaluator_config else "input_file",
+            "evaluator_prompt_source": evaluator_config.get("asset_file") or evaluator_config.get("input_file"),
+            "evaluator_prompt_hash": self._text_hash(evaluator_prompt),
+            "evidence_confidentiality": evaluator_config.get("evidence_confidentiality"),
+            "secret_detection_policy": SECRET_DETECTION_POLICY,
+            "evaluation_packet_schema": EVALUATION_PACKET_SCHEMA,
+            "evidence_limits": limits,
+        }
+        scorer["scorer_identity_hash"] = scorer_identity_hash(scorer)
+        return scorer, evaluator_prompt, None
+
+    def _score_adjudicated_candidate(
+        self,
+        *,
+        candidate: dict[str, Any],
+        scorer: dict[str, Any],
+        evaluator_prompt: str,
+        evaluator_config: Mapping[str, Any],
+        step: Dict[str, Any],
+        output_contract_step: Dict[str, Any],
+        run_root: Path,
+        visit_count: int,
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> None:
+        paths = candidate_paths(run_root, "root", self._step_id(step), visit_count, str(candidate["candidate_id"]))
+        candidate.update(
+            {
+                "scorer_identity_hash": scorer.get("scorer_identity_hash"),
+                "evaluator_provider": scorer.get("evaluator_provider"),
+                "evaluator_model": scorer.get("evaluator_model"),
+                "evaluator_params_hash": scorer.get("evaluator_params_hash"),
+                "evaluator_config_hash": scorer.get("evaluator_config_hash"),
+                "evaluator_prompt_source_kind": scorer.get("evaluator_prompt_source_kind"),
+                "evaluator_prompt_source": scorer.get("evaluator_prompt_source"),
+                "evaluator_prompt_hash": scorer.get("evaluator_prompt_hash"),
+                "evidence_confidentiality": scorer.get("evidence_confidentiality"),
+                "secret_detection_policy": scorer.get("secret_detection_policy"),
+            }
+        )
+        try:
+            packet = build_evaluation_packet(
+                candidate_id=str(candidate["candidate_id"]),
+                candidate_workspace=paths.workspace,
+                rendered_prompt=paths.prompt_path.read_text(encoding="utf-8"),
+                expected_outputs=output_contract_step.get("expected_outputs"),
+                output_bundle=output_contract_step.get("output_bundle"),
+                artifacts=candidate.get("artifacts", {}),
+                scorer=scorer,
+                evidence_limits=scorer.get("evidence_limits"),
+                workflow_secret_values=self._workflow_secret_values(step),
+            )
+            paths.evaluation_packet_path.parent.mkdir(parents=True, exist_ok=True)
+            paths.evaluation_packet_path.write_text(json.dumps(packet, sort_keys=True, ensure_ascii=False), encoding="utf-8")
+            candidate["evaluation_packet_hash"] = packet["evaluation_packet_hash"]
+        except (EvidencePacketError, OSError, ValueError) as exc:
+            candidate.update(
+                {
+                    "score_status": "evaluation_failed",
+                    "failure_type": getattr(exc, "failure_type", "evidence_packet_failed"),
+                    "failure_message": str(exc),
+                }
+            )
+            return
+
+        evaluator_prompt_text = f"{evaluator_prompt}\n\nEvaluator Packet:{json.dumps(packet, sort_keys=True, ensure_ascii=False)}"
+        invocation, error = self.provider_executor.prepare_invocation(
+            provider_name=str(evaluator_config.get("provider")),
+            params=ProviderParams(
+                params=evaluator_config.get("provider_params", {}),
+                input_file=evaluator_config.get("input_file"),
+                output_file=None,
+            ),
+            context=self._create_provider_context(context, state),
+            prompt_content=evaluator_prompt_text,
+            env=step.get("env"),
+            secrets=step.get("secrets"),
+            timeout_sec=step.get("timeout_sec"),
+        )
+        if error or invocation is None:
+            candidate.update(
+                {
+                    "score_status": "evaluation_failed",
+                    "failure_type": (error or {}).get("type", "evaluator_preparation_failed"),
+                    "failure_message": (error or {}).get("message", "evaluator preparation failed"),
+                }
+            )
+            return
+        paths.evaluator_workspace.mkdir(parents=True, exist_ok=True)
+        exec_result = self._execute_provider_invocation(invocation, cwd=paths.evaluator_workspace)
+        paths.evaluation_output_path.write_bytes(exec_result.stdout)
+        if exec_result.exit_code != 0:
+            candidate.update(
+                {
+                    "score_status": "evaluation_failed",
+                    "failure_type": "evaluator_failed",
+                    "failure_message": "evaluator provider failed",
+                }
+            )
+            return
+        try:
+            parsed = parse_evaluator_output(exec_result.stdout, expected_candidate_id=str(candidate["candidate_id"]))
+        except EvaluatorOutputError as exc:
+            candidate.update(
+                {
+                    "score_status": "evaluation_failed",
+                    "failure_type": "invalid_evaluator_json",
+                    "failure_message": str(exc),
+                }
+            )
+            return
+        candidate.update(
+            {
+                "score_status": "scored",
+                "score": parsed["score"],
+                "summary": parsed["summary"],
+            }
+        )
+
+    def _write_adjudication_ledgers(
+        self,
+        *,
+        adjudicated: Mapping[str, Any],
+        visit_paths: Any,
+        state: Dict[str, Any],
+        step_id: str,
+        step_name: str,
+        visit_count: int,
+        candidates: list[dict[str, Any]],
+        selected_candidate_id: Optional[str],
+        selection_reason: str,
+        promotion_status: str,
+        promoted_paths: Mapping[str, str],
+    ) -> list[dict[str, Any]]:
+        rows = generate_score_ledger_rows(
+            run_id=str(state.get("run_id", self.state_manager.run_id)),
+            workflow_file=str(state.get("workflow_file", "")),
+            workflow_checksum=str(state.get("workflow_checksum", "")),
+            dsl_version=self.workflow_version,
+            execution_frame_id="root",
+            call_frame_id=None,
+            step_id=step_id,
+            step_name=step_name,
+            visit_count=visit_count,
+            candidates=candidates,
+            selected_candidate_id=selected_candidate_id,
+            selection_reason=selection_reason,
+            promotion_status=promotion_status,
+            promoted_paths=promoted_paths,
+        )
+        materialize_run_score_ledger(rows, visit_paths.run_score_ledger_path)
+        mirror = adjudicated.get("score_ledger_path")
+        if isinstance(mirror, str):
+            materialize_score_ledger_mirror(rows, self.workspace / mirror)
+        return rows
+
+    def _adjudication_failure_result(
+        self,
+        error_type: str,
+        message: str,
+        *,
+        candidates: Optional[list[dict[str, Any]]] = None,
+        visit_paths: Any = None,
+    ) -> Dict[str, Any]:
+        mapped = adjudication_outcome(error_type)
+        result = {
+            "status": "failed",
+            "exit_code": mapped["exit_code"],
+            "duration_ms": 0,
+            "error": {
+                "type": error_type,
+                "message": message,
+            },
+            "outcome": mapped["outcome"],
+        }
+        if candidates is not None or visit_paths is not None:
+            result["adjudication"] = {
+                "schema": "adjudicated_provider.state.v1",
+                "selected_candidate_id": None,
+                "selected_score": None,
+                "selection_reason": "none",
+                "promotion_status": "failed",
+                "run_score_ledger_path": (
+                    visit_paths.run_score_ledger_path.as_posix()
+                    if visit_paths is not None
+                    else None
+                ),
+                "candidates": self._candidate_state_map(candidates or []),
+            }
+        return result
+
+    def _adjudication_state_block(
+        self,
+        *,
+        selected_candidate_id: str,
+        selected_score: Optional[float],
+        selection_reason: str,
+        promotion_status: str,
+        scorer: Optional[Mapping[str, Any]],
+        score_ledger_path: Optional[str],
+        run_score_ledger_path: Path,
+        scorer_snapshot_path: Path,
+        promotion_manifest_path: Path,
+        candidates: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "schema": "adjudicated_provider.state.v1",
+            "execution_frame_id": "root",
+            "call_frame_id": None,
+            "selected_candidate_id": selected_candidate_id,
+            "selected_score": selected_score,
+            "selection_reason": selection_reason,
+            "promotion_status": promotion_status,
+            "scorer_identity_hash": scorer.get("scorer_identity_hash") if scorer else None,
+            "evaluator_prompt_hash": scorer.get("evaluator_prompt_hash") if scorer else None,
+            "evidence_confidentiality": scorer.get("evidence_confidentiality") if scorer else None,
+            "secret_detection_policy": SECRET_DETECTION_POLICY,
+            "score_ledger_path": score_ledger_path,
+            "run_score_ledger_path": run_score_ledger_path.as_posix(),
+            "scorer_snapshot_path": scorer_snapshot_path.as_posix(),
+            "promotion_manifest_path": promotion_manifest_path.as_posix(),
+            "candidates": self._candidate_state_map(candidates),
+        }
+
+    def _candidate_state_map(self, candidates: list[dict[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for candidate in candidates:
+            candidate_id = str(candidate.get("candidate_id"))
+            result[candidate_id] = {
+                "candidate_status": candidate.get("candidate_status"),
+                "score_status": candidate.get("score_status"),
+                "score": candidate.get("score"),
+                "selected": bool(candidate.get("selected", False)),
+                "promotion_status": candidate.get("promotion_status", "not_selected"),
+                "candidate_root": candidate.get("candidate_root"),
+                "failure_type": candidate.get("failure_type"),
+                "failure_message": candidate.get("failure_message"),
+            }
+        return result
+
+    def _output_paths_from_contract(self, step: Dict[str, Any]) -> dict[str, str]:
+        paths: dict[str, str] = {}
+        for spec in step.get("expected_outputs", []) if isinstance(step.get("expected_outputs"), list) else []:
+            if isinstance(spec, dict) and isinstance(spec.get("name"), str) and isinstance(spec.get("path"), str):
+                paths[spec["name"]] = spec["path"]
+        output_bundle = step.get("output_bundle")
+        if isinstance(output_bundle, dict) and isinstance(output_bundle.get("path"), str):
+            paths["output_bundle"] = output_bundle["path"]
+        return paths
+
+    def _promotion_destination_paths(self, step: Dict[str, Any], artifacts: Mapping[str, Any]) -> set[Path]:
+        paths: set[Path] = set()
+        for spec in step.get("expected_outputs", []) if isinstance(step.get("expected_outputs"), list) else []:
+            if not isinstance(spec, dict):
+                continue
+            if isinstance(spec.get("path"), str):
+                paths.add((self.workspace / spec["path"]).resolve())
+            if spec.get("type") == "relpath" and spec.get("must_exist_target") and isinstance(spec.get("name"), str):
+                value = artifacts.get(spec["name"])
+                if isinstance(value, str):
+                    paths.add((self.workspace / value).resolve())
+        output_bundle = step.get("output_bundle")
+        if isinstance(output_bundle, dict) and isinstance(output_bundle.get("path"), str):
+            paths.add((self.workspace / output_bundle["path"]).resolve())
+        return paths
+
+    def _workflow_secret_values(self, step: Dict[str, Any]) -> list[str]:
+        secret_names = []
+        secret_names.extend(self.global_secrets)
+        step_secrets = step.get("secrets")
+        if isinstance(step_secrets, list):
+            secret_names.extend(name for name in step_secrets if isinstance(name, str))
+        values: list[str] = []
+        for name in secret_names:
+            value = os.environ.get(name)
+            if value:
+                values.append(value)
+        return values
+
+    def _provider_model(self, params: Any) -> Optional[str]:
+        if isinstance(params, Mapping):
+            model = params.get("model") or params.get("reasoning_model")
+            return model if isinstance(model, str) else None
+        return None
+
+    def _stable_runtime_hash(self, payload: Any) -> str:
+        encoded = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
+        from hashlib import sha256
+
+        return f"sha256:{sha256(encoded).hexdigest()}"
+
+    def _text_hash(self, text: str) -> str:
+        from hashlib import sha256
+
+        return f"sha256:{sha256(text.encode('utf-8')).hexdigest()}"
+
+    def _path_under(self, path: Path, root: Path) -> bool:
+        try:
+            path.resolve().relative_to(root.resolve())
+            return True
+        except ValueError:
+            return False
+
     def _build_provider_session_request(
         self,
         step: Dict[str, Any],
@@ -3641,6 +4482,7 @@ class WorkflowExecutor:
         self,
         invocation: Any,
         *,
+        cwd: Optional[Path] = None,
         session_runtime: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """Execute provider invocation with backward-compatible call shape."""
@@ -3648,21 +4490,53 @@ class WorkflowExecutor:
         try:
             return execute_fn(
                 invocation,
+                cwd=cwd,
                 stream_output=(self.debug or self.stream_output),
                 session_runtime=session_runtime,
             )
         except TypeError as exc:
             message = str(exc)
+            if "unexpected keyword argument 'cwd'" in message:
+                try:
+                    return execute_fn(
+                        invocation,
+                        stream_output=(self.debug or self.stream_output),
+                        session_runtime=session_runtime,
+                    )
+                except TypeError as nested_exc:
+                    nested_message = str(nested_exc)
+                    if "unexpected keyword argument 'session_runtime'" in nested_message:
+                        try:
+                            return execute_fn(invocation, stream_output=(self.debug or self.stream_output))
+                        except TypeError as final_exc:
+                            if "unexpected keyword argument 'stream_output'" not in str(final_exc):
+                                raise
+                            return execute_fn(invocation)
+                    if "unexpected keyword argument 'stream_output'" not in nested_message:
+                        raise
+                    return execute_fn(invocation)
             if "unexpected keyword argument 'session_runtime'" in message:
                 try:
-                    return execute_fn(invocation, stream_output=(self.debug or self.stream_output))
+                    return execute_fn(invocation, cwd=cwd, stream_output=(self.debug or self.stream_output))
                 except TypeError as nested_exc:
+                    if "unexpected keyword argument 'cwd'" in str(nested_exc):
+                        try:
+                            return execute_fn(invocation, stream_output=(self.debug or self.stream_output))
+                        except TypeError as final_exc:
+                            if "unexpected keyword argument 'stream_output'" not in str(final_exc):
+                                raise
+                            return execute_fn(invocation)
                     if "unexpected keyword argument 'stream_output'" not in str(nested_exc):
                         raise
                     return execute_fn(invocation)
             if "unexpected keyword argument 'stream_output'" not in message:
                 raise
-            return execute_fn(invocation)
+            try:
+                return execute_fn(invocation, cwd=cwd)
+            except TypeError as nested_exc:
+                if "unexpected keyword argument 'cwd'" not in str(nested_exc):
+                    raise
+                return execute_fn(invocation)
 
     def _resolve_output_contract_paths(
         self,

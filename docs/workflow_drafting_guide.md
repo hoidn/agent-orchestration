@@ -111,6 +111,7 @@ Two practical upgrades now exist:
 - v2.7: prefer top-level `repeat_until` for bounded post-test review/fix loops when the exit condition should read the latest iteration outputs instead of shell-managed counters or raw `goto` back-edges.
 - v2.8: prefer the `score` predicate helper for evaluator thresholds and score bands instead of repeating numeric `compare` / `all_of` chains around one score artifact.
 - v2.9 tooling: use `orchestrate run ... --dry-run` or `orchestrate report` to surface advisory migration warnings for shell gates, stringly `when.equals`, raw `goto` diamonds, and imported/exported output-name collisions before those patterns spread.
+- v2.11: use `adjudicated_provider` when a high-value artifact-producing provider step should compare multiple providers or prompt variants before downstream publication.
 - Reusable-call boundary: if a workflow is intended for `call` reuse, keep bundled prompts/rubrics/schemas on the workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep workspace-owned or runtime-generated prompt material on `input_file`.
 
 ## 5) Prompt Authoring Guidance
@@ -173,6 +174,18 @@ For those workflows:
 - keep the prompt focused on the local task; operator rules about branch movement, resume/recovery, or safe concurrent edits belong in docs and workflow/runtime behavior, not prompt prose
 
 If a workflow can be derailed by an unrelated commit landing in the same checkout, treat that as a workflow/runbook design issue to document or fix explicitly, not as a universal rule for all workflows.
+
+### Adjudicated Provider Steps
+
+Use `adjudicated_provider` for artifact-producing work where comparing multiple candidates is worth the extra runtime and audit state. Good fits include design drafts, report generation, structured analyses, and other deterministic-output steps where downstream workflow state should see only the selected artifact.
+
+Do not use it as a generic implementation or source-edit competition mechanism in V1. The first release promotes declared deterministic outputs only; arbitrary patch selection belongs in a separate workflow design.
+
+Keep the evaluator prompt reusable and small. Put task-specific rubric text in a concise evaluator rubric source when needed, and keep score-critical evidence bounded so packets are reviewable.
+
+Treat the same-trust-boundary attestation as a real data disclosure decision. Baseline snapshots, candidate workspaces, composed prompts, evaluator packets, score ledgers, logs, and promotion staging can contain sensitive workspace material.
+
+Adjudicated steps do not expose candidate or evaluator stdout through `steps.<Step>.output`, `.lines`, or `.json`. Publish deterministic artifacts and have downstream steps consume the promoted selected artifacts normally.
 
 For `expected_outputs`, prefer concise guidance annotations directly on each artifact:
 

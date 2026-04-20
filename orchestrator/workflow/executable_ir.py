@@ -21,6 +21,7 @@ class ExecutableNodeKind(str, Enum):
 
     COMMAND = "command"
     PROVIDER = "provider"
+    ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
@@ -152,6 +153,22 @@ class ProviderStepConfig:
 
 
 @dataclass(frozen=True)
+class AdjudicatedProviderStepConfig:
+    """Executable adjudicated-provider step config."""
+
+    common: StepCommonConfig = field(default_factory=StepCommonConfig)
+    adjudicated_provider: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    input_file: Any = None
+    asset_file: Any = None
+    depends_on: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    asset_depends_on: tuple[Any, ...] = ()
+    inject_output_contract: Optional[bool] = None
+    inject_consumes: Optional[bool] = None
+    prompt_consumes: Optional[tuple[Any, ...]] = None
+    consumes_injection_position: Optional[str] = None
+
+
+@dataclass(frozen=True)
 class WaitForStepConfig:
     """Executable wait_for-step config."""
 
@@ -212,6 +229,7 @@ class RepeatUntilStepConfig:
 ExecutableStepConfig = (
     CommandStepConfig
     | ProviderStepConfig
+    | AdjudicatedProviderStepConfig
     | WaitForStepConfig
     | AssertStepConfig
     | SetScalarStepConfig

@@ -248,6 +248,9 @@ def build_status_snapshot(
                 entry["output"]["call"] = debug_payload.get("call")
             if isinstance(debug_payload, dict) and isinstance(debug_payload.get("provider_session"), dict):
                 entry["output"]["provider_session"] = debug_payload.get("provider_session")
+            adjudication_payload = result.get("adjudication")
+            if isinstance(adjudication_payload, dict):
+                entry["output"]["adjudication"] = adjudication_payload
 
         if status == "completed":
             entry["summary"] = "completed"
@@ -434,6 +437,9 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
             provider_session = output_payload.get("provider_session")
             if provider_session:
                 lines.append(f"  - provider_session: `{provider_session}`")
+            adjudication = output_payload.get("adjudication")
+            if adjudication:
+                lines.append(f"  - adjudication: `{adjudication}`")
 
         lines.append("")
 

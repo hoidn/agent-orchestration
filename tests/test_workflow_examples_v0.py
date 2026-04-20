@@ -15,6 +15,7 @@ from tests.workflow_bundle_helpers import bundle_context_dict, thaw_surface_work
 
 EXAMPLE_FILES = [
     "assert_gate_demo.yaml",
+    "adjudicated_provider_demo.yaml",
     "backlog_plan_execute_v0.yaml",
     "backlog_plan_execute_v1_2_dataflow.yaml",
     "backlog_plan_execute_v1_3_json_bundles.yaml",
@@ -186,6 +187,45 @@ def test_assert_gate_demo_runtime(tmp_path: Path):
     assert state["steps"]["GateApproval"]["error"]["type"] == "assert_failed"
     assert state["steps"]["WriteRevision"]["status"] == "completed"
     assert not (workspace / "approval.txt").exists()
+
+
+def test_adjudicated_provider_demo_runtime(tmp_path: Path):
+    """Adjudicated provider demo promotes the selected candidate and materializes score rows."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path,
+        "adjudicated_provider_demo.yaml",
+    )
+    _copy_repo_file_to_workspace(
+        workspace,
+        "workflows/examples/prompts/adjudicated_provider_demo/draft_candidate.md",
+    )
+    _copy_repo_file_to_workspace(
+        workspace,
+        "workflows/library/prompts/adjudication/evaluate_candidate.md",
+    )
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
+    executor = WorkflowExecutor(workflow, workspace, state_manager, retry_delay_ms=0)
+
+    state = executor.execute()
+
+    result = state["steps"]["DraftDocument"]
+    assert state["status"] == "completed"
+    assert result["artifacts"]["selected_document"] == "docs/adjudicated-provider-demo/candidate-b.md"
+    assert (workspace / "docs/adjudicated-provider-demo/candidate-b.md").exists()
+    assert result["adjudication"]["selected_candidate_id"] == "candidate_b"
+    ledger = workspace / "artifacts/evaluations/adjudicated-provider-demo.candidate_scores.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    assert len(rows) == 2
+    assert rows[1]["selected"] is True
+    assert rows[1]["promotion_status"] == "committed"
+    assert rows[1]["candidate_run_key"].startswith("sha256:")
+    assert rows[1]["score_run_key"].startswith("sha256:")
+    assert state["workflow_outputs"] == {
+        "selected_document": "docs/adjudicated-provider-demo/candidate-b.md",
+    }
 
 
 def test_call_subworkflow_demo_runtime(tmp_path: Path):

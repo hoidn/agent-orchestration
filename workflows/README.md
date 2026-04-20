@@ -60,6 +60,7 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 
 | Path | Status | DSL | Workflow Name | Purpose |
 | --- | --- | --- | --- | --- |
+| `workflows/examples/adjudicated_provider_demo.yaml` | Current canonical | `2.11` | `adjudicated-provider-demo` | Demonstrates an adjudicated provider step with isolated candidate workspaces, evaluator scoring, selected artifact promotion, and a terminal score ledger mirror. |
 | `workflows/examples/backlog_plan_execute_v0.yaml` | Legacy or migration | `1.1.1` | `backlog-plan-execute-v0` | Minimal backlog -> draft plan -> execute flow with deterministic file outputs and optional review loop. |
 | `workflows/examples/backlog_plan_execute_v1_2_dataflow.yaml` | Legacy or migration | `1.2` | `backlog-plan-execute-v1-2-dataflow` | Execute/review/fix loop showing publish/consume artifact lineage and freshness semantics. |
 | `workflows/examples/backlog_plan_execute_v1_3_json_bundles.yaml` | Legacy or migration | `1.3` | `backlog-plan-execute-v1-3-json-bundles` | Execute/review/fix loop using `output_bundle` and `consume_bundle` for strict JSON-gated routing. |

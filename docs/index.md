@@ -17,6 +17,7 @@ These are the highest-impact terminology and contract confusions.
 | Rollback/checkpoint workflow safety | "Every workflow needs the same live-checkout git rules." | Only workflows with DSL-level git rollback/checkpoint behavior need special coexistence rules; author them explicitly, prefer recorded refs over ancestry shortcuts like `HEAD^`, and consider a dedicated run checkout. | [Orchestration Start Here](orchestration_start_here.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Docs vs specs precedence | "Any docs page is authoritative." | `specs/` are normative. `docs/` are explanatory. | [Master Spec](../specs/index.md) |
 | Workflow authoring surfaces | "Workflow inputs, prompt files, dependencies, and artifacts are all the same kind of input." | Keep four surfaces separate: workflow boundary (`inputs`/`outputs`), runtime dependencies (`depends_on`/`consumes`), provider prompt sources (`input_file`/`asset_file`/`asset_depends_on`), and artifact storage or lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`). | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
+| Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
 
 ---
 
@@ -155,8 +156,8 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 **Use this when:** Reviewing security boundaries and safe path handling.
 
 ### [Versioning and Migration](../specs/versioning.md)
-**Description:** DSL evolution from v1.1 through v1.4, migration guidance, and planned feature gating notes.  
-**Keywords:** versioning, migration, v1.2, v1.3, v1.4  
+**Description:** DSL evolution from v1.1 through current v2.x gates, migration guidance, and planned feature gating notes.
+**Keywords:** versioning, migration, v2.11, provider-session, adjudicated-provider
 **Use this when:** Migrating workflows between DSL versions.
 
 ### [Acceptance Tests](../specs/acceptance/index.md)
@@ -237,6 +238,16 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 **Keywords:** plans, adr, history, rationale  
 **Use this when:** You need design context behind existing behavior, not normative contracts.
 
+### [Adjudicated Provider Step Design](plans/2026-04-20-adjudicated-provider-step-design.md)
+**Description:** ADR for DSL `2.11` adjudicated provider steps, including candidate isolation, evaluator evidence, selection, ledgers, promotion, state, and resume contracts.
+**Keywords:** adjudicated-provider, evaluator, candidates, promotion, score-ledger
+**Use this when:** You need the design rationale behind the v2.11 adjudicated provider runtime and its V1 constraints.
+
+### [Adjudicated Provider Step Implementation Plan](plans/2026-04-20-adjudicated-provider-step-implementation-plan.md)
+**Description:** Task plan for implementing the v2.11 adjudicated provider surface and runtime.
+**Keywords:** implementation-plan, adjudicated-provider, v2.11, tests
+**Use this when:** You need to audit implementation progress or understand intentional deviations from the original staged plan.
+
 ## Finding Information
 
 ### By Task
@@ -255,5 +266,5 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 
 ---
 
-*Last updated: March 2026*  
+*Last updated: April 2026*
 *Style: detailed catalog with descriptions, keywords, and task-oriented navigation*

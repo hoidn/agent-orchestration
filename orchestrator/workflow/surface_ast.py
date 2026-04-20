@@ -37,6 +37,7 @@ class SurfaceStepKind(str, Enum):
 
     COMMAND = "command"
     PROVIDER = "provider"
+    ADJUDICATED_PROVIDER = "adjudicated_provider"
     WAIT_FOR = "wait_for"
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
@@ -176,6 +177,7 @@ class SurfaceStep:
     command: Any = ()
     provider: Optional[str] = None
     provider_params: Any = None
+    adjudicated_provider: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     input_file: Any = None
     asset_file: Any = None
     depends_on: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)

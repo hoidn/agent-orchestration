@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional
 
 from .executable_ir import (
+    AdjudicatedProviderStepConfig,
     AssertStepConfig,
     BlockOutputAddress,
     CallBoundaryNode,
@@ -812,6 +813,7 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
     mapping = {
         SurfaceStepKind.COMMAND: ExecutableNodeKind.COMMAND,
         SurfaceStepKind.PROVIDER: ExecutableNodeKind.PROVIDER,
+        SurfaceStepKind.ADJUDICATED_PROVIDER: ExecutableNodeKind.ADJUDICATED_PROVIDER,
         SurfaceStepKind.WAIT_FOR: ExecutableNodeKind.WAIT_FOR,
         SurfaceStepKind.ASSERT: ExecutableNodeKind.ASSERT,
         SurfaceStepKind.SET_SCALAR: ExecutableNodeKind.SET_SCALAR,
@@ -884,6 +886,19 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             prompt_consumes=step.prompt_consumes,
             consumes_injection_position=step.consumes_injection_position,
         )
+    if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
+        return AdjudicatedProviderStepConfig(
+            common=common,
+            adjudicated_provider=step.adjudicated_provider,
+            input_file=step.input_file,
+            asset_file=step.asset_file,
+            depends_on=step.depends_on,
+            asset_depends_on=step.asset_depends_on,
+            inject_output_contract=step.inject_output_contract,
+            inject_consumes=step.inject_consumes,
+            prompt_consumes=step.prompt_consumes,
+            consumes_injection_position=step.consumes_injection_position,
+        )
     if step.kind is SurfaceStepKind.WAIT_FOR:
         return WaitForStepConfig(
             common=common,
@@ -937,6 +952,7 @@ def _report_kind_for_node(node: ExecutableNode) -> str:
         ExecutableNodeKind.CALL_BOUNDARY: "call",
         ExecutableNodeKind.FINALIZATION_STEP: "finally",
         ExecutableNodeKind.PROVIDER: "provider",
+        ExecutableNodeKind.ADJUDICATED_PROVIDER: "adjudicated_provider",
         ExecutableNodeKind.COMMAND: "command",
         ExecutableNodeKind.WAIT_FOR: "wait_for",
         ExecutableNodeKind.ASSERT: "assert",

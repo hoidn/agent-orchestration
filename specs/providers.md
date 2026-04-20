@@ -41,6 +41,13 @@
     - These annotations are prompt guidance only and do not change runtime contract validation semantics.
   - Do not modify files on disk; only the composed prompt is delivered to the provider.
 
+- Adjudicated provider prompt and evaluator delivery (v2.11)
+  - Each candidate uses the ordinary provider prompt composition contract, including step-wide `asset_depends_on`, `depends_on`, `consumes` injection, and deterministic output-contract suffixes. A candidate `asset_file` or `input_file` override replaces only the base prompt source.
+  - Candidate provider commands run with `cwd` set to that candidate's isolated workspace. Provider templates, provider params, env, secrets, and prompt transport otherwise follow the normal provider contract.
+  - The evaluator prompt is composed from the declared evaluator prompt source plus one runtime-built `Evaluator Packet` block. The evaluator output is strict JSON and does not use the adjudicated step's `output_capture`, `allow_parse_error`, `expected_outputs`, or `output_bundle` settings.
+  - Evaluator scoring uses the persisted scorer snapshot and complete embedded score-critical evidence only: rendered candidate prompt, declared output value files, required relpath targets, bundle JSON and required bundle targets, optional rubric content, and injected consume relpath target content when applicable.
+  - Evaluators must not depend on reading candidate or parent workspace files, bounded prompt previews, candidate stdout/stderr, transport logs, or other non-scoring sidecars. Those paths may be retained for audit, but they are not score-critical evidence.
+
 - Reusable-call provider boundary
   - `asset_file` and `asset_depends_on` resolve relative to the authored workflow file and must stay within that workflow source tree.
   - `input_file` and plain `depends_on` remain workspace-relative, even under `call`.

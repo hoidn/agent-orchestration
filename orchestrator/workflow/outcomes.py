@@ -150,6 +150,7 @@ class OutcomeRecorder:
             debug=result.get("debug"),
             truncated=result.get("truncated", False),
             artifacts=result.get("artifacts"),
+            adjudication=result.get("adjudication"),
             skipped=result.get("skipped", False),
             files=result.get("files"),
             wait_duration_ms=result.get("wait_duration_ms"),

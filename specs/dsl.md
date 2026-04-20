@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", or "2.10"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", or "2.11"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -71,6 +71,36 @@
       - `with: { <callee-input-name>: Literal|{ref} }`
       - first tranche requires an authored stable `id` on the outer call step so call-frame identities survive sibling insertion or import-alias reshaping
       - only declared callee `outputs` cross the boundary back to the caller
+    - Adjudicated provider execution form (v2.11):
+      - `adjudicated_provider` is mutually exclusive with every other execution form, including `provider`, `command`, `wait_for`, `assert`, scalar bookkeeping, `call`, and structured control forms.
+      - Minimal shape:
+        ```yaml
+        adjudicated_provider:
+          candidates:
+            - id: codex_high
+              provider: codex
+              provider_params:
+                model: gpt-5.4
+          evaluator:
+            provider: claude
+            input_file: workflows/library/prompts/adjudication/evaluate_candidate.md
+            evidence_confidentiality: same_trust_boundary
+          selection:
+            tie_break: candidate_order
+          score_ledger_path: artifacts/evaluations/example.candidate_scores.jsonl
+        ```
+      - The step must declare exactly one deterministic output contract surface: `expected_outputs` or `output_bundle`.
+      - The step must declare exactly one base prompt source, `asset_file` or `input_file`, unless every candidate declares its own `asset_file` or `input_file` override.
+      - Candidate ids must be non-empty, unique within the step, and match the stable step-id token pattern. Candidate and evaluator providers must reference known provider templates in the active workflow provider namespace.
+      - Candidate prompt overrides may use only one of `asset_file` or `input_file`. Candidate entries must not define `consumes`, `depends_on`, `publishes`, `expected_outputs`, `output_bundle`, or `output_file`; those surfaces remain step-wide.
+      - Evaluator prompt source may use only one of `asset_file` or `input_file`. Evaluator rubric source may use only one of `rubric_asset_file` or `rubric_input_file`.
+      - `evaluator.evidence_confidentiality` is required and must be the literal `same_trust_boundary`.
+      - `evaluator.evidence_limits`, when present, may only contain literal positive integer `max_item_bytes` and `max_packet_bytes`; `max_packet_bytes` must be greater than or equal to `max_item_bytes`.
+      - `provider_session`, `output_file`, `output_capture`, and `allow_parse_error` are invalid with `adjudicated_provider` in v2.11. Candidate/evaluator stdout is runtime log state only and is not projected to `steps.<Step>.output`, `.lines`, or `.json`.
+      - `selection.tie_break`, when present, must be `candidate_order`; `selection.require_score_for_single_candidate`, when present, must be boolean.
+      - `score_ledger_path`, when present, must resolve under `artifacts/` and must not collide with statically known step-managed output files. Dynamic relpath-target collisions fail at runtime.
+      - Candidate-managed path fields that depend on `${run.root}` or name the parent run root are invalid in v2.11.
+      - Evaluator score JSON must contain matching `candidate_id`, finite numeric `score` in `[0.0, 1.0]`, and non-empty `summary`.
   - Structured control (v2.2+):
     - top-level `if: Condition|TypedPredicate`
     - `then: Step[] | { id?, steps: Step[], outputs: WorkflowOutputMap }`
@@ -278,6 +308,7 @@
     - `set_scalar` and `increment_scalar` require `version: "1.7"` or higher.
     - `max_transitions` and `max_visits` require `version: "1.8"` or higher.
     - scalar `string`, `provider_session`, and provider `session_support` require `version: "2.10"` or higher.
+    - `adjudicated_provider` requires `version: "2.11"` or higher.
   - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.

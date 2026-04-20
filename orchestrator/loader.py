@@ -77,7 +77,7 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath", "string"}
     STRING_CONTRACT_VERSION = "2.10"
@@ -85,7 +85,7 @@ class WorkflowLoader:
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11",
     ]
 
     def __init__(self, workspace: Path):
@@ -821,7 +821,7 @@ class WorkflowLoader:
                 continue
 
             # AT-10: Provider/Command exclusivity
-            execution_fields = ['provider', 'command', 'wait_for', 'assert', 'set_scalar', 'increment_scalar', 'call']
+            execution_fields = ['provider', 'adjudicated_provider', 'command', 'wait_for', 'assert', 'set_scalar', 'increment_scalar', 'call']
             exec_count = sum(1 for f in execution_fields if f in step)
 
             if 'for_each' in step:
@@ -913,6 +913,13 @@ class WorkflowLoader:
                     parent_multi_visit=parent_multi_visit,
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
+                )
+
+            if 'adjudicated_provider' in step:
+                self._validate_adjudicated_provider(
+                    step=step,
+                    step_name=name,
+                    version=version,
                 )
 
             # AT-40: Reject deprecated command_override
@@ -1031,6 +1038,11 @@ class WorkflowLoader:
                     self._validate_consume_bundle(step['consume_bundle'], name, step.get('consumes'))
 
             if 'provider_session' in step:
+                if 'adjudicated_provider' in step:
+                    self._add_error(
+                        f"Step '{name}': provider_session is invalid with adjudicated_provider"
+                    )
+                    continue
                 self._validate_provider_session(
                     step=step,
                     step_name=name,
@@ -1951,7 +1963,7 @@ class WorkflowLoader:
         if not self._version_at_least(version, "2.5"):
             self._add_error(f"Step '{step_name}': asset_file requires version '2.5'")
             return
-        if 'provider' not in step:
+        if 'provider' not in step and 'adjudicated_provider' not in step:
             self._add_error(f"Step '{step_name}': asset_file is only supported on provider steps")
             return
         if 'input_file' in step:
@@ -1968,7 +1980,7 @@ class WorkflowLoader:
         if not self._version_at_least(version, "2.5"):
             self._add_error(f"Step '{step_name}': asset_depends_on requires version '2.5'")
             return
-        if 'provider' not in step:
+        if 'provider' not in step and 'adjudicated_provider' not in step:
             self._add_error(f"Step '{step_name}': asset_depends_on is only supported on provider steps")
             return
         asset_depends_on = step.get('asset_depends_on')
@@ -1983,6 +1995,284 @@ class WorkflowLoader:
                 path,
                 f"Step '{step_name}': asset_depends_on[{index}]",
             )
+
+    def _validate_adjudicated_provider(
+        self,
+        *,
+        step: Dict[str, Any],
+        step_name: str,
+        version: str,
+    ) -> None:
+        """Validate the DSL 2.11 adjudicated provider step form."""
+        context = f"Step '{step_name}': adjudicated_provider"
+        if not self._version_at_least(version, "2.11"):
+            self._add_error(f"{context} requires version '2.11'")
+
+        node = step.get('adjudicated_provider')
+        if not isinstance(node, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        if 'provider_session' in step:
+            self._add_error(f"Step '{step_name}': provider_session is invalid with adjudicated_provider")
+
+        for forbidden in ('output_file', 'output_capture', 'allow_parse_error'):
+            if forbidden in step:
+                self._add_error(f"Step '{step_name}': {forbidden} is invalid with adjudicated_provider")
+
+        has_expected_outputs = 'expected_outputs' in step
+        has_output_bundle = 'output_bundle' in step
+        if has_expected_outputs == has_output_bundle:
+            self._add_error(
+                f"{context} must declare exactly one of expected_outputs or output_bundle"
+            )
+
+        candidates = node.get('candidates')
+        candidate_prompt_overrides = 0
+        if not isinstance(candidates, list) or not candidates:
+            self._add_error(f"{context}.candidates must be a non-empty list")
+        else:
+            seen_candidate_ids: Set[str] = set()
+            for index, candidate in enumerate(candidates):
+                candidate_context = f"{context}.candidates[{index}]"
+                if not isinstance(candidate, dict):
+                    self._add_error(f"{candidate_context} must be a dictionary")
+                    continue
+                candidate_id = candidate.get('id')
+                if not isinstance(candidate_id, str) or not STEP_ID_PATTERN.fullmatch(candidate_id):
+                    self._add_error(f"{candidate_context}: candidate id must match {STEP_ID_PATTERN.pattern}")
+                elif candidate_id in seen_candidate_ids:
+                    self._add_error(f"{candidate_context}: duplicate candidate id '{candidate_id}'")
+                else:
+                    seen_candidate_ids.add(candidate_id)
+
+                provider_name = candidate.get('provider')
+                if not isinstance(provider_name, str) or not provider_name.strip():
+                    self._add_error(f"{candidate_context}.provider is required")
+                elif self._provider_registry.get(provider_name) is None:
+                    self._add_error(f"{candidate_context}: unknown candidate provider '{provider_name}'")
+
+                if 'asset_file' in candidate and 'input_file' in candidate:
+                    self._add_error(f"{candidate_context}: candidate prompt override may use only one of asset_file or input_file")
+                if 'asset_file' in candidate or 'input_file' in candidate:
+                    candidate_prompt_overrides += 1
+                if 'asset_file' in candidate:
+                    if not isinstance(candidate.get('asset_file'), str):
+                        self._add_error(f"{candidate_context}.asset_file must be a string")
+                    else:
+                        self._validate_source_relative_asset_path(
+                            candidate['asset_file'],
+                            f"{candidate_context}.asset_file",
+                        )
+                if 'input_file' in candidate:
+                    if not isinstance(candidate.get('input_file'), str):
+                        self._add_error(f"{candidate_context}.input_file must be a string")
+                    else:
+                        self._validate_path_safety(candidate['input_file'], f"{candidate_context}.input_file")
+                        self._validate_no_run_root_candidate_path(
+                            candidate['input_file'],
+                            f"{candidate_context}.input_file",
+                        )
+
+                for forbidden in (
+                    'consumes',
+                    'depends_on',
+                    'publishes',
+                    'expected_outputs',
+                    'output_bundle',
+                    'output_file',
+                ):
+                    if forbidden in candidate:
+                        self._add_error(f"{candidate_context}: candidate field '{forbidden}' is not supported")
+
+        has_step_prompt = ('asset_file' in step) ^ ('input_file' in step)
+        if 'asset_file' in step and 'input_file' in step:
+            self._add_error(f"Step '{step_name}': asset_file is mutually exclusive with input_file")
+        if isinstance(candidates, list) and candidates:
+            all_candidates_have_prompt = candidate_prompt_overrides == len(candidates)
+        else:
+            all_candidates_have_prompt = False
+        if not has_step_prompt and not all_candidates_have_prompt:
+            self._add_error(
+                f"{context} must declare one base prompt source unless every candidate has a prompt override"
+            )
+
+        evaluator = node.get('evaluator')
+        if not isinstance(evaluator, dict):
+            self._add_error(f"{context}.evaluator must be a dictionary")
+        else:
+            evaluator_provider = evaluator.get('provider')
+            if not isinstance(evaluator_provider, str) or not evaluator_provider.strip():
+                self._add_error(f"{context}.evaluator.provider is required")
+            elif self._provider_registry.get(evaluator_provider) is None:
+                self._add_error(f"{context}.evaluator: unknown evaluator provider '{evaluator_provider}'")
+
+            if 'asset_file' in evaluator and 'input_file' in evaluator:
+                self._add_error(f"{context}.evaluator: evaluator prompt source may use only one of asset_file or input_file")
+            if 'asset_file' not in evaluator and 'input_file' not in evaluator:
+                self._add_error(f"{context}.evaluator must declare asset_file or input_file")
+            if 'asset_file' in evaluator:
+                if not isinstance(evaluator.get('asset_file'), str):
+                    self._add_error(f"{context}.evaluator.asset_file must be a string")
+                else:
+                    self._validate_source_relative_asset_path(
+                        evaluator['asset_file'],
+                        f"{context}.evaluator.asset_file",
+                    )
+            if 'input_file' in evaluator:
+                if not isinstance(evaluator.get('input_file'), str):
+                    self._add_error(f"{context}.evaluator.input_file must be a string")
+                else:
+                    self._validate_path_safety(evaluator['input_file'], f"{context}.evaluator.input_file")
+
+            if 'rubric_asset_file' in evaluator and 'rubric_input_file' in evaluator:
+                self._add_error(f"{context}.evaluator: evaluator rubric source may use only one of rubric_asset_file or rubric_input_file")
+            if 'rubric_asset_file' in evaluator:
+                if not isinstance(evaluator.get('rubric_asset_file'), str):
+                    self._add_error(f"{context}.evaluator.rubric_asset_file must be a string")
+                else:
+                    self._validate_source_relative_asset_path(
+                        evaluator['rubric_asset_file'],
+                        f"{context}.evaluator.rubric_asset_file",
+                    )
+            if 'rubric_input_file' in evaluator:
+                if not isinstance(evaluator.get('rubric_input_file'), str):
+                    self._add_error(f"{context}.evaluator.rubric_input_file must be a string")
+                else:
+                    self._validate_path_safety(
+                        evaluator['rubric_input_file'],
+                        f"{context}.evaluator.rubric_input_file",
+                    )
+
+            confidentiality = evaluator.get('evidence_confidentiality')
+            if confidentiality is None:
+                self._add_error(f"{context}.evaluator.evidence_confidentiality is required")
+            elif confidentiality != 'same_trust_boundary':
+                self._add_error(
+                    f"{context}.evaluator.evidence_confidentiality must be same_trust_boundary"
+                )
+
+            limits = evaluator.get('evidence_limits')
+            if limits is not None:
+                self._validate_adjudicated_evidence_limits(limits, f"{context}.evaluator.evidence_limits")
+
+        selection = node.get('selection')
+        if selection is not None:
+            if not isinstance(selection, dict):
+                self._add_error(f"{context}.selection must be a dictionary")
+            else:
+                tie_break = selection.get('tie_break')
+                if tie_break is not None and tie_break != 'candidate_order':
+                    self._add_error(f"{context}.selection.tie_break must be candidate_order")
+                require_score = selection.get('require_score_for_single_candidate')
+                if require_score is not None and not isinstance(require_score, bool):
+                    self._add_error(
+                        f"{context}.selection.require_score_for_single_candidate must be boolean"
+                    )
+
+        ledger_path = node.get('score_ledger_path')
+        if ledger_path is not None:
+            if not isinstance(ledger_path, str):
+                self._add_error(f"{context}.score_ledger_path must be a string")
+            else:
+                self._validate_score_ledger_path(ledger_path, step, context)
+
+        for field_name in ('input_file',):
+            path_value = step.get(field_name)
+            if isinstance(path_value, str):
+                self._validate_no_run_root_candidate_path(
+                    path_value,
+                    f"Step '{step_name}': {field_name}",
+                )
+        depends_on = step.get('depends_on')
+        if isinstance(depends_on, dict):
+            for dep_key in ('required', 'optional'):
+                paths = depends_on.get(dep_key)
+                if isinstance(paths, list):
+                    for index, path_value in enumerate(paths):
+                        if isinstance(path_value, str):
+                            self._validate_no_run_root_candidate_path(
+                                path_value,
+                                f"Step '{step_name}': depends_on.{dep_key}[{index}]",
+                            )
+        consume_bundle = step.get('consume_bundle')
+        if isinstance(consume_bundle, dict) and isinstance(consume_bundle.get('path'), str):
+            self._validate_no_run_root_candidate_path(
+                consume_bundle['path'],
+                f"Step '{step_name}': consume_bundle.path",
+            )
+        if isinstance(step.get('expected_outputs'), list):
+            for index, spec in enumerate(step['expected_outputs']):
+                if isinstance(spec, dict) and isinstance(spec.get('path'), str):
+                    self._validate_no_run_root_candidate_path(
+                        spec['path'],
+                        f"Step '{step_name}': expected_outputs[{index}].path",
+                    )
+        if isinstance(step.get('output_bundle'), dict) and isinstance(step['output_bundle'].get('path'), str):
+            self._validate_no_run_root_candidate_path(
+                step['output_bundle']['path'],
+                f"Step '{step_name}': output_bundle.path",
+            )
+
+    def _validate_adjudicated_evidence_limits(self, limits: Any, context: str) -> None:
+        if not isinstance(limits, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+        allowed = {'max_item_bytes', 'max_packet_bytes'}
+        for key in limits:
+            if key not in allowed:
+                self._add_error(f"{context}.{key} is not supported")
+        item = limits.get('max_item_bytes', 262144)
+        packet = limits.get('max_packet_bytes', 1048576)
+        for key, value in (('max_item_bytes', item), ('max_packet_bytes', packet)):
+            if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+                self._add_error(f"{context}.{key} must be a literal positive integer")
+        if (
+            isinstance(item, int)
+            and not isinstance(item, bool)
+            and isinstance(packet, int)
+            and not isinstance(packet, bool)
+            and packet < item
+        ):
+            self._add_error(
+                f"{context}.max_packet_bytes must be greater than or equal to max_item_bytes"
+            )
+
+    def _validate_score_ledger_path(self, path_value: str, step: Dict[str, Any], context: str) -> None:
+        path = Path(path_value)
+        normalized = path.as_posix()
+        if path.is_absolute() or '..' in path.parts or not normalized.startswith('artifacts/'):
+            self._add_error(f"{context}.score_ledger_path must be under artifacts/")
+            return
+        self._validate_path_safety(path_value, f"{context}.score_ledger_path")
+
+        known_paths: Set[str] = set()
+        expected_outputs = step.get('expected_outputs')
+        if isinstance(expected_outputs, list):
+            for spec in expected_outputs:
+                if isinstance(spec, dict) and isinstance(spec.get('path'), str):
+                    known_paths.add(Path(spec['path']).as_posix())
+        output_bundle = step.get('output_bundle')
+        if isinstance(output_bundle, dict) and isinstance(output_bundle.get('path'), str):
+            known_paths.add(Path(output_bundle['path']).as_posix())
+        publishes = step.get('publishes')
+        if isinstance(publishes, list):
+            expected_list = expected_outputs if isinstance(expected_outputs, list) else []
+            for entry in publishes:
+                if isinstance(entry, dict) and isinstance(entry.get('from'), str):
+                    for spec in expected_list:
+                        if isinstance(spec, dict) and spec.get('name') == entry['from'] and spec.get('type') == 'relpath':
+                            if isinstance(spec.get('path'), str):
+                                known_paths.add(Path(spec['path']).as_posix())
+        if normalized in known_paths:
+            self._add_error(f"{context}.score_ledger_path collides with a step-managed output path")
+
+    def _validate_no_run_root_candidate_path(self, path_value: str, context: str) -> None:
+        if '${run.root}' in path_value:
+            self._add_error(f"{context} must not depend on ${{run.root}}")
+            return
+        if '.orchestrate/runs/' in path_value or path_value.startswith('.orchestrate/runs'):
+            self._add_error(f"{context} must not name the parent run root")
 
     def _validate_source_relative_asset_path(self, path: str, context: str) -> None:
         """Validate one workflow-source-relative asset path against the current source tree."""

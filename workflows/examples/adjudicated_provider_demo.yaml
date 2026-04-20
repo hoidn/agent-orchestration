@@ -1,0 +1,101 @@
+version: "2.11"
+name: adjudicated-provider-demo
+
+artifacts:
+  selected_document:
+    kind: relpath
+    type: relpath
+    pointer: state/adjudicated_provider_demo/selected_document_path.txt
+    under: docs/adjudicated-provider-demo
+    must_exist_target: true
+
+outputs:
+  selected_document:
+    type: relpath
+    under: docs/adjudicated-provider-demo
+    must_exist_target: true
+    from:
+      ref: root.steps.DraftDocument.artifacts.selected_document
+
+providers:
+  demo_candidate_a:
+    input_mode: stdin
+    command:
+      - python
+      - -c
+      - |
+        from pathlib import Path
+        Path("state/adjudicated_provider_demo").mkdir(parents=True, exist_ok=True)
+        Path("docs/adjudicated-provider-demo").mkdir(parents=True, exist_ok=True)
+        Path("state/adjudicated_provider_demo/selected_document_path.txt").write_text(
+            "docs/adjudicated-provider-demo/candidate-a.md\n",
+            encoding="utf-8",
+        )
+        Path("docs/adjudicated-provider-demo/candidate-a.md").write_text(
+            "# Candidate A\n\nBrief but less specific.\n",
+            encoding="utf-8",
+        )
+
+  demo_candidate_b:
+    input_mode: stdin
+    command:
+      - python
+      - -c
+      - |
+        from pathlib import Path
+        Path("state/adjudicated_provider_demo").mkdir(parents=True, exist_ok=True)
+        Path("docs/adjudicated-provider-demo").mkdir(parents=True, exist_ok=True)
+        Path("state/adjudicated_provider_demo/selected_document_path.txt").write_text(
+            "docs/adjudicated-provider-demo/candidate-b.md\n",
+            encoding="utf-8",
+        )
+        Path("docs/adjudicated-provider-demo/candidate-b.md").write_text(
+            "# Candidate B\n\nBrief, specific, and ready for a downstream consumer.\n",
+            encoding="utf-8",
+        )
+
+  demo_evaluator:
+    input_mode: stdin
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import sys
+
+        prompt = sys.stdin.read()
+        packet = json.loads(prompt.split("Evaluator Packet:", 1)[1])
+        candidate_id = packet["candidate_id"]
+        score = 0.9 if candidate_id == "candidate_b" else 0.4
+        print(json.dumps({
+            "candidate_id": candidate_id,
+            "score": score,
+            "summary": "Candidate B is more specific." if candidate_id == "candidate_b" else "Candidate A is less specific.",
+        }))
+
+steps:
+  - name: DraftDocument
+    id: draft_document
+    adjudicated_provider:
+      candidates:
+        - id: candidate_a
+          provider: demo_candidate_a
+        - id: candidate_b
+          provider: demo_candidate_b
+      evaluator:
+        provider: demo_evaluator
+        input_file: workflows/library/prompts/adjudication/evaluate_candidate.md
+        evidence_confidentiality: same_trust_boundary
+      selection:
+        tie_break: candidate_order
+      score_ledger_path: artifacts/evaluations/adjudicated-provider-demo.candidate_scores.jsonl
+    asset_file: prompts/adjudicated_provider_demo/draft_candidate.md
+    expected_outputs:
+      - name: selected_document
+        path: state/adjudicated_provider_demo/selected_document_path.txt
+        type: relpath
+        under: docs/adjudicated-provider-demo
+        must_exist_target: true
+    publishes:
+      - artifact: selected_document
+        from: selected_document
