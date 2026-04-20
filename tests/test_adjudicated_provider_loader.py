@@ -263,3 +263,30 @@ def test_step_level_adjudicated_validation(tmp_path: Path, mutation, expected: s
     messages = _validation_messages(tmp_path, workflow)
 
     assert any(expected in message for message in messages)
+
+
+def test_score_ledger_path_collides_with_published_relpath_artifact_pointer(tmp_path: Path) -> None:
+    workflow = _base_workflow()
+    workflow["artifacts"] = {
+        "result": {
+            "kind": "relpath",
+            "type": "relpath",
+            "pointer": "artifacts/evaluations/result_pointer.txt",
+            "under": "docs/plans",
+            "must_exist_target": True,
+        }
+    }
+    step = workflow["steps"][0]
+    step["expected_outputs"][0].update(
+        {
+            "type": "relpath",
+            "under": "docs/plans",
+            "must_exist_target": True,
+        }
+    )
+    step["publishes"] = [{"artifact": "result", "from": "result"}]
+    step["adjudicated_provider"]["score_ledger_path"] = "artifacts/evaluations/result_pointer.txt"
+
+    messages = _validation_messages(tmp_path, workflow)
+
+    assert any("score_ledger_path collides with a step-managed output path" in message for message in messages)

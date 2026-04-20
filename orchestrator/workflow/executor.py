@@ -4387,6 +4387,15 @@ class WorkflowExecutor:
             persist_scorer_resolution_failure(payload, visit_paths.scorer_root)
             return payload
 
+        provider_name = evaluator_config.get("provider")
+        if not isinstance(provider_name, str) or not provider_name:
+            return None, "", scorer_failure("missing_evaluator_provider", "evaluator provider is missing")
+        if not self.provider_registry.exists(provider_name):
+            return None, "", scorer_failure(
+                "evaluator_provider_not_found",
+                f"evaluator provider '{provider_name}' is not registered",
+            )
+
         if (
             evaluator_prompt_source_kind == "input_file"
             and isinstance(evaluator_prompt_source, str)
@@ -4397,11 +4406,14 @@ class WorkflowExecutor:
                 f"evaluator input file '{evaluator_prompt_source}' does not exist",
             )
 
-        evaluator_prompt, prompt_error = self.prompt_composer.read_prompt_source(
-            dict(evaluator_config),
-            step_name="adjudication_evaluator",
-            contract_violation_result=self._contract_violation_result,
-        )
+        try:
+            evaluator_prompt, prompt_error = self.prompt_composer.read_prompt_source(
+                dict(evaluator_config),
+                step_name="adjudication_evaluator",
+                contract_violation_result=self._contract_violation_result,
+            )
+        except OSError as exc:
+            return None, "", scorer_failure("evaluator_prompt_read_failed", str(exc))
         if prompt_error is not None:
             return None, "", scorer_failure(
                 prompt_error.get("error", {}).get("type", "scorer_unavailable"),
@@ -4413,20 +4425,20 @@ class WorkflowExecutor:
             if rubric_source_kind == "input_file" and not (self.workspace / rubric_source).exists():
                 return None, "", scorer_failure("rubric_read_failed", f"rubric input file '{rubric_source}' does not exist")
             rubric_step = {rubric_source_kind: rubric_source}
-            rubric_content, rubric_error = self.prompt_composer.read_prompt_source(
-                rubric_step,
-                step_name="adjudication_evaluator_rubric",
-                contract_violation_result=self._contract_violation_result,
-            )
+            try:
+                rubric_content, rubric_error = self.prompt_composer.read_prompt_source(
+                    rubric_step,
+                    step_name="adjudication_evaluator_rubric",
+                    contract_violation_result=self._contract_violation_result,
+                )
+            except OSError as exc:
+                return None, "", scorer_failure("rubric_read_failed", str(exc))
             if rubric_error is not None:
                 return None, "", scorer_failure(
                     rubric_error.get("error", {}).get("type", "rubric_read_failed"),
                     rubric_error.get("error", {}).get("message", "rubric unavailable"),
                 )
             rubric_hash = self._text_hash(rubric_content)
-        provider_name = evaluator_config.get("provider")
-        if not isinstance(provider_name, str):
-            return None, "", scorer_failure("missing_evaluator_provider", "evaluator provider is missing")
         provider_context = self._create_provider_context(context, state)
         merged_params = self.provider_registry.merge_params(provider_name, evaluator_config.get("provider_params", {}))
         try:

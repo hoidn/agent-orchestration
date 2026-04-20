@@ -920,6 +920,7 @@ class WorkflowLoader:
                     step=step,
                     step_name=name,
                     version=version,
+                    artifacts_registry=artifacts_registry,
                 )
 
             # AT-40: Reject deprecated command_override
@@ -2002,6 +2003,7 @@ class WorkflowLoader:
         step: Dict[str, Any],
         step_name: str,
         version: str,
+        artifacts_registry: Optional[Any] = None,
     ) -> None:
         """Validate the DSL 2.11 adjudicated provider step form."""
         context = f"Step '{step_name}': adjudicated_provider"
@@ -2175,7 +2177,7 @@ class WorkflowLoader:
             if not isinstance(ledger_path, str):
                 self._add_error(f"{context}.score_ledger_path must be a string")
             else:
-                self._validate_score_ledger_path(ledger_path, step, context)
+                self._validate_score_ledger_path(ledger_path, step, context, artifacts_registry)
 
         for field_name in ('input_file',):
             path_value = step.get(field_name)
@@ -2238,7 +2240,13 @@ class WorkflowLoader:
                 f"{context}.max_packet_bytes must be greater than or equal to max_item_bytes"
             )
 
-    def _validate_score_ledger_path(self, path_value: str, step: Dict[str, Any], context: str) -> None:
+    def _validate_score_ledger_path(
+        self,
+        path_value: str,
+        step: Dict[str, Any],
+        context: str,
+        artifacts_registry: Optional[Any] = None,
+    ) -> None:
         path = Path(path_value)
         normalized = path.as_posix()
         if path.is_absolute() or '..' in path.parts or not normalized.startswith('artifacts/'):
@@ -2257,6 +2265,7 @@ class WorkflowLoader:
             known_paths.add(Path(output_bundle['path']).as_posix())
         publishes = step.get('publishes')
         if isinstance(publishes, list):
+            registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
             expected_list = expected_outputs if isinstance(expected_outputs, list) else []
             for entry in publishes:
                 if isinstance(entry, dict) and isinstance(entry.get('from'), str):
@@ -2264,6 +2273,14 @@ class WorkflowLoader:
                         if isinstance(spec, dict) and spec.get('name') == entry['from'] and spec.get('type') == 'relpath':
                             if isinstance(spec.get('path'), str):
                                 known_paths.add(Path(spec['path']).as_posix())
+                    artifact_name = entry.get('artifact')
+                    artifact_spec = registry.get(artifact_name) if isinstance(artifact_name, str) else None
+                    if (
+                        isinstance(artifact_spec, dict)
+                        and artifact_spec.get('type') == 'relpath'
+                        and isinstance(artifact_spec.get('pointer'), str)
+                    ):
+                        known_paths.add(Path(artifact_spec['pointer']).as_posix())
         if normalized in known_paths:
             self._add_error(f"{context}.score_ledger_path collides with a step-managed output path")
 

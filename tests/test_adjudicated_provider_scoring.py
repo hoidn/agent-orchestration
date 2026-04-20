@@ -272,6 +272,45 @@ def test_ledger_rows_are_one_per_candidate_and_mirror_checks_owner(tmp_path: Pat
         materialize_score_ledger_mirror(rows, mirror)
 
 
+def test_ledger_mirror_requires_complete_owner_tuple(tmp_path: Path) -> None:
+    rows = generate_score_ledger_rows(
+        run_id="run-1",
+        workflow_file="workflow.yaml",
+        workflow_checksum="sha256:wf",
+        dsl_version="2.11",
+        execution_frame_id="root",
+        call_frame_id=None,
+        step_id="root.draft",
+        step_name="Draft",
+        visit_count=1,
+        candidates=[
+            {"candidate_id": "a", "candidate_index": 0, "candidate_status": "output_valid", "score_status": "scored", "score": 0.8},
+        ],
+        selected_candidate_id="a",
+        selection_reason="highest_score",
+        promotion_status="committed",
+        promoted_paths={"result": "state/result.txt"},
+    )
+
+    mirror = tmp_path / "artifacts/scores.jsonl"
+    mirror.parent.mkdir(parents=True)
+    mirror.write_text(
+        json.dumps(
+            {
+                "row_schema": "adjudicated_provider.score.v1",
+                "run_id": "run-1",
+                "execution_frame_id": "root",
+                "step_id": "root.draft",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LedgerConflictError):
+        materialize_score_ledger_mirror(rows, mirror)
+
+
 def test_score_run_key_ignores_nondeterministic_numeric_score() -> None:
     base_candidate = {
         "candidate_id": "a",

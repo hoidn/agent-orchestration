@@ -2,37 +2,38 @@
 
 ## Completed In This Pass
 
-- Fixed review H2: `score_ledger_path` is now substituted in the active execution frame before collision checks, state projection, and workspace-visible mirror materialization. The resolved mirror path is runtime-checked as workspace-relative, under `artifacts/`, and protected against symlink escapes outside the parent workspace.
-- Fixed review H3: candidate and evaluator subprocess exit code `124` is now treated as candidate/evaluator attempt metadata unless the shared logical adjudicated-step deadline is actually exhausted. Candidate exit `124` can retry while deadline remains, and an exited/timed-out candidate no longer prevents later candidates from running.
-- Strengthened ledger/state materialization from review M1: the run-local ledger is written after selection with selected-row `promotion_status: "pending"` before promotion starts, the workspace-visible mirror remains withheld until terminal finalization, and candidate state now projects `candidate_run_key`, `score_run_key`, and attempt metadata.
-- Added regression coverage for resolved ledger mirror paths, artifacts symlink escape rejection, subprocess exit `124` continuation/retry behavior, pre-promotion pending run-ledger materialization, and candidate ledger key projection.
-- No design, location, ownership, YAML, prompt, or transient-state deviation was introduced. No numerical parity comparison or tolerance change was involved.
+- Fixed scorer-resolution contract gaps: missing evaluator providers and unreadable evaluator/rubric prompt sources now persist normalized scorer-resolution failure metadata, mark output-valid candidates `score_status: "scorer_unavailable"`, and skip evaluation packet creation.
+- Added loader validation for static `score_ledger_path` collisions with published relpath artifact pointer paths from the artifact catalog.
+- Expanded the Task 5 / Task 6 / Task 7 contract matrix with regression coverage for scorer-unavailable variants, invalid-candidate scorer-unavailable behavior, required-score single-candidate failures, workspace-visible mirror owner/invalid JSONL/shared-path conflicts, candidate retry scope, retry-delay deadline crossing, exhausted evaluator retries, and non-retried promotion conflicts.
+- Updated the implementation plan checkboxes for the completed matrix steps. No YAML, prompt, transient state, design-location, or ownership deviation was introduced. No numerical parity comparison or tolerance change was involved.
 
 ## Completed Plan Tasks
 
-- Closed the concrete Task 5 / ledger contract defect reported as H2 by substituting and path-checking `score_ledger_path` before mirror writes.
-- Closed the concrete Task 7 / deadline-retry defect reported as H3 by separating subprocess exit `124` from logical adjudicated-step timeout.
-- Advanced Task 5 Step 8 with runtime coverage for substituted mirror paths, symlink escape rejection, and terminal-only mirror withholding while the run-local ledger records pending selection.
-- Advanced Task 7 Step 2 with runtime coverage proving candidate exit `124` can retry successfully while the logical deadline remains.
-- Advanced Task 9 prerequisites by preserving selection and ledger identity state needed for later resume reconciliation.
+- Completed Task 5 Step 2: scorer-unavailable metadata tests now cover missing evaluator provider, missing evaluator prompt, unreadable rubric, provider-param substitution failure, no packet creation, and invalid candidates remaining `not_evaluated`.
+- Completed Task 5 Step 8: workspace-visible ledger mirror coverage now includes substituted paths, symlink escape rejection, dynamic output collisions, published relpath pointer collisions, invalid JSONL, missing owner fields, owner conflicts, shared mirror paths, and terminal-only mirror materialization.
+- Completed Task 6 Step 2: single-candidate scoring coverage now includes optional-score promotion for scorer/evaluator failure and required-score blocking for scorer/evaluator failure.
+- Completed Task 7 Step 2 and Step 3: candidate retry scope and evaluator retry scope are covered, including fresh candidate retry workspaces, unchanged step visit count, other candidates not rerun, packet reuse, and exhausted evaluator variants.
+- Completed Task 7 Step 7: existing candidate/evaluator retry loops are now verified by the expanded runtime matrix.
 
 ## Remaining Required Plan Tasks
 
-- H1 / Task 9 remains required: full resume-safe reconciliation for persisted baseline, candidate, scorer, packet, ledger, mirror, publication, and report projection state is still unimplemented. Existing sidecars still fail fast instead of being reconciled.
-- Task 5 remains partially incomplete for the full scorer-unavailable metadata variant matrix and the complete workspace-visible mirror matrix, including all owner-conflict, invalid JSONL, shared-path, and published relpath pointer cases.
-- Task 6 Step 2 remains partially incomplete for the full required-score scorer-unavailable runtime variant matrix.
-- Task 7 remains partially incomplete for the full logical-deadline phase matrix, retry-delay deadline crossing, exhausted evaluator variants, non-retried terminal runtime failure coverage, and explicit step-visit-count/other-candidate retry assertions.
+- Task 7 Step 1 remains required for the full fake-clock logical-deadline phase matrix across baseline creation, candidate copies, subprocesses, retry delays, selection, ledger materialization, promotion, and parent validation.
+- Task 7 Step 4 remains partially incomplete for the full non-retried terminal-failure matrix across ledger path collision, ledger conflict, ledger mirror failure, promotion conflict, promotion validation failure, promotion rollback conflict, and resume mismatch.
+- Task 9 remains required: resume-safe reconciliation for persisted baseline, candidate, scorer, packet, ledger, mirror, promotion, publication, and report projection state is still unimplemented; existing sidecars still fail fast.
+- Task 9 report projection coverage remains required for selected candidate id, selected/null score, selection reason, ledger paths, promotion status, and adjudication failure type.
 - The adjudication helper module still needs to be split before full resume reconciliation expands it further.
 
 ## Verification
 
-- `pytest tests/test_adjudicated_provider_runtime.py -q` -> first regression run failed as expected: 4 failed, 17 passed.
-- `pytest tests/test_adjudicated_provider_runtime.py::test_score_ledger_path_rejects_artifacts_symlink_escape -q` -> first symlink-escape regression run failed as expected: 1 failed.
-- `pytest tests/test_adjudicated_provider_runtime.py::test_score_ledger_path_rejects_artifacts_symlink_escape -q` -> 1 passed.
-- `pytest tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 52 passed.
-- `pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 108 passed.
-- `pytest --collect-only tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 35 tests collected.
-- `python -m py_compile orchestrator/workflow/executor.py` -> passed.
+- `pytest tests/test_adjudicated_provider_runtime.py -k "evaluator_provider_unavailable or evaluator_params_do_not_resolve or unreadable_rubric or invalid_jsonl or cannot_share_one_score_ledger_mirror or does_not_restart_other_candidates or retry_delay_that_would_cross" -q` -> first regression run failed as expected: 3 failed, 4 passed.
+- `pytest tests/test_adjudicated_provider_loader.py::test_score_ledger_path_collides_with_published_relpath_artifact_pointer -q` -> first regression run failed as expected: 1 failed.
+- `pytest tests/test_adjudicated_provider_runtime.py -k "evaluator_provider_unavailable or evaluator_params_do_not_resolve or unreadable_rubric or invalid_jsonl or cannot_share_one_score_ledger_mirror or does_not_restart_other_candidates or retry_delay_that_would_cross" -q` -> 7 passed, 22 deselected.
+- `pytest tests/test_adjudicated_provider_scoring.py::test_ledger_mirror_requires_complete_owner_tuple tests/test_adjudicated_provider_runtime.py -k "scorer_unavailable_leaves_invalid_candidates or promotion_conflict_is_not_retried or evaluator_provider_unavailable or evaluator_params_do_not_resolve or unreadable_rubric or invalid_jsonl or cannot_share_one_score_ledger_mirror or does_not_restart_other_candidates or retry_delay_that_would_cross" -q` -> 9 passed, 23 deselected.
+- `pytest tests/test_adjudicated_provider_loader.py::test_score_ledger_path_collides_with_published_relpath_artifact_pointer -q` -> 1 passed.
+- `pytest tests/test_adjudicated_provider_runtime.py::test_exhausted_evaluator_retries_follow_selection_rules -q` -> 3 passed.
+- `pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 119 passed.
+- `pytest --collect-only tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py -q` -> 83 tests collected.
+- `python -m py_compile orchestrator/loader.py orchestrator/workflow/executor.py` -> passed.
 - `python -m orchestrator run workflows/examples/adjudicated_provider_demo.yaml --dry-run` -> workflow validation successful.
 - `pytest tests/test_workflow_examples_v0.py -k adjudicated -q` -> 1 passed, 28 deselected.
 - `pytest tests/test_workflow_examples_v0.py tests/test_prompt_contract_injection.py -q` -> 50 passed.
@@ -40,7 +41,7 @@
 
 ## Residual Risks
 
-- Resume reconciliation is still the largest correctness gap; interruption after sidecar creation still cannot resume to completion.
-- Mirror conflict coverage is stronger but still not the full approved matrix.
-- Deadline and retry coverage now covers exit `124` continuation/retry behavior, but the full phase matrix remains outstanding.
+- Resume reconciliation is still the largest correctness gap; interrupted adjudicated sidecars still cannot resume to completion.
+- The full fake-clock deadline phase matrix and full non-retried terminal-failure matrix remain open.
+- Observability reports still need curated adjudication projection tests instead of relying on raw adjudication payloads.
 - Candidate workspaces remain copy-backed process workspaces, not OS sandboxes.

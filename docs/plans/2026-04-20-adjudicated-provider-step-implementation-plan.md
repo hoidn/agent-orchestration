@@ -680,7 +680,7 @@ Assert changing evaluator params, evaluator prompt content, rubric content,
 evidence limits, evidence confidentiality policy, or secret-detection policy
 changes `scorer_identity_hash`.
 
-- [ ] **Step 2: Write failing unit tests for scorer-unavailable metadata**
+- [x] **Step 2: Write failing unit tests for scorer-unavailable metadata**
 
 Assert missing evaluator provider, missing evaluator prompt, unreadable rubric,
 or provider-param substitution failure records normalized
@@ -742,7 +742,7 @@ Rows must include required fields from the design, nullable fields must match
 identity inputs change. Assert duplicate `score_run_key` rows are suppressed
 during regeneration.
 
-- [ ] **Step 8: Write failing unit tests for workspace-visible ledger mirror**
+- [x] **Step 8: Write failing unit tests for workspace-visible ledger mirror**
 
 Cover:
 
@@ -812,7 +812,7 @@ Use a mocked evaluator provider that returns:
 
 Assert candidate `b` is promoted and published.
 
-- [ ] **Step 2: Write failing runtime test for single-candidate scoring**
+- [x] **Step 2: Write failing runtime test for single-candidate scoring**
 
 Assert one candidate still runs evaluator, writes a ledger row, and promotes.
 
@@ -936,7 +936,7 @@ ledger mirror, or promotion operation and the step fails with `error.type:
 "timeout"`, `exit_code: 124`, and `outcome` class `timeout` with
 `retryable: true`.
 
-- [ ] **Step 2: Write failing tests for candidate retry scope**
+- [x] **Step 2: Write failing tests for candidate retry scope**
 
 Create a two-attempt candidate where the first provider attempt exits with `1`
 or `124` after writing partial files, and the second attempt succeeds. Set:
@@ -955,7 +955,7 @@ failed attempt are absent in the successful attempt workspace. Assert terminal
 candidate metadata records both attempt summaries, and the ledger still emits one
 row for that candidate visit with `attempt_count: 2`.
 
-- [ ] **Step 3: Write failing tests for evaluator retry scope**
+- [x] **Step 3: Write failing tests for evaluator retry scope**
 
 Use one output-valid candidate and an evaluator that fails or times out once,
 then succeeds. Assert evaluator retries reuse the same persisted
@@ -1034,7 +1034,7 @@ before every runtime-owned phase and when preparing provider invocations. Reuse
 the existing provider timeout behavior for subprocess termination, but pass the
 remaining logical budget instead of the original step timeout.
 
-- [ ] **Step 7: Implement candidate and evaluator retry loops**
+- [x] **Step 7: Implement candidate and evaluator retry loops**
 
 Resolve the effective provider retry policy once for the adjudicated step, using
 the same precedence ordinary provider steps use for step `retries` and executor
