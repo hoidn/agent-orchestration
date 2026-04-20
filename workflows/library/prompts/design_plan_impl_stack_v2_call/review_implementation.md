@@ -3,24 +3,23 @@ take the role of a principal engineer, expert in PLs, compilers, and agentic eng
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
 Read the consumed `design`, `plan`, and `execution_report` artifacts before acting.
 
-Review the implementation against the design and the full approved plan.
+Review the implementation against the design and the approved plan's current implementation scope.
 
-Your job is not only to find correctness bugs in the implemented tranche, but also to determine whether required approved plan tasks remain unimplemented.
-Prioritize completion of unfinished required plan work over cleanup of issues in already-implemented portions, unless those issues block or materially distort subsequent required implementation or its verification.
-Weight implementation correctness, API behavior, and maintainability at least as heavily as required completion and verification issues when assigning severity.
+Your job is to decide whether the delivered implementation is correct, maintainable, and honestly scoped.
+Unfinished plan work blocks approval only when it was claimed complete, is required for the delivered behavior to be correct, or is an immediate prerequisite for the delivered behavior.
+Weight implementation correctness, API behavior, and maintainability at least as heavily as scope-completion issues when assigning severity.
 
 When reviewing:
-- identify required plan tasks that are still not implemented
-- identify concrete implementation bugs, regressions, contract mismatches, and weak verification
+- identify claimed or current-scope plan tasks that are still not implemented
+- identify concrete implementation bugs, regressions, and contract mismatches
 - flag implementations that drift from roadmap, design, or plan layout and ownership decisions, or combine things the design or plan kept separate without a recorded rationale
-- flag implementation files that are large or complex because they combine hand-curated data, generation logic, validation, and report rendering; require either a justified one-off rationale or a split into clearer source data, generator, validator, and output/report files
 - use systematic-debugging to identify the root cause of any nontrivial runtime failures
-- for numerical parity failures, decide whether the remaining blocker is a real implementation defect, insufficiently diagnosed, or evidence that the tolerance or comparison standard is too strict for the stated scientific claim. Treat tolerance relaxation or a different comparison standard as acceptable only when axes, units, inputs, shapes, metadata, row meanings, normalization, and domain-relevant features match, residual analysis supports numerical-method drift rather than different physics or semantics, the authoritative spec/catalog/test helper/gate was updated, affected verification was rerun, unaffected invariant checks remain strict, and any reusable lesson was recorded in findings or equivalent durable guidance. For tolerance changes, require the report to name the affected comparison, current and proposed `atol`/`rtol`, output scale, dtype/backend precision, reference precision, and evidence for numerical drift
+- for numerical parity failures in current-scope or claimed behavior, distinguish implementation defects, insufficient diagnosis, and cases where the comparison standard is too strict for the supported claim. Treat tolerance or comparator changes as acceptable only when residual evidence supports numerical-method drift rather than semantic or physics drift, unaffected invariants stay strict, and the authoritative spec, catalog, test helper, or gate is updated.
 - distinguish:
-  - remaining required plan work
-  - defects in already-implemented work that block subsequent required plan work
+  - unfinished current-scope work
+  - defects in already-implemented work that block delivered behavior
   - non-blocking defects in already-implemented work
-  - optional later work or deliberate deferrals
+  - follow-up work or deliberate deferrals
 
 For the output contract's `implementation_review_report_path`, read the path recorded in that file and write the review markdown to that current-checkout-relative path. Leave the `implementation_review_report_path` file containing only the path.
 Write `APPROVE` or `REVISE` to the `implementation_review_decision` path specified in the Output Contract.
@@ -28,9 +27,8 @@ Write `APPROVE` or `REVISE` to the `implementation_review_decision` path specifi
 Group findings by severity.
 If there are any high-severity findings, include a section header exactly `## High`.
 If there are no high-severity findings, do not emit a `## High` section.
-Include a section `## Remaining Required Plan Tasks` if any approved required plan tasks are still unimplemented.
-In that section, name the next coherent required tranche that should be implemented next.
-Name that tranche based on plan order, code coherence, and verification boundary.
+Include a section `## Follow-Up Work` for unfinished plan work that is real but not required for approving the delivered scope.
 Approve only if:
 - there is no `## High` section
-- no required approved plan tasks remain unimplemented
+- no claimed or current-scope plan tasks remain unimplemented
+- no unfinished prerequisite makes the delivered behavior unsafe, misleading, or unusable
