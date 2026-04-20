@@ -5,6 +5,7 @@ import yaml
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
+from orchestrator.workflow.adjudication import adjudication_visit_paths, candidate_paths
 from orchestrator.workflow.executor import WorkflowExecutor
 from tests.workflow_bundle_helpers import bundle_context_dict
 
@@ -158,6 +159,76 @@ def test_single_candidate_promotes_when_evaluation_fails_and_score_optional(tmp_
     assert result["adjudication"]["candidates"]["a"]["score_status"] == "evaluation_failed"
 
 
+def test_single_candidate_scorer_unavailable_promotes_when_score_optional(tmp_path: Path) -> None:
+    workflow = _workflow()
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["steps"][0]["adjudicated_provider"]["evaluator"]["input_file"] = "missing-evaluator.md"
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["artifacts"]["result_path"] == "docs/plans/a.md"
+    candidate_state = result["adjudication"]["candidates"]["a"]
+    assert candidate_state["score_status"] == "scorer_unavailable"
+    assert candidate_state["scorer_resolution_failure_key"].startswith("sha256:")
+    paths = candidate_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1, "a")
+    assert not paths.evaluation_packet_path.exists()
+
+    ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    assert rows[0]["score_status"] == "scorer_unavailable"
+    assert rows[0]["scorer_identity_hash"] is None
+    assert rows[0]["scorer_resolution_failure_key"].startswith("sha256:")
+
+
+def test_single_candidate_required_score_blocks_on_evaluation_failure(tmp_path: Path) -> None:
+    workflow = _workflow()
+    workflow["providers"]["evaluator"]["command"] = [
+        "python",
+        "-c",
+        "print('not json')",
+    ]
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["steps"][0]["adjudicated_provider"]["selection"]["require_score_for_single_candidate"] = True
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "adjudication_partial_scoring_failed"
+    assert not (tmp_path / "state/result_path.txt").exists()
+    assert "result_path" not in state.get("artifact_versions", {})
+
+
+def test_invalid_candidate_is_not_evaluated_or_selected(tmp_path: Path) -> None:
+    workflow = _workflow(scores={"b": 0.9})
+    workflow["providers"]["candidate_a"]["command"] = ["python", "-c", "pass"]
+    workflow["providers"]["evaluator"]["command"] = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "packet = json.loads(sys.stdin.read().split('Evaluator Packet:', 1)[1])\n"
+            "if packet['candidate_id'] == 'a':\n"
+            "    raise SystemExit(7)\n"
+            "print(json.dumps({'candidate_id': packet['candidate_id'], 'score': 0.9, 'summary': 'valid'}))\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["adjudication"]["selected_candidate_id"] == "b"
+    assert result["adjudication"]["candidates"]["a"]["candidate_status"] == "contract_failed"
+    assert result["adjudication"]["candidates"]["a"]["score_status"] == "not_evaluated"
+
+
 def test_multi_candidate_partial_scoring_fails_without_promotion(tmp_path: Path) -> None:
     workflow = _workflow()
     workflow["providers"]["evaluator"]["command"] = [
@@ -279,6 +350,53 @@ def test_candidate_timeout_returns_logical_step_timeout(tmp_path: Path) -> None:
     assert result["outcome"]["class"] == "timeout"
     assert result["outcome"]["retryable"] is True
     assert result["adjudication"]["candidates"]["a"]["candidate_status"] == "timeout"
+
+
+def test_candidate_and_evaluator_stdout_stderr_are_sidecars_only(tmp_path: Path) -> None:
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "import sys\n"
+            "from pathlib import Path\n"
+            "print('candidate stdout sidecar')\n"
+            "print('candidate stderr sidecar', file=sys.stderr)\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected', encoding='utf-8')\n"
+        ),
+    ]
+    workflow["providers"]["evaluator"]["command"] = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "packet = json.loads(sys.stdin.read().split('Evaluator Packet:', 1)[1])\n"
+            "print('evaluator stderr sidecar', file=sys.stderr)\n"
+            "print(json.dumps({'candidate_id': packet['candidate_id'], 'score': 0.9, 'summary': 'selected'}))\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert "output" not in result
+    assert "lines" not in result
+    assert "json" not in result
+    assert "truncated" not in result
+    assert "debug" not in result
+
+    paths = candidate_paths(tmp_path / ".orchestrate/runs/run-1", "root", "root.draft", 1, "a")
+    assert paths.stdout_log.read_text(encoding="utf-8") == "candidate stdout sidecar\n"
+    assert paths.stderr_log.read_text(encoding="utf-8") == "candidate stderr sidecar\n"
+    assert "candidate_id" in paths.evaluation_output_path.read_text(encoding="utf-8")
+    assert paths.evaluation_stderr_log.read_text(encoding="utf-8") == "evaluator stderr sidecar\n"
 
 
 def test_candidate_retry_starts_from_fresh_baseline_and_records_attempt_count(tmp_path: Path) -> None:
@@ -497,3 +615,29 @@ def test_adjudicated_provider_inside_call_frame_uses_frame_scoped_sidecars(tmp_p
     assert "/call_frames/" not in adjudication["run_score_ledger_path"]
     assert {row["execution_frame_id"] for row in rows} == {frame_id}
     assert {row["call_frame_id"] for row in rows} == {frame_id}
+
+
+def test_existing_adjudication_sidecars_fail_fast_without_rebaseline(tmp_path: Path) -> None:
+    (tmp_path / "prompt.md").write_text("Draft the best possible artifact.", encoding="utf-8")
+    (tmp_path / "evaluator.md").write_text("Return strict JSON.", encoding="utf-8")
+    workflow_file = _write_yaml(tmp_path / "workflow.yaml", _workflow())
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="run-1")
+    state_manager.initialize("workflow.yaml")
+
+    run_root = tmp_path / ".orchestrate/runs/run-1"
+    visit = adjudication_visit_paths(run_root, "root", "root.draft", 1)
+    visit.baseline_workspace.mkdir(parents=True)
+    stale_baseline = visit.baseline_workspace / "stale.txt"
+    stale_baseline.write_text("original baseline sidecar", encoding="utf-8")
+    stale_packet = candidate_paths(run_root, "root", "root.draft", 1, "a").evaluation_packet_path
+    stale_packet.parent.mkdir(parents=True)
+    stale_packet.write_text('{"packet": "stale"}', encoding="utf-8")
+
+    state = WorkflowExecutor(loaded, tmp_path, state_manager, retry_delay_ms=0).execute()
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "adjudication_resume_mismatch"
+    assert stale_baseline.read_text(encoding="utf-8") == "original baseline sidecar"
+    assert stale_packet.read_text(encoding="utf-8") == '{"packet": "stale"}'

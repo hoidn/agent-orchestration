@@ -824,7 +824,7 @@ still occurs after terminal ledger finalization. With
 `require_score_for_single_candidate: true`, assert the same failures block
 promotion.
 
-- [ ] **Step 3: Write failing runtime test for invalid candidate exclusion**
+- [x] **Step 3: Write failing runtime test for invalid candidate exclusion**
 
 Candidate `a` omits required output. Candidate `b` produces valid output.
 Assert only `b` is evaluated and selected, and `a` appears in the adjudication
@@ -837,7 +837,7 @@ fail evidence construction. Assert the step fails with
 `adjudication_partial_scoring_failed`, no promotion happens, no normal artifacts
 are published, and ledger rows identify the scored and unscored candidates.
 
-- [ ] **Step 5: Write failing runtime test for stdout suppression**
+- [x] **Step 5: Write failing runtime test for stdout suppression**
 
 Make candidate and evaluator providers print valid-looking JSON/text to stdout.
 Assert stdout/stderr are stored only in runtime-owned logs and the completed

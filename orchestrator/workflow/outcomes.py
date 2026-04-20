@@ -154,7 +154,7 @@ class OutcomeRecorder:
             json=result.get("json"),
             error=result.get("error"),
             debug=result.get("debug"),
-            truncated=result.get("truncated", False),
+            truncated=result.get("truncated") if "truncated" in result or result.get("adjudication") else False,
             artifacts=result.get("artifacts"),
             adjudication=result.get("adjudication"),
             skipped=result.get("skipped", False),

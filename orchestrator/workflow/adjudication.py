@@ -136,6 +136,7 @@ class CandidateRuntimePaths:
     prompt_path: Path
     evaluation_packet_path: Path
     evaluation_output_path: Path
+    evaluation_stderr_log: Path
     evaluator_workspace: Path
 
 
@@ -249,8 +250,25 @@ def candidate_paths(
         prompt_path=candidate_root / "prompt.txt",
         evaluation_packet_path=candidate_root / "evaluation_packet.json",
         evaluation_output_path=candidate_root / "evaluation_output.json",
+        evaluation_stderr_log=candidate_root / "evaluation_stderr.log",
         evaluator_workspace=candidate_root / "evaluator" / "workspace",
     )
+
+
+def adjudication_sidecars_exist(
+    *,
+    visit_paths: AdjudicationVisitPaths,
+    candidate_roots: Sequence[Path],
+) -> bool:
+    """Return true when a prior adjudication attempt left runtime-owned state."""
+    paths = [
+        visit_paths.baseline_root,
+        visit_paths.run_score_ledger_path,
+        visit_paths.scorer_root,
+        visit_paths.promotion_manifest_path,
+        *candidate_roots,
+    ]
+    return any(path.exists() for path in paths)
 
 
 def create_baseline_snapshot(
@@ -443,7 +461,11 @@ def scorer_identity_hash(scorer: Mapping[str, Any]) -> str:
         {
             "evaluator_provider": scorer.get("evaluator_provider"),
             "evaluator_params": scorer.get("evaluator_params"),
+            "evaluator_prompt_source_kind": scorer.get("evaluator_prompt_source_kind"),
+            "evaluator_prompt_source": scorer.get("evaluator_prompt_source"),
             "evaluator_prompt_hash": scorer.get("evaluator_prompt_hash"),
+            "rubric_source_kind": scorer.get("rubric_source_kind"),
+            "rubric_source": scorer.get("rubric_source"),
             "rubric_hash": scorer.get("rubric_hash"),
             "evaluator_json_contract": EVALUATOR_JSON_CONTRACT,
             "evaluation_packet_schema": EVALUATION_PACKET_SCHEMA,
@@ -480,6 +502,8 @@ def build_evaluation_packet(
     evidence_limits: Mapping[str, int] | None,
     workflow_secret_values: Sequence[str],
     rubric_content: str | None = None,
+    candidate_metadata: Mapping[str, Any] | None = None,
+    prompt_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     limits = {
         "max_item_bytes": 262144,
@@ -566,8 +590,31 @@ def build_evaluation_packet(
         "packet_schema": EVALUATION_PACKET_SCHEMA,
         "candidate_id": candidate_id,
         "scorer_identity_hash": scorer.get("scorer_identity_hash"),
-        "evidence_confidentiality": "same_trust_boundary",
+        "scorer": {
+            "scorer_identity_hash": scorer.get("scorer_identity_hash"),
+            "evaluator_provider": scorer.get("evaluator_provider"),
+            "evaluator_model": scorer.get("evaluator_model"),
+            "evaluator_params_hash": scorer.get("evaluator_params_hash"),
+            "evaluator_config_hash": scorer.get("evaluator_config_hash"),
+            "evaluator_prompt_source_kind": scorer.get("evaluator_prompt_source_kind"),
+            "evaluator_prompt_source": scorer.get("evaluator_prompt_source"),
+            "evaluator_prompt_hash": scorer.get("evaluator_prompt_hash"),
+            "rubric_source_kind": scorer.get("rubric_source_kind"),
+            "rubric_source": scorer.get("rubric_source"),
+            "rubric_hash": scorer.get("rubric_hash"),
+        },
+        "candidate": {
+            "candidate_id": candidate_id,
+            **dict(candidate_metadata or {}),
+        },
+        "prompt": {
+            "composed_prompt_hash": _hash_bytes(rendered_prompt.encode("utf-8")),
+            **dict(prompt_metadata or {}),
+        },
+        "evidence_confidentiality": scorer.get("evidence_confidentiality") or "same_trust_boundary",
         "secret_detection_policy": SECRET_DETECTION_POLICY,
+        "evidence_valid": True,
+        "evidence_invalid_reasons": [],
         "artifacts": dict(artifacts),
         "evidence_items": evidence_items,
     }
@@ -624,22 +671,13 @@ def select_candidate(
     if any(candidate.get("score_status") != "scored" or not _is_finite_score(candidate.get("score")) for candidate in valid):
         return SelectionResult(None, None, "none", "adjudication_partial_scoring_failed")
 
-    best_index = 0
-    best_score = float(valid[0]["score"])
-    tied = False
-    for index, candidate in enumerate(valid[1:], start=1):
-        score = float(candidate["score"])
-        if score > best_score:
-            best_index = index
-            best_score = score
-            tied = False
-        elif score == best_score:
-            tied = True
-    selected = valid[best_index]
+    best_score = max(float(candidate["score"]) for candidate in valid)
+    tied_best = [candidate for candidate in valid if float(candidate["score"]) == best_score]
+    selected = tied_best[0]
     return SelectionResult(
         str(selected["candidate_id"]),
         best_score,
-        "candidate_order_tie_break" if tied and best_index == 0 else "highest_score",
+        "candidate_order_tie_break" if len(tied_best) > 1 else "highest_score",
     )
 
 
@@ -1425,6 +1463,8 @@ def _add_text_evidence(
             "path": path,
             "byte_size": len(encoded),
             "sha256": _hash_bytes(encoded),
+            "read_status": "embedded",
+            "text_encoding": "utf-8",
             "content": content,
         }
     )

@@ -20,7 +20,11 @@ def test_scorer_identity_hash_changes_when_contract_inputs_change() -> None:
     base = {
         "evaluator_provider": "fake",
         "evaluator_params": {"model": "m1"},
+        "evaluator_prompt_source_kind": "input_file",
+        "evaluator_prompt_source": "evaluator.md",
         "evaluator_prompt_hash": "sha256:prompt",
+        "rubric_source_kind": "input_file",
+        "rubric_source": "rubric.md",
         "rubric_hash": None,
         "evidence_limits": {"max_item_bytes": 10, "max_packet_bytes": 100},
         "evidence_confidentiality": "same_trust_boundary",
@@ -28,9 +32,13 @@ def test_scorer_identity_hash_changes_when_contract_inputs_change() -> None:
 
     original = scorer_identity_hash(base)
     changed = scorer_identity_hash({**base, "evaluator_params": {"model": "m2"}})
+    changed_prompt_source = scorer_identity_hash({**base, "evaluator_prompt_source": "other-evaluator.md"})
+    changed_rubric_source = scorer_identity_hash({**base, "rubric_source": "other-rubric.md"})
 
     assert original.startswith("sha256:")
     assert changed != original
+    assert changed_prompt_source != original
+    assert changed_rubric_source != original
 
 
 def test_build_evaluation_packet_embeds_complete_text_evidence(tmp_path: Path) -> None:
@@ -66,6 +74,57 @@ def test_build_evaluation_packet_embeds_complete_text_evidence(tmp_path: Path) -
     assert contents["candidate_prompt"] == "Write the artifact."
     assert contents["result_path.value_file"] == "docs/result.md\n"
     assert contents["result_path.target"] == "complete result\n"
+    assert all(item["read_status"] == "embedded" for item in packet["evidence_items"])
+
+
+def test_evaluation_packet_records_scorer_candidate_and_prompt_metadata(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "state").mkdir()
+    (candidate / "state/result.txt").write_text("complete result\n", encoding="utf-8")
+
+    packet = build_evaluation_packet(
+        candidate_id="a",
+        candidate_workspace=candidate,
+        rendered_prompt="Write the artifact.",
+        expected_outputs=[{"name": "result", "path": "state/result.txt", "type": "string"}],
+        output_bundle=None,
+        artifacts={"result": "complete result"},
+        scorer={
+            "scorer_identity_hash": "sha256:scorer",
+            "evaluator_provider": "fake_eval",
+            "evaluator_model": "eval-model",
+            "evaluator_params_hash": "sha256:eval-params",
+            "evaluator_prompt_source_kind": "input_file",
+            "evaluator_prompt_source": "evaluator.md",
+            "evaluator_prompt_hash": "sha256:evaluator-prompt",
+            "rubric_source_kind": None,
+            "rubric_source": None,
+            "rubric_hash": None,
+        },
+        evidence_limits={"max_item_bytes": 1024, "max_packet_bytes": 4096},
+        workflow_secret_values=[],
+        candidate_metadata={
+            "candidate_provider": "fake_candidate",
+            "candidate_model": "candidate-model",
+            "candidate_params_hash": "sha256:candidate-params",
+            "candidate_index": 0,
+            "prompt_variant_id": "input_file:evaluator.md:sha256:prompt",
+        },
+        prompt_metadata={
+            "prompt_source_kind": "input_file",
+            "prompt_source": "prompt.md",
+            "composed_prompt_hash": "sha256:prompt",
+        },
+    )
+
+    assert packet["scorer"]["evaluator_provider"] == "fake_eval"
+    assert packet["candidate"]["candidate_provider"] == "fake_candidate"
+    assert packet["candidate"]["candidate_index"] == 0
+    assert packet["prompt"]["prompt_source"] == "prompt.md"
+    assert packet["artifacts"] == {"result": "complete result"}
+    assert packet["evidence_valid"] is True
+    assert packet["evidence_invalid_reasons"] == []
 
 
 @pytest.mark.parametrize(
@@ -164,6 +223,17 @@ def test_selection_rules_cover_single_optional_multi_partial_and_ties() -> None:
     )
     assert tie.selected_candidate_id == "a"
     assert tie.selection_reason == "candidate_order_tie_break"
+
+    later_tie = select_candidate(
+        [
+            {"candidate_id": "a", "candidate_status": "output_valid", "score_status": "scored", "score": 0.8},
+            {"candidate_id": "b", "candidate_status": "output_valid", "score_status": "scored", "score": 0.9},
+            {"candidate_id": "c", "candidate_status": "output_valid", "score_status": "scored", "score": 0.9},
+        ],
+        require_score_for_single_candidate=False,
+    )
+    assert later_tie.selected_candidate_id == "b"
+    assert later_tie.selection_reason == "candidate_order_tie_break"
 
 
 def test_ledger_rows_are_one_per_candidate_and_mirror_checks_owner(tmp_path: Path) -> None:

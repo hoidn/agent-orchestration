@@ -94,6 +94,7 @@ from .adjudication import (
     PathSurface,
     PromotionConflictError,
     SECRET_DETECTION_POLICY,
+    adjudication_sidecars_exist,
     adjudication_outcome,
     adjudication_visit_paths,
     build_evaluation_packet,
@@ -3783,6 +3784,21 @@ class WorkflowExecutor:
         visit_count = step_visits.get(step_name, 1) if isinstance(step_visits, dict) else 1
         visit_paths = adjudication_visit_paths(run_root, frame_scope, step_id, int(visit_count or 1))
 
+        candidates_config = adjudicated.get("candidates", [])
+        evaluator_config = adjudicated.get("evaluator", {})
+        selection_config = adjudicated.get("selection", {})
+        candidate_roots = [
+            candidate_paths(run_root, frame_scope, step_id, int(visit_count or 1), str(candidate_config.get("id"))).candidate_root
+            for candidate_config in candidates_config
+            if isinstance(candidate_config, dict)
+        ] if isinstance(candidates_config, list) else []
+        if adjudication_sidecars_exist(visit_paths=visit_paths, candidate_roots=candidate_roots):
+            return self._adjudication_failure_result(
+                "adjudication_resume_mismatch",
+                "existing adjudication sidecars require resume reconciliation before rerun",
+                visit_paths=visit_paths,
+            )
+
         required_surfaces = self._adjudication_required_path_surfaces(output_contract_step)
         try:
             deadline.require_time_remaining("baseline snapshot")
@@ -3803,9 +3819,6 @@ class WorkflowExecutor:
                 str(exc),
             )
 
-        candidates_config = adjudicated.get("candidates", [])
-        evaluator_config = adjudicated.get("evaluator", {})
-        selection_config = adjudicated.get("selection", {})
         require_single_score = bool(
             isinstance(selection_config, dict)
             and selection_config.get("require_score_for_single_candidate") is True
@@ -3820,14 +3833,23 @@ class WorkflowExecutor:
             candidate_provider = str(candidate_config.get("provider"))
             paths = candidate_paths(run_root, frame_scope, step_id, int(visit_count or 1), candidate_id)
             candidate_step = self._candidate_step_from_adjudicated_step(step, candidate_config)
+            candidate_params, _candidate_param_errors = self._resolve_provider_params_for_adjudication(
+                candidate_provider,
+                candidate_config.get("provider_params", {}),
+                context,
+                state,
+            )
+            prompt_source_kind, prompt_source = self._prompt_source_metadata(candidate_step)
             candidate_record = {
                 "candidate_id": candidate_id,
                 "candidate_index": index,
                 "candidate_provider": candidate_provider,
-                "candidate_model": self._provider_model(candidate_config.get("provider_params")),
-                "candidate_params_hash": self._stable_runtime_hash(candidate_config.get("provider_params", {})),
+                "candidate_model": self._provider_model(candidate_params),
+                "candidate_params_hash": self._stable_runtime_hash(candidate_params),
                 "candidate_config_hash": self._stable_runtime_hash(candidate_config),
-                "prompt_variant_id": candidate_config.get("prompt_variant_id") or candidate_id,
+                "prompt_variant_id": candidate_config.get("prompt_variant_id"),
+                "prompt_source_kind": prompt_source_kind,
+                "prompt_source": prompt_source,
                 "candidate_root": paths.candidate_root.relative_to(self.workspace).as_posix()
                 if self._path_under(paths.candidate_root, self.workspace)
                 else paths.candidate_root.as_posix(),
@@ -3868,6 +3890,14 @@ class WorkflowExecutor:
                     paths.prompt_path.parent.mkdir(parents=True, exist_ok=True)
                     paths.prompt_path.write_text(prompt or "", encoding="utf-8")
                     candidate_record["composed_prompt_hash"] = self._text_hash(prompt or "")
+                    if not candidate_record.get("prompt_variant_id"):
+                        candidate_record["prompt_variant_id"] = self._stable_runtime_hash(
+                            {
+                                "prompt_source_kind": prompt_source_kind,
+                                "prompt_source": prompt_source,
+                                "composed_prompt_hash": candidate_record["composed_prompt_hash"],
+                            }
+                        )
 
                     invocation, error = self.provider_executor.prepare_invocation(
                         provider_name=candidate_provider,
@@ -4119,6 +4149,10 @@ class WorkflowExecutor:
 
         selected["promotion_status"] = "committed"
         selected["promoted_paths"] = promotion.promoted_paths
+        try:
+            deadline.require_time_remaining("terminal ledger materialization")
+        except TimeoutError as exc:
+            return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
         ledger_failure = self._write_adjudication_ledgers_failure(
             adjudicated=adjudicated,
             visit_paths=visit_paths,
@@ -4136,6 +4170,10 @@ class WorkflowExecutor:
         )
         if ledger_failure is not None:
             return ledger_failure
+        try:
+            deadline.require_time_remaining("parent output validation")
+        except TimeoutError as exc:
+            return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
         try:
             if resolved_output_bundle is not None:
                 artifacts = validate_output_bundle(resolved_output_bundle, workspace=self.workspace)
@@ -4258,6 +4296,16 @@ class WorkflowExecutor:
             persist_scorer_resolution_failure(payload, visit_paths.scorer_root)
             return payload
 
+        if (
+            evaluator_prompt_source_kind == "input_file"
+            and isinstance(evaluator_prompt_source, str)
+            and not (self.workspace / evaluator_prompt_source).exists()
+        ):
+            return None, "", scorer_failure(
+                "evaluator_prompt_read_failed",
+                f"evaluator input file '{evaluator_prompt_source}' does not exist",
+            )
+
         evaluator_prompt, prompt_error = self.prompt_composer.read_prompt_source(
             dict(evaluator_config),
             step_name="adjudication_evaluator",
@@ -4371,6 +4419,18 @@ class WorkflowExecutor:
                 evidence_limits=scorer.get("evidence_limits"),
                 workflow_secret_values=self._workflow_secret_values(step),
                 rubric_content=scorer.get("rubric_content") if isinstance(scorer.get("rubric_content"), str) else None,
+                candidate_metadata={
+                    "candidate_provider": candidate.get("candidate_provider"),
+                    "candidate_model": candidate.get("candidate_model"),
+                    "candidate_params_hash": candidate.get("candidate_params_hash"),
+                    "candidate_index": candidate.get("candidate_index"),
+                    "prompt_variant_id": candidate.get("prompt_variant_id"),
+                },
+                prompt_metadata={
+                    "prompt_source_kind": candidate.get("prompt_source_kind"),
+                    "prompt_source": candidate.get("prompt_source"),
+                    "composed_prompt_hash": candidate.get("composed_prompt_hash"),
+                },
             )
             paths.evaluation_packet_path.parent.mkdir(parents=True, exist_ok=True)
             paths.evaluation_packet_path.write_text(json.dumps(packet, sort_keys=True, ensure_ascii=False), encoding="utf-8")
@@ -4415,6 +4475,7 @@ class WorkflowExecutor:
                 return
             exec_result = self._execute_provider_invocation(invocation, cwd=paths.evaluator_workspace)
             paths.evaluation_output_path.write_bytes(exec_result.stdout)
+            paths.evaluation_stderr_log.write_bytes(exec_result.stderr)
             candidate["evaluator_attempt_count"] = attempt + 1
             candidate["evaluator_attempts"].append(
                 {
@@ -4634,6 +4695,8 @@ class WorkflowExecutor:
                 "candidate_root": candidate.get("candidate_root"),
                 "failure_type": candidate.get("failure_type"),
                 "failure_message": candidate.get("failure_message"),
+                "scorer_resolution_failure_key": candidate.get("scorer_resolution_failure_key"),
+                "evaluation_packet_hash": candidate.get("evaluation_packet_hash"),
             }
         return result
 
@@ -4712,6 +4775,29 @@ class WorkflowExecutor:
             model = params.get("model") or params.get("reasoning_model")
             return model if isinstance(model, str) else None
         return None
+
+    def _resolve_provider_params_for_adjudication(
+        self,
+        provider_name: str,
+        params: Any,
+        context: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> tuple[dict[str, Any], list[str]]:
+        raw_params = params if isinstance(params, dict) else {}
+        merged = self.provider_registry.merge_params(provider_name, raw_params)
+        provider_context = self._create_provider_context(context, state)
+        try:
+            substituted, errors = self.provider_executor._substitute_params(merged, provider_context)
+        except Exception as exc:
+            return merged, [str(exc)]
+        return substituted, [str(error) for error in errors]
+
+    def _prompt_source_metadata(self, step: Mapping[str, Any]) -> tuple[Optional[str], Optional[str]]:
+        if isinstance(step.get("asset_file"), str):
+            return "asset_file", step.get("asset_file")
+        if isinstance(step.get("input_file"), str):
+            return "input_file", step.get("input_file")
+        return None, None
 
     def _stable_runtime_hash(self, payload: Any) -> str:
         encoded = json.dumps(payload, sort_keys=True, default=str, ensure_ascii=False).encode("utf-8")
