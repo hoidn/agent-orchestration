@@ -502,6 +502,8 @@ def build_evaluation_packet(
     evidence_limits: Mapping[str, int] | None,
     workflow_secret_values: Sequence[str],
     rubric_content: str | None = None,
+    consumed_artifacts: Mapping[str, Any] | None = None,
+    consumed_relpath_targets: Mapping[str, str] | None = None,
     candidate_metadata: Mapping[str, Any] | None = None,
     prompt_metadata: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
@@ -529,6 +531,37 @@ def build_evaluation_packet(
             limits=limits,
             workflow_secret_values=workflow_secret_values,
         )
+
+    normalized_consumes = {
+        str(name): value
+        for name, value in (consumed_artifacts or {}).items()
+        if isinstance(name, str)
+    }
+    target_by_consume = {
+        str(name): target
+        for name, target in (consumed_relpath_targets or {}).items()
+        if isinstance(name, str) and isinstance(target, str)
+    }
+    for name in sorted(normalized_consumes):
+        value = normalized_consumes[name]
+        _add_text_evidence(
+            evidence_items,
+            name=f"consume.{name}.value",
+            path=None,
+            content=str(value),
+            limits=limits,
+            workflow_secret_values=workflow_secret_values,
+        )
+        target_relpath = target_by_consume.get(name)
+        if target_relpath is not None:
+            _add_file_evidence(
+                evidence_items,
+                candidate_workspace=candidate_workspace,
+                name=f"consume.{name}.target",
+                relpath=target_relpath,
+                limits=limits,
+                workflow_secret_values=workflow_secret_values,
+            )
 
     if output_bundle:
         bundle_path = _workspace_file(candidate_workspace, str(output_bundle.get("path", "")))
@@ -616,6 +649,7 @@ def build_evaluation_packet(
         "evidence_valid": True,
         "evidence_invalid_reasons": [],
         "artifacts": dict(artifacts),
+        "consumed_artifacts": _jsonable(normalized_consumes),
         "evidence_items": evidence_items,
     }
     packet["evaluation_packet_hash"] = _stable_hash(packet)
@@ -854,6 +888,15 @@ def _copy_baseline_tree(
                 if entry:
                     kept_dirs.append(dir_name)
                 continue
+            (dest_root / rel).mkdir(parents=True, exist_ok=True)
+            stat = full_path.stat()
+            included.append(
+                ManifestEntry(
+                    path=rel,
+                    entry_type="directory",
+                    mode=stat.st_mode & 0o777,
+                )
+            )
             kept_dirs.append(dir_name)
         dir_names[:] = kept_dirs
 

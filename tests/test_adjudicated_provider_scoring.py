@@ -77,6 +77,60 @@ def test_build_evaluation_packet_embeds_complete_text_evidence(tmp_path: Path) -
     assert all(item["read_status"] == "embedded" for item in packet["evidence_items"])
 
 
+def test_build_evaluation_packet_embeds_injected_consumed_relpath_targets(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "state").mkdir()
+    (candidate / "docs").mkdir()
+    (candidate / "state/result.txt").write_text("complete result\n", encoding="utf-8")
+    (candidate / "docs/source.md").write_text("consumed source\n", encoding="utf-8")
+
+    packet = build_evaluation_packet(
+        candidate_id="a",
+        candidate_workspace=candidate,
+        rendered_prompt="## Consumed Artifacts\n- source_doc: docs/source.md\nRead these files before acting.\n",
+        expected_outputs=[{"name": "result", "path": "state/result.txt", "type": "string"}],
+        output_bundle=None,
+        artifacts={"result": "complete result"},
+        scorer={"scorer_identity_hash": "sha256:scorer"},
+        evidence_limits={"max_item_bytes": 1024, "max_packet_bytes": 4096},
+        workflow_secret_values=[],
+        consumed_artifacts={"source_doc": "docs/source.md"},
+        consumed_relpath_targets={"source_doc": "docs/source.md"},
+    )
+
+    contents = {item["name"]: item["content"] for item in packet["evidence_items"]}
+    assert contents["consume.source_doc.value"] == "docs/source.md"
+    assert contents["consume.source_doc.target"] == "consumed source\n"
+    assert packet["consumed_artifacts"] == {"source_doc": "docs/source.md"}
+
+
+def test_consumed_relpath_target_evidence_is_score_critical(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    candidate.mkdir()
+    (candidate / "state").mkdir()
+    (candidate / "docs").mkdir()
+    (candidate / "state/result.txt").write_text("complete result\n", encoding="utf-8")
+    (candidate / "docs/source.md").write_text("token-secret\n", encoding="utf-8")
+
+    with pytest.raises(EvidencePacketError) as exc_info:
+        build_evaluation_packet(
+            candidate_id="a",
+            candidate_workspace=candidate,
+            rendered_prompt="Prompt",
+            expected_outputs=[{"name": "result", "path": "state/result.txt", "type": "string"}],
+            output_bundle=None,
+            artifacts={"result": "complete result"},
+            scorer={"scorer_identity_hash": "sha256:scorer"},
+            evidence_limits={"max_item_bytes": 1024, "max_packet_bytes": 4096},
+            workflow_secret_values=["token-secret"],
+            consumed_artifacts={"source_doc": "docs/source.md"},
+            consumed_relpath_targets={"source_doc": "docs/source.md"},
+        )
+
+    assert exc_info.value.failure_type == "secret_detected_in_score_evidence"
+
+
 def test_evaluation_packet_records_scorer_candidate_and_prompt_metadata(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     candidate.mkdir()

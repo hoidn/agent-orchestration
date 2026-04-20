@@ -191,6 +191,33 @@ def test_promotion_records_file_and_absent_preimages_and_rejects_unavailable(
     assert not (blocked_parent / ".env/result.txt").exists()
 
 
+def test_promotion_rejects_destination_directory_removed_after_baseline(tmp_path: Path) -> None:
+    parent = tmp_path / "parent"
+    candidate = tmp_path / "candidate"
+    parent.mkdir()
+    candidate.mkdir()
+    (parent / "state/result.txt").mkdir(parents=True)
+    visit, manifest = _baseline(tmp_path, parent)
+    (parent / "state/result.txt").rmdir()
+    (candidate / "state").mkdir()
+    (candidate / "state/result.txt").write_text("selected\n", encoding="utf-8")
+
+    with pytest.raises(PromotionConflictError) as exc_info:
+        promote_candidate_outputs(
+            expected_outputs=[
+                {"name": "result", "path": "state/result.txt", "type": "string"},
+            ],
+            output_bundle=None,
+            candidate_workspace=candidate,
+            parent_workspace=parent,
+            baseline_manifest=manifest,
+            promotion_manifest_path=visit.promotion_manifest_path,
+        )
+
+    assert exc_info.value.failure_type == "promotion_conflict"
+    assert not (parent / "state/result.txt").exists()
+
+
 def test_promotion_rejects_duplicate_destination_with_different_roles(
     tmp_path: Path,
 ) -> None:

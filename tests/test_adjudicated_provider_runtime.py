@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+import orchestrator.workflow.executor as executor_module
 from orchestrator.loader import WorkflowLoader
 from orchestrator.state import StateManager
 from orchestrator.workflow.adjudication import (
@@ -13,6 +14,23 @@ from orchestrator.workflow.adjudication import (
 )
 from orchestrator.workflow.executor import WorkflowExecutor
 from tests.workflow_bundle_helpers import bundle_context_dict
+
+
+class _FakeClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def monotonic(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+def _install_fake_clock(monkeypatch: pytest.MonkeyPatch, fake_clock: _FakeClock) -> None:
+    monkeypatch.setattr(executor_module.time, "monotonic", fake_clock.monotonic)
+    monkeypatch.setattr("orchestrator.workflow.adjudication.time.monotonic", fake_clock.monotonic)
+    monkeypatch.setattr(executor_module.time, "sleep", lambda seconds: fake_clock.advance(float(seconds)))
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -140,6 +158,92 @@ def test_adjudicated_provider_selects_highest_scored_candidate_and_publishes(tmp
     assert [row["candidate_id"] for row in rows] == ["a", "b"]
     assert [row["selected"] for row in rows] == [False, True]
     assert state["artifact_versions"]["result_path"][-1]["value"] == "docs/plans/b.md"
+
+
+def test_evaluator_packet_includes_consumed_relpath_target_content(tmp_path: Path) -> None:
+    workflow = _workflow(
+        {"a": 1.0},
+        adjudicated_provider={
+            "candidates": [
+                {"id": "a", "provider": "candidate_a"},
+            ],
+            "evaluator": {
+                "provider": "evaluator",
+                "input_file": "evaluator.md",
+                "evidence_confidentiality": "same_trust_boundary",
+            },
+            "selection": {
+                "tie_break": "candidate_order",
+                "require_score_for_single_candidate": True,
+            },
+            "score_ledger_path": "artifacts/evaluations/draft_scores.jsonl",
+        },
+        consumes=[
+            {
+                "artifact": "source_doc",
+                "producers": ["Seed"],
+                "policy": "latest_successful",
+                "freshness": "any",
+            },
+        ],
+        prompt_consumes=["source_doc"],
+    )
+    workflow["artifacts"]["source_doc"] = {
+        "kind": "relpath",
+        "type": "relpath",
+        "pointer": "state/source_doc_path.txt",
+        "under": "docs",
+        "must_exist_target": True,
+    }
+    workflow["providers"]["evaluator"] = {
+        "command": [
+            "python",
+            "-c",
+            (
+                "import json, sys\n"
+                "packet = json.loads(sys.stdin.read().split('Evaluator Packet:', 1)[1])\n"
+                "items = {item['name']: item['content'] for item in packet['evidence_items']}\n"
+                "assert packet['consumed_artifacts'] == {'source_doc': 'docs/source.md'}\n"
+                "assert items['consume.source_doc.value'] == 'docs/source.md'\n"
+                "assert items['consume.source_doc.target'] == 'source evidence\\n'\n"
+                "print(json.dumps({'candidate_id': packet['candidate_id'], 'score': 1.0, 'summary': 'has source'}))\n"
+            ),
+        ],
+        "input_mode": "stdin",
+    }
+    workflow["steps"].insert(
+        0,
+        {
+            "name": "Seed",
+            "command": [
+                "python",
+                "-c",
+                (
+                    "from pathlib import Path\n"
+                    "Path('state').mkdir(exist_ok=True)\n"
+                    "Path('docs').mkdir(exist_ok=True)\n"
+                    "Path('state/source_doc_path.txt').write_text('docs/source.md\\n', encoding='utf-8')\n"
+                    "Path('docs/source.md').write_text('source evidence\\n', encoding='utf-8')\n"
+                ),
+            ],
+            "expected_outputs": [
+                {
+                    "name": "source_doc_path",
+                    "path": "state/source_doc_path.txt",
+                    "type": "relpath",
+                    "under": "docs",
+                    "must_exist_target": True,
+                }
+            ],
+            "publishes": [{"artifact": "source_doc", "from": "source_doc_path"}],
+        },
+    )
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert result["adjudication"]["selected_score"] == 1.0
 
 
 def test_score_ledger_path_is_substituted_before_mirror_materialization(tmp_path: Path) -> None:
@@ -373,6 +477,7 @@ def test_multi_candidate_partial_scoring_fails_without_promotion(tmp_path: Path)
 
 
 def test_ledger_mirror_conflict_returns_normalized_step_failure(tmp_path: Path) -> None:
+    attempt_file = tmp_path / "candidate_attempts.txt"
     ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
     ledger.parent.mkdir(parents=True)
     ledger.write_text(
@@ -388,14 +493,34 @@ def test_ledger_mirror_conflict_returns_normalized_step_failure(tmp_path: Path) 
         + "\n",
         encoding="utf-8",
     )
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({attempt_file.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected once', encoding='utf-8')\n"
+        ),
+    ]
 
-    state = _run(tmp_path, _workflow())
+    state = _run(tmp_path, workflow)
 
     result = state["steps"]["Draft"]
     assert result["status"] == "failed"
     assert result["exit_code"] == 2
     assert result["error"]["type"] == "ledger_conflict"
     assert result["outcome"]["class"] == "ledger_conflict"
+    assert attempt_file.read_text(encoding="utf-8") == "1"
     assert "result_path" not in state.get("artifact_versions", {})
 
 
@@ -434,6 +559,7 @@ def test_two_adjudicated_steps_cannot_share_one_score_ledger_mirror(tmp_path: Pa
 
 
 def test_output_bundle_relpath_target_ledger_collision_fails_before_promotion(tmp_path: Path) -> None:
+    attempt_file = tmp_path / "candidate_attempts.txt"
     workflow = _workflow(scores={"a": 0.9})
     workflow["artifacts"] = {
         "doc": {
@@ -445,6 +571,7 @@ def test_output_bundle_relpath_target_ledger_collision_fails_before_promotion(tm
         },
     }
     step = workflow["steps"][0]
+    step["retries"] = {"max": 1, "delay_ms": 0}
     step["adjudicated_provider"]["candidates"] = [{"id": "a", "provider": "candidate_a"}]
     step["adjudicated_provider"]["score_ledger_path"] = "artifacts/evaluations/draft_scores.jsonl"
     step.pop("expected_outputs")
@@ -467,6 +594,9 @@ def test_output_bundle_relpath_target_ledger_collision_fails_before_promotion(tm
         (
             "import json\n"
             "from pathlib import Path\n"
+            f"attempt_file = Path({attempt_file.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
             "Path('state').mkdir(parents=True, exist_ok=True)\n"
             "Path('artifacts/evaluations').mkdir(parents=True, exist_ok=True)\n"
             "Path('state/bundle.json').write_text(json.dumps({'doc': 'artifacts/evaluations/draft_scores.jsonl'}), encoding='utf-8')\n"
@@ -479,6 +609,7 @@ def test_output_bundle_relpath_target_ledger_collision_fails_before_promotion(tm
     result = state["steps"]["Draft"]
     assert result["status"] == "failed"
     assert result["error"]["type"] == "ledger_path_collision"
+    assert attempt_file.read_text(encoding="utf-8") == "1"
     assert not (tmp_path / "state/bundle.json").exists()
     assert not (tmp_path / "artifacts/evaluations/draft_scores.jsonl").exists()
     assert "doc" not in state.get("artifact_versions", {})
@@ -521,6 +652,252 @@ def test_candidate_exit_124_does_not_mask_later_valid_candidate_when_deadline_re
     assert candidate_a["candidate_status"] == "timeout"
     assert candidate_a["score_status"] == "not_evaluated"
     assert result["artifacts"]["result_path"] == "docs/plans/b.md"
+
+
+def test_logical_deadline_remaining_budget_is_passed_to_candidate_and_evaluator(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_clock = _FakeClock()
+    _install_fake_clock(monkeypatch, fake_clock)
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 10
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    observed_timeouts: list[float | None] = []
+
+    def mutate_executor(executor: WorkflowExecutor) -> None:
+        original_prepare = executor.provider_executor.prepare_invocation
+        original_execute = executor._execute_provider_invocation
+
+        def prepare_with_timeout_capture(*args, **kwargs):
+            observed_timeouts.append(kwargs.get("timeout_sec"))
+            return original_prepare(*args, **kwargs)
+
+        def execute_and_advance(invocation, **kwargs):
+            result = original_execute(invocation, **kwargs)
+            fake_clock.advance(2.0)
+            return result
+
+        executor.provider_executor.prepare_invocation = prepare_with_timeout_capture
+        executor._execute_provider_invocation = execute_and_advance
+
+    state = _run(tmp_path, workflow, mutate_executor=mutate_executor)
+
+    assert state["steps"]["Draft"]["status"] == "completed"
+    assert observed_timeouts[:2] == [10.0, 8.0]
+
+
+def test_deadline_expiring_after_baseline_starts_no_candidate_copy(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_clock = _FakeClock()
+    _install_fake_clock(monkeypatch, fake_clock)
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 1
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    copy_calls = 0
+    original_create_baseline = executor_module.create_baseline_snapshot
+    original_prepare_workspace = executor_module.prepare_candidate_workspace_from_baseline
+
+    def slow_baseline(**kwargs):
+        result = original_create_baseline(**kwargs)
+        fake_clock.advance(2.0)
+        return result
+
+    def count_candidate_copy(**kwargs):
+        nonlocal copy_calls
+        copy_calls += 1
+        return original_prepare_workspace(**kwargs)
+
+    monkeypatch.setattr(executor_module, "create_baseline_snapshot", slow_baseline)
+    monkeypatch.setattr(executor_module, "prepare_candidate_workspace_from_baseline", count_candidate_copy)
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "timeout"
+    assert copy_calls == 0
+
+
+def test_deadline_expiring_after_candidate_copy_starts_no_provider(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_clock = _FakeClock()
+    _install_fake_clock(monkeypatch, fake_clock)
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 1
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    provider_launches = 0
+    original_prepare_workspace = executor_module.prepare_candidate_workspace_from_baseline
+
+    def slow_candidate_copy(**kwargs):
+        result = original_prepare_workspace(**kwargs)
+        fake_clock.advance(2.0)
+        return result
+
+    def mutate_executor(executor: WorkflowExecutor) -> None:
+        original_prepare = executor.provider_executor.prepare_invocation
+
+        def count_provider_launch(*args, **kwargs):
+            nonlocal provider_launches
+            provider_launches += 1
+            return original_prepare(*args, **kwargs)
+
+        executor.provider_executor.prepare_invocation = count_provider_launch
+
+    monkeypatch.setattr(executor_module, "prepare_candidate_workspace_from_baseline", slow_candidate_copy)
+
+    state = _run(tmp_path, workflow, mutate_executor=mutate_executor)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "timeout"
+    assert provider_launches == 0
+
+
+def test_deadline_expiring_during_selection_starts_no_ledger_materialization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_clock = _FakeClock()
+    _install_fake_clock(monkeypatch, fake_clock)
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 1
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    ledger_calls = 0
+    original_select = executor_module.select_candidate
+    original_materialize = executor_module.materialize_run_score_ledger
+
+    def slow_selection(*args, **kwargs):
+        result = original_select(*args, **kwargs)
+        fake_clock.advance(2.0)
+        return result
+
+    def count_ledger(*args, **kwargs):
+        nonlocal ledger_calls
+        ledger_calls += 1
+        return original_materialize(*args, **kwargs)
+
+    monkeypatch.setattr(executor_module, "select_candidate", slow_selection)
+    monkeypatch.setattr(executor_module, "materialize_run_score_ledger", count_ledger)
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "timeout"
+    assert ledger_calls == 0
+
+
+def test_deadline_expiring_during_pending_ledger_starts_no_promotion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_clock = _FakeClock()
+    _install_fake_clock(monkeypatch, fake_clock)
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 1
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    promotion_calls = 0
+    original_materialize = executor_module.materialize_run_score_ledger
+    original_promote = executor_module.promote_candidate_outputs
+
+    def slow_ledger(*args, **kwargs):
+        result = original_materialize(*args, **kwargs)
+        fake_clock.advance(2.0)
+        return result
+
+    def count_promotion(**kwargs):
+        nonlocal promotion_calls
+        promotion_calls += 1
+        return original_promote(**kwargs)
+
+    monkeypatch.setattr(executor_module, "materialize_run_score_ledger", slow_ledger)
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", count_promotion)
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "timeout"
+    assert promotion_calls == 0
+
+
+def test_deadline_expiring_during_promotion_starts_no_terminal_ledger(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_clock = _FakeClock()
+    _install_fake_clock(monkeypatch, fake_clock)
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 1
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    ledger_calls = 0
+    original_promote = executor_module.promote_candidate_outputs
+    original_materialize = executor_module.materialize_run_score_ledger
+
+    def slow_promotion(**kwargs):
+        result = original_promote(**kwargs)
+        fake_clock.advance(2.0)
+        return result
+
+    def count_ledger(*args, **kwargs):
+        nonlocal ledger_calls
+        ledger_calls += 1
+        return original_materialize(*args, **kwargs)
+
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", slow_promotion)
+    monkeypatch.setattr(executor_module, "materialize_run_score_ledger", count_ledger)
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "timeout"
+    assert ledger_calls == 1
+
+
+def test_deadline_expiring_during_parent_validation_fails_before_completion(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake_clock = _FakeClock()
+    _install_fake_clock(monkeypatch, fake_clock)
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["timeout_sec"] = 1
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    original_validate = executor_module.validate_expected_outputs
+
+    def slow_parent_validation(expected_outputs, *, workspace):
+        result = original_validate(expected_outputs, workspace=workspace)
+        if Path(workspace).resolve() == tmp_path.resolve():
+            fake_clock.advance(2.0)
+        return result
+
+    monkeypatch.setattr(executor_module, "validate_expected_outputs", slow_parent_validation)
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "timeout"
 
 
 def test_candidate_and_evaluator_stdout_stderr_are_sidecars_only(tmp_path: Path) -> None:
@@ -878,6 +1255,86 @@ def test_promotion_conflict_is_not_retried_by_step_retries(
     result = state["steps"]["Draft"]
     assert result["status"] == "failed"
     assert result["error"]["type"] == "promotion_conflict"
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+
+
+def test_ledger_mirror_failure_is_not_retried_by_step_retries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected once', encoding='utf-8')\n"
+        ),
+    ]
+
+    def fail_mirror(*args, **kwargs) -> None:
+        del args, kwargs
+        raise OSError("mirror write failed")
+
+    monkeypatch.setattr(executor_module, "materialize_score_ledger_mirror", fail_mirror)
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "ledger_mirror_failed"
+    assert candidate_attempts.read_text(encoding="utf-8") == "1"
+    assert "result_path" not in state.get("artifact_versions", {})
+
+
+@pytest.mark.parametrize("failure_type", ["promotion_validation_failed", "promotion_rollback_conflict"])
+def test_promotion_terminal_failures_are_not_retried_by_step_retries(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    failure_type: str,
+) -> None:
+    candidate_attempts = tmp_path / "candidate_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempts.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('selected once', encoding='utf-8')\n"
+        ),
+    ]
+
+    def fail_promotion(**_: object) -> object:
+        raise PromotionConflictError(f"terminal {failure_type}", failure_type=failure_type)
+
+    monkeypatch.setattr(executor_module, "promote_candidate_outputs", fail_promotion)
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == failure_type
     assert candidate_attempts.read_text(encoding="utf-8") == "1"
 
 

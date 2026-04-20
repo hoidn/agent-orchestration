@@ -3879,6 +3879,7 @@ class WorkflowExecutor:
                         baseline_workspace=visit_paths.baseline_workspace,
                         candidate_workspace=paths.workspace,
                     )
+                    deadline.require_time_remaining(f"candidate {candidate_id} workspace copy")
                     prompt, prompt_error = self._compose_provider_prompt_for_step(
                         candidate_step,
                         context,
@@ -4159,6 +4160,8 @@ class WorkflowExecutor:
                 baseline_manifest=baseline_manifest,
                 promotion_manifest_path=visit_paths.promotion_manifest_path,
             )
+        except TimeoutError as exc:
+            return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
         except PromotionConflictError as exc:
             ledger_failure = self._write_adjudication_ledgers_failure(
                 adjudicated=adjudicated,
@@ -4212,8 +4215,11 @@ class WorkflowExecutor:
                 artifacts = validate_output_bundle(resolved_output_bundle, workspace=self.workspace)
             else:
                 artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=self.workspace)
+            deadline.require_time_remaining("parent output validation completion")
         except OutputContractError as exc:
             return self._adjudication_failure_result("promotion_validation_failed", str(exc), candidates=candidates, visit_paths=visit_paths)
+        except TimeoutError as exc:
+            return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
 
         duration_ms = int((time.monotonic() - started) * 1000)
         return {
@@ -4511,6 +4517,12 @@ class WorkflowExecutor:
             }
         )
         try:
+            consumed_artifacts, consumed_relpath_targets = self._adjudication_consumed_artifacts_for_prompt(
+                step,
+                state,
+                step_name=str(step.get("name", "")),
+                consume_identity=step_id,
+            )
             packet = build_evaluation_packet(
                 candidate_id=str(candidate["candidate_id"]),
                 candidate_workspace=paths.workspace,
@@ -4522,6 +4534,8 @@ class WorkflowExecutor:
                 evidence_limits=scorer.get("evidence_limits"),
                 workflow_secret_values=self._workflow_secret_values(step),
                 rubric_content=scorer.get("rubric_content") if isinstance(scorer.get("rubric_content"), str) else None,
+                consumed_artifacts=consumed_artifacts,
+                consumed_relpath_targets=consumed_relpath_targets,
                 candidate_metadata={
                     "candidate_provider": candidate.get("candidate_provider"),
                     "candidate_model": candidate.get("candidate_model"),
@@ -4883,6 +4897,72 @@ class WorkflowExecutor:
             if value:
                 values.append(value)
         return values
+
+    def _adjudication_consumed_artifacts_for_prompt(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+        *,
+        step_name: str,
+        consume_identity: str,
+    ) -> tuple[dict[str, Any], dict[str, str]]:
+        if step.get("inject_consumes", True) is False:
+            return {}, {}
+        consumes = step.get("consumes")
+        if not isinstance(consumes, list) or not consumes:
+            return {}, {}
+        resolved_consumes = state.get("_resolved_consumes", {})
+        if not isinstance(resolved_consumes, dict):
+            return {}, {}
+
+        step_consumed_values = resolved_consumes.get(step_name, {})
+        if self._uses_qualified_identities() and (
+            not isinstance(step_consumed_values, dict) or not step_consumed_values
+        ):
+            step_consumed_values = resolved_consumes.get(consume_identity, {})
+        if not isinstance(step_consumed_values, dict) or not step_consumed_values:
+            return {}, {}
+
+        prompt_consumes = step.get("prompt_consumes")
+        allowed_names: Optional[set[str]] = None
+        if prompt_consumes is not None:
+            if not isinstance(prompt_consumes, list):
+                return {}, {}
+            allowed_names = {
+                name for name in prompt_consumes
+                if isinstance(name, str) and name.strip()
+            }
+            if not allowed_names:
+                return {}, {}
+
+        injected_values: dict[str, Any] = {}
+        for key, value in step_consumed_values.items():
+            if not isinstance(key, str):
+                continue
+            if allowed_names is not None and key not in allowed_names:
+                continue
+            if isinstance(value, (str, int, float, bool)):
+                injected_values[key] = value
+
+        relpath_targets: dict[str, str] = {}
+        for consume in consumes:
+            if not isinstance(consume, dict):
+                continue
+            artifact_name = consume.get("artifact")
+            if not isinstance(artifact_name, str) or artifact_name not in injected_values:
+                continue
+            artifact_spec = self.workflow_artifacts.get(artifact_name, {})
+            artifact_kind = "relpath"
+            if isinstance(artifact_spec, dict) and isinstance(artifact_spec.get("kind"), str):
+                artifact_kind = artifact_spec["kind"]
+            value = injected_values[artifact_name]
+            if (
+                artifact_kind == "relpath"
+                and isinstance(artifact_spec, dict)
+                and isinstance(value, str)
+            ):
+                relpath_targets[artifact_name] = value
+        return injected_values, relpath_targets
 
     def _provider_model(self, params: Any) -> Optional[str]:
         if isinstance(params, Mapping):

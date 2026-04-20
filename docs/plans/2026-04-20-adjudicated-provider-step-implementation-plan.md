@@ -920,7 +920,7 @@ git commit -m "feat: execute adjudicated provider candidates"
 - Modify: `orchestrator/exec/retry.py` only if a small reusable remaining-deadline helper belongs there
 - Modify: `orchestrator/state.py` only if normalized outcome helpers need shared state support
 
-- [ ] **Step 1: Write failing tests for one logical step deadline**
+- [x] **Step 1: Write failing tests for one logical step deadline**
 
 Use a fake monotonic clock or patched deadline helper so the tests do not sleep.
 Cover a step with `timeout_sec` where baseline creation, candidate copies,
@@ -972,7 +972,7 @@ Add exhausted-evaluator variants:
 - multiple output-valid candidates fail with `adjudication_partial_scoring_failed`
   and no promotion
 
-- [ ] **Step 4: Write failing tests for non-retried terminal failures**
+- [x] **Step 4: Write failing tests for non-retried terminal failures**
 
 Set `retries.max` on the adjudicated step and force each terminal runtime
 failure below. Assert the runtime does not rerun candidates or evaluators after
