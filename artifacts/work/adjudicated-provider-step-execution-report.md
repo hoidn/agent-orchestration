@@ -2,42 +2,45 @@
 
 ## Completed In This Pass
 
-- Fixed dynamic score-ledger/output collision handling for adjudicated steps so runtime checks include required `output_bundle` relpath targets from output-valid candidates before selected-output promotion begins.
-- Added regression coverage proving a `score_ledger_path` that aliases a bundled relpath target fails with `error.type: ledger_path_collision` and leaves parent output paths and artifact lineage untouched.
-- Fixed terminal ledger finalization so workspace-visible mirror conflicts do not mask an already-primary no-selection or promotion failure. Successful promotions still fail closed on mirror conflicts before publication.
-- Added regression coverage proving an existing conflicting ledger mirror no longer replaces `adjudication_no_valid_candidates` with `ledger_conflict`.
+- Fixed the high-severity logical deadline/retry defect from the implementation review.
+- Wired a single `AdjudicationDeadline` through adjudicated provider execution and passed only the remaining logical budget to candidate and evaluator provider invocations.
+- Added candidate provider retry handling using the adjudicated step's effective provider retry policy. Each retry starts from a fresh copy of the immutable baseline workspace, so failed-attempt files are not reused.
+- Added evaluator retry handling using the same retry policy while reusing the already-persisted evaluation packet and without rerunning candidate generation.
+- Changed exhausted candidate/evaluator timeout attempts to surface the logical step failure as `error.type: timeout`, `exit_code: 124`, and retryable timeout outcome instead of `adjudication_no_valid_candidates`.
+- Added regression coverage for candidate timeout normalization, candidate retry/fresh-baseline behavior, and evaluator retry packet reuse.
 
 ## Completed Plan Tasks
 
-- Advanced Task 5 Step 8 by covering and implementing dynamic collision rejection for required relpath targets discovered through `output_bundle` validation.
-- Advanced Task 5 Step 8 mirror-finalization semantics by preserving primary adjudication failures when terminal mirror materialization also conflicts.
-- Advanced Task 6 runtime behavior by keeping failed adjudicated steps from publishing artifact lineage when ledger collision or no-valid-candidate failures occur.
+- Advanced Task 7 Step 1 by covering candidate subprocess timeout as a logical adjudicated step timeout.
+- Advanced Task 7 Step 2 by covering candidate provider retry scope, fresh baseline retry workspaces, and ledger `attempt_count: 2` for the retried candidate.
+- Advanced Task 7 Step 3 by covering evaluator retry scope, evaluation packet reuse, and no candidate rerun.
+- Advanced Task 7 Step 7 by implementing candidate and evaluator retry loops around provider subprocesses.
+- No design, location, or ownership deviation was introduced. No numerical parity comparison or tolerance change was involved.
 
 ## Remaining Required Plan Tasks
 
-- H1 / Task 7 remains required: one logical adjudicated-step deadline is still not fully wired across candidate/evaluator subprocesses and runtime-owned phases, and candidate/evaluator retry loops remain incomplete.
-- H3 / Task 9 remains required: resume-safe reconciliation for persisted baseline, candidate, scorer, packet, ledger, mirror, and promotion state is still unimplemented.
-- Task 4 promotion completion still needs exhaustive destination preimage modes, duplicate destination-role coverage, manifest-created directory cleanup, and promotion resume-state implementation.
-- Task 5 Step 8 remains partially incomplete: full mirror owner-conflict matrix coverage, published relpath pointer collision coverage, and proof of terminal-only mirror materialization across interrupted states are still pending.
-- Task 6 runtime coverage remains incomplete for scorer-resolution failure variants, required-score single-candidate failure, invalid candidate exclusion beyond existing coverage, and stdout/stderr sidecar assertions.
-- No numerical parity comparison or tolerance changes were involved in this pass.
+- Task 4 promotion completion remains required: destination preimage coverage for all modes, destination conflict/rollback matrix, duplicate destination-role coverage, manifest-created directory cleanup, and promotion resume-state behavior.
+- Task 5 completion remains required: scorer-unavailable metadata variants, full ledger mirror owner-conflict matrix, terminal-only mirror materialization proof, and complete packet/ledger metadata coverage.
+- Task 6 completion remains required for scorer-resolution failure variants, required-score single-candidate behavior, invalid candidate exclusion variants, and stdout/stderr sidecar assertions.
+- Task 7 remains partially incomplete: deadline tests do not yet cover every runtime-owned phase, retry-delay deadline crossing, candidate exit-code `124` retry success, exhausted evaluator variants, or non-retried terminal runtime failures.
+- H2 / Task 9 remains required: resume-safe reconciliation for persisted baseline, candidate, scorer, packet, ledger, mirror, and promotion state is still unimplemented.
 
 ## Verification
 
-- `pytest tests/test_adjudicated_provider_runtime.py -k "output_bundle_relpath_target_ledger_collision or mirror_conflict_does_not_mask" -q` -> 2 passed, 7 deselected.
-- `pytest tests/test_adjudicated_provider_runtime.py -q` -> 9 passed.
-- `pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 85 passed.
-- `pytest --collect-only tests/test_adjudicated_provider_runtime.py -q` -> 9 tests collected.
+- `pytest tests/test_adjudicated_provider_runtime.py -k "candidate_timeout_returns_logical_step_timeout or candidate_retry_starts_from_fresh_baseline or evaluator_retry_reuses_packet" -q` -> first run failed as expected before implementation: 3 failed.
+- `pytest tests/test_adjudicated_provider_runtime.py -k "candidate_timeout_returns_logical_step_timeout or candidate_retry_starts_from_fresh_baseline or evaluator_retry_reuses_packet" -q` -> 3 passed, 9 deselected.
+- `pytest tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 25 passed.
+- `pytest tests/test_adjudicated_provider_loader.py tests/test_adjudicated_provider_baseline.py tests/test_adjudicated_provider_promotion.py tests/test_adjudicated_provider_scoring.py tests/test_adjudicated_provider_runtime.py tests/test_adjudicated_provider_outcomes.py -q` -> 88 passed.
+- `pytest --collect-only tests/test_adjudicated_provider_runtime.py -q` -> 12 tests collected.
 - `pytest tests/test_workflow_examples_v0.py -k adjudicated -q` -> 1 passed, 27 deselected.
 - `python -m orchestrator run workflows/examples/adjudicated_provider_demo.yaml --dry-run` -> workflow validation successful.
 - `pytest tests/test_runtime_step_lifecycle.py tests/test_subworkflow_calls.py -q` -> 32 passed.
-- `git diff --check -- orchestrator/workflow/executor.py tests/test_adjudicated_provider_runtime.py artifacts/work/adjudicated-provider-step-execution-report.md` -> no whitespace errors.
 - `python -m py_compile orchestrator/workflow/executor.py` -> passed.
+- `git diff --check -- orchestrator/workflow/executor.py tests/test_adjudicated_provider_runtime.py artifacts/work/adjudicated-provider-step-execution-report.md` -> no whitespace errors.
 
 ## Residual Risks
 
-- Ledger collision handling is safer for `output_bundle` relpath targets, but the complete dynamic collision matrix from the design is not finished.
-- Mirror conflicts no longer mask primary adjudication/promotion failures, but this pass does not add durable mirror-failure annotations under the primary failure context.
-- Candidate/evaluator retry behavior and logical timeout semantics are still known high-severity gaps from the implementation review.
-- Resume reconciliation and promotion resume-state handling remain the largest correctness risk for interrupted runs.
-- Candidate workspaces remain process-level copies, not OS sandboxes.
+- The logical deadline is now enforced before major runtime-owned phases and through candidate/evaluator subprocess timeouts, but the full phase-by-phase Task 7 deadline matrix is not complete.
+- Candidate and evaluator retry metadata is in runtime candidate records; durable resume reconciliation and sidecar reuse are still pending under Task 9.
+- Promotion and ledger transaction completeness remain the largest correctness risks for interrupted runs.
+- Candidate workspaces remain copy-backed process workspaces, not OS sandboxes.

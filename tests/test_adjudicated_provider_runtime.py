@@ -258,6 +258,125 @@ def test_output_bundle_relpath_target_ledger_collision_fails_before_promotion(tm
     assert "doc" not in state.get("artifact_versions", {})
 
 
+def test_candidate_timeout_returns_logical_step_timeout(tmp_path: Path) -> None:
+    workflow = _workflow()
+    workflow["steps"][0]["timeout_sec"] = 0.1
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        "import time; time.sleep(1)",
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "failed"
+    assert result["exit_code"] == 124
+    assert result["error"]["type"] == "timeout"
+    assert result["outcome"]["class"] == "timeout"
+    assert result["outcome"]["retryable"] is True
+    assert result["adjudication"]["candidates"]["a"]["candidate_status"] == "timeout"
+
+
+def test_candidate_retry_starts_from_fresh_baseline_and_records_attempt_count(tmp_path: Path) -> None:
+    attempt_file = tmp_path / "candidate_attempts.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({attempt_file.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "if attempt == 1:\n"
+            "    Path('partial.txt').write_text('stale failed attempt', encoding='utf-8')\n"
+            "    raise SystemExit(1)\n"
+            "if Path('partial.txt').exists():\n"
+            "    raise SystemExit(8)\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('fresh success', encoding='utf-8')\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert attempt_file.read_text(encoding="utf-8") == "2"
+    assert result["artifacts"]["result_path"] == "docs/plans/a.md"
+    ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    assert rows[0]["candidate_status"] == "output_valid"
+    assert rows[0]["provider_exit_code"] == 0
+    assert rows[0]["attempt_count"] == 2
+
+
+def test_evaluator_retry_reuses_packet_without_rerunning_candidate(tmp_path: Path) -> None:
+    candidate_attempt_file = tmp_path / "candidate_attempts.txt"
+    evaluator_attempt_file = tmp_path / "evaluator_attempts.txt"
+    packet_hash_file = tmp_path / "packet_hash.txt"
+    workflow = _workflow(scores={"a": 0.9})
+    workflow["steps"][0]["retries"] = {"max": 1, "delay_ms": 0}
+    workflow["steps"][0]["adjudicated_provider"]["candidates"] = [
+        {"id": "a", "provider": "candidate_a"},
+    ]
+    workflow["providers"]["candidate_a"]["command"] = [
+        "python",
+        "-c",
+        (
+            "from pathlib import Path\n"
+            f"attempt_file = Path({candidate_attempt_file.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "Path('state').mkdir(parents=True, exist_ok=True)\n"
+            "Path('docs/plans').mkdir(parents=True, exist_ok=True)\n"
+            "Path('state/result_path.txt').write_text('docs/plans/a.md\\n', encoding='utf-8')\n"
+            "Path('docs/plans/a.md').write_text('candidate once', encoding='utf-8')\n"
+        ),
+    ]
+    workflow["providers"]["evaluator"]["command"] = [
+        "python",
+        "-c",
+        (
+            "import json, sys\n"
+            "from pathlib import Path\n"
+            "packet = json.loads(sys.stdin.read().split('Evaluator Packet:', 1)[1])\n"
+            f"attempt_file = Path({evaluator_attempt_file.as_posix()!r})\n"
+            f"packet_hash_file = Path({packet_hash_file.as_posix()!r})\n"
+            "attempt = int(attempt_file.read_text(encoding='utf-8')) + 1 if attempt_file.exists() else 1\n"
+            "attempt_file.write_text(str(attempt), encoding='utf-8')\n"
+            "packet_hash = packet['evaluation_packet_hash']\n"
+            "if attempt == 1:\n"
+            "    packet_hash_file.write_text(packet_hash, encoding='utf-8')\n"
+            "    raise SystemExit(1)\n"
+            "if packet_hash_file.read_text(encoding='utf-8') != packet_hash:\n"
+            "    raise SystemExit(9)\n"
+            "print(json.dumps({'candidate_id': packet['candidate_id'], 'score': 0.9, 'summary': 'scored'}))\n"
+        ),
+    ]
+
+    state = _run(tmp_path, workflow)
+
+    result = state["steps"]["Draft"]
+    assert result["status"] == "completed"
+    assert candidate_attempt_file.read_text(encoding="utf-8") == "1"
+    assert evaluator_attempt_file.read_text(encoding="utf-8") == "2"
+    ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
+    rows = [json.loads(line) for line in ledger.read_text(encoding="utf-8").splitlines()]
+    assert rows[0]["score_status"] == "scored"
+    assert rows[0]["attempt_count"] == 1
+
+
 def test_mirror_conflict_does_not_mask_no_valid_candidates_failure(tmp_path: Path) -> None:
     ledger = tmp_path / "artifacts/evaluations/draft_scores.jsonl"
     ledger.parent.mkdir(parents=True)

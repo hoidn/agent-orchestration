@@ -85,6 +85,7 @@ from .runtime_step import RuntimeStep
 from .runtime_types import RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
 from .adjudication import (
+    AdjudicationDeadline,
     BASELINE_COPY_POLICY,
     EVALUATION_PACKET_SCHEMA,
     EvaluatorOutputError,
@@ -3716,6 +3717,31 @@ class WorkflowExecutor:
         prompt = composer.apply_output_contract_prompt_suffix(output_contract_step or step, prompt)
         return prompt, None
 
+    def _adjudication_timeout_value(self, raw_timeout: Any) -> float | None:
+        if isinstance(raw_timeout, (int, float)):
+            return float(raw_timeout)
+        return None
+
+    def _adjudication_retry_policy(self, step: Mapping[str, Any]) -> RetryPolicy:
+        if "retries" in step:
+            return RetryPolicy.for_command(step.get("retries"))
+        return RetryPolicy.for_provider(max_retries=self.max_retries, delay_ms=self.retry_delay_ms)
+
+    def _wait_for_adjudication_retry(
+        self,
+        retry_policy: RetryPolicy,
+        deadline: AdjudicationDeadline,
+    ) -> None:
+        delay_sec = max(0.0, float(retry_policy.delay_ms or 0) / 1000.0)
+        if delay_sec <= 0:
+            deadline.require_time_remaining("retry")
+            return
+        remaining = deadline.remaining_timeout_sec()
+        if remaining is not None and remaining <= delay_sec:
+            raise TimeoutError("adjudicated provider deadline expired before retry delay")
+        time.sleep(delay_sec)
+        deadline.require_time_remaining("retry")
+
     def _execute_adjudicated_provider_with_context(
         self,
         step: Dict[str, Any],
@@ -3725,6 +3751,10 @@ class WorkflowExecutor:
     ) -> Dict[str, Any]:
         """Execute a DSL 2.11 adjudicated provider step sequentially."""
         started = time.monotonic()
+        deadline = AdjudicationDeadline(
+            started_monotonic=started,
+            timeout_sec=self._adjudication_timeout_value(step.get("timeout_sec")),
+        )
         step_name = step.get('name', f'step_{self.current_step}')
         step_id = runtime_step_id or self._step_id(step)
         adjudicated = step.get('adjudicated_provider', {})
@@ -3755,6 +3785,7 @@ class WorkflowExecutor:
 
         required_surfaces = self._adjudication_required_path_surfaces(output_contract_step)
         try:
+            deadline.require_time_remaining("baseline snapshot")
             baseline_manifest = create_baseline_snapshot(
                 parent_workspace=self.workspace,
                 run_root=run_root,
@@ -3764,6 +3795,8 @@ class WorkflowExecutor:
                 required_path_surfaces=required_surfaces,
                 optional_path_surfaces=[],
             )
+        except TimeoutError as exc:
+            return self._adjudication_failure_result("timeout", str(exc), visit_paths=visit_paths)
         except Exception as exc:
             return self._adjudication_failure_result(
                 getattr(exc, "failure_type", "adjudication_resume_mismatch"),
@@ -3778,6 +3811,7 @@ class WorkflowExecutor:
             and selection_config.get("require_score_for_single_candidate") is True
         )
         candidates: list[dict[str, Any]] = []
+        retry_policy = self._adjudication_retry_policy(step)
 
         for index, candidate_config in enumerate(candidates_config if isinstance(candidates_config, list) else []):
             if not isinstance(candidate_config, dict):
@@ -3800,102 +3834,135 @@ class WorkflowExecutor:
                 "candidate_workspace": paths.workspace.relative_to(self.workspace).as_posix()
                 if self._path_under(paths.workspace, self.workspace)
                 else paths.workspace.as_posix(),
-                "attempt_count": 1,
+                "attempt_count": 0,
+                "provider_attempts": [],
                 "output_paths": {},
             }
+            attempt = 0
             try:
-                prepare_candidate_workspace_from_baseline(
-                    baseline_workspace=visit_paths.baseline_workspace,
-                    candidate_workspace=paths.workspace,
-                )
-                prompt, prompt_error = self._compose_provider_prompt_for_step(
-                    candidate_step,
-                    context,
-                    state,
-                    workspace=paths.workspace,
-                    output_contract_step=output_contract_step,
-                    runtime_step_id=step_id,
-                )
-                if prompt_error is not None:
-                    candidate_record.update(
-                        {
-                            "candidate_status": "prompt_failed",
-                            "score_status": "not_evaluated",
-                            "provider_exit_code": None,
-                            "failure_type": prompt_error.get("error", {}).get("type", "prompt_failed"),
-                            "failure_message": prompt_error.get("error", {}).get("message", "prompt failed"),
-                        }
+                while True:
+                    deadline.require_time_remaining(f"candidate {candidate_id} provider attempt")
+                    prepare_candidate_workspace_from_baseline(
+                        baseline_workspace=visit_paths.baseline_workspace,
+                        candidate_workspace=paths.workspace,
                     )
-                    candidates.append(candidate_record)
-                    continue
-                paths.prompt_path.parent.mkdir(parents=True, exist_ok=True)
-                paths.prompt_path.write_text(prompt or "", encoding="utf-8")
-                candidate_record["composed_prompt_hash"] = self._text_hash(prompt or "")
+                    prompt, prompt_error = self._compose_provider_prompt_for_step(
+                        candidate_step,
+                        context,
+                        state,
+                        workspace=paths.workspace,
+                        output_contract_step=output_contract_step,
+                        runtime_step_id=step_id,
+                    )
+                    if prompt_error is not None:
+                        candidate_record.update(
+                            {
+                                "candidate_status": "prompt_failed",
+                                "score_status": "not_evaluated",
+                                "provider_exit_code": None,
+                                "failure_type": prompt_error.get("error", {}).get("type", "prompt_failed"),
+                                "failure_message": prompt_error.get("error", {}).get("message", "prompt failed"),
+                            }
+                        )
+                        break
+                    paths.prompt_path.parent.mkdir(parents=True, exist_ok=True)
+                    paths.prompt_path.write_text(prompt or "", encoding="utf-8")
+                    candidate_record["composed_prompt_hash"] = self._text_hash(prompt or "")
 
-                invocation, error = self.provider_executor.prepare_invocation(
-                    provider_name=candidate_provider,
-                    params=ProviderParams(
-                        params=candidate_config.get("provider_params", {}),
-                        input_file=candidate_step.get("input_file"),
-                        output_file=None,
-                    ),
-                    context=self._create_provider_context(context, state),
-                    prompt_content=prompt,
-                    env=candidate_step.get("env"),
-                    secrets=candidate_step.get("secrets"),
-                    timeout_sec=step.get("timeout_sec"),
-                )
-                if error or invocation is None:
-                    candidate_record.update(
+                    invocation, error = self.provider_executor.prepare_invocation(
+                        provider_name=candidate_provider,
+                        params=ProviderParams(
+                            params=candidate_config.get("provider_params", {}),
+                            input_file=candidate_step.get("input_file"),
+                            output_file=None,
+                        ),
+                        context=self._create_provider_context(context, state),
+                        prompt_content=prompt,
+                        env=candidate_step.get("env"),
+                        secrets=candidate_step.get("secrets"),
+                        timeout_sec=deadline.remaining_timeout_sec(),
+                    )
+                    if error or invocation is None:
+                        candidate_record.update(
+                            {
+                                "candidate_status": "prompt_failed",
+                                "score_status": "not_evaluated",
+                                "provider_exit_code": None,
+                                "failure_type": (error or {}).get("type", "provider_preparation_failed"),
+                                "failure_message": (error or {}).get("message", "provider preparation failed"),
+                            }
+                        )
+                        break
+                    exec_result = self._execute_provider_invocation(invocation, cwd=paths.workspace)
+                    paths.stdout_log.write_bytes(exec_result.stdout)
+                    paths.stderr_log.write_bytes(exec_result.stderr)
+                    candidate_record["provider_exit_code"] = exec_result.exit_code
+                    candidate_record["attempt_count"] = attempt + 1
+                    candidate_record["provider_attempts"].append(
                         {
-                            "candidate_status": "prompt_failed",
-                            "score_status": "not_evaluated",
-                            "provider_exit_code": None,
-                            "failure_type": (error or {}).get("type", "provider_preparation_failed"),
-                            "failure_message": (error or {}).get("message", "provider preparation failed"),
+                            "attempt": attempt + 1,
+                            "exit_code": exec_result.exit_code,
+                            "duration_ms": exec_result.duration_ms,
                         }
                     )
-                    candidates.append(candidate_record)
-                    continue
-                exec_result = self._execute_provider_invocation(invocation, cwd=paths.workspace)
-                paths.stdout_log.write_bytes(exec_result.stdout)
-                paths.stderr_log.write_bytes(exec_result.stderr)
-                candidate_record["provider_exit_code"] = exec_result.exit_code
-                if exec_result.exit_code != 0:
+                    if exec_result.exit_code != 0:
+                        if retry_policy.should_retry(exec_result.exit_code, attempt):
+                            self._wait_for_adjudication_retry(retry_policy, deadline)
+                            attempt += 1
+                            continue
+                        candidate_record.update(
+                            {
+                                "candidate_status": "timeout" if exec_result.exit_code == 124 else "provider_failed",
+                                "score_status": "not_evaluated",
+                                "failure_type": "timeout" if exec_result.exit_code == 124 else "provider_failed",
+                                "failure_message": "candidate provider failed",
+                            }
+                        )
+                        if exec_result.exit_code == 124:
+                            candidates.append(candidate_record)
+                            return self._adjudication_failure_result(
+                                "timeout",
+                                "adjudicated provider deadline expired during candidate provider execution",
+                                candidates=candidates,
+                                visit_paths=visit_paths,
+                            )
+                        break
+                    try:
+                        if resolved_output_bundle is not None:
+                            artifacts = validate_output_bundle(resolved_output_bundle, workspace=paths.workspace)
+                        else:
+                            artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=paths.workspace)
+                    except OutputContractError as exc:
+                        candidate_record.update(
+                            {
+                                "candidate_status": "contract_failed",
+                                "score_status": "not_evaluated",
+                                "failure_type": "contract_failed",
+                                "failure_message": str(exc),
+                            }
+                        )
+                        break
                     candidate_record.update(
                         {
-                            "candidate_status": "timeout" if exec_result.exit_code == 124 else "provider_failed",
+                            "candidate_status": "output_valid",
                             "score_status": "not_evaluated",
-                            "failure_type": "timeout" if exec_result.exit_code == 124 else "provider_failed",
-                            "failure_message": "candidate provider failed",
+                            "artifacts": artifacts,
+                            "output_paths": self._output_paths_from_contract(output_contract_step),
                         }
                     )
-                    candidates.append(candidate_record)
-                    continue
-                try:
-                    if resolved_output_bundle is not None:
-                        artifacts = validate_output_bundle(resolved_output_bundle, workspace=paths.workspace)
-                    else:
-                        artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=paths.workspace)
-                except OutputContractError as exc:
-                    candidate_record.update(
-                        {
-                            "candidate_status": "contract_failed",
-                            "score_status": "not_evaluated",
-                            "failure_type": "contract_failed",
-                            "failure_message": str(exc),
-                        }
-                    )
-                    candidates.append(candidate_record)
-                    continue
+                    break
+            except TimeoutError as exc:
                 candidate_record.update(
                     {
-                        "candidate_status": "output_valid",
+                        "candidate_status": "timeout",
                         "score_status": "not_evaluated",
-                        "artifacts": artifacts,
-                        "output_paths": self._output_paths_from_contract(output_contract_step),
+                        "provider_exit_code": 124,
+                        "failure_type": "timeout",
+                        "failure_message": str(exc),
                     }
                 )
+                candidates.append(candidate_record)
+                return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
             except Exception as exc:
                 candidate_record.update(
                     {
@@ -3931,21 +3998,30 @@ class WorkflowExecutor:
                 )
         elif scorer is not None:
             for candidate in output_valid:
-                self._score_adjudicated_candidate(
-                    candidate=candidate,
-                    scorer=scorer,
-                    evaluator_prompt=evaluator_prompt,
-                    evaluator_config=evaluator_config if isinstance(evaluator_config, dict) else {},
-                    step=step,
-                    output_contract_step=output_contract_step,
-                    run_root=run_root,
-                    frame_scope=frame_scope,
-                    step_id=step_id,
-                    visit_count=int(visit_count or 1),
-                    context=context,
-                    state=state,
-                )
+                try:
+                    self._score_adjudicated_candidate(
+                        candidate=candidate,
+                        scorer=scorer,
+                        evaluator_prompt=evaluator_prompt,
+                        evaluator_config=evaluator_config if isinstance(evaluator_config, dict) else {},
+                        step=step,
+                        output_contract_step=output_contract_step,
+                        run_root=run_root,
+                        frame_scope=frame_scope,
+                        step_id=step_id,
+                        visit_count=int(visit_count or 1),
+                        context=context,
+                        state=state,
+                        deadline=deadline,
+                        retry_policy=retry_policy,
+                    )
+                except TimeoutError as exc:
+                    return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
 
+        try:
+            deadline.require_time_remaining("selection")
+        except TimeoutError as exc:
+            return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
         selection = select_candidate(
             candidates,
             require_score_for_single_candidate=require_single_score,
@@ -3980,6 +4056,10 @@ class WorkflowExecutor:
                 candidate["promotion_status"] = "not_selected"
         selected_paths = candidate_paths(run_root, frame_scope, step_id, int(visit_count or 1), str(selection.selected_candidate_id))
         ledger_path = adjudicated.get("score_ledger_path")
+        try:
+            deadline.require_time_remaining("ledger collision check")
+        except TimeoutError as exc:
+            return self._adjudication_failure_result("timeout", str(exc), candidates=candidates, visit_paths=visit_paths)
         collision_message = self._adjudication_ledger_path_collision_message(
             adjudicated=adjudicated,
             output_contract_step=output_contract_step,
@@ -4007,6 +4087,7 @@ class WorkflowExecutor:
                 return ledger_failure
             return self._adjudication_failure_result("ledger_path_collision", collision_message, candidates=candidates, visit_paths=visit_paths)
         try:
+            deadline.require_time_remaining("promotion")
             promotion = promote_candidate_outputs(
                 expected_outputs=resolved_expected_outputs,
                 output_bundle=resolved_output_bundle,
@@ -4257,6 +4338,8 @@ class WorkflowExecutor:
         visit_count: int,
         context: Dict[str, Any],
         state: Dict[str, Any],
+        deadline: AdjudicationDeadline,
+        retry_policy: RetryPolicy,
     ) -> None:
         paths = candidate_paths(run_root, frame_scope, step_id, visit_count, str(candidate["candidate_id"]))
         candidate.update(
@@ -4303,39 +4386,58 @@ class WorkflowExecutor:
             return
 
         evaluator_prompt_text = f"{evaluator_prompt}\n\nEvaluator Packet:{json.dumps(packet, sort_keys=True, ensure_ascii=False)}"
-        invocation, error = self.provider_executor.prepare_invocation(
-            provider_name=str(evaluator_config.get("provider")),
-            params=ProviderParams(
-                params=evaluator_config.get("provider_params", {}),
-                input_file=evaluator_config.get("input_file"),
-                output_file=None,
-            ),
-            context=self._create_provider_context(context, state),
-            prompt_content=evaluator_prompt_text,
-            env=step.get("env"),
-            secrets=step.get("secrets"),
-            timeout_sec=step.get("timeout_sec"),
-        )
-        if error or invocation is None:
-            candidate.update(
+        paths.evaluator_workspace.mkdir(parents=True, exist_ok=True)
+        candidate["evaluator_attempts"] = []
+        attempt = 0
+        while True:
+            deadline.require_time_remaining(f"candidate {candidate['candidate_id']} evaluator attempt")
+            invocation, error = self.provider_executor.prepare_invocation(
+                provider_name=str(evaluator_config.get("provider")),
+                params=ProviderParams(
+                    params=evaluator_config.get("provider_params", {}),
+                    input_file=evaluator_config.get("input_file"),
+                    output_file=None,
+                ),
+                context=self._create_provider_context(context, state),
+                prompt_content=evaluator_prompt_text,
+                env=step.get("env"),
+                secrets=step.get("secrets"),
+                timeout_sec=deadline.remaining_timeout_sec(),
+            )
+            if error or invocation is None:
+                candidate.update(
+                    {
+                        "score_status": "evaluation_failed",
+                        "failure_type": (error or {}).get("type", "evaluator_preparation_failed"),
+                        "failure_message": (error or {}).get("message", "evaluator preparation failed"),
+                    }
+                )
+                return
+            exec_result = self._execute_provider_invocation(invocation, cwd=paths.evaluator_workspace)
+            paths.evaluation_output_path.write_bytes(exec_result.stdout)
+            candidate["evaluator_attempt_count"] = attempt + 1
+            candidate["evaluator_attempts"].append(
                 {
-                    "score_status": "evaluation_failed",
-                    "failure_type": (error or {}).get("type", "evaluator_preparation_failed"),
-                    "failure_message": (error or {}).get("message", "evaluator preparation failed"),
+                    "attempt": attempt + 1,
+                    "exit_code": exec_result.exit_code,
+                    "duration_ms": exec_result.duration_ms,
                 }
             )
-            return
-        paths.evaluator_workspace.mkdir(parents=True, exist_ok=True)
-        exec_result = self._execute_provider_invocation(invocation, cwd=paths.evaluator_workspace)
-        paths.evaluation_output_path.write_bytes(exec_result.stdout)
-        if exec_result.exit_code != 0:
+            if exec_result.exit_code == 0:
+                break
+            if retry_policy.should_retry(exec_result.exit_code, attempt):
+                self._wait_for_adjudication_retry(retry_policy, deadline)
+                attempt += 1
+                continue
             candidate.update(
                 {
                     "score_status": "evaluation_failed",
-                    "failure_type": "evaluator_failed",
+                    "failure_type": "timeout" if exec_result.exit_code == 124 else "evaluator_failed",
                     "failure_message": "evaluator provider failed",
                 }
             )
+            if exec_result.exit_code == 124:
+                raise TimeoutError("adjudicated provider deadline expired during evaluator execution")
             return
         try:
             parsed = parse_evaluator_output(exec_result.stdout, expected_candidate_id=str(candidate["candidate_id"]))
