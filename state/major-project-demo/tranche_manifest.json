@@ -1,0 +1,23 @@
+{
+  "project_id": "major-project-demo",
+  "project_brief_path": "workflows/examples/inputs/major_project_brief.md",
+  "project_roadmap_path": "docs/plans/major-project-demo/project-roadmap.md",
+  "tranches": [
+    {
+      "tranche_id": "repo-docs-baseline",
+      "title": "Repository documentation baseline",
+      "brief_path": "docs/backlog/generated/major-project-demo/repo-docs-baseline.md",
+      "design_target_path": "docs/plans/major-project-demo/repo-docs-baseline-design.md",
+      "design_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-design-review.json",
+      "plan_target_path": "docs/plans/major-project-demo/repo-docs-baseline-plan.md",
+      "plan_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-plan-review.json",
+      "execution_report_target_path": "artifacts/work/major-project-demo/repo-docs-baseline-execution-report.md",
+      "implementation_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-implementation-review.md",
+      "item_summary_target_path": "artifacts/work/major-project-demo/repo-docs-baseline-summary.json",
+      "prerequisites": [],
+      "status": "pending",
+      "design_depth": "big",
+      "completion_gate": "implementation_approved"
+    }
+  ]
+}

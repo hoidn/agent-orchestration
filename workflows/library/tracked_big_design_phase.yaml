@@ -366,7 +366,8 @@ steps:
 
                         carried = []
                         for finding in report.get("findings", []):
-                            if finding.get("status") in {"STILL_OPEN", "NEW", "SPLIT"}:
+                            status = str(finding.get("status", "")).upper()
+                            if status in {"STILL_OPEN", "NEW", "SPLIT", "OPEN"}:
                                 carried.append(finding)
 
                         open_findings_pointer = Path("${inputs.state_root}/open_findings_path.txt")

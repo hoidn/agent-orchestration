@@ -22,6 +22,8 @@ EXAMPLE_FILES = [
     "backlog_priority_design_plan_impl_stack_v2_call.yaml",
     "revision_study_priority_design_plan_impl_stack_v2_call.yaml",
     "major_project_tranche_design_plan_impl_stack_v2_call.yaml",
+    "major_project_tranche_drain_stack_v2_call.yaml",
+    "major_project_tranche_drain_from_manifest_v2_call.yaml",
     "call_subworkflow_demo.yaml",
     "cycle_guard_demo.yaml",
     "depends_on_inject_imported_v2_call.yaml",
@@ -34,6 +36,7 @@ EXAMPLE_FILES = [
     "dsl_review_first_fix_loop_provider_session.yaml",
     "finally_demo.yaml",
     "match_demo.yaml",
+    "neurips_hybrid_resnet_plan_impl_review.yaml",
     "repeat_until_demo.yaml",
     "score_gate_demo.yaml",
     "scalar_bookkeeping_demo.yaml",
@@ -1557,6 +1560,180 @@ def test_typed_workflow_ast_ir_pipeline_finish_item0_runtime(tmp_path: Path):
         "implementation_review_decision": "APPROVE",
     }
     assert len(state.get("call_frames", {})) == 1
+
+
+def test_neurips_hybrid_resnet_tranche_drain_runtime(tmp_path: Path):
+    """Adaptive roadmap drain selects one scope, runs plan/implementation phases, then exits done."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path, "neurips_hybrid_resnet_plan_impl_review.yaml"
+    )
+    for repo_file in [
+        "workflows/library/roadmap_tranche_selector.yaml",
+        "workflows/library/roadmap_seeded_plan_phase.yaml",
+        "workflows/library/design_plan_impl_implementation_phase.yaml",
+        "workflows/library/prompts/roadmap_tranche_selector/select_next_tranche.md",
+        "workflows/library/prompts/roadmap_seeded_plan_phase/draft_plan.md",
+        "workflows/library/prompts/roadmap_seeded_plan_phase/review_plan.md",
+        "workflows/library/prompts/roadmap_seeded_plan_phase/revise_plan.md",
+        "workflows/library/prompts/design_plan_impl_stack_v2_call/implement_plan.md",
+        "workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md",
+        "workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md",
+        "docs/plans/2026-04-13-workflow-dashboard-observability-design.md",
+        "docs/plans/2026-04-13-workflow-dashboard-observability-implementation-plan.md",
+    ]:
+        _copy_repo_file_to_workspace(workspace, repo_file)
+
+    drain_root = Path("state/NEURIPS-HYBRID-RESNET-2026/tranche-drain")
+    item_root = drain_root / "items" / "phase-0-evidence-inventory"
+    provider_index = {"value": 0}
+
+    def _write_selected_scope(ws: Path) -> None:
+        context_rel = item_root / "tranche-context.md"
+        context_path = ws / context_rel
+        context_path.parent.mkdir(parents=True, exist_ok=True)
+        context_path.write_text(
+            "# Phase 0 Evidence Inventory\n\nSelected scope for one mocked test tranche.\n",
+            encoding="utf-8",
+        )
+        selection_path = ws / drain_root / "iterations" / "0" / "selector" / "selection.json"
+        selection_path.parent.mkdir(parents=True, exist_ok=True)
+        selection_path.write_text(
+            json.dumps(
+                {
+                    "selection_status": "SELECTED",
+                    "tranche_context_path": context_rel.as_posix(),
+                    "selection_reason": "Earliest unsatisfied mocked gate.",
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def _write_done_selection(ws: Path) -> None:
+        selection_path = ws / drain_root / "iterations" / "1" / "selector" / "selection.json"
+        selection_path.parent.mkdir(parents=True, exist_ok=True)
+        selection_path.write_text(
+            json.dumps(
+                {
+                    "selection_status": "DONE",
+                    "selection_reason": "Mocked ledger is complete enough for this test.",
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def _write_plan(ws: Path) -> None:
+        pointer = ws / item_root / "plan-phase" / "plan_path.txt"
+        plan_rel = pointer.read_text(encoding="utf-8").strip()
+        plan_path = ws / plan_rel
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Mocked selected-scope execution plan\n", encoding="utf-8")
+
+    def _write_plan_review(ws: Path) -> None:
+        phase_root = ws / item_root / "plan-phase"
+        report_rel = (phase_root / "plan_review_report_path.txt").read_text(encoding="utf-8").strip()
+        report_path = ws / report_rel
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text(
+            json.dumps(
+                {
+                    "decision": "APPROVE",
+                    "summary": "Plan is scoped and ready.",
+                    "unresolved_high_count": 0,
+                    "unresolved_medium_count": 0,
+                    "findings": [],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (phase_root / "plan_review_decision.txt").write_text("APPROVE\n", encoding="utf-8")
+        (phase_root / "unresolved_high_count.txt").write_text("0\n", encoding="utf-8")
+        (phase_root / "unresolved_medium_count.txt").write_text("0\n", encoding="utf-8")
+
+    def _write_execution_report(ws: Path) -> None:
+        pointer = ws / item_root / "implementation-phase" / "execution_report_path.txt"
+        report_rel = pointer.read_text(encoding="utf-8").strip()
+        report_path = ws / report_rel
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text("# Mocked implementation report\n", encoding="utf-8")
+
+    def _write_implementation_review(ws: Path) -> None:
+        phase_root = ws / item_root / "implementation-phase"
+        report_rel = (phase_root / "implementation_review_report_path.txt").read_text(encoding="utf-8").strip()
+        report_path = ws / report_rel
+        report_path.parent.mkdir(parents=True, exist_ok=True)
+        report_path.write_text("## Decision\nAPPROVE\n", encoding="utf-8")
+        (phase_root / "implementation_review_decision.txt").write_text("APPROVE\n", encoding="utf-8")
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_relpath,
+        bundle_context_dict(workflow),
+        bound_inputs={
+            "design_path": "docs/plans/2026-04-13-workflow-dashboard-observability-design.md",
+            "roadmap_path": "docs/plans/2026-04-13-workflow-dashboard-observability-implementation-plan.md",
+            "drain_state_root": "state/NEURIPS-HYBRID-RESNET-2026/tranche-drain",
+            "progress_ledger_target_path": "state/NEURIPS-HYBRID-RESNET-2026/progress_ledger.json",
+            "drain_summary_target_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/tranche-drain-summary.json",
+        },
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    def _prepare_invocation(_self, *_args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **_kwargs):
+        index = provider_index["value"]
+        provider_index["value"] += 1
+        if index == 0:
+            _write_selected_scope(workspace)
+        elif index == 1:
+            _write_plan(workspace)
+        elif index == 2:
+            _write_plan_review(workspace)
+        elif index == 3:
+            _write_execution_report(workspace)
+        elif index == 4:
+            _write_implementation_review(workspace)
+        elif index == 5:
+            _write_done_selection(workspace)
+        else:
+            raise AssertionError(f"Unexpected provider invocation index {index}")
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert provider_index["value"] == 6
+    assert state["workflow_outputs"]["drain_status"] == "DONE"
+    assert state["workflow_outputs"]["progress_ledger_path"] == "state/NEURIPS-HYBRID-RESNET-2026/progress_ledger.json"
+    assert state["workflow_outputs"]["drain_summary_path"] == (
+        "artifacts/work/NEURIPS-HYBRID-RESNET-2026/tranche-drain-summary.json"
+    )
+    ledger = json.loads((workspace / state["workflow_outputs"]["progress_ledger_path"]).read_text(encoding="utf-8"))
+    assert ledger["completed_tranches"] == ["phase-0-evidence-inventory"]
+    assert ledger["iterations"][0]["plan_path"] == (
+        "docs/plans/NEURIPS-HYBRID-RESNET-2026/tranches/phase-0-evidence-inventory/execution_plan.md"
+    )
 
 
 def test_design_plan_impl_review_stack_v2_call_runtime(tmp_path: Path):

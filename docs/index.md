@@ -209,6 +209,11 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 **Keywords:** examples, yaml, retries, loops, dataflow  
 **Use this when:** You want a working template instead of starting from a blank workflow.
 
+### [NeurIPS Hybrid ResNet Plan/Implementation Workflow](../workflows/examples/neurips_hybrid_resnet_plan_impl_review.yaml)
+**Description:** Input-required call-based workflow that loops over roadmap tranche selection from a supplied design and roadmap, then runs plan drafting/review and implementation/review for each selected tranche.
+**Keywords:** workflows, call, roadmap, design, tranche-selection, plan-review, implementation-review
+**Use this when:** You need a local reusable template for adaptive roadmap draining while keeping roadmap, design, selected tranche context, and progress ledger context explicit in planning provider steps.
+
 ### [PtychoPINN Backlog Plan Slice Loop (Downstream Reference)](../workflows/examples/ptychopinn_backlog_plan_slice_impl_review_loop.yaml)
 **Description:** Informative snapshot of a real downstream workflow copied from `PtychoPINN/workflows/agent_orchestration/backlog_plan_slice_impl_review_loop.yaml` at source commit `370f641fdf84` (copied March 3, 2026).  
 **Keywords:** downstream, ptychopinn, backlog, execute-review-loop, reference  

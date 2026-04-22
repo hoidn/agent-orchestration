@@ -4,6 +4,7 @@ Read the consumed `design` artifact before acting.
 Draft an execution plan from the approved design.
 
 Treat the consumed design as the planning source. If the output target already contains a plan, treat that file as stale prior output, not as an input to preserve or revise.
+Use the consumed design as the primary authority. Consult additional repo material only to resolve a concrete ambiguity or verify a referenced contract; do not mine prior tranche plans, historical reports, or adjacent roadmap work as planning inputs unless the design explicitly requires them.
 
 If the repo has a local implementation-plan template or planning guide under `docs/templates/`, use it for document structure unless it conflicts with the consumed design or output contract. Omit irrelevant optional sections rather than padding the plan.
 
