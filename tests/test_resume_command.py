@@ -2347,11 +2347,11 @@ steps:
             result = resume_workflow(run_id=run_id)
 
         constructor_kwargs = MockExecutor.call_args.kwargs
-        assert constructor_kwargs['max_retries'] == 0
+        assert constructor_kwargs['max_retries'] == 1
         assert constructor_kwargs['retry_delay_ms'] == 1000
 
         execute_kwargs = mock_executor.execute.call_args.kwargs
-        assert execute_kwargs['max_retries'] == 0
+        assert execute_kwargs['max_retries'] == 1
         assert execute_kwargs['retry_delay_ms'] == 1000
 
     assert result == 0

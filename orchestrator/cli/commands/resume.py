@@ -99,7 +99,7 @@ def resume_workflow(
         logging.getLogger('orchestrator').setLevel(logging.DEBUG)
 
     # Match `run` defaults so provider retry policy always receives concrete values.
-    max_retries = 0 if max_retries is None else max_retries
+    max_retries = 1 if max_retries is None else max_retries
     retry_delay_ms = 1000 if retry_delay_ms is None else retry_delay_ms
 
     # Determine workspace and state directory

@@ -113,6 +113,36 @@ def test_parser_accepts_state_dir_on_run_and_resume():
     assert resume_args.state_dir == '/tmp/custom-runs'
 
 
+def test_parser_defaults_retry_budget_on_run_and_resume():
+    parser = create_parser()
+
+    run_args = parser.parse_args(['run', 'workflow.yaml'])
+    resume_args = parser.parse_args(['resume', 'run-123'])
+
+    assert run_args.max_retries == 1
+    assert run_args.retry_delay == 1000
+    assert resume_args.max_retries == 1
+    assert resume_args.retry_delay == 1000
+
+
+def test_parser_accepts_retry_flags_on_resume():
+    parser = create_parser()
+
+    args = parser.parse_args(
+        [
+            'resume',
+            'run-123',
+            '--max-retries',
+            '4',
+            '--retry-delay',
+            '2500',
+        ]
+    )
+
+    assert args.max_retries == 4
+    assert args.retry_delay == 2500
+
+
 def test_build_observability_config_defaults_to_async_when_enabled():
     args = _base_run_args(Path('workflow.yaml'))
     args.step_summaries = True

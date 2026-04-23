@@ -90,7 +90,7 @@ def create_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         '--max-retries',
         type=int,
-        default=0,
+        default=1,
         help='Maximum retry attempts'
     )
     run_parser.add_argument(
@@ -180,6 +180,18 @@ def create_parser() -> argparse.ArgumentParser:
         '--state-dir',
         type=str,
         help='Override default state directory'
+    )
+    resume_parser.add_argument(
+        '--max-retries',
+        type=int,
+        default=1,
+        help='Maximum retry attempts'
+    )
+    resume_parser.add_argument(
+        '--retry-delay',
+        type=int,
+        default=1000,
+        help='Retry delay in milliseconds'
     )
     resume_parser.add_argument(
         '--summary-mode',
