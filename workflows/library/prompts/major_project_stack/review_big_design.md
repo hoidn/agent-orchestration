@@ -19,6 +19,7 @@ Reject designs that:
 - are not self-contained enough for generic plan and implementation phases that will consume only the design and plan
 - omit the selected tranche objective, relevant manifest fields, prerequisites, roadmap constraints, target artifacts, design depth, or completion gate
 - omit semantically material choices or fail to justify them
+- make broad claims such as full parity, full support, or release readiness without defining the behavior denominator and evidence standard
 - carry forward unnecessary or counterproductive transformations, adapters, defaults, or inherited conventions
 - ignore relevant roadmap layout or ownership conventions, or invent conflicting locations without explicit justification
 - omit required architecture, interface, data-flow, ownership, oracle, provenance, migration, or compatibility decisions

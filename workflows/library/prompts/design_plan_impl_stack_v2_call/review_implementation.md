@@ -21,6 +21,7 @@ When reviewing:
   - defects in already-implemented work that block delivered behavior
   - non-blocking defects in already-implemented work
   - follow-up work or deliberate deferrals
+- classify each blocking issue as an implementation defect, missing evidence for a claim, invalid or non-runnable gate, environment blocker, or pre-existing drift. Do not treat invalid gates or unavailable environment tools as implementation defects unless the plan assigns implementation to fix them.
 
 For the output contract's `implementation_review_report_path`, read the path recorded in that file and write the review markdown to that current-checkout-relative path. Leave the `implementation_review_report_path` file containing only the path.
 Write `APPROVE` or `REVISE` to the `implementation_review_decision` path specified in the Output Contract.
