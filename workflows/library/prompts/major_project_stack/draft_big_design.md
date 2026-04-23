@@ -31,6 +31,8 @@ State the evidence for the classification, the closest prior tranche or comparab
 
 A tranche may refactor prior tranche-local work into shared helpers when that refactor is needed for the current tranche. Keep the refactor limited to parts the current tranche will consume, preserve prior tranche behavior and interfaces, and require regression checks for the prior tranche.
 
+Freeze the long-lived ownership boundaries for the tranche: decide what extends an existing subsystem versus introducing a new local component, and decide where the lasting source of truth for the changed behavior, data, or artifacts will live.
+
 For any tranche that creates source code, tools, durable artifacts, or curated data, identify stable locations, stable interfaces, provenance assumptions, and required checks that are part of the tranche contract. Distinguish authored from derived files when both exist. Define layout at the level needed to fix component ownership and stable locations; leave complete file lists, function-level structure, and exact commands to the plan unless they are part of the contract. For example, the design might place a new package under `src/<package>/<component>/` and its command entrypoint under `tools/<project>/`, while leaving exact module names and command flags to the plan. Or it might decide that promoted reference data lives under `artifacts/<kind>/<owner>/` and run reports live under `artifacts/work/<project>/`, while leaving exact filenames to the plan. Justify any large hand-curated data stored inside executable code.
 
 If the tranche introduces or changes a nontrivial subsystem, process, integration surface, automation, or durable artifact contract, include an `Implementation Architecture` section that defines:
