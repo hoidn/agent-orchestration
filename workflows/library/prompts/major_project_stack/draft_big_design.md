@@ -31,11 +31,11 @@ State the evidence for the classification, the closest prior tranche or comparab
 
 A tranche may refactor prior tranche-local work into shared helpers when that refactor is needed for the current tranche. Keep the refactor limited to parts the current tranche will consume, preserve prior tranche behavior and interfaces, and require regression checks for the prior tranche.
 
-Freeze the long-lived ownership boundaries for the tranche: decide what extends an existing subsystem versus introducing a new local component, and decide where the lasting source of truth for the changed behavior, data, or artifacts will live.
+Freeze the long-lived ownership boundaries for the tranche: decide what extends an existing subsystem versus introducing a new local component, and decide where the lasting source of truth for changed behavior, stable interfaces, and maintained data or contracts will live.
 
-For any tranche that creates source code, tools, durable artifacts, or curated data, identify stable locations, stable interfaces, provenance assumptions, and required checks that are part of the tranche contract. Distinguish authored from derived files when both exist. Define layout at the level needed to fix component ownership and stable locations; leave complete file lists, function-level structure, and exact commands to the plan unless they are part of the contract. For example, the design might place a new package under `src/<package>/<component>/` and its command entrypoint under `tools/<project>/`, while leaving exact module names and command flags to the plan. Or it might decide that promoted reference data lives under `artifacts/<kind>/<owner>/` and run reports live under `artifacts/work/<project>/`, while leaving exact filenames to the plan. Justify any large hand-curated data stored inside executable code.
+For any tranche that creates or materially changes production code, stable APIs, maintained data or contracts, or externally consumed persistent artifacts, identify the stable locations, interfaces, provenance assumptions, and checks that belong in the tranche contract. Distinguish authored from derived outputs when both exist. Generated reports, projections, summaries, and review evidence are derived by default, not tranche-contract surfaces, unless a downstream consumer, external user, or stable gate depends on them directly. Define layout at the level needed to fix component ownership and stable locations; leave complete file lists, function-level structure, exact commands, and incidental generated outputs to the plan unless they are part of the contract. Justify any large hand-curated data stored inside executable code.
 
-If the tranche introduces or changes a nontrivial subsystem, process, integration surface, automation, or durable artifact contract, include an `Implementation Architecture` section that defines:
+If the tranche introduces or changes a nontrivial subsystem, process, integration surface, automation, or stable consumed contract, include an `Implementation Architecture` section that defines:
 - component boundaries and what each component owns
 - owned files, directories, modules, or artifact roots for each concrete thing being created or changed
 - data, control-flow, API, or artifact interfaces between components
@@ -56,7 +56,7 @@ Address where relevant:
 - performance, batching, device, or parallelization implications
 - discoverability, spec, and documentation impact: when the tranche changes behavioral specs, public or internal APIs, architectural conventions, development processes, test conventions, data or oracle contracts, creates important docs, or changes other durable project knowledge, identify the authoritative docs, specs, documentation indexes such as `docs/index.md`, templates, or guides that should be updated by the implementation plan; state when no durable documentation update is needed
 - risks, pivots, blockers, and deferred decisions
-- verification strategy with visible checks and reviewable artifacts
+- verification strategy with visible checks and any authoritative evidence the tranche completion depends on
 
 Justify every semantically material choice. Identify unnecessary or counterproductive transformations, adapters, defaults, or inherited conventions instead of carrying them forward automatically.
 

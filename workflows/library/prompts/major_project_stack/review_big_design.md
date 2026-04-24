@@ -14,6 +14,8 @@ Review the candidate design from scratch before reconciling carried-forward find
 
 Treat the rejection bullets as review aids, not an equal-weight checklist. Focus findings on gaps that would materially affect the tranche outcome, force later phases to invent important decisions, or create avoidable long-lived debt.
 
+Treat generated reports, projections, summaries, and review evidence as derived outputs by default. Require them as design-level contract surfaces only when they are the maintained source of truth, a stable downstream input, or an explicit user-facing deliverable.
+
 Reject designs that:
 - conflict with the project roadmap or selected tranche brief without explaining and justifying the change
 - are not self-contained enough for generic plan and implementation phases that will consume only the design and plan
@@ -25,8 +27,9 @@ Reject designs that:
 - omit required architecture, interface, data-flow, ownership, oracle, provenance, migration, or compatibility decisions
 - propose implementation before blocking design decisions are resolved
 - hide work in vague "follow existing pattern" language where the existing pattern may be wrong for the tranche outcome
+- make multiple surfaces authoritative for the same fact without naming one maintained source of truth and the derivation path for the others
 - leave unclear what is authored versus derived, who owns it, or what must validate it when that distinction affects the tranche contract
-- introduce or change a nontrivial subsystem, process, integration surface, automation, or durable artifact contract without explicit component boundaries, ownership, interfaces, invariants, failure modes, and test or review boundaries
+- introduce or change a nontrivial subsystem, process, integration surface, automation, or stable consumed contract without explicit component boundaries, ownership, interfaces, invariants, failure modes, and test or review boundaries
 - omit cross-tranche family analysis when the roadmap or repository evidence shows a repeated work shape
 - duplicate prior tranche-local mechanics for a second or later family member without deciding whether to reuse, refactor into shared helpers, or justify a local fork
 - refactor prior tranche work without preserving prior behavior, interfaces, and regression checks
