@@ -26,6 +26,7 @@ When reviewing:
 - flag implementations that drift from roadmap, design, or plan layout and ownership decisions, or combine things the design or plan kept separate without a recorded rationale
 - use systematic-debugging to identify the root cause of any nontrivial runtime failures
 - for numerical parity failures in current-scope or claimed behavior, distinguish implementation defects, insufficient diagnosis, and cases where the comparison standard is too strict for the supported claim. Treat tolerance or comparator changes as acceptable only when residual evidence supports numerical-method drift rather than semantic or physics drift, unaffected invariants stay strict, and the authoritative spec, catalog, test helper, or gate is updated.
+- for parity or benchmark work, reject implementations where validation data is part of the production mechanism being validated, unless the approved design explicitly defines the feature as reference-data lookup. Validation data includes expected outputs, oracle data, fixtures, generated evidence, checked-in answer tables, derived reference templates, or equivalent encoded answers. It may support tests, diagnostics, and review evidence; it must not be what makes production behavior pass.
 - distinguish:
   - unfinished current-scope work
   - defects in already-implemented work that block delivered behavior
