@@ -37,8 +37,10 @@ Reject designs that:
 - refactor prior tranche work without preserving prior behavior, interfaces, and regression checks
 - group concrete things that should change or be reviewed independently without a clear reason
 - embed large hand-curated data in executable code without justifying the choice based on reviewability, provenance, and expected reuse
-- provide weak verification for the tranche risk
+- provide weak acceptance standards for the tranche risk, or fail to identify what kind of evidence must support the tranche claim
 - create avoidable debt or drift in stable project modules
+
+Do not reject a design merely because it leaves plan-owned mechanics unspecified. Exact task order, complete file lists, command lines, validator internals, generated report inventories, and test migration sequence are plan-level details unless omitting them changes architecture, provenance, behavior claims, reuse boundaries, or acceptance semantics.
 
 Approve when the design fixes the implementation shape, ownership boundaries, cross-tranche reuse boundary where relevant, major contracts, and acceptance gates. Leave exhaustive enumerations and command-level details to the plan unless they change architecture, provenance, claims, reuse boundaries, or gate semantics.
 <output instruction>

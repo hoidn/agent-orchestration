@@ -21,6 +21,8 @@ The design must be self-contained for the downstream generic plan and implementa
 - roadmap constraints and sequencing dependencies that the plan and implementation must preserve
 - project-level decisions from the roadmap that govern this tranche
 
+Keep the phase boundary explicit. The design should settle durable architecture, ownership, behavior claims, source-of-truth contracts, compatibility boundaries, and acceptance standards. Leave task sequence, exact edit lists, command lists, validator implementation mechanics, generated report inventories, and test migration order to the plan unless those details define the contract being designed.
+
 If the consumed escalation context says planning failed to converge, treat that as evidence that the approved design may be too broad, under-specified, wrongly scoped, or missing a planning-critical architectural decision. Revise design-owned decisions only; do not write the plan.
 
 If the project roadmap defines layout or ownership conventions, apply the relevant parts in this tranche design. Do not leave later phases to invent file locations, ownership boundaries, maintained-input locations, generated output locations, or internal component boundaries when the roadmap already made or requires those decisions.
@@ -43,7 +45,7 @@ For any tranche that creates or materially changes production code, stable APIs,
 
 If the tranche introduces or changes a nontrivial subsystem, process, integration surface, automation, or stable consumed contract, include an `Implementation Architecture` section that defines:
 - component boundaries and what each component owns
-- owned files, directories, modules, or artifact roots for each concrete thing being created or changed
+- owned components and stable location roots for the durable things being created or changed; name exact files, modules, or artifact paths only when they are themselves a stable API, source of truth, provenance boundary, or required handoff
 - data, control-flow, API, or artifact interfaces between components
 - invariants and failure modes the design relies on
 - stable decisions, contracts, and invariants downstream work may rely on, without over-specifying plan-level mechanics
@@ -62,7 +64,7 @@ Address where relevant:
 - performance, batching, device, or parallelization implications
 - discoverability, spec, and documentation impact: when the tranche changes behavioral specs, public or internal APIs, architectural conventions, development processes, test conventions, data or oracle contracts, creates important docs, or changes other durable project knowledge, identify the authoritative docs, specs, documentation indexes such as `docs/index.md`, templates, or guides that should be updated by the implementation plan; state when no durable documentation update is needed
 - risks, pivots, blockers, and deferred decisions
-- verification strategy with visible checks and any authoritative evidence the tranche completion depends on
+- acceptance strategy: the evidence classes and risk-oriented checks needed to support the tranche claim; exact commands, generated-output inventories, and test migration sequence belong in the plan unless they define the acceptance contract
 
 Justify every semantically material choice. Identify unnecessary or counterproductive transformations, adapters, defaults, or inherited conventions instead of carrying them forward automatically.
 
