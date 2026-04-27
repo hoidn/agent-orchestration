@@ -1,0 +1,554 @@
+version: "2.7"
+name: "major-project-tranche-drain-iteration"
+
+imports:
+  tranche_stack: major_project_tranche_design_plan_impl_stack.yaml
+  roadmap_revision_phase: major_project_roadmap_revision_phase.yaml
+
+inputs:
+  project_brief_path:
+    type: relpath
+    must_exist_target: true
+  project_roadmap_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  tranche_manifest_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  drain_state_root:
+    type: relpath
+    under: state
+  iteration_state_root:
+    type: relpath
+    under: state
+  roadmap_change_request_path:
+    type: relpath
+    under: state
+  roadmap_revision_state_root:
+    type: relpath
+    under: state
+  updated_project_roadmap_candidate_path:
+    type: relpath
+    under: docs/plans
+  updated_tranche_manifest_candidate_path:
+    type: relpath
+    under: state
+  roadmap_revision_report_target_path:
+    type: relpath
+    under: artifacts/review
+
+outputs:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+    from:
+      ref: root.steps.RouteIterationOutcome.artifacts.drain_status
+
+artifacts:
+  iteration_route:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION", "ESCALATE_ROADMAP_REVISION", "DONE", "BLOCKED"]
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+
+steps:
+  - name: SelectNextTranche
+    id: select_next_tranche
+    command:
+      - python
+      - workflows/library/scripts/select_major_project_tranche.py
+      - --project-brief-path
+      - ${inputs.project_brief_path}
+      - --project-roadmap-path
+      - ${inputs.project_roadmap_path}
+      - --tranche-manifest-path
+      - ${inputs.tranche_manifest_path}
+      - --state-root
+      - ${inputs.drain_state_root}
+      - --output-bundle
+      - ${inputs.iteration_state_root}/selected-tranche.json
+    output_bundle:
+      path: ${inputs.iteration_state_root}/selected-tranche.json
+      fields:
+        - name: selection_status
+          json_pointer: /selection_status
+          type: enum
+          allowed: ["SELECTED", "DONE", "BLOCKED"]
+        - name: project_brief_path
+          json_pointer: /project_brief_path
+          type: relpath
+          must_exist_target: true
+        - name: project_roadmap_path
+          json_pointer: /project_roadmap_path
+          type: relpath
+          under: docs/plans
+          must_exist_target: true
+        - name: tranche_manifest_path
+          json_pointer: /tranche_manifest_path
+          type: relpath
+          under: state
+          must_exist_target: true
+        - name: item_state_root
+          json_pointer: /item_state_root
+          type: relpath
+          under: state
+          required: false
+        - name: upstream_escalation_context_path
+          json_pointer: /upstream_escalation_context_path
+          type: relpath
+          under: state
+          required: false
+        - name: big_design_phase_state_root
+          json_pointer: /big_design_phase_state_root
+          type: relpath
+          under: state
+          required: false
+        - name: plan_phase_state_root
+          json_pointer: /plan_phase_state_root
+          type: relpath
+          under: state
+          required: false
+        - name: implementation_phase_state_root
+          json_pointer: /implementation_phase_state_root
+          type: relpath
+          under: state
+          required: false
+        - name: tranche_brief_path
+          json_pointer: /tranche_brief_path
+          type: relpath
+          must_exist_target: true
+          required: false
+        - name: design_target_path
+          json_pointer: /design_target_path
+          type: relpath
+          under: docs/plans
+          required: false
+        - name: design_review_report_target_path
+          json_pointer: /design_review_report_target_path
+          type: relpath
+          under: artifacts/review
+          required: false
+        - name: plan_target_path
+          json_pointer: /plan_target_path
+          type: relpath
+          under: docs/plans
+          required: false
+        - name: plan_review_report_target_path
+          json_pointer: /plan_review_report_target_path
+          type: relpath
+          under: artifacts/review
+          required: false
+        - name: execution_report_target_path
+          json_pointer: /execution_report_target_path
+          type: relpath
+          under: artifacts/work
+          required: false
+        - name: implementation_review_report_target_path
+          json_pointer: /implementation_review_report_target_path
+          type: relpath
+          under: artifacts/review
+          required: false
+        - name: item_summary_target_path
+          json_pointer: /item_summary_target_path
+          type: relpath
+          under: artifacts/work
+          required: false
+        - name: ready_count
+          json_pointer: /ready_count
+          type: integer
+        - name: pending_count
+          json_pointer: /pending_count
+          type: integer
+        - name: completed_count
+          json_pointer: /completed_count
+          type: integer
+        - name: superseded_count
+          json_pointer: /superseded_count
+          type: integer
+        - name: blocked_count
+          json_pointer: /blocked_count
+          type: integer
+
+  - name: RouteSelection
+    id: route_selection
+    match:
+      ref: root.steps.SelectNextTranche.artifacts.selection_status
+      cases:
+        SELECTED:
+          id: selected_tranche_path
+          outputs:
+            iteration_route:
+              kind: scalar
+              type: enum
+              allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION", "ESCALATE_ROADMAP_REVISION", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.MaterializeSelectedOutcome.artifacts.iteration_route
+          steps:
+            - name: RunSelectedTranche
+              id: run_selected_tranche
+              call: tranche_stack
+              with:
+                item_state_root:
+                  ref: parent.steps.SelectNextTranche.artifacts.item_state_root
+                upstream_escalation_context_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.upstream_escalation_context_path
+                big_design_phase_state_root:
+                  ref: parent.steps.SelectNextTranche.artifacts.big_design_phase_state_root
+                plan_phase_state_root:
+                  ref: parent.steps.SelectNextTranche.artifacts.plan_phase_state_root
+                implementation_phase_state_root:
+                  ref: parent.steps.SelectNextTranche.artifacts.implementation_phase_state_root
+                project_brief_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.project_brief_path
+                project_roadmap_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.project_roadmap_path
+                tranche_manifest_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.tranche_manifest_path
+                tranche_brief_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.tranche_brief_path
+                design_target_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.design_target_path
+                design_review_report_target_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.design_review_report_target_path
+                plan_target_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.plan_target_path
+                plan_review_report_target_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.plan_review_report_target_path
+                execution_report_target_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.execution_report_target_path
+                implementation_review_report_target_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.implementation_review_report_target_path
+                item_summary_target_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.item_summary_target_path
+            - name: MaterializeSelectedOutcome
+              id: materialize_selected_outcome
+              command:
+                - python
+                - -c
+                - |
+                  import json
+                  import pathlib
+                  import shutil
+                  import sys
+
+                  selection_path = pathlib.Path(sys.argv[1])
+                  request_path = pathlib.Path(sys.argv[2])
+                  output_path = pathlib.Path(sys.argv[3])
+                  selection = json.loads(selection_path.read_text(encoding="utf-8"))
+                  item_root = pathlib.Path(selection.get("item_state_root", ""))
+                  item_outcome_path = item_root / "item_outcome.txt"
+                  if not item_outcome_path.is_file():
+                      raise SystemExit("Selected tranche did not publish item_outcome.txt under item_state_root")
+                  iteration_route = item_outcome_path.read_text(encoding="utf-8").strip()
+                  pointer_path = item_root / "final_roadmap_change_request_path.txt"
+                  request_path.parent.mkdir(parents=True, exist_ok=True)
+                  if pointer_path.is_file():
+                      request_target = pathlib.Path(pointer_path.read_text(encoding="utf-8").strip())
+                      if request_target.is_file():
+                          shutil.copyfile(request_target, request_path)
+                  if not request_path.is_file():
+                      request_path.write_text(
+                          json.dumps(
+                              {
+                                  "active": False,
+                                  "source_phase": "design",
+                                  "decision": None,
+                                  "reason_summary": "",
+                                  "requested_program_change": None,
+                                  "requested_changes": [],
+                                  "superseded_tranche_ids": [],
+                                  "proposed_new_tranche_ids": [],
+                              },
+                              indent=2,
+                          )
+                          + "\n",
+                          encoding="utf-8",
+                      )
+                  output_path.parent.mkdir(parents=True, exist_ok=True)
+                  output_path.write_text(
+                      json.dumps(
+                          {
+                              "iteration_route": iteration_route,
+                              "roadmap_change_request_path": request_path.as_posix(),
+                          },
+                          indent=2,
+                      )
+                      + "\n",
+                      encoding="utf-8",
+                  )
+                - ${inputs.iteration_state_root}/selected-tranche.json
+                - ${inputs.roadmap_change_request_path}
+                - ${inputs.iteration_state_root}/selected-outcome.json
+              output_bundle:
+                path: ${inputs.iteration_state_root}/selected-outcome.json
+                fields:
+                - name: iteration_route
+                  json_pointer: /iteration_route
+                  type: enum
+                  allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION", "ESCALATE_ROADMAP_REVISION"]
+                - name: roadmap_change_request_path
+                  json_pointer: /roadmap_change_request_path
+                  type: relpath
+                  under: state
+                  must_exist_target: true
+        DONE:
+          id: done_selection_path
+          outputs:
+            iteration_route:
+              kind: scalar
+              type: enum
+              allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION", "ESCALATE_ROADMAP_REVISION", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.WriteDoneIterationRoute.artifacts.iteration_route
+          steps:
+            - name: WriteDoneIterationRoute
+              id: write_done_iteration_route
+              set_scalar:
+                artifact: iteration_route
+                value: DONE
+        BLOCKED:
+          id: blocked_selection_path
+          outputs:
+            iteration_route:
+              kind: scalar
+              type: enum
+              allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION", "ESCALATE_ROADMAP_REVISION", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.WriteBlockedIterationRoute.artifacts.iteration_route
+          steps:
+            - name: WriteBlockedIterationRoute
+              id: write_blocked_iteration_route
+              set_scalar:
+                artifact: iteration_route
+                value: BLOCKED
+
+  - name: RouteIterationOutcome
+    id: route_iteration_outcome
+    match:
+      ref: root.steps.RouteSelection.artifacts.iteration_route
+      cases:
+        APPROVED:
+          id: approved_item_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.UpdateTrancheManifest.artifacts.drain_status
+          steps:
+            - name: UpdateTrancheManifest
+              id: update_tranche_manifest
+              command:
+                - python
+                - workflows/library/scripts/update_major_project_tranche_manifest.py
+                - --selection-bundle
+                - ${inputs.iteration_state_root}/selected-tranche.json
+                - --tranche-manifest-path
+                - ${inputs.tranche_manifest_path}
+                - --output-bundle
+                - ${inputs.iteration_state_root}/manifest-update.json
+              output_bundle:
+                path: ${inputs.iteration_state_root}/manifest-update.json
+                fields: &manifest_update_fields
+                  - name: drain_status
+                    json_pointer: /drain_status
+                    type: enum
+                    allowed: ["CONTINUE", "BLOCKED"]
+                  - name: item_outcome
+                    json_pointer: /item_outcome
+                    type: enum
+                    allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION"]
+                  - name: tranche_manifest_path
+                    json_pointer: /tranche_manifest_path
+                    type: relpath
+                    under: state
+                    must_exist_target: true
+                  - name: execution_report_path
+                    json_pointer: /execution_report_path
+                    type: relpath
+                    under: artifacts/work
+                    must_exist_target: true
+                  - name: item_summary_path
+                    json_pointer: /item_summary_path
+                    type: relpath
+                    under: artifacts/work
+                    must_exist_target: true
+                  - name: ready_count
+                    json_pointer: /ready_count
+                    type: integer
+                  - name: pending_count
+                    json_pointer: /pending_count
+                    type: integer
+                  - name: completed_count
+                    json_pointer: /completed_count
+                    type: integer
+                  - name: superseded_count
+                    json_pointer: /superseded_count
+                    type: integer
+                  - name: blocked_count
+                    json_pointer: /blocked_count
+                    type: integer
+        SKIPPED_AFTER_DESIGN:
+          id: skipped_after_design_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.UpdateTrancheManifest.artifacts.drain_status
+          steps:
+            - name: UpdateTrancheManifest
+              id: update_tranche_manifest
+              command:
+                - python
+                - workflows/library/scripts/update_major_project_tranche_manifest.py
+                - --selection-bundle
+                - ${inputs.iteration_state_root}/selected-tranche.json
+                - --tranche-manifest-path
+                - ${inputs.tranche_manifest_path}
+                - --output-bundle
+                - ${inputs.iteration_state_root}/manifest-update.json
+              output_bundle:
+                path: ${inputs.iteration_state_root}/manifest-update.json
+                fields: *manifest_update_fields
+        SKIPPED_AFTER_PLAN:
+          id: skipped_after_plan_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.UpdateTrancheManifest.artifacts.drain_status
+          steps:
+            - name: UpdateTrancheManifest
+              id: update_tranche_manifest
+              command:
+                - python
+                - workflows/library/scripts/update_major_project_tranche_manifest.py
+                - --selection-bundle
+                - ${inputs.iteration_state_root}/selected-tranche.json
+                - --tranche-manifest-path
+                - ${inputs.tranche_manifest_path}
+                - --output-bundle
+                - ${inputs.iteration_state_root}/manifest-update.json
+              output_bundle:
+                path: ${inputs.iteration_state_root}/manifest-update.json
+                fields: *manifest_update_fields
+        SKIPPED_AFTER_IMPLEMENTATION:
+          id: skipped_after_implementation_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.UpdateTrancheManifest.artifacts.drain_status
+          steps:
+            - name: UpdateTrancheManifest
+              id: update_tranche_manifest
+              command:
+                - python
+                - workflows/library/scripts/update_major_project_tranche_manifest.py
+                - --selection-bundle
+                - ${inputs.iteration_state_root}/selected-tranche.json
+                - --tranche-manifest-path
+                - ${inputs.tranche_manifest_path}
+                - --output-bundle
+                - ${inputs.iteration_state_root}/manifest-update.json
+              output_bundle:
+                path: ${inputs.iteration_state_root}/manifest-update.json
+                fields: *manifest_update_fields
+        ESCALATE_ROADMAP_REVISION:
+          id: roadmap_revision_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.PromoteRoadmapRevision.artifacts.drain_status
+          steps:
+            - name: RunRoadmapRevision
+              id: run_roadmap_revision
+              call: roadmap_revision_phase
+              with:
+                state_root:
+                  ref: inputs.roadmap_revision_state_root
+                project_brief_path:
+                  ref: inputs.project_brief_path
+                current_project_roadmap_path:
+                  ref: inputs.project_roadmap_path
+                current_tranche_manifest_path:
+                  ref: inputs.tranche_manifest_path
+                roadmap_change_request_path:
+                  ref: inputs.roadmap_change_request_path
+                updated_project_roadmap_target_path:
+                  ref: inputs.updated_project_roadmap_candidate_path
+                updated_tranche_manifest_target_path:
+                  ref: inputs.updated_tranche_manifest_candidate_path
+                roadmap_revision_report_target_path:
+                  ref: inputs.roadmap_revision_report_target_path
+            - name: PromoteRoadmapRevision
+              id: promote_roadmap_revision
+              command:
+                - bash
+                - -lc
+                - |
+                  decision="$(cat "${inputs.roadmap_revision_state_root}/final_roadmap_revision_decision.txt")"
+                  mkdir -p "${inputs.iteration_state_root}"
+                  if [ "$decision" = "APPROVE" ]; then
+                    roadmap_candidate="$(cat "${inputs.roadmap_revision_state_root}/final_updated_project_roadmap_path.txt")"
+                    manifest_candidate="$(cat "${inputs.roadmap_revision_state_root}/final_updated_tranche_manifest_path.txt")"
+                    cp "$roadmap_candidate" "${inputs.project_roadmap_path}"
+                    cp "$manifest_candidate" "${inputs.tranche_manifest_path}"
+                    printf '%s\n' CONTINUE > "${inputs.iteration_state_root}/roadmap_revision_drain_status.txt"
+                  elif [ "$decision" = "BLOCK" ]; then
+                    printf '%s\n' BLOCKED > "${inputs.iteration_state_root}/roadmap_revision_drain_status.txt"
+                  else
+                    echo "Unsupported roadmap revision decision: $decision" >&2
+                    exit 1
+                  fi
+              expected_outputs:
+                - name: drain_status
+                  path: ${inputs.iteration_state_root}/roadmap_revision_drain_status.txt
+                  type: enum
+                  allowed: ["CONTINUE", "BLOCKED"]
+        DONE:
+          id: done_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.WriteDrainDone.artifacts.drain_status
+          steps:
+            - name: WriteDrainDone
+              id: write_drain_done
+              set_scalar:
+                artifact: drain_status
+                value: DONE
+        BLOCKED:
+          id: blocked_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "DONE", "BLOCKED"]
+              from:
+                ref: self.steps.WriteDrainBlocked.artifacts.drain_status
+          steps:
+            - name: WriteDrainBlocked
+              id: write_drain_blocked
+              set_scalar:
+                artifact: drain_status
+                value: BLOCKED

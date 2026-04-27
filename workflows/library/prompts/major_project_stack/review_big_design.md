@@ -4,7 +4,9 @@ Review the candidate design in a code-review stance. Findings first. Look for bu
 
 <notes>
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, `tranche_manifest`, `design`, and `open_findings` artifacts before acting.
+Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, `tranche_manifest`, `design`, `open_findings`, and `upstream_escalation_context` artifacts before acting.
+
+Escalation decisions are available in this major-project review. Use `ESCALATE_ROADMAP_REVISION` when the design cannot be repaired by redesigning the current tranche alone and needs a program-level change such as split, reorder, prerequisite insertion, or ownership reassignment. This may be used on the first review pass if tranche shape is already visibly wrong. Use `BLOCK` only when the brief, roadmap, manifest, or repository evidence is too incomplete or contradictory to author a safe roadmap change request.
 
 Treat `design` as the candidate design under review, not as evidence that the design has already been approved.
 
@@ -40,15 +42,17 @@ Reject designs that:
 
 Approve when the design fixes the implementation shape, ownership boundaries, cross-tranche reuse boundary where relevant, major contracts, and acceptance gates. Leave exhaustive enumerations and command-level details to the plan unless they change architecture, provenance, claims, reuse boundaries, or gate semantics.
 <output instruction>
-Write a JSON review report to the path recorded by the output contract's `design_review_report_path` pointer. Also write the decision token to `design_review_decision` and unresolved counts to the count files.
+Write a JSON review report to the exact review-report target path listed in the injected concrete output paths block. Also write the decision token and unresolved counts to the exact file paths listed there.
 
 The report must contain:
-- `decision`: `APPROVE`, `REVISE`, or `BLOCK`
+- `decision`: `APPROVE`, `REVISE`, `ESCALATE_ROADMAP_REVISION`, or `BLOCK`
 - `summary`
 - `findings`: array of stable findings with `id`, `severity`, `status`, `title`, `evidence`, `impact`, and `required_change`
 - `unresolved_high_count`
 - `unresolved_medium_count`
 
 Use `REVISE` for fixable design problems. Use `BLOCK` only when the tranche cannot be designed from the available brief, roadmap, manifest, and repository context.
+
+Also write a design escalation context JSON to the target named by `design_escalation_context_path`, and write a roadmap change request JSON to the target named by `roadmap_change_request_path`. These may be inactive placeholder objects unless the decision is `ESCALATE_ROADMAP_REVISION`.
 </output instruction>
 </notes>

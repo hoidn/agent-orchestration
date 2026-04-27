@@ -1,0 +1,451 @@
+version: "2.7"
+name: "major-project-tranche-implementation-phase"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  design_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  plan_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  execution_report_target_path:
+    type: relpath
+    under: artifacts/work
+  implementation_review_report_target_path:
+    type: relpath
+    under: artifacts/review
+
+outputs:
+  execution_report_path:
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.execution_report_path
+  implementation_review_report_path:
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_review_report_path
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+    from:
+      ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_review_decision
+  implementation_escalation_context_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_escalation_context_path
+  implementation_iteration_context_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_iteration_context_path
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+
+artifacts:
+  design:
+    pointer: ${inputs.state_root}/design_path.txt
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  plan:
+    pointer: ${inputs.state_root}/plan_path.txt
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  execution_report:
+    pointer: ${inputs.state_root}/execution_report_path.txt
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+  implementation_review_report:
+    pointer: ${inputs.state_root}/implementation_review_report_path.txt
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+  implementation_escalation_context:
+    pointer: ${inputs.state_root}/implementation_escalation_context_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
+  implementation_iteration_context:
+    pointer: ${inputs.state_root}/implementation_iteration_context_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+
+steps:
+  - name: InitializeImplementationPhasePaths
+    id: initialize_implementation_phase_paths
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p "${inputs.state_root}" artifacts/work artifacts/review
+        printf '%s\n' "${inputs.execution_report_target_path}" > "${inputs.state_root}/execution_report_path.txt"
+        printf '%s\n' "${inputs.implementation_review_report_target_path}" > "${inputs.state_root}/implementation_review_report_path.txt"
+        printf '%s\n' "${inputs.state_root}/implementation_escalation_context.json" > "${inputs.state_root}/implementation_escalation_context_path.txt"
+        printf '%s\n' "${inputs.state_root}/implementation_iteration_context.json" > "${inputs.state_root}/implementation_iteration_context_path.txt"
+        cat > "${inputs.state_root}/implementation_escalation_context.json" <<'JSON'
+        {
+          "active": false,
+          "source_phase": "implementation",
+          "decision": null,
+          "recommended_next_phase": null,
+          "reason_summary": "",
+          "must_change": [],
+          "evidence_paths": {}
+        }
+        JSON
+        cat > "${inputs.state_root}/implementation_iteration_context.json" <<'JSON'
+        {
+          "phase_iteration_index": 0,
+          "phase_iteration_number": 1,
+          "cumulative_review_iterations_since_design_approval": 0,
+          "soft_escalation_iteration_threshold": 10,
+          "threshold_crossed": false,
+          "max_phase_iterations": 40
+        }
+        JSON
+    expected_outputs:
+      - name: execution_report_path
+        path: ${inputs.state_root}/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+      - name: implementation_review_report_path
+        path: ${inputs.state_root}/implementation_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+      - name: implementation_escalation_context_path
+        path: ${inputs.state_root}/implementation_escalation_context_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+      - name: implementation_iteration_context_path
+        path: ${inputs.state_root}/implementation_iteration_context_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+
+  - name: PublishPhaseInputs
+    id: publish_phase_inputs
+    command:
+      - bash
+      - -lc
+      - |
+        if [ ! -f "${inputs.design_path}" ]; then
+          echo "Missing design file: ${inputs.design_path}" >&2
+          exit 1
+        fi
+        if [ ! -f "${inputs.plan_path}" ]; then
+          echo "Missing plan file: ${inputs.plan_path}" >&2
+          exit 1
+        fi
+        printf '%s\n' "${inputs.design_path}" > "${inputs.state_root}/design_path.txt"
+        printf '%s\n' "${inputs.plan_path}" > "${inputs.state_root}/plan_path.txt"
+    expected_outputs:
+      - name: design_path
+        path: ${inputs.state_root}/design_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+      - name: plan_path
+        path: ${inputs.state_root}/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+    publishes:
+      - artifact: design
+        from: design_path
+      - artifact: plan
+        from: plan_path
+
+  - name: ExecuteImplementation
+    id: execute_implementation
+    provider: codex
+    asset_file: prompts/major_project_stack/implement_plan.md
+    timeout_sec: 43200
+    consumes:
+      - artifact: design
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["design", "plan"]
+    expected_outputs:
+      - name: execution_report_path
+        path: ${inputs.state_root}/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_report
+        from: execution_report_path
+
+  - name: ImplementationReviewLoop
+    id: implementation_review_loop
+    repeat_until:
+      id: implementation_review_iteration
+      max_iterations: 40
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+          from:
+            ref: self.steps.RouteImplementationDecision.artifacts.review_decision
+      condition:
+        any_of:
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: APPROVE
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: ESCALATE_REPLAN
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: BLOCK
+      steps:
+        - name: WriteImplementationIterationContext
+          id: write_implementation_iteration_context
+          command:
+            - python
+            - workflows/library/scripts/major_project_escalation_state.py
+            - write-implementation-iteration-context
+            - --implementation-phase-state-root
+            - ${inputs.state_root}
+            - --phase-iteration-index
+            - "0"
+            - --soft-threshold
+            - "10"
+            - --max-phase-iterations
+            - "40"
+            - --output-bundle
+            - ${inputs.state_root}/implementation_iteration_context_output.json
+          output_bundle:
+            path: ${inputs.state_root}/implementation_iteration_context_output.json
+            fields:
+              - name: implementation_iteration_context_path
+                json_pointer: /implementation_iteration_context_path
+                type: relpath
+                under: state
+                must_exist_target: true
+          publishes:
+            - artifact: implementation_iteration_context
+              from: implementation_iteration_context_path
+
+        - name: ReviewImplementation
+          id: review_implementation
+          provider: codex
+          asset_file: prompts/major_project_stack/review_implementation.md
+          timeout_sec: 1800
+          consumes:
+            - artifact: design
+              policy: latest_successful
+              freshness: any
+            - artifact: plan
+              policy: latest_successful
+              freshness: any
+            - artifact: execution_report
+              policy: latest_successful
+              freshness: any
+            - artifact: implementation_iteration_context
+              policy: latest_successful
+              freshness: any
+          prompt_consumes: ["design", "plan", "execution_report", "implementation_iteration_context"]
+          expected_outputs:
+            - name: implementation_review_report_path
+              path: ${inputs.state_root}/implementation_review_report_path.txt
+              type: relpath
+              under: artifacts/review
+              must_exist_target: true
+            - name: implementation_review_decision
+              path: ${inputs.state_root}/implementation_review_decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+            - name: implementation_escalation_context_path
+              path: ${inputs.state_root}/implementation_escalation_context_path.txt
+              type: relpath
+              under: state
+              must_exist_target: true
+          publishes:
+            - artifact: implementation_review_report
+              from: implementation_review_report_path
+            - artifact: implementation_review_decision
+              from: implementation_review_decision
+            - artifact: implementation_escalation_context
+              from: implementation_escalation_context_path
+
+        - name: RouteImplementationDecision
+          id: route_implementation_decision
+          match:
+            ref: self.steps.ReviewImplementation.artifacts.implementation_review_decision
+            cases:
+              APPROVE:
+                id: approve_implementation_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteApprovedImplementationDecision.artifacts.review_decision
+                steps:
+                  - name: WriteApprovedImplementationDecision
+                    id: write_approved_implementation_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: APPROVE
+              REVISE:
+                id: revise_implementation_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteRevisedImplementationDecision.artifacts.review_decision
+                steps:
+                  - name: FixImplementation
+                    id: fix_implementation
+                    provider: codex
+                    asset_file: prompts/major_project_stack/fix_implementation.md
+                    timeout_sec: 43200
+                    consumes:
+                      - artifact: design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: plan
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: execution_report
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: implementation_review_report
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: implementation_iteration_context
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: implementation_escalation_context
+                        policy: latest_successful
+                        freshness: any
+                    prompt_consumes: ["design", "plan", "execution_report", "implementation_review_report", "implementation_iteration_context", "implementation_escalation_context"]
+                    expected_outputs:
+                      - name: execution_report_path
+                        path: ${inputs.state_root}/execution_report_path.txt
+                        type: relpath
+                        under: artifacts/work
+                        must_exist_target: true
+                    publishes:
+                      - artifact: execution_report
+                        from: execution_report_path
+                  - name: WriteRevisedImplementationDecision
+                    id: write_revised_implementation_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: REVISE
+              ESCALATE_REPLAN:
+                id: escalate_replan_implementation_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteEscalateReplanImplementationDecision.artifacts.review_decision
+                steps:
+                  - name: WriteEscalateReplanImplementationDecision
+                    id: write_escalate_replan_implementation_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: ESCALATE_REPLAN
+              BLOCK:
+                id: block_implementation_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteBlockedImplementationDecision.artifacts.review_decision
+                steps:
+                  - name: WriteBlockedImplementationDecision
+                    id: write_blocked_implementation_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: BLOCK
+
+  - name: FinalizeImplementationPhaseOutputs
+    id: finalize_implementation_phase_outputs
+    command:
+      - bash
+      - -lc
+      - |
+        cat "${inputs.state_root}/execution_report_path.txt" > "${inputs.state_root}/final_execution_report_path.txt"
+        cat "${inputs.state_root}/implementation_review_report_path.txt" > "${inputs.state_root}/final_implementation_review_report_path.txt"
+        cat "${inputs.state_root}/implementation_review_decision.txt" > "${inputs.state_root}/final_implementation_review_decision.txt"
+        cat "${inputs.state_root}/implementation_escalation_context_path.txt" > "${inputs.state_root}/final_implementation_escalation_context_path.txt"
+        cat "${inputs.state_root}/implementation_iteration_context_path.txt" > "${inputs.state_root}/final_implementation_iteration_context_path.txt"
+    expected_outputs:
+      - name: execution_report_path
+        path: ${inputs.state_root}/final_execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+      - name: implementation_review_report_path
+        path: ${inputs.state_root}/final_implementation_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: implementation_review_decision
+        path: ${inputs.state_root}/final_implementation_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+      - name: implementation_escalation_context_path
+        path: ${inputs.state_root}/final_implementation_escalation_context_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+      - name: implementation_iteration_context_path
+        path: ${inputs.state_root}/final_implementation_iteration_context_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true

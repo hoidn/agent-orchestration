@@ -27,6 +27,9 @@ inputs:
   design_review_report_target_path:
     type: relpath
     under: artifacts/review
+  upstream_escalation_context_path:
+    type: relpath
+    default: state/major-project-default/upstream_escalation_context.json
 
 outputs:
   design_path:
@@ -44,9 +47,21 @@ outputs:
   design_review_decision:
     kind: scalar
     type: enum
-    allowed: ["APPROVE", "REVISE", "BLOCK"]
+    allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
     from:
       ref: root.steps.FinalizeBigDesignPhaseOutputs.artifacts.design_review_decision
+  design_escalation_context_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeBigDesignPhaseOutputs.artifacts.design_escalation_context_path
+  roadmap_change_request_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizeBigDesignPhaseOutputs.artifacts.roadmap_change_request_path
 
 providers:
   codex:
@@ -86,7 +101,22 @@ artifacts:
   design_review_decision:
     kind: scalar
     type: enum
-    allowed: ["APPROVE", "REVISE", "BLOCK"]
+    allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
+  upstream_escalation_context:
+    pointer: ${inputs.state_root}/upstream_escalation_context_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
+  design_escalation_context:
+    pointer: ${inputs.state_root}/design_escalation_context_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
+  roadmap_change_request:
+    pointer: ${inputs.state_root}/roadmap_change_request_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
   open_findings:
     pointer: ${inputs.state_root}/open_findings_path.txt
     type: relpath
@@ -95,7 +125,7 @@ artifacts:
   review_decision:
     kind: scalar
     type: enum
-    allowed: ["APPROVE", "REVISE", "BLOCK"]
+    allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
 
 steps:
   - name: InitializeBigDesignPhasePaths
@@ -107,15 +137,60 @@ steps:
         mkdir -p \
           "${inputs.state_root}" \
           "$(dirname "${inputs.design_target_path}")" \
-          "$(dirname "${inputs.design_review_report_target_path}")"
+          "$(dirname "${inputs.design_review_report_target_path}")" \
+          "$(dirname "${inputs.upstream_escalation_context_path}")"
         printf '%s\n' "${inputs.design_target_path}" > "${inputs.state_root}/design_path.txt"
         printf '%s\n' "${inputs.design_review_report_target_path}" > "${inputs.state_root}/design_review_report_path.txt"
+        printf '%s\n' "${inputs.state_root}/design_escalation_context.json" > "${inputs.state_root}/design_escalation_context_path.txt"
+        printf '%s\n' "${inputs.state_root}/roadmap_change_request.json" > "${inputs.state_root}/roadmap_change_request_path.txt"
         printf '%s\n' "${inputs.state_root}/open_findings.json" > "${inputs.state_root}/open_findings_path.txt"
+        cat > "${inputs.state_root}/design_review_output_paths.md" <<EOF
+        Review report target path: ${inputs.design_review_report_target_path}
+        Review decision path: ${inputs.state_root}/design_review_decision.txt
+        Unresolved high count path: ${inputs.state_root}/unresolved_high_count.txt
+        Unresolved medium count path: ${inputs.state_root}/unresolved_medium_count.txt
+        EOF
         cat > "${inputs.state_root}/open_findings.json" <<'JSON'
         {
           "findings": []
         }
         JSON
+        cat > "${inputs.state_root}/design_escalation_context.json" <<'JSON'
+        {
+          "active": false,
+          "source_phase": "design",
+          "decision": null,
+          "recommended_next_phase": null,
+          "reason_summary": "",
+          "must_change": [],
+          "evidence_paths": {}
+        }
+        JSON
+        cat > "${inputs.state_root}/roadmap_change_request.json" <<'JSON'
+        {
+          "active": false,
+          "source_phase": "design",
+          "decision": null,
+          "reason_summary": "",
+          "requested_program_change": null,
+          "requested_changes": [],
+          "superseded_tranche_ids": [],
+          "proposed_new_tranche_ids": []
+        }
+        JSON
+        if [ ! -f "${inputs.upstream_escalation_context_path}" ]; then
+          cat > "${inputs.upstream_escalation_context_path}" <<'JSON'
+        {
+          "active": false,
+          "source_phase": null,
+          "decision": null,
+          "recommended_next_phase": null,
+          "reason_summary": "",
+          "must_change": [],
+          "evidence_paths": {}
+        }
+        JSON
+        fi
     expected_outputs:
       - name: design_path
         path: ${inputs.state_root}/design_path.txt
@@ -130,9 +205,23 @@ steps:
         type: relpath
         under: state
         must_exist_target: true
+      - name: design_escalation_context_path
+        path: ${inputs.state_root}/design_escalation_context_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+      - name: roadmap_change_request_path
+        path: ${inputs.state_root}/roadmap_change_request_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
     publishes:
       - artifact: open_findings
         from: open_findings_path
+      - artifact: design_escalation_context
+        from: design_escalation_context_path
+      - artifact: roadmap_change_request
+        from: roadmap_change_request_path
 
   - name: PublishBigDesignInputs
     id: publish_big_design_inputs
@@ -155,6 +244,7 @@ steps:
         printf '%s\n' "${inputs.project_brief_path}" > "${inputs.state_root}/project_brief_path.txt"
         printf '%s\n' "${inputs.project_roadmap_path}" > "${inputs.state_root}/project_roadmap_path.txt"
         printf '%s\n' "${inputs.tranche_manifest_path}" > "${inputs.state_root}/tranche_manifest_path.txt"
+        printf '%s\n' "${inputs.upstream_escalation_context_path}" > "${inputs.state_root}/upstream_escalation_context_path.txt"
     expected_outputs:
       - name: tranche_brief_path
         path: ${inputs.state_root}/tranche_brief_path.txt
@@ -172,6 +262,11 @@ steps:
         path: ${inputs.state_root}/tranche_manifest_path.txt
         type: relpath
         must_exist_target: true
+      - name: upstream_escalation_context_path
+        path: ${inputs.state_root}/upstream_escalation_context_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
     publishes:
       - artifact: tranche_brief
         from: tranche_brief_path
@@ -181,6 +276,8 @@ steps:
         from: project_roadmap_path
       - artifact: tranche_manifest
         from: tranche_manifest_path
+      - artifact: upstream_escalation_context
+        from: upstream_escalation_context_path
 
   - name: DraftBigDesign
     id: draft_big_design
@@ -200,7 +297,10 @@ steps:
       - artifact: tranche_manifest
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["tranche_brief", "project_brief", "project_roadmap", "tranche_manifest"]
+      - artifact: upstream_escalation_context
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["tranche_brief", "project_brief", "project_roadmap", "tranche_manifest", "upstream_escalation_context"]
     expected_outputs:
       - name: design_path
         path: ${inputs.state_root}/design_path.txt
@@ -220,7 +320,7 @@ steps:
         review_decision:
           kind: scalar
           type: enum
-          allowed: ["APPROVE", "REVISE", "BLOCK"]
+          allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
           from:
             ref: self.steps.RouteBigDesignDecision.artifacts.review_decision
       condition:
@@ -234,6 +334,11 @@ steps:
               left:
                 ref: self.outputs.review_decision
               op: eq
+              right: ESCALATE_ROADMAP_REVISION
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
               right: BLOCK
       steps:
         - name: ReviewBigDesign
@@ -241,6 +346,13 @@ steps:
           provider: codex
           asset_file: prompts/major_project_stack/review_big_design.md
           timeout_sec: 1800
+          depends_on:
+            required:
+              - ${inputs.state_root}/design_review_output_paths.md
+            inject:
+              mode: content
+              instruction: "Concrete output paths for this big-design review step:"
+              position: append
           consumes:
             - artifact: tranche_brief
               policy: latest_successful
@@ -260,7 +372,51 @@ steps:
             - artifact: open_findings
               policy: latest_successful
               freshness: any
-          prompt_consumes: ["tranche_brief", "project_brief", "project_roadmap", "tranche_manifest", "design", "open_findings"]
+            - artifact: upstream_escalation_context
+              policy: latest_successful
+              freshness: any
+          prompt_consumes: ["tranche_brief", "project_brief", "project_roadmap", "tranche_manifest", "design", "open_findings", "upstream_escalation_context"]
+          expected_outputs:
+            - name: design_review_decision
+              path: ${inputs.state_root}/design_review_decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
+            - name: design_escalation_context_path
+              path: ${inputs.state_root}/design_escalation_context_path.txt
+              type: relpath
+              under: state
+              must_exist_target: true
+            - name: roadmap_change_request_path
+              path: ${inputs.state_root}/roadmap_change_request_path.txt
+              type: relpath
+              under: state
+              must_exist_target: true
+            - name: unresolved_high_count
+              path: ${inputs.state_root}/unresolved_high_count.txt
+              type: integer
+            - name: unresolved_medium_count
+              path: ${inputs.state_root}/unresolved_medium_count.txt
+              type: integer
+
+        - name: PublishBigDesignReviewArtifacts
+          id: publish_big_design_review_artifacts
+          command:
+            - bash
+            - -lc
+            - |
+              python - <<'PY'
+              import json
+              from pathlib import Path
+
+              review_target = Path("${inputs.design_review_report_target_path}")
+              if not review_target.is_file():
+                  raise SystemExit(f"Missing big-design review artifact: {review_target}")
+
+              json.loads(review_target.read_text(encoding="utf-8"))
+
+              pointer = Path("${inputs.state_root}/design_review_report_path.txt")
+              pointer.write_text("${inputs.design_review_report_target_path}\n", encoding="utf-8")
+              PY
           expected_outputs:
             - name: design_review_report_path
               path: ${inputs.state_root}/design_review_report_path.txt
@@ -270,7 +426,17 @@ steps:
             - name: design_review_decision
               path: ${inputs.state_root}/design_review_decision.txt
               type: enum
-              allowed: ["APPROVE", "REVISE", "BLOCK"]
+              allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
+            - name: design_escalation_context_path
+              path: ${inputs.state_root}/design_escalation_context_path.txt
+              type: relpath
+              under: state
+              must_exist_target: true
+            - name: roadmap_change_request_path
+              path: ${inputs.state_root}/roadmap_change_request_path.txt
+              type: relpath
+              under: state
+              must_exist_target: true
             - name: unresolved_high_count
               path: ${inputs.state_root}/unresolved_high_count.txt
               type: integer
@@ -282,11 +448,15 @@ steps:
               from: design_review_report_path
             - artifact: design_review_decision
               from: design_review_decision
+            - artifact: design_escalation_context
+              from: design_escalation_context_path
+            - artifact: roadmap_change_request
+              from: roadmap_change_request_path
 
         - name: RouteBigDesignDecision
           id: route_big_design_decision
           match:
-            ref: self.steps.ReviewBigDesign.artifacts.design_review_decision
+            ref: self.steps.PublishBigDesignReviewArtifacts.artifacts.design_review_decision
             cases:
               APPROVE:
                 id: approve_big_design_path
@@ -294,7 +464,7 @@ steps:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE", "BLOCK"]
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
                     from:
                       ref: self.steps.WriteApprovedBigDesignDecision.artifacts.review_decision
                 steps:
@@ -309,7 +479,7 @@ steps:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE", "BLOCK"]
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
                     from:
                       ref: self.steps.WriteRevisedBigDesignDecision.artifacts.review_decision
                 steps:
@@ -340,7 +510,10 @@ steps:
                       - artifact: open_findings
                         policy: latest_successful
                         freshness: any
-                    prompt_consumes: ["tranche_brief", "project_brief", "project_roadmap", "tranche_manifest", "design", "design_review_report", "open_findings"]
+                      - artifact: upstream_escalation_context
+                        policy: latest_successful
+                        freshness: any
+                    prompt_consumes: ["tranche_brief", "project_brief", "project_roadmap", "tranche_manifest", "design", "design_review_report", "open_findings", "upstream_escalation_context"]
                     expected_outputs:
                       - name: design_path
                         path: ${inputs.state_root}/design_path.txt
@@ -392,13 +565,28 @@ steps:
                     set_scalar:
                       artifact: review_decision
                       value: REVISE
+              ESCALATE_ROADMAP_REVISION:
+                id: escalate_roadmap_revision_big_design_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteEscalateRoadmapRevisionBigDesignDecision.artifacts.review_decision
+                steps:
+                  - name: WriteEscalateRoadmapRevisionBigDesignDecision
+                    id: write_escalate_roadmap_revision_big_design_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: ESCALATE_ROADMAP_REVISION
               BLOCK:
                 id: block_big_design_path
                 outputs:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE", "BLOCK"]
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
                     from:
                       ref: self.steps.WriteBlockedBigDesignDecision.artifacts.review_decision
                 steps:
@@ -417,6 +605,8 @@ steps:
         cat "${inputs.state_root}/design_path.txt" > "${inputs.state_root}/final_design_path.txt"
         cat "${inputs.state_root}/design_review_report_path.txt" > "${inputs.state_root}/final_design_review_report_path.txt"
         cat "${inputs.state_root}/design_review_decision.txt" > "${inputs.state_root}/final_design_review_decision.txt"
+        cat "${inputs.state_root}/design_escalation_context_path.txt" > "${inputs.state_root}/final_design_escalation_context_path.txt"
+        cat "${inputs.state_root}/roadmap_change_request_path.txt" > "${inputs.state_root}/final_roadmap_change_request_path.txt"
     expected_outputs:
       - name: design_path
         path: ${inputs.state_root}/final_design_path.txt
@@ -431,4 +621,14 @@ steps:
       - name: design_review_decision
         path: ${inputs.state_root}/final_design_review_decision.txt
         type: enum
-        allowed: ["APPROVE", "REVISE", "BLOCK"]
+        allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
+      - name: design_escalation_context_path
+        path: ${inputs.state_root}/final_design_escalation_context_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+      - name: roadmap_change_request_path
+        path: ${inputs.state_root}/final_roadmap_change_request_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true

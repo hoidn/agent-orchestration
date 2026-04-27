@@ -89,6 +89,10 @@ steps:
           json_pointer: /item_state_root
           type: relpath
           under: state
+        - name: upstream_escalation_context_path
+          json_pointer: /upstream_escalation_context_path
+          type: relpath
+          under: state
         - name: big_design_phase_state_root
           json_pointer: /big_design_phase_state_root
           type: relpath
@@ -150,6 +154,8 @@ steps:
     with:
       item_state_root:
         ref: root.steps.SelectNextTranche.artifacts.item_state_root
+      upstream_escalation_context_path:
+        ref: root.steps.SelectNextTranche.artifacts.upstream_escalation_context_path
       plan_phase_state_root:
         ref: root.steps.SelectNextTranche.artifacts.plan_phase_state_root
       implementation_phase_state_root:

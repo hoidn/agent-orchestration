@@ -3,6 +3,7 @@ from pathlib import Path
 
 import pytest
 
+from workflows.library.scripts.update_major_project_tranche_manifest import update_manifest
 from workflows.library.scripts.validate_major_project_tranche_manifest import validate_manifest
 
 
@@ -147,6 +148,65 @@ def test_major_project_manifest_validator_rejects_bad_status(tmp_path: Path):
 
     with pytest.raises(ValueError, match="status"):
         _validate(tmp_path, project_brief, project_roadmap, manifest_path)
+
+
+def test_major_project_manifest_validator_accepts_superseded_status(tmp_path: Path):
+    manifest, project_brief, project_roadmap, manifest_path = _write_valid_project(tmp_path)
+    manifest["tranches"][0]["status"] = "superseded"
+    _rewrite_manifest(tmp_path, manifest_path, manifest)
+
+    result = _validate(tmp_path, project_brief, project_roadmap, manifest_path)
+
+    assert result.tranche_count == 1
+    assert result.ready_tranche_count == 0
+    assert result.superseded_count == 1
+
+
+def test_superseded_prerequisite_does_not_make_dependent_ready(tmp_path: Path):
+    manifest, project_brief, project_roadmap, manifest_path = _write_valid_project(tmp_path)
+    tranche_b = dict(manifest["tranches"][0])
+    tranche_b["tranche_id"] = "tranche-b"
+    tranche_b["brief_path"] = "docs/backlog/generated/project/tranche-b.md"
+    (tmp_path / tranche_b["brief_path"]).write_text("# Tranche B\n", encoding="utf-8")
+    manifest["tranches"][0]["status"] = "superseded"
+    tranche_b["prerequisites"] = ["tranche-a"]
+    tranche_b["status"] = "pending"
+    manifest["tranches"].append(tranche_b)
+    _rewrite_manifest(tmp_path, manifest_path, manifest)
+
+    result = _validate(tmp_path, project_brief, project_roadmap, manifest_path)
+
+    assert result.ready_tranche_count == 0
+    assert result.superseded_count == 1
+
+
+def test_manifest_update_rejects_roadmap_escalation_without_revision_dispatch(tmp_path: Path):
+    manifest, project_brief, project_roadmap, manifest_path = _write_valid_project(tmp_path)
+    item_root = "state/project/drain/items/project/tranche-a"
+    selection_bundle = {
+        "selected_tranche_id": "tranche-a",
+        "item_state_root": item_root,
+    }
+    selection_path = tmp_path / "state/project/drain/selected-tranche.json"
+    selection_path.parent.mkdir(parents=True, exist_ok=True)
+    selection_path.write_text(json.dumps(selection_bundle, indent=2) + "\n", encoding="utf-8")
+    report_path = tmp_path / "artifacts/work/project/tranche-a-execution-report.md"
+    summary_path = tmp_path / "artifacts/work/project/tranche-a-summary.json"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("# report\n", encoding="utf-8")
+    summary_path.write_text("{}\n", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="roadmap-revision route"):
+        update_manifest(
+            root=tmp_path,
+            selection_bundle_path=selection_path.relative_to(tmp_path).as_posix(),
+            tranche_manifest_path=manifest_path,
+            item_outcome="ESCALATE_ROADMAP_REVISION",
+            execution_report_path=report_path.relative_to(tmp_path).as_posix(),
+            item_summary_path=summary_path.relative_to(tmp_path).as_posix(),
+        )
+
+    assert json.loads((tmp_path / manifest_path).read_text(encoding="utf-8")) == manifest
 
 
 def test_major_project_manifest_validator_rejects_bad_completion_gate(tmp_path: Path):

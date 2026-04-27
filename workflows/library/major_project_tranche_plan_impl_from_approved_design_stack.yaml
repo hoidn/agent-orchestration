@@ -1,12 +1,16 @@
 version: "2.7"
 name: "major-project-tranche-plan-impl-from-approved-design-stack"
+max_transitions: 80
 
 imports:
-  plan_phase: tracked_plan_phase.yaml
-  implementation_phase: design_plan_impl_implementation_phase.yaml
+  plan_phase: major_project_tranche_plan_phase.yaml
+  implementation_phase: major_project_tranche_implementation_phase.yaml
 
 inputs:
   item_state_root:
+    type: relpath
+    under: state
+  upstream_escalation_context_path:
     type: relpath
     under: state
   plan_phase_state_root:
@@ -83,6 +87,10 @@ steps:
           "$(dirname "${inputs.execution_report_target_path}")" \
           "$(dirname "${inputs.implementation_review_report_target_path}")" \
           "$(dirname "${inputs.item_summary_target_path}")"
+        python workflows/library/scripts/major_project_escalation_state.py \
+          init-upstream \
+          --item-state-root "${inputs.item_state_root}" \
+          --output-bundle "${inputs.item_state_root}/upstream_init_output.json"
 
   - name: RunPlanPhase
     id: run_plan_phase
@@ -96,6 +104,18 @@ steps:
         ref: inputs.plan_target_path
       plan_review_report_target_path:
         ref: inputs.plan_review_report_target_path
+      upstream_escalation_context_path:
+        ref: inputs.upstream_escalation_context_path
+
+  - name: AssertPlanApproved
+    id: assert_plan_approved
+    command:
+      - bash
+      - -lc
+      - test "$(cat "${inputs.plan_phase_state_root}/final_plan_review_decision.txt")" = "APPROVE"
+    on:
+      failure:
+        goto: FinalizeSkippedAfterPlan
 
   - name: RunImplementationPhase
     id: run_implementation_phase
@@ -106,14 +126,50 @@ steps:
       design_path:
         ref: inputs.design_path
       plan_path:
-        ref: root.steps.RunPlanPhase.artifacts.plan_path
+        ref: inputs.plan_target_path
       execution_report_target_path:
         ref: inputs.execution_report_target_path
       implementation_review_report_target_path:
         ref: inputs.implementation_review_report_target_path
+
+  - name: AssertImplementationApproved
+    id: assert_implementation_approved
+    command:
+      - bash
+      - -lc
+      - test "$(cat "${inputs.implementation_phase_state_root}/final_implementation_review_decision.txt")" = "APPROVE"
     on:
       success:
         goto: FinalizeApprovedItem
+      failure:
+        goto: AssertImplementationEscalateReplan
+
+  - name: AssertImplementationEscalateReplan
+    id: assert_implementation_escalate_replan
+    command:
+      - bash
+      - -lc
+      - test "$(cat "${inputs.implementation_phase_state_root}/final_implementation_review_decision.txt")" = "ESCALATE_REPLAN"
+    on:
+      success:
+        goto: ActivateImplementationEscalationForReplan
+      failure:
+        goto: FinalizeSkippedAfterImplementation
+
+  - name: ActivateImplementationEscalationForReplan
+    id: activate_implementation_escalation_for_replan
+    command:
+      - bash
+      - -lc
+      - |
+        python workflows/library/scripts/major_project_escalation_state.py \
+          activate-upstream \
+          --item-state-root "${inputs.item_state_root}" \
+          --source-context-path "$(cat "${inputs.implementation_phase_state_root}/final_implementation_escalation_context_path.txt")" \
+          --output-bundle "${inputs.item_state_root}/activate_implementation_replan_output.json"
+    on:
+      success:
+        goto: RunPlanPhase
 
   - name: FinalizeApprovedItem
     id: finalize_approved_item

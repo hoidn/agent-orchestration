@@ -1,3 +1,7 @@
+Major-project escalation additions:
+- Read the consumed `upstream_escalation_context` artifact. If it is active, treat it as required downstream evidence about why lower phases failed to converge.
+- Even when the context is inactive, assess whether the tranche appears too broad or wrongly partitioned to execute as one implementation phase.
+
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
 Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, and `tranche_manifest` artifacts before acting.
 

@@ -8,6 +8,7 @@ from typing import Any
 
 
 APPROVED_OUTCOME = "APPROVED"
+ESCALATE_ROADMAP_REVISION_OUTCOME = "ESCALATE_ROADMAP_REVISION"
 SKIPPED_OUTCOMES = {"SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION"}
 COMPLETED_STATUSES = {"done", "completed", "approved"}
 
@@ -47,6 +48,11 @@ def update_manifest(
     if item_outcome == APPROVED_OUTCOME:
         next_status = "completed"
         drain_status = "CONTINUE"
+    elif item_outcome == ESCALATE_ROADMAP_REVISION_OUTCOME:
+        raise ValueError(
+            "ESCALATE_ROADMAP_REVISION must be handled by the drain iteration roadmap-revision route "
+            "before manifest update"
+        )
     elif item_outcome in SKIPPED_OUTCOMES:
         next_status = "blocked"
         drain_status = "BLOCKED"
@@ -64,7 +70,8 @@ def update_manifest(
             raise ValueError("Every tranche must be a JSON object")
         if tranche.get("tranche_id") != selected_tranche_id:
             continue
-        tranche["status"] = next_status
+        if next_status is not None and tranche.get("status") != "superseded":
+            tranche["status"] = next_status
         tranche["last_item_outcome"] = item_outcome
         tranche["last_execution_report_path"] = execution_report_path
         tranche["last_item_summary_path"] = item_summary_path
@@ -97,12 +104,16 @@ def _count_manifest_state(manifest: dict[str, Any]) -> dict[str, int]:
         if isinstance(tranche, dict) and isinstance(tranche.get("tranche_id"), str)
     }
     completed_count = 0
+    superseded_count = 0
     pending_count = 0
     ready_count = 0
     for tranche in tranches:
         if not isinstance(tranche, dict):
             continue
         status = tranche.get("status")
+        if status == "superseded":
+            superseded_count += 1
+            continue
         if status in COMPLETED_STATUSES:
             completed_count += 1
             continue
@@ -116,7 +127,8 @@ def _count_manifest_state(manifest: dict[str, Any]) -> dict[str, int]:
         "ready_count": ready_count,
         "pending_count": pending_count,
         "completed_count": completed_count,
-        "blocked_count": len(tranches) - completed_count - ready_count,
+        "superseded_count": superseded_count,
+        "blocked_count": len(tranches) - completed_count - superseded_count - ready_count,
     }
 
 

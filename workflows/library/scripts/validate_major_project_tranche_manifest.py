@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 
-ALLOWED_STATUSES = {"pending", "blocked", "done", "completed", "approved"}
+ALLOWED_STATUSES = {"pending", "blocked", "done", "completed", "approved", "superseded"}
 COMPLETED_STATUSES = {"done", "completed", "approved"}
 ALLOWED_DESIGN_DEPTHS = {"big", "standard"}
 ALLOWED_COMPLETION_GATES = {"implementation_approved"}
@@ -35,6 +35,7 @@ REQUIRED_TRANCHE_FIELDS = {
 class ValidationResult:
     tranche_count: int
     ready_tranche_count: int
+    superseded_count: int = 0
 
 
 def validate_manifest(
@@ -159,7 +160,12 @@ def validate_manifest(
         if tranche_statuses[tranche_id] == "pending"
         and all(tranche_statuses[prereq] in COMPLETED_STATUSES for prereq in prerequisites)
     )
-    return ValidationResult(tranche_count=len(tranches), ready_tranche_count=ready_count)
+    superseded_count = sum(1 for status in tranche_statuses.values() if status == "superseded")
+    return ValidationResult(
+        tranche_count=len(tranches),
+        ready_tranche_count=ready_count,
+        superseded_count=superseded_count,
+    )
 
 
 def read_pointer(path: Path) -> str:
@@ -238,6 +244,10 @@ def main() -> int:
     )
     (args.state_root / "ready_tranche_count.txt").write_text(
         f"{result.ready_tranche_count}\n",
+        encoding="utf-8",
+    )
+    (args.state_root / "superseded_tranche_count.txt").write_text(
+        f"{result.superseded_count}\n",
         encoding="utf-8",
     )
     return 0

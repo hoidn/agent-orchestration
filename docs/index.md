@@ -253,6 +253,21 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 **Keywords:** implementation-plan, adjudicated-provider, v2.11, candidates, scoring, promotion, resume
 **Use this when:** You need the accepted implementation task breakdown for the adjudicated provider runtime and its verification gates.
 
+### [Major-Project Implementation Escalation Ladder Design](plans/2026-04-26-major-project-implementation-escalation-ladder-design.md)
+**Description:** Design for soft implementation-iteration escalation context, upward phase rerouting (`replan`, `redesign`, `roadmap revision`), structured escalation artifacts, and manifest supersession handling in major-project tranche stacks.
+**Keywords:** implementation-review, escalation, replan, redesign, roadmap-revision, repeat-until, major-project
+**Use this when:** You need the rationale and exact workflow/prompt contract for stopping long implementation churn by escalating to the right upstream phase.
+
+### [Major-Project Implementation Escalation Ladder Implementation Plan](plans/2026-04-26-major-project-implementation-escalation-ladder-implementation-plan.md)
+**Description:** Implementation plan for the major-project escalation ladder, including local phase forks, deterministic escalation-state helpers, routing changes, manifest `superseded` handling, prompt assets, and verification.
+**Keywords:** implementation-plan, escalation, major-project, workflow-routing, manifest, prompts
+**Use this when:** You need the task breakdown and verification checklist for the major-project escalation ladder implementation.
+
+### [Major-Project Escalation Ladder Routing Revision Plan](plans/2026-04-26-major-project-escalation-ladder-routing-revision-plan.md)
+**Description:** Revision plan for adjacent-only phase escalation and DSL-valid drain-level roadmap-revision dispatch through a reusable one-iteration workflow.
+**Keywords:** implementation-plan, escalation, adjacent-routing, roadmap-revision, drain-iteration, major-project
+**Use this when:** You need to revise the major-project escalation ladder so implementation routes to plan, plan routes to design, and design routes to roadmap revision without nested repeat-loop control flow.
+
 ## Finding Information
 
 ### By Task

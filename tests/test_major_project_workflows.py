@@ -76,8 +76,13 @@ def _copy_major_project_runtime_files(
         "workflows/library/tracked_big_design_phase.yaml",
         "workflows/library/major_project_tranche_design_plan_impl_stack.yaml",
         "workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml",
+        "workflows/library/major_project_tranche_drain_iteration.yaml",
+        "workflows/library/major_project_tranche_plan_phase.yaml",
+        "workflows/library/major_project_tranche_implementation_phase.yaml",
+        "workflows/library/major_project_roadmap_revision_phase.yaml",
         "workflows/library/tracked_plan_phase.yaml",
         "workflows/library/design_plan_impl_implementation_phase.yaml",
+        "workflows/library/scripts/major_project_escalation_state.py",
         "workflows/library/scripts/validate_major_project_tranche_manifest.py",
         "workflows/library/scripts/select_major_project_tranche.py",
         "workflows/library/scripts/update_major_project_tranche_manifest.py",
@@ -185,27 +190,44 @@ def test_major_project_workflow_files_exist():
         "workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml",
         "workflows/examples/major_project_tranche_drain_stack_v2_call.yaml",
         "workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml",
+        "workflows/library/major_project_tranche_drain_iteration.yaml",
     ]:
         assert (ROOT / relpath).is_file(), relpath
 
 
-def test_tranche_stack_reuses_existing_plan_and_implementation_phases():
+def test_tranche_stack_uses_major_project_local_plan_and_implementation_phases():
     workflow = _load_yaml("workflows/library/major_project_tranche_design_plan_impl_stack.yaml")
 
     assert workflow["imports"] == {
         "big_design_phase": "tracked_big_design_phase.yaml",
-        "plan_phase": "tracked_plan_phase.yaml",
-        "implementation_phase": "design_plan_impl_implementation_phase.yaml",
+        "plan_phase": "major_project_tranche_plan_phase.yaml",
+        "implementation_phase": "major_project_tranche_implementation_phase.yaml",
     }
 
 
-def test_approved_design_tranche_stack_reuses_existing_plan_and_implementation_phases():
+def test_approved_design_tranche_stack_uses_major_project_local_phases():
     workflow = _load_yaml("workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml")
 
     assert workflow["imports"] == {
-        "plan_phase": "tracked_plan_phase.yaml",
-        "implementation_phase": "design_plan_impl_implementation_phase.yaml",
+        "plan_phase": "major_project_tranche_plan_phase.yaml",
+        "implementation_phase": "major_project_tranche_implementation_phase.yaml",
     }
+
+
+def test_major_project_implementation_phase_uses_adjacent_only_escalation():
+    workflow = _load_yaml("workflows/library/major_project_tranche_implementation_phase.yaml")
+
+    assert workflow["outputs"]["implementation_review_decision"]["allowed"] == [
+        "APPROVE",
+        "REVISE",
+        "ESCALATE_REPLAN",
+        "BLOCK",
+    ]
+    route_step = _step_by_name(workflow, "RouteImplementationDecision")
+    assert set(route_step["match"]["cases"]) == {"APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"}
+    assert "ESCALATE_REDESIGN" not in (ROOT / "workflows/library/major_project_tranche_implementation_phase.yaml").read_text(
+        encoding="utf-8"
+    )
 
 
 def test_runnable_example_runs_roadmap_phase_before_tranche_stack():
@@ -230,7 +252,7 @@ def test_drain_workflow_runs_roadmap_once_before_manifest_loop():
 
     assert workflow["imports"] == {
         "roadmap_phase": "../library/major_project_roadmap_phase.yaml",
-        "tranche_stack": "../library/major_project_tranche_design_plan_impl_stack.yaml",
+        "drain_iteration": "../library/major_project_tranche_drain_iteration.yaml",
     }
     assert [step["name"] for step in workflow["steps"]] == [
         "RunRoadmapPhase",
@@ -240,7 +262,7 @@ def test_drain_workflow_runs_roadmap_once_before_manifest_loop():
 
     drain = _step_by_name(workflow, "DrainManifest")
     body_names = [step["name"] for step in drain["repeat_until"]["steps"]]
-    assert body_names == ["SelectNextTranche", "RouteTrancheSelection"]
+    assert body_names == ["PrepareDrainIterationPaths", "RunDrainIteration"]
     assert "RunRoadmapPhase" not in body_names
     assert drain["repeat_until"]["condition"] == {
         "any_of": [
@@ -266,7 +288,7 @@ def test_drain_from_manifest_workflow_starts_at_manifest_loop():
     workflow = _load_yaml("workflows/examples/major_project_tranche_drain_from_manifest_v2_call.yaml")
 
     assert workflow["imports"] == {
-        "tranche_stack": "../library/major_project_tranche_design_plan_impl_stack.yaml",
+        "drain_iteration": "../library/major_project_tranche_drain_iteration.yaml",
     }
     assert [step["name"] for step in workflow["steps"]] == [
         "DrainManifest",
@@ -344,16 +366,18 @@ def test_big_design_draft_consumes_selected_tranche_and_project_context():
         "project_brief",
         "project_roadmap",
         "tranche_manifest",
+        "upstream_escalation_context",
     ]
     assert {consume["artifact"] for consume in draft_step["consumes"]} == {
         "tranche_brief",
         "project_brief",
         "project_roadmap",
         "tranche_manifest",
+        "upstream_escalation_context",
     }
 
 
-def test_generic_plan_and_implementation_interfaces_stay_narrow():
+def test_major_project_plan_and_implementation_interfaces_include_escalation_context():
     workflow = _load_yaml("workflows/library/major_project_tranche_design_plan_impl_stack.yaml")
 
     plan_call = _step_by_name(workflow, "RunPlanPhase")
@@ -365,6 +389,7 @@ def test_generic_plan_and_implementation_interfaces_stay_narrow():
         "design_path",
         "plan_target_path",
         "plan_review_report_target_path",
+        "upstream_escalation_context_path",
     }
     assert implementation_call["call"] == "implementation_phase"
     assert set(implementation_call["with"]) == {
@@ -385,42 +410,27 @@ def test_tranche_stack_does_not_convert_phase_call_failures_to_skipped_outcomes(
     run_implementation = _step_by_name(workflow, "RunImplementationPhase")
 
     assert "on" not in run_big_design
-    assert approve_gate["assert"] == {
-        "compare": {
-            "left": {"ref": "root.steps.RunBigDesignPhase.artifacts.design_review_decision"},
-            "op": "eq",
-            "right": "APPROVE",
-        }
-    }
-    assert _on_config(approve_gate)["failure"]["goto"] == "FinalizeSkippedAfterDesign"
+    assert approve_gate["command"][:2] == ["bash", "-lc"]
+    assert "final_design_review_decision.txt" in approve_gate["command"][2]
+    assert _on_config(approve_gate)["failure"]["goto"] == "AssertBigDesignEscalateRoadmapRevision"
     assert "on" not in run_plan
-    assert _on_config(run_implementation) == {"success": {"goto": "FinalizeApprovedItem"}}
+    assert "on" not in run_implementation
 
 
 def test_big_design_block_is_a_phase_decision_not_provider_failure():
     workflow = _load_yaml("workflows/library/tracked_big_design_phase.yaml")
 
     review_loop = _step_by_name(workflow, "BigDesignReviewLoop")
-    block_case = review_loop["repeat_until"]["steps"][1]["match"]["cases"]["BLOCK"]
+    route_step = next(
+        step
+        for step in review_loop["repeat_until"]["steps"]
+        if step["name"] == "RouteBigDesignDecision"
+    )
+    block_case = route_step["match"]["cases"]["BLOCK"]
 
-    assert review_loop["repeat_until"]["condition"] == {
-        "any_of": [
-            {
-                "compare": {
-                    "left": {"ref": "self.outputs.review_decision"},
-                    "op": "eq",
-                    "right": "APPROVE",
-                }
-            },
-            {
-                "compare": {
-                    "left": {"ref": "self.outputs.review_decision"},
-                    "op": "eq",
-                    "right": "BLOCK",
-                }
-            },
-        ]
-    }
+    assert review_loop["repeat_until"]["condition"]["any_of"][0]["compare"]["right"] == "APPROVE"
+    assert review_loop["repeat_until"]["condition"]["any_of"][1]["compare"]["right"] == "ESCALATE_ROADMAP_REVISION"
+    assert review_loop["repeat_until"]["condition"]["any_of"][2]["compare"]["right"] == "BLOCK"
     assert [step["name"] for step in block_case["steps"]] == ["WriteBlockedBigDesignDecision"]
 
 
@@ -484,6 +494,7 @@ def test_big_design_runtime_carries_lowercase_open_findings(tmp_path: Path):
             "tranche_manifest_path": tranche_manifest.relative_to(workspace).as_posix(),
             "design_target_path": "docs/plans/major-project-demo/repo-docs-baseline-design.md",
             "design_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-design-review.json",
+            "upstream_escalation_context_path": "state/major-project-demo/upstream_escalation_context.json",
         },
     )
     executor = WorkflowExecutor(workflow, workspace, state_manager)
@@ -606,6 +617,260 @@ def test_big_design_runtime_carries_lowercase_open_findings(tmp_path: Path):
     assert state["workflow_outputs"]["design_review_decision"] == "APPROVE"
 
 
+def test_big_design_runtime_ignores_provider_pointer_corruption(tmp_path: Path):
+    workspace = tmp_path
+    workflow_relpath = "workflows/library/tracked_big_design_phase.yaml"
+    workflow_path = _copy_major_project_runtime_files(workspace, workflow_relpath)
+
+    tranche_brief = workspace / "docs/backlog/generated/major-project-demo/repo-docs-baseline.md"
+    project_brief = workspace / "workflows/examples/inputs/major_project_brief.md"
+    project_roadmap = workspace / "docs/plans/major-project-demo/project-roadmap.md"
+    tranche_manifest = workspace / "state/major-project-demo/tranche_manifest.json"
+    canonical_review_relpath = "artifacts/review/major-project-demo/repo-docs-baseline-design-review.json"
+    phase_root = "state/major-project-demo/big-design-phase"
+
+    tranche_brief.parent.mkdir(parents=True, exist_ok=True)
+    tranche_brief.write_text("# Repo docs baseline\n", encoding="utf-8")
+    project_roadmap.parent.mkdir(parents=True, exist_ok=True)
+    project_roadmap.write_text("# Major project roadmap\n", encoding="utf-8")
+    tranche_manifest.parent.mkdir(parents=True, exist_ok=True)
+    tranche_manifest.write_text(
+        json.dumps(
+            {
+                "project_id": "major-project-demo",
+                "project_brief_path": project_brief.relative_to(workspace).as_posix(),
+                "project_roadmap_path": project_roadmap.relative_to(workspace).as_posix(),
+                "tranches": [
+                    {
+                        "tranche_id": "repo-docs-baseline",
+                        "title": "Repository documentation baseline",
+                        "brief_path": tranche_brief.relative_to(workspace).as_posix(),
+                        "design_target_path": "docs/plans/major-project-demo/repo-docs-baseline-design.md",
+                        "design_review_report_target_path": canonical_review_relpath,
+                        "plan_target_path": "docs/plans/major-project-demo/repo-docs-baseline-plan.md",
+                        "plan_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-plan-review.json",
+                        "execution_report_target_path": "artifacts/work/major-project-demo/repo-docs-baseline-execution-report.md",
+                        "implementation_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-implementation-review.md",
+                        "item_summary_target_path": "artifacts/work/major-project-demo/repo-docs-baseline-summary.json",
+                        "prerequisites": [],
+                        "status": "pending",
+                        "design_depth": "big",
+                        "completion_gate": "implementation_approved",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_relpath,
+        bundle_context_dict(workflow),
+        bound_inputs={
+            "state_root": phase_root,
+            "brief_path": tranche_brief.relative_to(workspace).as_posix(),
+            "project_brief_path": project_brief.relative_to(workspace).as_posix(),
+            "project_roadmap_path": project_roadmap.relative_to(workspace).as_posix(),
+            "tranche_manifest_path": tranche_manifest.relative_to(workspace).as_posix(),
+            "design_target_path": "docs/plans/major-project-demo/repo-docs-baseline-design.md",
+            "design_review_report_target_path": canonical_review_relpath,
+            "upstream_escalation_context_path": "state/major-project-demo/upstream_escalation_context.json",
+        },
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    call_index = {"value": 0}
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **_kwargs):
+        step_name = ["DraftBigDesign", "ReviewBigDesign"][call_index["value"]]
+        call_index["value"] += 1
+        if step_name == "DraftBigDesign":
+            _target_from_pointer(workspace, f"{phase_root}/design_path.txt").write_text(
+                "# Big design draft\n",
+                encoding="utf-8",
+            )
+        elif step_name == "ReviewBigDesign":
+            review_path = workspace / canonical_review_relpath
+            review_path.parent.mkdir(parents=True, exist_ok=True)
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "decision": "APPROVE",
+                        "summary": "Design approved.",
+                        "findings": [],
+                        "unresolved_high_count": 0,
+                        "unresolved_medium_count": 0,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (workspace / f"{phase_root}/design_review_report_path.txt").write_text(
+                "major-project-demo/repo-docs-baseline-design-review.json\n",
+                encoding="utf-8",
+            )
+            (workspace / f"{phase_root}/design_review_decision.txt").write_text("APPROVE\n", encoding="utf-8")
+            (workspace / f"{phase_root}/unresolved_high_count.txt").write_text("0\n", encoding="utf-8")
+            (workspace / f"{phase_root}/unresolved_medium_count.txt").write_text("0\n", encoding="utf-8")
+        else:
+            raise AssertionError(f"Unexpected provider step {step_name!r}")
+
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"]["design_review_report_path"] == canonical_review_relpath
+    assert (workspace / f"{phase_root}/design_review_report_path.txt").read_text(encoding="utf-8").strip() == (
+        canonical_review_relpath
+    )
+
+
+def test_roadmap_phase_runtime_ignores_provider_pointer_corruption(tmp_path: Path):
+    workspace = tmp_path
+    workflow_relpath = "workflows/library/major_project_roadmap_phase.yaml"
+    workflow_path = _copy_major_project_runtime_files(workspace, workflow_relpath)
+
+    project_brief = workspace / "workflows/examples/inputs/major_project_brief.md"
+    phase_root = "state/major-project-demo/roadmap-phase"
+    canonical_review_relpath = "artifacts/review/major-project-demo/project-roadmap-review.json"
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(
+        workflow_relpath,
+        bundle_context_dict(workflow),
+        bound_inputs={
+            "state_root": phase_root,
+            "project_brief_path": project_brief.relative_to(workspace).as_posix(),
+            "project_roadmap_target_path": "docs/plans/major-project-demo/project-roadmap.md",
+            "tranche_manifest_target_path": "state/major-project-demo/tranche_manifest.json",
+            "roadmap_review_report_target_path": canonical_review_relpath,
+        },
+    )
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    call_index = {"value": 0}
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **_kwargs):
+        step_name = ["DraftProjectRoadmap", "ReviewProjectRoadmap"][call_index["value"]]
+        call_index["value"] += 1
+        if step_name == "DraftProjectRoadmap":
+            roadmap = _target_from_pointer(workspace, f"{phase_root}/project_roadmap_path.txt")
+            manifest = _target_from_pointer(workspace, f"{phase_root}/tranche_manifest_path.txt")
+            brief = workspace / "docs/backlog/generated/major-project-demo/repo-docs-baseline.md"
+            brief.parent.mkdir(parents=True, exist_ok=True)
+            brief.write_text("# Repo docs baseline\n", encoding="utf-8")
+            roadmap.write_text("# Major project roadmap\n", encoding="utf-8")
+            manifest.write_text(
+                json.dumps(
+                    {
+                        "project_id": "major-project-demo",
+                        "project_brief_path": project_brief.relative_to(workspace).as_posix(),
+                        "project_roadmap_path": "docs/plans/major-project-demo/project-roadmap.md",
+                        "tranches": [
+                            {
+                                "tranche_id": "repo-docs-baseline",
+                                "title": "Repository documentation baseline",
+                                "brief_path": brief.relative_to(workspace).as_posix(),
+                                "design_target_path": "docs/plans/major-project-demo/repo-docs-baseline-design.md",
+                                "design_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-design-review.json",
+                                "plan_target_path": "docs/plans/major-project-demo/repo-docs-baseline-plan.md",
+                                "plan_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-plan-review.json",
+                                "execution_report_target_path": "artifacts/work/major-project-demo/repo-docs-baseline-execution-report.md",
+                                "implementation_review_report_target_path": "artifacts/review/major-project-demo/repo-docs-baseline-implementation-review.md",
+                                "item_summary_target_path": "artifacts/work/major-project-demo/repo-docs-baseline-summary.json",
+                                "prerequisites": [],
+                                "status": "pending",
+                                "design_depth": "big",
+                                "completion_gate": "implementation_approved",
+                            }
+                        ],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+        elif step_name == "ReviewProjectRoadmap":
+            review_path = workspace / canonical_review_relpath
+            review_path.parent.mkdir(parents=True, exist_ok=True)
+            review_path.write_text(
+                json.dumps(
+                    {
+                        "decision": "APPROVE",
+                        "summary": "Roadmap approved.",
+                        "findings": [],
+                        "unresolved_high_count": 0,
+                        "unresolved_medium_count": 0,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (workspace / f"{phase_root}/roadmap_review_report_path.txt").write_text(
+                "major-project-demo/project-roadmap-review.json\n",
+                encoding="utf-8",
+            )
+            (workspace / f"{phase_root}/roadmap_review_decision.txt").write_text("APPROVE\n", encoding="utf-8")
+            (workspace / f"{phase_root}/unresolved_high_count.txt").write_text("0\n", encoding="utf-8")
+            (workspace / f"{phase_root}/unresolved_medium_count.txt").write_text("0\n", encoding="utf-8")
+        else:
+            raise AssertionError(f"Unexpected provider step {step_name!r}")
+
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"]["roadmap_review_report_path"] == canonical_review_relpath
+    assert (workspace / f"{phase_root}/roadmap_review_report_path.txt").read_text(encoding="utf-8").strip() == (
+        canonical_review_relpath
+    )
+
+
 def test_select_next_tranche_publishes_typed_handoff_fields():
     workflow = _load_yaml("workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml")
     selector = _step_by_name(workflow, "SelectNextTranche")
@@ -635,9 +900,9 @@ def test_select_next_tranche_publishes_typed_handoff_fields():
 
 
 def test_drain_selector_publishes_selected_done_and_blocked_statuses():
-    workflow = _load_yaml("workflows/examples/major_project_tranche_drain_stack_v2_call.yaml")
+    workflow = _load_yaml("workflows/library/major_project_tranche_drain_iteration.yaml")
     selector = _step_by_name(workflow, "SelectNextTranche")
-    router = _step_by_name(workflow, "RouteTrancheSelection")
+    router = _step_by_name(workflow, "RouteSelection")
 
     fields = {field["name"]: field for field in selector["output_bundle"]["fields"]}
 
@@ -645,6 +910,35 @@ def test_drain_selector_publishes_selected_done_and_blocked_statuses():
     assert fields["selection_status"]["allowed"] == ["SELECTED", "DONE", "BLOCKED"]
     assert "selected_tranche_id" not in fields
     assert set(router["match"]["cases"]) == {"SELECTED", "DONE", "BLOCKED"}
+
+
+def test_drain_iteration_dispatches_roadmap_revision_at_top_level():
+    workflow = _load_yaml("workflows/library/major_project_tranche_drain_iteration.yaml")
+
+    assert workflow["imports"] == {
+        "tranche_stack": "major_project_tranche_design_plan_impl_stack.yaml",
+        "roadmap_revision_phase": "major_project_roadmap_revision_phase.yaml",
+    }
+    assert [step["name"] for step in workflow["steps"]] == [
+        "SelectNextTranche",
+        "RouteSelection",
+        "RouteIterationOutcome",
+    ]
+    outcome_router = _step_by_name(workflow, "RouteIterationOutcome")
+    assert set(outcome_router["match"]["cases"]) == {
+        "APPROVED",
+        "SKIPPED_AFTER_DESIGN",
+        "SKIPPED_AFTER_PLAN",
+        "SKIPPED_AFTER_IMPLEMENTATION",
+        "ESCALATE_ROADMAP_REVISION",
+        "DONE",
+        "BLOCKED",
+    }
+    roadmap_case = outcome_router["match"]["cases"]["ESCALATE_ROADMAP_REVISION"]
+    assert [step["name"] for step in roadmap_case["steps"]] == [
+        "RunRoadmapRevision",
+        "PromoteRoadmapRevision",
+    ]
 
 
 def test_example_and_reusable_workflows_validate_with_loader():
@@ -655,6 +949,7 @@ def test_example_and_reusable_workflows_validate_with_loader():
         "workflows/library/tracked_big_design_phase.yaml",
         "workflows/library/major_project_tranche_design_plan_impl_stack.yaml",
         "workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml",
+        "workflows/library/major_project_tranche_drain_iteration.yaml",
         "workflows/examples/major_project_tranche_design_plan_impl_stack_v2_call.yaml",
         "workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml",
         "workflows/examples/major_project_tranche_drain_stack_v2_call.yaml",

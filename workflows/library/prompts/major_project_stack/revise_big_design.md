@@ -1,3 +1,7 @@
+Major-project escalation additions:
+- Read the consumed `upstream_escalation_context` artifact and preserve its downstream evidence while revising.
+- If the review evidence shows the current tranche cannot be repaired locally, say so plainly rather than papering over it.
+
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
 Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, `tranche_manifest`, `design`, `design_review_report`, and `open_findings` artifacts before acting.
 

@@ -9,6 +9,7 @@ from typing import Any
 
 
 COMPLETED_STATUSES = {"done", "completed", "approved"}
+SUPERSEDED_STATUS = "superseded"
 TRANCHE_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 
 REQUIRED_SELECTED_FIELDS = [
@@ -57,6 +58,7 @@ def select_next_tranche(
     ready_count = 0
     pending_count = 0
     completed_count = 0
+    superseded_count = 0
 
     for index, tranche in enumerate(tranches):
         if not isinstance(tranche, dict):
@@ -83,6 +85,9 @@ def select_next_tranche(
     for tranche in tranches:
         tranche_id = tranche["tranche_id"]
         status = status_by_id[tranche_id]
+        if status == SUPERSEDED_STATUS:
+            superseded_count += 1
+            continue
         if status in COMPLETED_STATUSES:
             completed_count += 1
             continue
@@ -94,7 +99,7 @@ def select_next_tranche(
             if selected is None:
                 selected = tranche
 
-    blocked_count = len(tranches) - completed_count - ready_count
+    blocked_count = len(tranches) - completed_count - superseded_count - ready_count
     base_payload: dict[str, Any] = {
         "project_brief_path": project_brief_path,
         "project_roadmap_path": project_roadmap_path,
@@ -102,11 +107,12 @@ def select_next_tranche(
         "ready_count": ready_count,
         "pending_count": pending_count,
         "completed_count": completed_count,
+        "superseded_count": superseded_count,
         "blocked_count": blocked_count,
     }
 
     if selected is None:
-        if completed_count == len(tranches):
+        if completed_count + superseded_count == len(tranches):
             return {
                 **base_payload,
                 "selection_status": "DONE",
@@ -130,6 +136,7 @@ def select_next_tranche(
         "reason": "Selected first ready pending tranche.",
         "selected_tranche_id": selected_id,
         "item_state_root": item_state_root,
+        "upstream_escalation_context_path": f"{item_state_root}/upstream_escalation_context.json",
         "big_design_phase_state_root": f"{item_state_root}/big-design-phase",
         "plan_phase_state_root": f"{item_state_root}/plan-phase",
         "implementation_phase_state_root": f"{item_state_root}/implementation-phase",
