@@ -223,6 +223,8 @@ For execute/review/fix loops, separate "doing" from "deciding":
 
 Add at least one hard closure assertion step if "looks done" is not good enough.
 
+For a top-authority revision phase with no higher escalation target, prefer deterministic validation plus one advisory review over a review/revise loop. If the candidate is structurally valid, carry review findings forward as metadata and let the workflow continue from the revised artifact. Reserve hard failure for invalid artifacts or runtime errors.
+
 When a review step publishes a report and the immediately selected revise/fix step consumes that same report, prefer `freshness: any` for the report consume. The route decision already proves the report is the current iteration's review output, and a killed or retried provider step can otherwise mark the report version as consumed before the revise/fix step finishes. Use `freshness: since_last_consume` only when the same consumer must require a genuinely newer publication before each visit.
 
 For raw-graph review/fix loops, add an explicit cycle cap:

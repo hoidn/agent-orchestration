@@ -504,24 +504,38 @@ steps:
                 - -lc
                 - |
                   decision="$(cat "${inputs.roadmap_revision_state_root}/final_roadmap_revision_decision.txt")"
+                  roadmap_candidate="$(cat "${inputs.roadmap_revision_state_root}/final_updated_project_roadmap_path.txt")"
+                  manifest_candidate="$(cat "${inputs.roadmap_revision_state_root}/final_updated_tranche_manifest_path.txt")"
+                  review_report="$(cat "${inputs.roadmap_revision_state_root}/final_roadmap_revision_report_path.txt")"
+
+                  case "$decision" in
+                    APPROVE|REVISE|BLOCK) ;;
+                    *)
+                      echo "Unsupported roadmap revision decision: $decision" >&2
+                      exit 1
+                      ;;
+                  esac
+
                   mkdir -p "${inputs.iteration_state_root}"
-                  if [ "$decision" = "APPROVE" ]; then
-                    roadmap_candidate="$(cat "${inputs.roadmap_revision_state_root}/final_updated_project_roadmap_path.txt")"
-                    manifest_candidate="$(cat "${inputs.roadmap_revision_state_root}/final_updated_tranche_manifest_path.txt")"
-                    cp "$roadmap_candidate" "${inputs.project_roadmap_path}"
-                    cp "$manifest_candidate" "${inputs.tranche_manifest_path}"
-                    printf '%s\n' CONTINUE > "${inputs.iteration_state_root}/roadmap_revision_drain_status.txt"
-                  elif [ "$decision" = "BLOCK" ]; then
-                    printf '%s\n' BLOCKED > "${inputs.iteration_state_root}/roadmap_revision_drain_status.txt"
-                  else
-                    echo "Unsupported roadmap revision decision: $decision" >&2
-                    exit 1
-                  fi
+                  cp "$roadmap_candidate" "${inputs.project_roadmap_path}"
+                  cp "$manifest_candidate" "${inputs.tranche_manifest_path}"
+                  printf '%s\n' "$decision" > "${inputs.iteration_state_root}/roadmap_revision_decision.txt"
+                  printf '%s\n' "$review_report" > "${inputs.iteration_state_root}/roadmap_revision_report_path.txt"
+                  printf '%s\n' CONTINUE > "${inputs.iteration_state_root}/roadmap_revision_drain_status.txt"
               expected_outputs:
                 - name: drain_status
                   path: ${inputs.iteration_state_root}/roadmap_revision_drain_status.txt
                   type: enum
                   allowed: ["CONTINUE", "BLOCKED"]
+                - name: roadmap_revision_decision
+                  path: ${inputs.iteration_state_root}/roadmap_revision_decision.txt
+                  type: enum
+                  allowed: ["APPROVE", "REVISE", "BLOCK"]
+                - name: roadmap_revision_report_path
+                  path: ${inputs.iteration_state_root}/roadmap_revision_report_path.txt
+                  type: relpath
+                  under: artifacts/review
+                  must_exist_target: true
         DONE:
           id: done_path
           outputs:

@@ -941,6 +941,37 @@ def test_drain_iteration_dispatches_roadmap_revision_at_top_level():
     ]
 
 
+def test_roadmap_revision_phase_uses_single_advisory_review():
+    workflow = _load_yaml("workflows/library/major_project_roadmap_revision_phase.yaml")
+
+    assert [step["name"] for step in workflow["steps"]] == [
+        "InitializeRoadmapRevisionPaths",
+        "DraftRoadmapRevision",
+        "ReviewRoadmapRevision",
+        "FinalizeRoadmapRevisionOutputs",
+    ]
+    assert "repeat_until" not in _step_by_name(workflow, "ReviewRoadmapRevision")
+    assert "RoadmapRevisionReviewLoop" not in [step["name"] for step in workflow["steps"]]
+
+
+def test_drain_iteration_promotes_roadmap_revision_for_any_advisory_decision():
+    workflow = _load_yaml("workflows/library/major_project_tranche_drain_iteration.yaml")
+    outcome_router = _step_by_name(workflow, "RouteIterationOutcome")
+    roadmap_case = outcome_router["match"]["cases"]["ESCALATE_ROADMAP_REVISION"]
+    promote = next(step for step in roadmap_case["steps"] if step["name"] == "PromoteRoadmapRevision")
+    script = "\n".join(promote["command"])
+
+    assert 'case "$decision" in' in script
+    assert "APPROVE|REVISE|BLOCK" in script
+    assert 'if [ "$decision" = "APPROVE" ]' not in script
+    assert 'printf \'%s\\n\' CONTINUE' in script
+    assert 'cp "$roadmap_candidate" "${inputs.project_roadmap_path}"' in script
+    assert 'cp "$manifest_candidate" "${inputs.tranche_manifest_path}"' in script
+
+    output_names = {output["name"] for output in promote["expected_outputs"]}
+    assert {"drain_status", "roadmap_revision_decision", "roadmap_revision_report_path"} <= output_names
+
+
 def test_example_and_reusable_workflows_validate_with_loader():
     loader = WorkflowLoader(ROOT)
 
@@ -1294,6 +1325,246 @@ def test_drain_provider_failure_does_not_mark_tranche_blocked(tmp_path: Path):
     assert "last_item_outcome" not in manifest["tranches"][0]
     assert not (item_root / "item_outcome.txt").exists()
     assert "UpdateTrancheManifest" not in state["steps"]
+
+
+def _write_stub_escalating_tranche_stack(workspace: Path) -> None:
+    stub = workspace / "workflows/library/major_project_tranche_design_plan_impl_stack.yaml"
+    stub.write_text(
+        """
+version: "2.12"
+name: "stub-escalating-tranche-stack"
+
+inputs:
+  item_state_root: {type: relpath, under: state}
+  upstream_escalation_context_path: {type: relpath, under: state}
+  big_design_phase_state_root: {type: relpath, under: state}
+  plan_phase_state_root: {type: relpath, under: state}
+  implementation_phase_state_root: {type: relpath, under: state}
+  project_brief_path: {type: relpath, must_exist_target: true}
+  project_roadmap_path: {type: relpath, must_exist_target: true}
+  tranche_manifest_path: {type: relpath, must_exist_target: true}
+  tranche_brief_path: {type: relpath, must_exist_target: true}
+  design_target_path: {type: relpath, under: docs/plans}
+  design_review_report_target_path: {type: relpath, under: artifacts/review}
+  plan_target_path: {type: relpath, under: docs/plans}
+  plan_review_report_target_path: {type: relpath, under: artifacts/review}
+  execution_report_target_path: {type: relpath, under: artifacts/work}
+  implementation_review_report_target_path: {type: relpath, under: artifacts/review}
+  item_summary_target_path: {type: relpath, under: artifacts/work}
+
+outputs:
+  item_outcome:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION", "ESCALATE_ROADMAP_REVISION"]
+    from:
+      ref: root.steps.PublishEscalation.artifacts.item_outcome
+  execution_report_path:
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishEscalation.artifacts.execution_report_path
+  item_summary_path:
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishEscalation.artifacts.item_summary_path
+  roadmap_change_request_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishEscalation.artifacts.roadmap_change_request_path
+
+steps:
+  - name: PublishEscalation
+    id: publish_escalation
+    command:
+      - bash
+      - -lc
+      - |
+        mkdir -p "${inputs.item_state_root}" "$(dirname "${inputs.execution_report_target_path}")" "$(dirname "${inputs.item_summary_target_path}")"
+        printf '%s\\n' ESCALATE_ROADMAP_REVISION > "${inputs.item_state_root}/item_outcome.txt"
+        printf 'execution\\n' > "${inputs.execution_report_target_path}"
+        printf 'summary\\n' > "${inputs.item_summary_target_path}"
+        printf '%s\\n' "${inputs.execution_report_target_path}" > "${inputs.item_state_root}/execution_report_path.txt"
+        printf '%s\\n' "${inputs.item_summary_target_path}" > "${inputs.item_state_root}/item_summary_path.txt"
+        printf '%s\\n' "${inputs.item_state_root}/roadmap_change_request.json" > "${inputs.item_state_root}/final_roadmap_change_request_path.txt"
+        cat > "${inputs.item_state_root}/roadmap_change_request.json" <<'JSON'
+        {
+          "active": true,
+          "source_phase": "design",
+          "decision": "ESCALATE_ROADMAP_REVISION",
+          "reason_summary": "stub escalation",
+          "requested_changes": ["revise roadmap"]
+        }
+        JSON
+    expected_outputs:
+      - name: item_outcome
+        path: ${inputs.item_state_root}/item_outcome.txt
+        type: enum
+        allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION", "ESCALATE_ROADMAP_REVISION"]
+      - name: execution_report_path
+        path: ${inputs.item_state_root}/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+      - name: item_summary_path
+        path: ${inputs.item_state_root}/item_summary_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+      - name: roadmap_change_request_path
+        path: ${inputs.item_state_root}/final_roadmap_change_request_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
+""".lstrip(),
+        encoding="utf-8",
+    )
+
+
+def _run_roadmap_revision_advisory_promotion(tmp_path: Path, decision: str) -> dict:
+    workflow_path = _copy_major_project_runtime_files(
+        tmp_path,
+        "workflows/library/major_project_tranche_drain_iteration.yaml",
+    )
+    _write_stub_escalating_tranche_stack(tmp_path)
+
+    project_id = "major-project-demo"
+    tranche_id = "repo-docs-baseline"
+    drain_root = "state/major-project-demo/tranche-drain"
+    iteration_root = f"{drain_root}/iterations/0"
+    manifest_path = tmp_path / "state/major-project-demo/tranche_manifest.json"
+    roadmap_path = tmp_path / "docs/plans/major-project-demo/project-roadmap.md"
+    brief_path = tmp_path / "docs/backlog/generated/major-project-demo/repo-docs-baseline.md"
+
+    roadmap_path.parent.mkdir(parents=True, exist_ok=True)
+    roadmap_path.write_text("# Original roadmap\n", encoding="utf-8")
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text("# Repo docs baseline\n", encoding="utf-8")
+    manifest = {
+        "project_id": project_id,
+        "project_brief_path": "workflows/examples/inputs/major_project_brief.md",
+        "project_roadmap_path": "docs/plans/major-project-demo/project-roadmap.md",
+        "tranches": [
+            {
+                "tranche_id": tranche_id,
+                "title": "Repository documentation baseline",
+                "brief_path": brief_path.relative_to(tmp_path).as_posix(),
+                "design_target_path": f"docs/plans/major-project-demo/{tranche_id}-design.md",
+                "design_review_report_target_path": f"artifacts/review/major-project-demo/{tranche_id}-design-review.json",
+                "plan_target_path": f"docs/plans/major-project-demo/{tranche_id}-plan.md",
+                "plan_review_report_target_path": f"artifacts/review/major-project-demo/{tranche_id}-plan-review.json",
+                "execution_report_target_path": f"artifacts/work/major-project-demo/{tranche_id}-execution-report.md",
+                "implementation_review_report_target_path": (
+                    f"artifacts/review/major-project-demo/{tranche_id}-implementation-review.md"
+                ),
+                "item_summary_target_path": f"artifacts/work/major-project-demo/{tranche_id}-summary.json",
+                "prerequisites": [],
+                "status": "pending",
+                "design_depth": "big",
+                "completion_gate": "implementation_approved",
+            }
+        ],
+    }
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+
+    def draft_roadmap_revision(workspace: Path) -> None:
+        candidate_roadmap = _target_from_pointer(
+            workspace,
+            f"{iteration_root}/roadmap-revision-phase/updated_project_roadmap_path.txt",
+        )
+        candidate_manifest = _target_from_pointer(
+            workspace,
+            f"{iteration_root}/roadmap-revision-phase/updated_tranche_manifest_path.txt",
+        )
+        candidate_roadmap.write_text(f"# Revised roadmap for {decision}\n", encoding="utf-8")
+        revised_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        revised_manifest["advisory_decision_seen"] = decision
+        candidate_manifest.write_text(json.dumps(revised_manifest, indent=2) + "\n", encoding="utf-8")
+
+    def review_roadmap_revision(workspace: Path) -> None:
+        report = _target_from_pointer(
+            workspace,
+            f"{iteration_root}/roadmap-revision-phase/roadmap_revision_report_path.txt",
+        )
+        report.write_text(
+            json.dumps(
+                {
+                    "decision": decision,
+                    "summary": f"Advisory {decision.lower()} for test.",
+                    "findings": [{"severity": "medium", "title": "carried forward"}],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (workspace / f"{iteration_root}/roadmap-revision-phase/roadmap_revision_decision.txt").write_text(
+            f"{decision}\n",
+            encoding="utf-8",
+        )
+
+    state = _run_with_mocked_providers(
+        tmp_path,
+        workflow_path,
+        ["DraftRoadmapRevision", "ReviewRoadmapRevision"],
+        {
+            "DraftRoadmapRevision": draft_roadmap_revision,
+            "ReviewRoadmapRevision": review_roadmap_revision,
+        },
+        bound_inputs={
+            "project_brief_path": "workflows/examples/inputs/major_project_brief.md",
+            "project_roadmap_path": "docs/plans/major-project-demo/project-roadmap.md",
+            "tranche_manifest_path": "state/major-project-demo/tranche_manifest.json",
+            "drain_state_root": drain_root,
+            "iteration_state_root": iteration_root,
+            "roadmap_change_request_path": f"{iteration_root}/roadmap_change_request.json",
+            "roadmap_revision_state_root": f"{iteration_root}/roadmap-revision-phase",
+            "updated_project_roadmap_candidate_path": (
+                "docs/plans/major-project-roadmap-revision-candidates/test-project-roadmap.md"
+            ),
+            "updated_tranche_manifest_candidate_path": f"{iteration_root}/roadmap-revision/tranche-manifest.candidate.json",
+            "roadmap_revision_report_target_path": "artifacts/review/major-project-roadmap-revision/test.json",
+        },
+    )
+    return state
+
+
+def test_roadmap_revision_revise_promotes_candidate(tmp_path: Path):
+    state = _run_roadmap_revision_advisory_promotion(tmp_path, "REVISE")
+
+    manifest = json.loads((tmp_path / "state/major-project-demo/tranche_manifest.json").read_text(encoding="utf-8"))
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"]["drain_status"] == "CONTINUE"
+    assert (tmp_path / "docs/plans/major-project-demo/project-roadmap.md").read_text(encoding="utf-8") == (
+        "# Revised roadmap for REVISE\n"
+    )
+    assert manifest["advisory_decision_seen"] == "REVISE"
+    assert (
+        tmp_path / "state/major-project-demo/tranche-drain/iterations/0/roadmap_revision_decision.txt"
+    ).read_text(encoding="utf-8").strip() == "REVISE"
+
+
+def test_roadmap_revision_block_promotes_candidate(tmp_path: Path):
+    state = _run_roadmap_revision_advisory_promotion(tmp_path, "BLOCK")
+
+    manifest = json.loads((tmp_path / "state/major-project-demo/tranche_manifest.json").read_text(encoding="utf-8"))
+
+    assert state["status"] == "completed"
+    assert state["workflow_outputs"]["drain_status"] == "CONTINUE"
+    assert (tmp_path / "docs/plans/major-project-demo/project-roadmap.md").read_text(encoding="utf-8") == (
+        "# Revised roadmap for BLOCK\n"
+    )
+    assert manifest["advisory_decision_seen"] == "BLOCK"
+    assert (
+        tmp_path / "state/major-project-demo/tranche-drain/iterations/0/roadmap_revision_decision.txt"
+    ).read_text(encoding="utf-8").strip() == "BLOCK"
 
 
 def test_major_project_drain_runtime_runs_roadmap_once_and_two_tranches(tmp_path: Path):
