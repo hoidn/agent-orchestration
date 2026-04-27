@@ -15,6 +15,8 @@ Use the consumed design as the primary authority. Consult additional repo materi
 
 If the repo has a local implementation-plan template or planning guide under `docs/templates/`, use it for document structure unless it conflicts with the consumed design or output contract. Omit irrelevant optional sections rather than padding the plan.
 
+Before `Implementation Steps`, include `Key Invariants` when the work has a central behavior, interface, data shape, integration, or user-visible result. State the results that later tasks rely on. In `Implementation Steps`, put each dependent task after the task and check that establish the result it needs.
+
 Before writing the task checklist, decide whether the work needs an Implementation Architecture section.
 
 Include an Implementation Architecture section whenever correctness or maintainability depends on a boundary decision: component or file ownership, API or command surface, maintained data contract, stable consumed output contract, authored-vs-derived split that affects consumers or gates, dependency direction, compatibility or migration boundary, or future consumer contract. If the work is only a single local behavior change with no such boundary, state that explicitly instead of adding the section.
