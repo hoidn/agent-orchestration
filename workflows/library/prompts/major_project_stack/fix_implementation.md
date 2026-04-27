@@ -28,6 +28,8 @@ Prioritize in this order:
 2. complete current-scope work needed for approval
 3. record genuine follow-up work without implementing it
 
+Address review findings in dependency order. Fix the required behavior, interface, data shape, integration, or user-visible result before updating work that depends on it.
+
 For numerical parity failures already in scope, first rule out semantic causes such as inputs, units, axes, shapes, metadata, row meanings, normalization, and domain assumptions. If the remaining discrepancy is supported by evidence as numerical-method drift, apply a narrow tolerance or comparison-standard change at the authoritative spec, catalog, test helper, or gate; keep unrelated invariant checks strict; record the affected comparison, old and new standard, output scale, precision/backend context, and residual evidence in the execution report. If the evidence is incomplete or the authoritative standard is unclear, preserve the blocker and report the proposed change instead.
 
 For the output contract's `execution_report_path`, read the path recorded in that file and write the concise execution report to that current-checkout-relative path. Leave the `execution_report_path` file containing only the path.
