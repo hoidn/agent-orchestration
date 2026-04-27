@@ -7,6 +7,7 @@ Read the `Consumed Artifacts` section first and treat it as the authoritative in
 Read the consumed `design`, `plan`, `execution_report`, and `implementation_review_report` artifacts before acting.
 
 Use executing-plans to address the implementation review while staying aligned with the design and plan.
+For nontrivial failures or repeated review findings, use systematic-debugging before changing code: reproduce, isolate, hypothesize, then fix.
 Do not use `git worktree` or another checkout.
 If the repo is dirty, stay in the current checkout and leave unrelated files alone.
 Do not modify YAML, prompt files, or transient state files unless the plan explicitly requires it.
