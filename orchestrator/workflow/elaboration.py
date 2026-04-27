@@ -549,6 +549,12 @@ def _elaborate_repeat_until(
         return None
     token = str(block.get("id") or "repeat_until")
     output_specs = block.get("outputs") if isinstance(block.get("outputs"), Mapping) else {}
+    on_exhausted = block.get("on_exhausted")
+    on_exhausted_outputs = (
+        on_exhausted.get("outputs")
+        if isinstance(on_exhausted, Mapping) and isinstance(on_exhausted.get("outputs"), Mapping)
+        else {}
+    )
     body_step_names = _step_names(steps)
     body_catalog = SurfaceRefScopeCatalog(
         root_step_names=root_step_names,
@@ -568,6 +574,7 @@ def _elaborate_repeat_until(
         outputs=_parse_contracts(output_specs, body_catalog),
         condition=parse_typed_predicate(block.get("condition", {}), body_catalog),
         max_iterations=block.get("max_iterations") if isinstance(block.get("max_iterations"), int) else None,
+        on_exhausted_outputs=freeze_value(on_exhausted_outputs),
     )
 
 

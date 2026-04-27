@@ -1,4 +1,4 @@
-version: "2.7"
+version: "2.12"
 name: "major-project-tranche-plan-phase"
 
 context:
@@ -95,6 +95,9 @@ artifacts:
     kind: scalar
     type: enum
     allowed: ["APPROVE", "REVISE", "ESCALATE_REDESIGN", "BLOCK"]
+  loop_exhausted:
+    kind: scalar
+    type: bool
 
 steps:
   - name: InitializePlanPhasePaths
@@ -213,6 +216,15 @@ steps:
           allowed: ["APPROVE", "REVISE", "ESCALATE_REDESIGN", "BLOCK"]
           from:
             ref: self.steps.RoutePlanDecision.artifacts.review_decision
+        loop_exhausted:
+          kind: scalar
+          type: bool
+          from:
+            ref: self.steps.MarkPlanLoopNotExhausted.artifacts.loop_exhausted
+      on_exhausted:
+        outputs:
+          review_decision: ESCALATE_REDESIGN
+          loop_exhausted: true
       condition:
         any_of:
           - compare:
@@ -408,6 +420,68 @@ steps:
                     set_scalar:
                       artifact: review_decision
                       value: BLOCK
+        - name: MarkPlanLoopNotExhausted
+          id: mark_plan_loop_not_exhausted
+          set_scalar:
+            artifact: loop_exhausted
+            value: false
+
+  - name: ActivatePlanExhaustionEscalation
+    id: activate_plan_exhaustion_escalation
+    when:
+      artifact_bool:
+        ref: root.steps.PlanReviewLoop.artifacts.loop_exhausted
+    command:
+      - python
+      - -c
+      - |
+        import json
+        from pathlib import Path
+
+        state_root = Path("${inputs.state_root}")
+        plan_path = state_root.joinpath("plan_path.txt").read_text(encoding="utf-8").strip()
+        review_path = state_root.joinpath("plan_review_report_path.txt").read_text(encoding="utf-8").strip()
+
+        def read_int(name):
+            path = state_root / name
+            if not path.is_file():
+                return None
+            try:
+                return int(path.read_text(encoding="utf-8").strip())
+            except ValueError:
+                return None
+
+        state_root.joinpath("plan_review_decision.txt").write_text(
+            "ESCALATE_REDESIGN\n",
+            encoding="utf-8",
+        )
+        context = {
+            "active": True,
+            "reason": "repeat_until_iterations_exhausted",
+            "source_phase": "plan",
+            "phase": "plan_review",
+            "decision": "ESCALATE_REDESIGN",
+            "target_route": "ESCALATE_REDESIGN",
+            "recommended_next_phase": "design_revision",
+            "max_iterations": 12,
+            "last_review_decision": "REVISE",
+            "last_candidate_artifact_path": plan_path,
+            "last_review_report_path": review_path,
+            "unresolved_high_count": read_int("unresolved_high_count.txt"),
+            "unresolved_medium_count": read_int("unresolved_medium_count.txt"),
+            "reason_summary": "Plan review exhausted its iteration cap before reaching approval, block, or reviewer-authored redesign escalation.",
+            "must_change": [
+                "Review whether the approved design is too broad, under-specified, wrongly scoped, or missing a planning-critical architectural decision."
+            ],
+            "evidence_paths": {
+                "plan": plan_path,
+                "review_report": review_path,
+            },
+        }
+        state_root.joinpath("plan_escalation_context.json").write_text(
+            json.dumps(context, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
   - name: FinalizePlanPhaseOutputs
     id: finalize_plan_phase_outputs

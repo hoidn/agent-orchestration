@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", or "2.11"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", or "2.12"). Strict gating: unknown fields at a given version → validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -122,12 +122,15 @@
         - `cases` must cover every allowed enum value on the selected ref
         - case outputs must use matching contracts across every case
     - v2.7 top-level `repeat_until:`
-      - shape: `{ id?, outputs: WorkflowOutputMap, condition: TypedPredicate, max_iterations: integer, steps: Step[] }`
+      - shape: `{ id?, outputs: WorkflowOutputMap, condition: TypedPredicate, max_iterations: integer, on_exhausted?, steps: Step[] }`
       - `repeat_until.id` uses the same pattern as step `id`
       - post-test semantics: iteration `0` always executes once, then `condition` is evaluated after each completed iteration
       - `condition` must be a typed predicate and may read loop-frame outputs through `self.outputs.<name>`
       - `condition` must not bypass the loop frame by reading `self.steps.<Inner>...` directly
       - selected iteration outputs are materialized onto the loop frame itself and become available at `root.steps.<Statement>.artifacts.<name>`
+      - v2.12 `repeat_until.on_exhausted.outputs` is optional and maps declared loop-frame output names to literal scalar overrides applied only when the body succeeds, outputs resolve, the condition evaluates false, and `max_iterations` is exhausted
+      - without `on_exhausted`, exhausting `max_iterations` remains a failed loop with `error.type: repeat_until_iterations_exhausted`
+      - `on_exhausted.outputs` may override scalar loop outputs only; body-step failures, output-resolution failures, and predicate failures are still failures and do not use exhaustion overrides
       - first tranche restrictions:
         - top-level only
         - `goto` / `_end` are rejected inside body steps
@@ -316,6 +319,7 @@
   - top-level `finally` requires `version: "2.3"` or higher.
   - structured `match` requires `version: "2.6"` or higher.
   - structured `repeat_until` requires `version: "2.7"` or higher.
+  - `repeat_until.on_exhausted` requires `version: "2.12"` or higher.
   - Advisory authoring-time linting:
     - `orchestrate run --dry-run` and `orchestrate report` may surface non-fatal warnings for migration patterns such as shell gates that should become `assert`, stringly `when.equals` routing that should become typed predicates, raw `goto` diamonds that should become structured control, and imported/exported output-name collisions.
     - Lint warnings are advisory only in the first pass and never change workflow load validity or runtime exit codes.

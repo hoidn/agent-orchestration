@@ -1,4 +1,4 @@
-version: "2.7"
+version: "2.12"
 name: "tracked-big-design-phase"
 
 context:
@@ -126,6 +126,9 @@ artifacts:
     kind: scalar
     type: enum
     allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
+  loop_exhausted:
+    kind: scalar
+    type: bool
 
 steps:
   - name: InitializeBigDesignPhasePaths
@@ -323,6 +326,15 @@ steps:
           allowed: ["APPROVE", "REVISE", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
           from:
             ref: self.steps.RouteBigDesignDecision.artifacts.review_decision
+        loop_exhausted:
+          kind: scalar
+          type: bool
+          from:
+            ref: self.steps.MarkBigDesignLoopNotExhausted.artifacts.loop_exhausted
+      on_exhausted:
+        outputs:
+          review_decision: ESCALATE_ROADMAP_REVISION
+          loop_exhausted: true
       condition:
         any_of:
           - compare:
@@ -595,6 +607,99 @@ steps:
                     set_scalar:
                       artifact: review_decision
                       value: BLOCK
+        - name: MarkBigDesignLoopNotExhausted
+          id: mark_big_design_loop_not_exhausted
+          set_scalar:
+            artifact: loop_exhausted
+            value: false
+
+  - name: ActivateBigDesignExhaustionEscalation
+    id: activate_big_design_exhaustion_escalation
+    when:
+      artifact_bool:
+        ref: root.steps.BigDesignReviewLoop.artifacts.loop_exhausted
+    command:
+      - python
+      - -c
+      - |
+        import json
+        from pathlib import Path
+
+        state_root = Path("${inputs.state_root}")
+        design_path = state_root.joinpath("design_path.txt").read_text(encoding="utf-8").strip()
+        review_path = state_root.joinpath("design_review_report_path.txt").read_text(encoding="utf-8").strip()
+
+        def read_int(name):
+            path = state_root / name
+            if not path.is_file():
+                return None
+            try:
+                return int(path.read_text(encoding="utf-8").strip())
+            except ValueError:
+                return None
+
+        state_root.joinpath("design_review_decision.txt").write_text(
+            "ESCALATE_ROADMAP_REVISION\n",
+            encoding="utf-8",
+        )
+
+        context = {
+            "active": True,
+            "reason": "repeat_until_iterations_exhausted",
+            "source_phase": "design",
+            "phase": "big_design_review",
+            "decision": "ESCALATE_ROADMAP_REVISION",
+            "target_route": "ESCALATE_ROADMAP_REVISION",
+            "recommended_next_phase": "roadmap_revision",
+            "max_iterations": 20,
+            "last_review_decision": "REVISE",
+            "last_candidate_artifact_path": design_path,
+            "last_review_report_path": review_path,
+            "unresolved_high_count": read_int("unresolved_high_count.txt"),
+            "unresolved_medium_count": read_int("unresolved_medium_count.txt"),
+            "reason_summary": "Big-design review exhausted its iteration cap before reaching approval, block, or reviewer-authored roadmap escalation.",
+            "must_change": [
+                "Review tranche claim, scope, ordering, prerequisites, ownership, or split strategy before retrying design."
+            ],
+            "evidence_paths": {
+                "design": design_path,
+                "review_report": review_path,
+            },
+        }
+        state_root.joinpath("design_escalation_context.json").write_text(
+            json.dumps(context, indent=2) + "\n",
+            encoding="utf-8",
+        )
+
+        change_request = {
+            "active": True,
+            "reason": "repeat_until_iterations_exhausted",
+            "source_phase": "design",
+            "phase": "big_design_review",
+            "decision": "ESCALATE_ROADMAP_REVISION",
+            "target_route": "ESCALATE_ROADMAP_REVISION",
+            "max_iterations": 20,
+            "last_review_decision": "REVISE",
+            "last_candidate_artifact_path": design_path,
+            "last_review_report_path": review_path,
+            "unresolved_high_count": read_int("unresolved_high_count.txt"),
+            "unresolved_medium_count": read_int("unresolved_medium_count.txt"),
+            "reason_summary": "The selected tranche design did not converge within the bounded review loop.",
+            "requested_program_change": "Revise the roadmap or manifest at the tranche boundary rather than continuing local design iteration.",
+            "requested_changes": [
+                "Adjust tranche claim, scope, ordering, prerequisites, ownership, or split strategy as supported by the latest design review evidence."
+            ],
+            "superseded_tranche_ids": [],
+            "proposed_new_tranche_ids": [],
+            "evidence_paths": {
+                "design": design_path,
+                "review_report": review_path,
+            },
+        }
+        state_root.joinpath("roadmap_change_request.json").write_text(
+            json.dumps(change_request, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
   - name: FinalizeBigDesignPhaseOutputs
     id: finalize_big_design_phase_outputs

@@ -17,7 +17,7 @@
     - v2.10 also uses this surface for provider-session quarantine failures (`type: "provider_session_interrupted_visit_quarantined"`)
   - `steps`: map of step results
   - `for_each`: loop bookkeeping: `items`, `completed_indices`, `current_index`
-  - `repeat_until`: loop bookkeeping: `current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, `last_condition_result`
+  - `repeat_until`: loop bookkeeping: `current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, `last_condition_result`, optional `exhausted`
   - v2.5+ reusable-call fields:
     - `call_frames`: call-frame records keyed by durable `call_frame_id`, with caller step identity, import alias, callee workflow file, bound inputs, body/finalization/export status, current nested execution position, and nested call-frame-local state
   - v1.2+ runtime dataflow fields:
@@ -44,7 +44,7 @@
   - v2.7 structured looping additions:
     - `steps.<RepeatUntilStatement>` stores the loop-frame result and latest materialized loop outputs
     - `steps.<RepeatUntilStatement>[i].<StepName>` stores one iteration's nested step result using qualified per-iteration `step_id` ancestry
-    - `repeat_until.<RepeatUntilStatement>` persists `current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, and `last_condition_result` for resume
+    - `repeat_until.<RepeatUntilStatement>` persists `current_iteration`, `completed_iterations`, `condition_evaluated_for_iteration`, `last_condition_result`, and optional `exhausted` for resume/debug
   - v2.3 finalization additions:
     - lowered finalization steps are recorded as ordinary top-level step entries under presentation keys such as `finally.ReleaseLock`
     - `finalization.workflow_outputs_status` records whether workflow outputs are `pending`, `completed`, `failed`, `suppressed`, or `not_configured`
@@ -192,7 +192,8 @@ The state file (`${RUN_ROOT}/state.json`) is the authoritative record of executi
       "current_iteration": 2,
       "completed_iterations": [0, 1],
       "condition_evaluated_for_iteration": 1,
-      "last_condition_result": false
+      "last_condition_result": false,
+      "exhausted": false
     }
   }
 }

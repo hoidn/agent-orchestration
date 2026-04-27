@@ -1,4 +1,4 @@
-version: "2.7"
+version: "2.12"
 name: "major-project-tranche-drain-from-manifest-v2-call"
 
 imports:

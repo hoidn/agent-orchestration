@@ -11,6 +11,8 @@ Do not implement the tranche, edit source files, edit tests, edit the project ro
 
 Preserve the project roadmap unless the review finding identifies a necessary conflict. If the design must deviate from the roadmap, make the conflict explicit in the design and explain what upstream roadmap update is needed.
 
+If the consumed escalation context says planning failed to converge, treat that as evidence that the approved design may be too broad, under-specified, wrongly scoped, or missing a planning-critical architectural decision. Revise design-owned decisions only; do not write the plan.
+
 If review findings concern cross-tranche family fit, repeated work shapes, reuse boundaries, or prior-tranche refactoring, revise the selected design to make that decision explicit. The design may propose refactoring prior tranche-local work into shared helpers when the current tranche needs it, but it must preserve prior behavior and interfaces and require regression checks for that behavior.
 
 Keep resolved decisions stable. Reconcile carried-forward findings by either fixing them in the design or clearly explaining why they are no longer applicable.

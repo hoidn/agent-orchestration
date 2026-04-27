@@ -246,6 +246,7 @@ For v2.7 structured loops:
 - declare the data the condition needs under `repeat_until.outputs`, then read it only through `self.outputs.<name>` inside `repeat_until.condition`
 - do not point `repeat_until.condition` at `self.steps.<Inner>...`; body steps are multi-visit and that bypasses the loop-frame anti-ambiguity boundary
 - give both the outer step and the repeat body an authored `id` when iteration lineage or resume stability matters across sibling insertion / body reshaping
+- for bounded review loops where exhausting the cap means "this phase did not converge" rather than "the workflow crashed", use v2.12 `repeat_until.on_exhausted.outputs` to route to the adjacent escalation decision; keep provider prompts unaware of the loop cap
 - keep the first tranche bounded: no `goto`, nested `for_each`, or nested `repeat_until` inside the loop body
 - direct nested `call`, `match`, and `if/else` bodies are allowed; the loader lowers them into loop-local executable steps that still read body-local refs through `self.steps.*` and outer lexical refs through `parent.steps.*`
 

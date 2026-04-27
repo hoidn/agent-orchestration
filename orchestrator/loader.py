@@ -38,6 +38,7 @@ from orchestrator.workflow.statements import (
     STRUCTURED_IF_VERSION,
     STRUCTURED_MATCH_VERSION,
     STRUCTURED_REPEAT_UNTIL_VERSION,
+    STRUCTURED_REPEAT_UNTIL_ON_EXHAUSTED_VERSION,
     branch_token,
     is_if_statement,
     is_match_statement,
@@ -77,7 +78,7 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath", "string"}
     STRING_CONTRACT_VERSION = "2.10"
@@ -85,7 +86,7 @@ class WorkflowLoader:
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12",
     ]
 
     def __init__(self, workspace: Path):
@@ -1806,6 +1807,18 @@ class WorkflowLoader:
             if isinstance(output_name, str) and isinstance(spec, dict):
                 normalized_outputs[output_name] = spec
 
+        on_exhausted = block.get('on_exhausted')
+        if on_exhausted is not None:
+            if not self._version_at_least(version, STRUCTURED_REPEAT_UNTIL_ON_EXHAUSTED_VERSION):
+                self._add_error(
+                    f"Step '{step_name}': repeat_until.on_exhausted requires version '{STRUCTURED_REPEAT_UNTIL_ON_EXHAUSTED_VERSION}'"
+                )
+            self._validate_repeat_until_on_exhausted(
+                step_name=step_name,
+                on_exhausted=on_exhausted,
+                output_specs=normalized_outputs,
+            )
+
         condition = block.get('condition')
         if not isinstance(condition, dict) or not self._is_typed_predicate_node(condition):
             self._add_error(f"Step '{step_name}': repeat_until.condition must be a typed predicate")
@@ -1830,6 +1843,47 @@ class WorkflowLoader:
         )
         block['condition'] = rewritten_condition
         step['repeat_until'] = block
+
+    def _validate_repeat_until_on_exhausted(
+        self,
+        *,
+        step_name: str,
+        on_exhausted: Any,
+        output_specs: Dict[str, Dict[str, Any]],
+    ) -> None:
+        context = f"Step '{step_name}': repeat_until.on_exhausted"
+        if not isinstance(on_exhausted, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        allowed_fields = {'outputs'}
+        for field_name in on_exhausted.keys():
+            if field_name not in allowed_fields:
+                self._add_error(f"{context} does not allow field '{field_name}'")
+
+        outputs = on_exhausted.get('outputs')
+        if not isinstance(outputs, dict) or not outputs:
+            self._add_error(f"{context}.outputs must be a non-empty dictionary")
+            return
+
+        for output_name, value in outputs.items():
+            value_context = f"{context}.outputs.{output_name}"
+            if output_name not in output_specs:
+                self._add_error(f"{value_context} targets unknown repeat_until output")
+                continue
+
+            spec = output_specs[output_name]
+            output_type = spec.get('type')
+            if output_type == 'relpath' or spec.get('kind', 'relpath' if output_type == 'relpath' else 'scalar') == 'relpath':
+                self._add_error(f"{value_context} may only override scalar repeat_until outputs")
+                continue
+            if isinstance(value, (dict, list)):
+                self._add_error(f"{value_context} must be a scalar literal")
+                continue
+            try:
+                validate_contract_value(value, spec, workspace=self.workspace)
+            except OutputContractError as exc:
+                self._add_error(f"{value_context} is invalid: {exc}")
 
     def _rewrite_repeat_until_condition_refs(
         self,
@@ -2386,7 +2440,7 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': call requires an authored stable 'id'")
 
         imported_workflow = self._current_imports.get(call_alias)
-        if imported_workflow is None:
+        if not isinstance(imported_workflow, LoadedWorkflowBundle):
             self._add_error(f"Step '{step_name}': unknown import alias '{call_alias}'")
             return
         callee_inputs = workflow_input_contracts(imported_workflow)
@@ -2543,7 +2597,7 @@ class WorkflowLoader:
 
             step_name = step.get('name', 'step')
             imported_workflow = self._current_imports.get(step.get('call'))
-            if imported_workflow is None:
+            if not isinstance(imported_workflow, LoadedWorkflowBundle):
                 continue
 
             managed_inputs = workflow_managed_write_root_inputs(imported_workflow)
@@ -3193,6 +3247,8 @@ class WorkflowLoader:
 
             if 'call' in step:
                 imported_workflow = self._current_imports.get(step.get('call'))
+                if not isinstance(imported_workflow, LoadedWorkflowBundle):
+                    continue
                 imported_outputs = workflow_output_contracts(imported_workflow)
                 if isinstance(imported_outputs, Mapping):
                     for artifact_name, output_spec in imported_outputs.items():

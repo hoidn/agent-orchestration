@@ -339,6 +339,10 @@ def _surface_repeat_until_block(block: SurfaceRepeatUntilBlock) -> dict[str, Any
         payload["outputs"] = outputs
     if block.max_iterations is not None:
         payload["max_iterations"] = block.max_iterations
+    if block.on_exhausted_outputs:
+        payload["on_exhausted"] = {
+            "outputs": _thaw(block.on_exhausted_outputs),
+        }
     return payload
 
 

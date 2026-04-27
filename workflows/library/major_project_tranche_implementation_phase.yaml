@@ -1,4 +1,4 @@
-version: "2.7"
+version: "2.12"
 name: "major-project-tranche-implementation-phase"
 
 context:
@@ -103,6 +103,9 @@ artifacts:
     kind: scalar
     type: enum
     allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+  loop_exhausted:
+    kind: scalar
+    type: bool
 
 steps:
   - name: InitializeImplementationPhasePaths
@@ -225,6 +228,15 @@ steps:
           allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
           from:
             ref: self.steps.RouteImplementationDecision.artifacts.review_decision
+        loop_exhausted:
+          kind: scalar
+          type: bool
+          from:
+            ref: self.steps.MarkImplementationLoopNotExhausted.artifacts.loop_exhausted
+      on_exhausted:
+        outputs:
+          review_decision: ESCALATE_REPLAN
+          loop_exhausted: true
       condition:
         any_of:
           - compare:
@@ -412,6 +424,57 @@ steps:
                     set_scalar:
                       artifact: review_decision
                       value: BLOCK
+        - name: MarkImplementationLoopNotExhausted
+          id: mark_implementation_loop_not_exhausted
+          set_scalar:
+            artifact: loop_exhausted
+            value: false
+
+  - name: ActivateImplementationExhaustionEscalation
+    id: activate_implementation_exhaustion_escalation
+    when:
+      artifact_bool:
+        ref: root.steps.ImplementationReviewLoop.artifacts.loop_exhausted
+    command:
+      - python
+      - -c
+      - |
+        import json
+        from pathlib import Path
+
+        state_root = Path("${inputs.state_root}")
+        execution_report_path = state_root.joinpath("execution_report_path.txt").read_text(encoding="utf-8").strip()
+        review_path = state_root.joinpath("implementation_review_report_path.txt").read_text(encoding="utf-8").strip()
+
+        state_root.joinpath("implementation_review_decision.txt").write_text(
+            "ESCALATE_REPLAN\n",
+            encoding="utf-8",
+        )
+        context = {
+            "active": True,
+            "reason": "repeat_until_iterations_exhausted",
+            "source_phase": "implementation",
+            "phase": "implementation_review",
+            "decision": "ESCALATE_REPLAN",
+            "target_route": "ESCALATE_REPLAN",
+            "recommended_next_phase": "plan_revision",
+            "max_iterations": 40,
+            "last_review_decision": "REVISE",
+            "last_candidate_artifact_path": execution_report_path,
+            "last_review_report_path": review_path,
+            "reason_summary": "Implementation review exhausted its iteration cap before reaching approval, block, or reviewer-authored replan escalation.",
+            "must_change": [
+                "Review task breakdown, sequencing, scope boundary, verification strategy, or implementation architecture before retrying implementation."
+            ],
+            "evidence_paths": {
+                "execution_report": execution_report_path,
+                "review_report": review_path,
+            },
+        }
+        state_root.joinpath("implementation_escalation_context.json").write_text(
+            json.dumps(context, indent=2) + "\n",
+            encoding="utf-8",
+        )
 
   - name: FinalizeImplementationPhaseOutputs
     id: finalize_implementation_phase_outputs

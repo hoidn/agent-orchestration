@@ -260,10 +260,15 @@ class RuntimeStep(Mapping[str, Any]):
 
         if isinstance(config, RepeatUntilStepConfig):
             if key == "repeat_until":
-                return {
+                repeat_until = {
                     "id": config.body_id,
                     "max_iterations": config.max_iterations,
                 }
+                if config.on_exhausted_outputs:
+                    repeat_until["on_exhausted"] = {
+                        "outputs": thaw_runtime_value(config.on_exhausted_outputs),
+                    }
+                return repeat_until
             raise KeyError(key)
 
         raise KeyError(key)

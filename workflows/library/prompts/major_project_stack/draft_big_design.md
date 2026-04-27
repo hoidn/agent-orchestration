@@ -21,6 +21,8 @@ The design must be self-contained for the downstream generic plan and implementa
 - roadmap constraints and sequencing dependencies that the plan and implementation must preserve
 - project-level decisions from the roadmap that govern this tranche
 
+If the consumed escalation context says planning failed to converge, treat that as evidence that the approved design may be too broad, under-specified, wrongly scoped, or missing a planning-critical architectural decision. Revise design-owned decisions only; do not write the plan.
+
 If the project roadmap defines layout or ownership conventions, apply the relevant parts in this tranche design. Do not leave later phases to invent file locations, ownership boundaries, maintained-input locations, generated output locations, or internal component boundaries when the roadmap already made or requires those decisions.
 
 If the roadmap identifies this tranche as part of a cross-tranche family, or repo inspection shows that this tranche has a repeated work shape already used by an earlier tranche, include a `Cross-Tranche Reuse And Family Fit` section. A repeated work shape may involve solving a similar kind of problem, creating or changing similar components, exposing similar interfaces or entrypoints, maintaining similar data or assets, following similar implementation or review steps, or serving similar later consumers.

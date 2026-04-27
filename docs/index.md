@@ -268,6 +268,11 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 **Keywords:** implementation-plan, escalation, adjacent-routing, roadmap-revision, drain-iteration, major-project
 **Use this when:** You need to revise the major-project escalation ladder so implementation routes to plan, plan routes to design, and design routes to roadmap revision without nested repeat-loop control flow.
 
+### [Repeat-Until Exhaustion Escalation Implementation Plan](plans/2026-04-27-repeat-until-exhaustion-escalation-design-implementation-plan.md)
+**Description:** Implementation plan for DSL v2.12 `repeat_until.on_exhausted.outputs`, typed pipeline support, and major-project review-loop non-convergence escalation.
+**Keywords:** implementation-plan, repeat-until, v2.12, exhaustion, escalation, major-project
+**Use this when:** You need deterministic routing for bounded review loops that fail to converge without treating successful loop iterations as runtime crashes.
+
 ## Finding Information
 
 ### By Task

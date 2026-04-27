@@ -224,6 +224,7 @@ class RepeatUntilStepConfig:
     common: StepCommonConfig = field(default_factory=StepCommonConfig)
     body_id: str = "repeat_until"
     max_iterations: int = 0
+    on_exhausted_outputs: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 ExecutableStepConfig = (
@@ -328,6 +329,7 @@ class RepeatUntilFrameNode(ExecutableNodeBase):
     condition: Any = None
     max_iterations: Optional[int] = None
     output_contracts: Mapping[str, ExecutableContract] = field(default_factory=empty_frozen_mapping)
+    on_exhausted_outputs: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 @dataclass(frozen=True)

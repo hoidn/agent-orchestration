@@ -443,9 +443,286 @@ def test_executor_uses_ir_raw_repeat_until_payloads_when_legacy_adapter_payload_
         "completed_iterations": [0],
         "condition_evaluated_for_iteration": 0,
         "last_condition_result": True,
+        "exhausted": False,
     }
     assert persisted["repeat_until"]["ReviewLoop"]["completed_iterations"] == [0]
     assert persisted["repeat_until"]["ReviewLoop"]["current_iteration"] is None
+
+
+def test_repeat_until_on_exhausted_completes_with_overrides_and_preserves_outputs(
+    tmp_path: Path,
+):
+    workflow = {
+        "version": "2.12",
+        "name": "repeat-until-on-exhausted-completes",
+        "artifacts": {
+            "decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE", "ESCALATE"],
+            },
+            "loop_exhausted": {
+                "kind": "scalar",
+                "type": "bool",
+            },
+        },
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE", "ESCALATE"],
+                            "from": {
+                                "ref": "self.steps.Route.artifacts.decision",
+                            },
+                        },
+                        "loop_exhausted": {
+                            "kind": "scalar",
+                            "type": "bool",
+                            "from": {
+                                "ref": "self.steps.MarkNotExhausted.artifacts.loop_exhausted",
+                            },
+                        },
+                        "report_path": {
+                            "kind": "relpath",
+                            "type": "relpath",
+                            "must_exist_target": True,
+                            "from": {
+                                "ref": "self.steps.WriteReport.artifacts.report_path",
+                            },
+                        },
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {
+                                "ref": "self.outputs.decision",
+                            },
+                            "op": "eq",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "max_iterations": 2,
+                    "on_exhausted": {
+                        "outputs": {
+                            "decision": "ESCALATE",
+                            "loop_exhausted": True,
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "Route",
+                            "id": "route",
+                            "set_scalar": {
+                                "artifact": "decision",
+                                "value": "REVISE",
+                            },
+                        },
+                        {
+                            "name": "MarkNotExhausted",
+                            "id": "mark_not_exhausted",
+                            "set_scalar": {
+                                "artifact": "loop_exhausted",
+                                "value": False,
+                            },
+                        },
+                        {
+                            "name": "WriteReport",
+                            "id": "write_report",
+                            "command": [
+                                "bash",
+                                "-lc",
+                                "mkdir -p state && printf 'state/report-${loop.index}.md\\n' > state/report_path.txt && printf 'report %s\\n' '${loop.index}' > state/report-${loop.index}.md",
+                            ],
+                            "expected_outputs": [
+                                {
+                                    "name": "report_path",
+                                    "path": "state/report_path.txt",
+                                    "type": "relpath",
+                                    "must_exist_target": True,
+                                }
+                            ],
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="repeat-until-on-exhausted-completes",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+    persisted = _persisted_state(tmp_path, "repeat-until-on-exhausted-completes")
+
+    loop = state["steps"]["ReviewLoop"]
+    assert state["status"] == "completed"
+    assert loop["status"] == "completed"
+    assert loop["exit_code"] == 0
+    assert loop["artifacts"]["decision"] == "ESCALATE"
+    assert loop["artifacts"]["loop_exhausted"] is True
+    assert loop["artifacts"]["report_path"] == "state/report-1.md"
+    assert loop["debug"]["structured_repeat_until"]["exhausted"] is True
+    assert loop["debug"]["structured_repeat_until"]["last_condition_result"] is False
+    assert loop["debug"]["structured_repeat_until"]["completed_iterations"] == [0, 1]
+    assert persisted["repeat_until"]["ReviewLoop"]["completed_iterations"] == [0, 1]
+    assert persisted["repeat_until"]["ReviewLoop"]["current_iteration"] is None
+    assert persisted["steps"]["ReviewLoop"]["artifacts"]["decision"] == "ESCALATE"
+
+
+def test_repeat_until_exhaustion_without_on_exhausted_still_fails(tmp_path: Path):
+    workflow = {
+        "version": "2.12",
+        "name": "repeat-until-exhaustion-still-fails",
+        "artifacts": {
+            "decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            },
+        },
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE"],
+                            "from": {
+                                "ref": "self.steps.Route.artifacts.decision",
+                            },
+                        },
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {
+                                "ref": "self.outputs.decision",
+                            },
+                            "op": "eq",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "max_iterations": 1,
+                    "steps": [
+                        {
+                            "name": "Route",
+                            "id": "route",
+                            "set_scalar": {
+                                "artifact": "decision",
+                                "value": "REVISE",
+                            },
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="repeat-until-exhaustion-still-fails",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    loop = state["steps"]["ReviewLoop"]
+    assert state["status"] == "failed"
+    assert loop["status"] == "failed"
+    assert loop["error"]["type"] == "repeat_until_iterations_exhausted"
+    assert loop["debug"]["structured_repeat_until"]["exhausted"] is False
+
+
+def test_repeat_until_body_failure_ignores_on_exhausted(tmp_path: Path):
+    workflow = {
+        "version": "2.12",
+        "name": "repeat-until-body-failure-ignores-on-exhausted",
+        "artifacts": {
+            "decision": {
+                "kind": "scalar",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE", "ESCALATE"],
+            },
+        },
+        "steps": [
+            {
+                "name": "ReviewLoop",
+                "id": "review_loop",
+                "repeat_until": {
+                    "id": "iteration_body",
+                    "outputs": {
+                        "decision": {
+                            "kind": "scalar",
+                            "type": "enum",
+                            "allowed": ["APPROVE", "REVISE", "ESCALATE"],
+                            "from": {
+                                "ref": "self.steps.Route.artifacts.decision",
+                            },
+                        },
+                    },
+                    "condition": {
+                        "compare": {
+                            "left": {
+                                "ref": "self.outputs.decision",
+                            },
+                            "op": "eq",
+                            "right": "APPROVE",
+                        }
+                    },
+                    "max_iterations": 2,
+                    "on_exhausted": {
+                        "outputs": {
+                            "decision": "ESCALATE",
+                        }
+                    },
+                    "steps": [
+                        {
+                            "name": "Route",
+                            "id": "route",
+                            "set_scalar": {
+                                "artifact": "decision",
+                                "value": "REVISE",
+                            },
+                        },
+                        {
+                            "name": "Crash",
+                            "id": "crash",
+                            "command": ["bash", "-lc", "exit 7"],
+                        },
+                    ],
+                },
+            },
+        ],
+    }
+
+    bundle = _load_workflow_bundle(tmp_path, workflow)
+    state_manager = StateManager(
+        workspace=tmp_path,
+        run_id="repeat-until-body-failure-ignores-on-exhausted",
+    )
+    state_manager.initialize("workflow.yaml")
+
+    state = WorkflowExecutor(bundle, tmp_path, state_manager).execute()
+
+    loop = state["steps"]["ReviewLoop"]
+    assert state["status"] == "failed"
+    assert loop["status"] == "failed"
+    assert loop["error"]["type"] == "repeat_until_body_step_failed"
+    assert loop["error"]["context"]["step"] == "Crash"
+    assert loop["debug"]["structured_repeat_until"]["exhausted"] is False
 
 
 def test_executor_uses_typed_for_each_body_nodes_when_loop_raw_steps_are_missing(tmp_path: Path):

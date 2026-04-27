@@ -10,6 +10,7 @@ STRUCTURED_IF_VERSION = "2.2"
 STRUCTURED_FINALLY_VERSION = "2.3"
 STRUCTURED_MATCH_VERSION = "2.6"
 STRUCTURED_REPEAT_UNTIL_VERSION = "2.7"
+STRUCTURED_REPEAT_UNTIL_ON_EXHAUSTED_VERSION = "2.12"
 _NON_ALNUM_RE = re.compile(r"[^A-Za-z0-9]+")
 
 
@@ -101,6 +102,7 @@ def normalize_repeat_until_block(block: Any) -> Optional[Dict[str, Any]]:
         "outputs": block.get("outputs", {}),
         "condition": block.get("condition"),
         "max_iterations": block.get("max_iterations"),
+        "on_exhausted": block.get("on_exhausted"),
     }
 
 

@@ -193,6 +193,25 @@ class TestLoaderValidation:
         assert surface["version"] == "2.10"
         assert surface["steps"][0]["name"] == "Echo"
 
+    def test_version_2_12_is_supported(self):
+        """repeat_until.on_exhausted release version should load successfully."""
+        workflow = {
+            "version": "2.12",
+            "name": "repeat-until-on-exhausted-release-version",
+            "steps": [{
+                "name": "Echo",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
+
+        assert surface["version"] == "2.12"
+        assert surface["steps"][0]["name"] == "Echo"
+
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""
         workflow = {
@@ -364,6 +383,202 @@ class TestLoaderValidation:
         assert exc_info.value.exit_code == 2
         assert any(
             "repeat_until.condition" in str(err.message) and "self.outputs" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def _repeat_until_on_exhausted_workflow(self, **overrides):
+        repeat_until = {
+            "id": "iteration_body",
+            "outputs": {
+                "decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE", "ESCALATE"],
+                    "from": {
+                        "ref": "self.steps.Route.artifacts.decision",
+                    },
+                },
+                "loop_exhausted": {
+                    "kind": "scalar",
+                    "type": "bool",
+                    "from": {
+                        "ref": "self.steps.MarkNotExhausted.artifacts.loop_exhausted",
+                    },
+                },
+            },
+            "condition": {
+                "compare": {
+                    "left": {
+                        "ref": "self.outputs.decision",
+                    },
+                    "op": "eq",
+                    "right": "APPROVE",
+                }
+            },
+            "max_iterations": 2,
+            "on_exhausted": {
+                "outputs": {
+                    "decision": "ESCALATE",
+                    "loop_exhausted": True,
+                }
+            },
+            "steps": [
+                {
+                    "name": "Route",
+                    "id": "route",
+                    "set_scalar": {
+                        "artifact": "decision",
+                        "value": "REVISE",
+                    },
+                },
+                {
+                    "name": "MarkNotExhausted",
+                    "id": "mark_not_exhausted",
+                    "set_scalar": {
+                        "artifact": "loop_exhausted",
+                        "value": False,
+                    },
+                },
+            ],
+        }
+        repeat_until.update(overrides)
+        return {
+            "version": "2.12",
+            "name": "repeat-until-on-exhausted",
+            "artifacts": {
+                "decision": {
+                    "kind": "scalar",
+                    "type": "enum",
+                    "allowed": ["APPROVE", "REVISE", "ESCALATE"],
+                },
+                "loop_exhausted": {
+                    "kind": "scalar",
+                    "type": "bool",
+                },
+            },
+            "steps": [
+                {
+                    "name": "ReviewLoop",
+                    "id": "review_loop",
+                    "repeat_until": repeat_until,
+                }
+            ],
+        }
+
+    def test_repeat_until_accepts_on_exhausted_scalar_output_overrides(self):
+        """repeat_until.on_exhausted may override declared scalar loop outputs."""
+        path = self.write_workflow(self._repeat_until_on_exhausted_workflow())
+
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
+
+        repeat_until = surface["steps"][0]["repeat_until"]
+        assert repeat_until["on_exhausted"]["outputs"] == {
+            "decision": "ESCALATE",
+            "loop_exhausted": True,
+        }
+
+    def test_repeat_until_on_exhausted_requires_version_2_12(self):
+        """repeat_until.on_exhausted is gated to v2.12+."""
+        workflow = self._repeat_until_on_exhausted_workflow()
+        workflow["version"] = "2.7"
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "repeat_until.on_exhausted requires version '2.12'" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def test_repeat_until_on_exhausted_rejects_unknown_output(self):
+        """on_exhausted overrides must target declared repeat_until outputs."""
+        workflow = self._repeat_until_on_exhausted_workflow(
+            on_exhausted={"outputs": {"unknown": "ESCALATE"}},
+        )
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any(
+            "repeat_until.on_exhausted.outputs.unknown targets unknown repeat_until output"
+            in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def test_repeat_until_on_exhausted_validates_enum_and_bool_values(self):
+        """on_exhausted override values must satisfy the declared output contracts."""
+        workflow = self._repeat_until_on_exhausted_workflow(
+            on_exhausted={
+                "outputs": {
+                    "decision": "NOPE",
+                    "loop_exhausted": "maybe",
+                }
+            },
+        )
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        messages = [str(err.message) for err in exc_info.value.errors]
+        assert any("repeat_until.on_exhausted.outputs.decision is invalid" in msg for msg in messages)
+        assert any("repeat_until.on_exhausted.outputs.loop_exhausted is invalid" in msg for msg in messages)
+
+    def test_repeat_until_on_exhausted_rejects_relpath_output_override(self):
+        """on_exhausted currently supports scalar loop outputs only."""
+        workflow = self._repeat_until_on_exhausted_workflow()
+        workflow["steps"][0]["repeat_until"]["outputs"]["report_path"] = {
+            "kind": "relpath",
+            "type": "relpath",
+            "from": {
+                "ref": "self.steps.WriteReport.artifacts.report_path",
+            },
+        }
+        workflow["steps"][0]["repeat_until"]["on_exhausted"]["outputs"]["report_path"] = "state/report.txt"
+        workflow["steps"][0]["repeat_until"]["steps"].append(
+            {
+                "name": "WriteReport",
+                "id": "write_report",
+                "command": [
+                    "bash",
+                    "-lc",
+                    "mkdir -p state && printf 'state/report.md\\n' > state/report_path.txt && printf report > state/report.md",
+                ],
+                "expected_outputs": [
+                    {
+                        "name": "report_path",
+                        "path": "state/report_path.txt",
+                        "type": "relpath",
+                        "must_exist_target": True,
+                    }
+                ],
+            }
+        )
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any(
+            "repeat_until.on_exhausted.outputs.report_path may only override scalar repeat_until outputs"
+            in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def test_repeat_until_on_exhausted_must_be_mapping(self):
+        """repeat_until.on_exhausted must be an object when present."""
+        workflow = self._repeat_until_on_exhausted_workflow(on_exhausted="ESCALATE")
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any(
+            "repeat_until.on_exhausted must be a dictionary" in str(err.message)
             for err in exc_info.value.errors
         )
 

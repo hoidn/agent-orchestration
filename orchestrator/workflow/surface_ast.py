@@ -151,6 +151,7 @@ class SurfaceRepeatUntilBlock:
     outputs: Mapping[str, SurfaceContract]
     condition: Any
     max_iterations: Optional[int]
+    on_exhausted_outputs: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 @dataclass(frozen=True)

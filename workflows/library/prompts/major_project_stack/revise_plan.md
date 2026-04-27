@@ -4,6 +4,7 @@ Major-project tranche plan revision additions:
 - Read the consumed `upstream_escalation_context` artifact. If it is active, preserve its evidence while revising.
 - If the latest review decision can be fixed locally, revise the plan.
 - If the plan remains non-executable because the design or tranche shape is wrong, say so plainly instead of adding more task detail.
+- If the consumed escalation context says implementation failed to converge, treat that as evidence that the plan may need a better task breakdown, sequence, scope boundary, verification strategy, or implementation architecture. Revise plan-owned decisions only; do not patch the implementation.
 
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
 Read the consumed `design`, `plan`, and `plan_review_report` artifacts before acting.

@@ -641,6 +641,7 @@ def test_repeat_until_failure_persists_loop_frame_current_step_and_transition_su
         "completed_iterations": [0],
         "condition_evaluated_for_iteration": None,
         "last_condition_result": None,
+        "exhausted": False,
     }
     assert persisted["transition_count"] == 0
     assert persisted["step_visits"] == {"ReviewLoop": 1}

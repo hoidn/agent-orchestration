@@ -583,6 +583,7 @@ class LoopExecutor:
                     "completed_iterations": list(progress.get("completed_iterations", [])),
                     "condition_evaluated_for_iteration": progress.get("condition_evaluated_for_iteration"),
                     "last_condition_result": progress.get("last_condition_result"),
+                    "exhausted": bool(progress.get("exhausted", False)),
                 }
             },
         }
@@ -591,6 +592,22 @@ class LoopExecutor:
         if isinstance(error, dict):
             result["error"] = error
         return result
+
+    def repeat_until_exhaustion_artifacts(
+        self,
+        block: Any,
+        frame_artifacts: Mapping[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        """Return loop-frame artifacts for an authored on_exhausted policy."""
+        on_exhausted = block.get("on_exhausted") if isinstance(block, Mapping) else None
+        if not isinstance(on_exhausted, Mapping):
+            return None
+        overrides = on_exhausted.get("outputs")
+        if not isinstance(overrides, Mapping) or not overrides:
+            return None
+        artifacts = dict(frame_artifacts)
+        artifacts.update(dict(overrides))
+        return artifacts
 
     def execute_repeat_until(
         self,
@@ -1106,6 +1123,22 @@ class LoopExecutor:
                     "condition_evaluated_for_iteration": current_iteration,
                     "last_condition_result": False,
                 }
+                exhausted_artifacts = self.repeat_until_exhaustion_artifacts(block, frame_artifacts)
+                if exhausted_artifacts is not None:
+                    progress["exhausted"] = True
+                    completed = self.executor._attach_outcome(
+                        step,
+                        self.build_repeat_until_frame_result(
+                            step,
+                            status="completed",
+                            exit_code=0,
+                            artifacts=exhausted_artifacts,
+                            progress=progress,
+                        ),
+                    )
+                    self.persist_repeat_until_progress(state, step_name, progress, completed)
+                    return state
+
                 exhausted = self.executor._attach_outcome(
                     step,
                     self.build_repeat_until_frame_result(

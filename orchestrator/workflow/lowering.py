@@ -508,6 +508,7 @@ class _IRBuilder:
             condition=_bind_predicate(step.repeat_until.condition, body_context),
             max_iterations=step.repeat_until.max_iterations,
             output_contracts=_bind_contracts(step.repeat_until.outputs, body_context),
+            on_exhausted_outputs=step.repeat_until.on_exhausted_outputs,
         )
 
     def _build_for_each_node(
@@ -937,6 +938,7 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
                 if isinstance(step.repeat_until.max_iterations, int)
                 else 0
             ),
+            on_exhausted_outputs=step.repeat_until.on_exhausted_outputs,
         )
     return None
 

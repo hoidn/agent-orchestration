@@ -38,6 +38,7 @@ EXAMPLE_FILES = [
     "match_demo.yaml",
     "neurips_hybrid_resnet_plan_impl_review.yaml",
     "repeat_until_demo.yaml",
+    "repeat_until_exhaustion_escalation_demo.yaml",
     "score_gate_demo.yaml",
     "scalar_bookkeeping_demo.yaml",
     "structured_if_else_demo.yaml",
@@ -375,6 +376,36 @@ def test_repeat_until_demo_runtime(tmp_path: Path):
         "iteration-2",
         "iteration-3",
     ]
+
+
+def test_repeat_until_exhaustion_escalation_demo_runtime(tmp_path: Path):
+    """repeat_until.on_exhausted routes deterministic non-convergence to escalation."""
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path,
+        "repeat_until_exhaustion_escalation_demo.yaml",
+    )
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ReviewLoop"]["artifacts"] == {
+        "review_decision": "ESCALATE_REPLAN",
+        "loop_exhausted": True,
+    }
+    assert state["steps"]["ReviewLoop"]["debug"]["structured_repeat_until"]["exhausted"] is True
+    assert state["steps"]["ActivateExhaustionEscalation"]["artifacts"] == {
+        "final_decision": "ESCALATE_REPLAN",
+        "escalation_context_path": "state/escalation_context.json",
+    }
+    context = json.loads((workspace / "state" / "escalation_context.json").read_text(encoding="utf-8"))
+    assert context["active"] is True
+    assert context["reason"] == "repeat_until_iterations_exhausted"
+    assert context["target_route"] == "ESCALATE_REPLAN"
 
 
 def test_score_gate_demo_runtime(tmp_path: Path):

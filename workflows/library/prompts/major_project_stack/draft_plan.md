@@ -3,6 +3,7 @@ Major-project tranche planning additions:
 - Read the consumed `upstream_escalation_context` artifact. If it is active, treat it as evidence about why a lower phase could not close locally.
 - The plan must either address named plan-level gaps or state clearly that redesign is still required.
 - Even when the context is inactive, assess whether the approved design supports one executable tranche-sized implementation effort.
+- If the consumed escalation context says implementation failed to converge, treat that as evidence that the plan may need a better task breakdown, sequence, scope boundary, verification strategy, or implementation architecture. Revise plan-owned decisions only; do not patch the implementation.
 
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
 Read the consumed `design` artifact before acting.

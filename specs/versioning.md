@@ -186,6 +186,12 @@
   - Selected outputs are promoted through a manifest-backed transaction with preimage checks, staged replacements, rollback metadata, parent output revalidation, and publication withholding until promotion and any score-ledger mirror finalization succeed.
   - State schema remains `2.1`; adjudication state is additive under `steps.<Step>.adjudication` and run-owned sidecars under `.orchestrate/runs/<run_id>/adjudication/`, `candidates/`, and `promotions/`.
 
+- v2.12 additions (`repeat_until.on_exhausted`)
+  - `repeat_until.on_exhausted.outputs` lets an authored loop complete with literal scalar loop-frame output overrides when the loop body succeeds but the post-test condition remains false through `max_iterations`.
+  - The feature is opt-in. Existing `repeat_until` loops without `on_exhausted` retain the prior `repeat_until_iterations_exhausted` failure behavior.
+  - Exhaustion overrides apply only to condition non-convergence after successful body execution and output resolution. Body-step failures, output contract failures, and predicate failures still fail the loop.
+  - State schema remains `2.1`; loop-frame debug state adds `debug.structured_repeat_until.exhausted`.
+
 - DSL evolution rollout roadmap
   - `v1.5`: D1 `assert`
   - `v1.6`: D2 typed predicates + structured `ref:` + normalized outcomes
@@ -203,6 +209,7 @@
   - `v2.9`: D14 authoring linting and normalization
   - `v2.10`: first-class provider-session resume
   - `v2.11`: adjudicated provider steps
+  - `v2.12`: deterministic repeat-until exhaustion outputs
 
 - Ordering note
   - D2a scalar bookkeeping is intentionally sequenced before D3 cycle guards.
@@ -331,5 +338,6 @@ Planned acceptance:
 | 2.9 | Advisory authoring linting / normalization hints surfaced in CLI dry-run and report output | Warns about migration candidates without turning valid workflows into validation failures. |
 | 2.10 | Scalar `string` contracts and first-class provider-session resume | Adds runtime-owned fresh/resume session handles for root-level provider steps plus interrupted-visit quarantine. |
 | 2.11 | `adjudicated_provider` steps | Runs isolated artifact-producing candidates, scores valid outputs through a same-trust-boundary evaluator, promotes the selected declared outputs, and records adjudication ledgers/state without stdout-derived step output. |
+| 2.12 | `repeat_until.on_exhausted.outputs` | Lets bounded post-test loops route deterministic non-convergence through authored scalar loop-frame outputs while preserving hard failures for body, output, and predicate errors. |
 | future (planned) | `for_each.on_item_complete` declarative per-item lifecycle (move_to on success/failure) | Opt-in lifecycle automation; detailed gating/version target will be set when implemented. |
 | future (planned) | JSON stdout validation: `output_schema`, `output_require` for steps with `output_capture: json` | Enforces schema and simple assertions; incompatible with `allow_parse_error: true`. |
