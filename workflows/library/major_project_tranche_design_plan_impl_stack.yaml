@@ -10,6 +10,11 @@ imports:
 inputs:
   item_state_root: {type: relpath, under: state}
   upstream_escalation_context_path: {type: relpath, under: state}
+  initial_phase:
+    kind: scalar
+    type: enum
+    allowed: ["big_design", "plan", "implementation"]
+    default: big_design
   big_design_phase_state_root: {type: relpath, under: state}
   plan_phase_state_root: {type: relpath, under: state}
   implementation_phase_state_root: {type: relpath, under: state}
@@ -66,7 +71,9 @@ steps:
           "$(dirname "${inputs.execution_report_target_path}")" \
           "$(dirname "${inputs.implementation_review_report_target_path}")" \
           "$(dirname "${inputs.item_summary_target_path}")"
-        printf '%s\n' big_design > "${inputs.item_state_root}/current_phase.txt"
+        if [ ! -s "${inputs.item_state_root}/current_phase.txt" ]; then
+          printf '%s\n' "${inputs.initial_phase}" > "${inputs.item_state_root}/current_phase.txt"
+        fi
         python workflows/library/scripts/major_project_escalation_state.py init-upstream \
           --item-state-root "${inputs.item_state_root}" \
           --output-bundle "${inputs.item_state_root}/upstream_init_output.json"

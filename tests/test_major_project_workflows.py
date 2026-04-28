@@ -85,6 +85,7 @@ def _copy_major_project_runtime_files(
         "workflows/library/scripts/major_project_escalation_state.py",
         "workflows/library/scripts/major_project_phase_visits.py",
         "workflows/library/scripts/major_project_tranche_phase_routes.py",
+        "workflows/library/scripts/publish_major_project_continue_outcome.py",
         "workflows/library/scripts/validate_major_project_tranche_manifest.py",
         "workflows/library/scripts/select_major_project_tranche.py",
         "workflows/library/scripts/update_major_project_tranche_manifest.py",
@@ -211,8 +212,7 @@ def test_approved_design_tranche_stack_uses_major_project_local_phases():
     workflow = _load_yaml("workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml")
 
     assert workflow["imports"] == {
-        "plan_phase": "major_project_tranche_plan_phase.yaml",
-        "implementation_phase": "major_project_tranche_implementation_phase.yaml",
+        "phase_complete_tranche_stack": "major_project_tranche_design_plan_impl_stack.yaml",
     }
 
 
@@ -308,7 +308,7 @@ def test_continue_from_approved_design_workflow_starts_at_manifest_selection():
         "SelectNextTranche",
         "AssertApprovedDesignMatchesSelectedTranche",
         "RunSelectedTrancheFromApprovedDesign",
-        "UpdateTrancheManifest",
+        "RouteSelectedTrancheOutcome",
     ]
     assert "project_roadmap_path" in workflow["inputs"]
     assert "project_roadmap_target_path" not in workflow["inputs"]
@@ -437,29 +437,59 @@ def test_tranche_stack_uses_current_phase_visit_roots_for_reentry():
     assert "current_{phase}_phase_state_root.txt" in helper_text
 
 
-def test_approved_design_stack_uses_current_phase_visit_roots_for_reentry():
+def test_full_tranche_stack_supports_configurable_initial_phase():
+    workflow = _load_yaml("workflows/library/major_project_tranche_design_plan_impl_stack.yaml")
+
+    assert workflow["inputs"]["initial_phase"] == {
+        "kind": "scalar",
+        "type": "enum",
+        "allowed": ["big_design", "plan", "implementation"],
+        "default": "big_design",
+    }
+
+    init_step = _step_by_name(workflow, "InitializeItemState")
+    command_text = "\n".join(str(part) for part in init_step["command"])
+    assert "${inputs.initial_phase}" in command_text
+    assert "current_phase.txt" in command_text
+    assert "if [ ! -f" in command_text or "if [ ! -s" in command_text
+
+
+def test_approved_design_stack_delegates_to_phase_complete_stack():
     workflow = _load_yaml("workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml")
-    text = (ROOT / "workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml").read_text(
-        encoding="utf-8"
-    )
 
-    assert _step_by_name(workflow, "RunPlanPhase")["with"]["state_root"] == {
-        "ref": "self.steps.PreparePlanVisit.artifacts.phase_state_root"
-    }
-    assert _step_by_name(workflow, "RunImplementationPhase")["with"]["state_root"] == {
-        "ref": "self.steps.PrepareImplementationVisit.artifacts.phase_state_root"
-    }
-    route_step = _step_by_name(workflow, "RouteCurrentPhase")
-    assert set(route_step["match"]["cases"]) == {"plan", "implementation"}
+    assert workflow["imports"]["phase_complete_tranche_stack"] == "major_project_tranche_design_plan_impl_stack.yaml"
+    assert "big_design_phase_state_root" in workflow["inputs"]
+    assert "design_review_report_target_path" in workflow["inputs"]
 
-    for stale_read in [
-        "${inputs.plan_phase_state_root}/final_plan_review_decision.txt",
-        "${inputs.implementation_phase_state_root}/final_implementation_review_decision.txt",
-        "${inputs.implementation_phase_state_root}/final_implementation_escalation_context_path.txt",
-    ]:
-        assert stale_read not in text
-    helper_text = (ROOT / "workflows/library/scripts/major_project_phase_visits.py").read_text(encoding="utf-8")
-    assert "current_{phase}_phase_state_root.txt" in helper_text
+    run_step = _step_by_name(workflow, "RunPhaseCompleteStackFromApprovedDesign")
+    assert run_step["call"] == "phase_complete_tranche_stack"
+    assert run_step["with"]["initial_phase"] == "plan"
+    assert run_step["with"]["design_target_path"] == {"ref": "inputs.design_path"}
+    assert run_step["with"]["big_design_phase_state_root"] == {"ref": "inputs.big_design_phase_state_root"}
+    assert run_step["with"]["design_review_report_target_path"] == {
+        "ref": "inputs.design_review_report_target_path"
+    }
+
+
+def test_continue_from_approved_design_routes_redesign_roadmap_escalation_before_manifest_update():
+    workflow = _load_yaml("workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml")
+
+    run_step = _step_by_name(workflow, "RunSelectedTrancheFromApprovedDesign")
+    assert run_step["with"]["big_design_phase_state_root"] == {
+        "ref": "root.steps.SelectNextTranche.artifacts.big_design_phase_state_root"
+    }
+    assert run_step["with"]["design_review_report_target_path"] == {
+        "ref": "root.steps.SelectNextTranche.artifacts.design_review_report_target_path"
+    }
+
+    route_step = _step_by_name(workflow, "RouteSelectedTrancheOutcome")
+    assert set(route_step["match"]["cases"]) == {
+        "APPROVED",
+        "SKIPPED_AFTER_DESIGN",
+        "SKIPPED_AFTER_PLAN",
+        "SKIPPED_AFTER_IMPLEMENTATION",
+        "ESCALATE_ROADMAP_REVISION",
+    }
 
 
 def test_tranche_stack_does_not_convert_phase_call_failures_to_skipped_outcomes():
@@ -1276,6 +1306,378 @@ def test_continue_from_approved_design_runtime_with_mocked_providers(tmp_path: P
     )
     assert state["steps"]["RunSelectedTrancheFromApprovedDesign"]["artifacts"]["item_outcome"] == "APPROVED"
     assert manifest["tranches"][0]["status"] == "completed"
+
+
+def test_continue_from_approved_design_runtime_routes_plan_escalation_to_redesign(tmp_path: Path):
+    workflow_path = _copy_major_project_runtime_files(
+        tmp_path,
+        "workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml",
+    )
+
+    project_id = "major-project-demo"
+    tranche_id = "repo-docs-baseline"
+    drain_root = "state/major-project-demo/tranche-drain"
+    item_root = f"{drain_root}/items/{project_id}/{tranche_id}"
+    manifest_path = tmp_path / "state/major-project-demo/tranche_manifest.json"
+    roadmap_path = tmp_path / "docs/plans/major-project-demo/project-roadmap.md"
+    brief_path = tmp_path / "docs/backlog/generated/major-project-demo/repo-docs-baseline.md"
+    design_path = tmp_path / "docs/plans/major-project-demo/repo-docs-baseline-design.md"
+
+    roadmap_path.parent.mkdir(parents=True, exist_ok=True)
+    roadmap_path.write_text("# Major project roadmap\n", encoding="utf-8")
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text("# Repo docs baseline\n", encoding="utf-8")
+    design_path.parent.mkdir(parents=True, exist_ok=True)
+    design_path.write_text("# Approved big design\n", encoding="utf-8")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "project_id": project_id,
+                "project_brief_path": "workflows/examples/inputs/major_project_brief.md",
+                "project_roadmap_path": "docs/plans/major-project-demo/project-roadmap.md",
+                "tranches": [
+                    {
+                        "tranche_id": tranche_id,
+                        "title": "Repository documentation baseline",
+                        "brief_path": brief_path.relative_to(tmp_path).as_posix(),
+                        "design_target_path": design_path.relative_to(tmp_path).as_posix(),
+                        "design_review_report_target_path": (
+                            f"artifacts/review/major-project-demo/{tranche_id}-design-review.json"
+                        ),
+                        "plan_target_path": f"docs/plans/major-project-demo/{tranche_id}-plan.md",
+                        "plan_review_report_target_path": (
+                            f"artifacts/review/major-project-demo/{tranche_id}-plan-review.json"
+                        ),
+                        "execution_report_target_path": (
+                            f"artifacts/work/major-project-demo/{tranche_id}-execution-report.md"
+                        ),
+                        "implementation_review_report_target_path": (
+                            f"artifacts/review/major-project-demo/{tranche_id}-implementation-review.md"
+                        ),
+                        "item_summary_target_path": f"artifacts/work/major-project-demo/{tranche_id}-summary.json",
+                        "prerequisites": [],
+                        "status": "pending",
+                        "design_depth": "big",
+                        "completion_gate": "implementation_approved",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def current_root(workspace: Path, phase: str) -> str:
+        return (workspace / item_root / f"current_{phase}_phase_state_root.txt").read_text(encoding="utf-8").strip()
+
+    def write_pointer_target(workspace: Path, phase: str, pointer_name: str, content: str) -> None:
+        root = current_root(workspace, phase)
+        _target_from_pointer(workspace, f"{root}/{pointer_name}").write_text(content, encoding="utf-8")
+
+    plan_review_count = {"value": 0}
+
+    def review_plan(workspace: Path) -> None:
+        root = current_root(workspace, "plan")
+        plan_review_count["value"] += 1
+        if plan_review_count["value"] == 1:
+            report = _target_from_pointer(workspace, f"{root}/plan_review_report_path.txt")
+            report.write_text(
+                json.dumps(
+                    {
+                        "decision": "ESCALATE_REDESIGN",
+                        "summary": "The approved design cannot support an executable plan.",
+                        "findings": [
+                            {
+                                "severity": "high",
+                                "summary": "Design gap",
+                                "detail": "Runtime regression forces redesign.",
+                            }
+                        ],
+                        "unresolved_high_count": 1,
+                        "unresolved_medium_count": 0,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            (workspace / root / "plan_review_decision.txt").write_text("ESCALATE_REDESIGN\n", encoding="utf-8")
+            (workspace / root / "unresolved_high_count.txt").write_text("1\n", encoding="utf-8")
+            (workspace / root / "unresolved_medium_count.txt").write_text("0\n", encoding="utf-8")
+            context = _target_from_pointer(workspace, f"{root}/plan_escalation_context_path.txt")
+            context.write_text(
+                json.dumps(
+                    {
+                        "active": True,
+                        "source_phase": "plan",
+                        "decision": "ESCALATE_REDESIGN",
+                        "recommended_next_phase": "design_revision",
+                        "reason_summary": "Approved-design continuation needs a redesign pass.",
+                        "must_change": ["Revise the design before planning again."],
+                        "evidence_paths": {"review_report": report.relative_to(workspace).as_posix()},
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            return
+        _write_review_outputs(
+            workspace,
+            pointer_relpath=f"{root}/plan_review_report_path.txt",
+            decision_relpath=f"{root}/plan_review_decision.txt",
+            high_count_relpath=f"{root}/unresolved_high_count.txt",
+            medium_count_relpath=f"{root}/unresolved_medium_count.txt",
+        )
+
+    provider_sequence = [
+        "DraftPlan",
+        "ReviewPlanTracked",
+        "DraftBigDesign",
+        "ReviewBigDesign",
+        "DraftPlan",
+        "ReviewPlanTracked",
+        "ExecuteImplementation",
+        "ReviewImplementation",
+    ]
+    provider_writers = {
+        "DraftPlan": lambda ws: write_pointer_target(ws, "plan", "plan_path.txt", "# Plan\n"),
+        "ReviewPlanTracked": review_plan,
+        "DraftBigDesign": lambda ws: write_pointer_target(ws, "big_design", "design_path.txt", "# Redesigned\n"),
+        "ReviewBigDesign": lambda ws: _write_review_outputs(
+            ws,
+            pointer_relpath=f"{current_root(ws, 'big_design')}/design_review_report_path.txt",
+            decision_relpath=f"{current_root(ws, 'big_design')}/design_review_decision.txt",
+            high_count_relpath=f"{current_root(ws, 'big_design')}/unresolved_high_count.txt",
+            medium_count_relpath=f"{current_root(ws, 'big_design')}/unresolved_medium_count.txt",
+        ),
+        "ExecuteImplementation": lambda ws: write_pointer_target(
+            ws,
+            "implementation",
+            "execution_report_path.txt",
+            "# Execution report\n",
+        ),
+        "ReviewImplementation": lambda ws: _write_review_outputs(
+            ws,
+            pointer_relpath=f"{current_root(ws, 'implementation')}/implementation_review_report_path.txt",
+            decision_relpath=f"{current_root(ws, 'implementation')}/implementation_review_decision.txt",
+            markdown=True,
+        ),
+    }
+
+    state = _run_with_mocked_providers(
+        tmp_path,
+        workflow_path,
+        provider_sequence,
+        provider_writers,
+        bound_inputs={
+            "project_brief_path": "workflows/examples/inputs/major_project_brief.md",
+            "project_roadmap_path": "docs/plans/major-project-demo/project-roadmap.md",
+            "tranche_manifest_target_path": "state/major-project-demo/tranche_manifest.json",
+            "approved_design_path": "docs/plans/major-project-demo/repo-docs-baseline-design.md",
+        },
+    )
+
+    ledger = json.loads((tmp_path / item_root / "phase_visit_ledger.json").read_text(encoding="utf-8"))
+    plan_roots = [visit["state_root"] for visit in ledger["visits"] if visit["phase"] == "plan"]
+    big_design_roots = [visit["state_root"] for visit in ledger["visits"] if visit["phase"] == "big_design"]
+    implementation_roots = [visit["state_root"] for visit in ledger["visits"] if visit["phase"] == "implementation"]
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == len(provider_sequence)
+    assert state["workflow_outputs"]["drain_status"] == "CONTINUE"
+    assert state["steps"]["RunSelectedTrancheFromApprovedDesign"]["artifacts"]["item_outcome"] == "APPROVED"
+    assert (tmp_path / item_root / "current_phase.txt").read_text(encoding="utf-8").strip() == "implementation"
+    assert design_path.read_text(encoding="utf-8").startswith("# Redesigned")
+    assert plan_roots == [f"{item_root}/plan-phase/visits/0000", f"{item_root}/plan-phase/visits/0001"]
+    assert big_design_roots == [f"{item_root}/big-design-phase/visits/0000"]
+    assert implementation_roots == [f"{item_root}/implementation-phase/visits/0000"]
+
+
+def test_continue_from_approved_design_runtime_blocks_on_redesign_roadmap_escalation(tmp_path: Path):
+    workflow_path = _copy_major_project_runtime_files(
+        tmp_path,
+        "workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml",
+    )
+
+    project_id = "major-project-demo"
+    tranche_id = "repo-docs-baseline"
+    drain_root = "state/major-project-demo/tranche-drain"
+    item_root = f"{drain_root}/items/{project_id}/{tranche_id}"
+    manifest_path = tmp_path / "state/major-project-demo/tranche_manifest.json"
+    roadmap_path = tmp_path / "docs/plans/major-project-demo/project-roadmap.md"
+    brief_path = tmp_path / "docs/backlog/generated/major-project-demo/repo-docs-baseline.md"
+    design_path = tmp_path / "docs/plans/major-project-demo/repo-docs-baseline-design.md"
+
+    roadmap_path.parent.mkdir(parents=True, exist_ok=True)
+    roadmap_path.write_text("# Major project roadmap\n", encoding="utf-8")
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text("# Repo docs baseline\n", encoding="utf-8")
+    design_path.parent.mkdir(parents=True, exist_ok=True)
+    design_path.write_text("# Approved big design\n", encoding="utf-8")
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "project_id": project_id,
+                "project_brief_path": "workflows/examples/inputs/major_project_brief.md",
+                "project_roadmap_path": "docs/plans/major-project-demo/project-roadmap.md",
+                "tranches": [
+                    {
+                        "tranche_id": tranche_id,
+                        "title": "Repository documentation baseline",
+                        "brief_path": brief_path.relative_to(tmp_path).as_posix(),
+                        "design_target_path": design_path.relative_to(tmp_path).as_posix(),
+                        "design_review_report_target_path": (
+                            f"artifacts/review/major-project-demo/{tranche_id}-design-review.json"
+                        ),
+                        "plan_target_path": f"docs/plans/major-project-demo/{tranche_id}-plan.md",
+                        "plan_review_report_target_path": (
+                            f"artifacts/review/major-project-demo/{tranche_id}-plan-review.json"
+                        ),
+                        "execution_report_target_path": (
+                            f"artifacts/work/major-project-demo/{tranche_id}-execution-report.md"
+                        ),
+                        "implementation_review_report_target_path": (
+                            f"artifacts/review/major-project-demo/{tranche_id}-implementation-review.md"
+                        ),
+                        "item_summary_target_path": f"artifacts/work/major-project-demo/{tranche_id}-summary.json",
+                        "prerequisites": [],
+                        "status": "pending",
+                        "design_depth": "big",
+                        "completion_gate": "implementation_approved",
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def current_root(workspace: Path, phase: str) -> str:
+        return (workspace / item_root / f"current_{phase}_phase_state_root.txt").read_text(encoding="utf-8").strip()
+
+    def write_pointer_target(workspace: Path, phase: str, pointer_name: str, content: str) -> None:
+        root = current_root(workspace, phase)
+        _target_from_pointer(workspace, f"{root}/{pointer_name}").write_text(content, encoding="utf-8")
+
+    def review_plan_escalates(workspace: Path) -> None:
+        root = current_root(workspace, "plan")
+        report = _target_from_pointer(workspace, f"{root}/plan_review_report_path.txt")
+        report.write_text(
+            json.dumps(
+                {
+                    "decision": "ESCALATE_REDESIGN",
+                    "summary": "Plan requires redesign.",
+                    "findings": [],
+                    "unresolved_high_count": 1,
+                    "unresolved_medium_count": 0,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (workspace / root / "plan_review_decision.txt").write_text("ESCALATE_REDESIGN\n", encoding="utf-8")
+        (workspace / root / "unresolved_high_count.txt").write_text("1\n", encoding="utf-8")
+        (workspace / root / "unresolved_medium_count.txt").write_text("0\n", encoding="utf-8")
+        context = _target_from_pointer(workspace, f"{root}/plan_escalation_context_path.txt")
+        context.write_text(
+            json.dumps(
+                {
+                    "active": True,
+                    "source_phase": "plan",
+                    "decision": "ESCALATE_REDESIGN",
+                    "recommended_next_phase": "design_revision",
+                    "reason_summary": "Plan review escalated to redesign.",
+                    "must_change": ["Revisit roadmap-level tranche shape."],
+                    "evidence_paths": {"review_report": report.relative_to(workspace).as_posix()},
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    def review_big_design_escalates_to_roadmap(workspace: Path) -> None:
+        root = current_root(workspace, "big_design")
+        report = _target_from_pointer(workspace, f"{root}/design_review_report_path.txt")
+        report.write_text(
+            json.dumps(
+                {
+                    "decision": "ESCALATE_ROADMAP_REVISION",
+                    "summary": "The tranche needs roadmap revision.",
+                    "findings": [],
+                    "unresolved_high_count": 1,
+                    "unresolved_medium_count": 0,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        (workspace / root / "design_review_decision.txt").write_text("ESCALATE_ROADMAP_REVISION\n", encoding="utf-8")
+        (workspace / root / "unresolved_high_count.txt").write_text("1\n", encoding="utf-8")
+        (workspace / root / "unresolved_medium_count.txt").write_text("0\n", encoding="utf-8")
+        request = _target_from_pointer(workspace, f"{root}/roadmap_change_request_path.txt")
+        request.write_text(
+            json.dumps(
+                {
+                    "active": True,
+                    "source_phase": "design",
+                    "decision": "ESCALATE_ROADMAP_REVISION",
+                    "reason_summary": "Roadmap shape must change.",
+                    "requested_program_change": "Split the tranche.",
+                    "requested_changes": ["Split the tranche."],
+                    "superseded_tranche_ids": [tranche_id],
+                    "proposed_new_tranche_ids": [f"{tranche_id}-a", f"{tranche_id}-b"],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    provider_sequence = [
+        "DraftPlan",
+        "ReviewPlanTracked",
+        "DraftBigDesign",
+        "ReviewBigDesign",
+    ]
+    provider_writers = {
+        "DraftPlan": lambda ws: write_pointer_target(ws, "plan", "plan_path.txt", "# Plan\n"),
+        "ReviewPlanTracked": review_plan_escalates,
+        "DraftBigDesign": lambda ws: write_pointer_target(ws, "big_design", "design_path.txt", "# Redesigned\n"),
+        "ReviewBigDesign": review_big_design_escalates_to_roadmap,
+    }
+
+    state = _run_with_mocked_providers(
+        tmp_path,
+        workflow_path,
+        provider_sequence,
+        provider_writers,
+        bound_inputs={
+            "project_brief_path": "workflows/examples/inputs/major_project_brief.md",
+            "project_roadmap_path": "docs/plans/major-project-demo/project-roadmap.md",
+            "tranche_manifest_target_path": "state/major-project-demo/tranche_manifest.json",
+            "approved_design_path": "docs/plans/major-project-demo/repo-docs-baseline-design.md",
+        },
+    )
+
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+
+    assert state["status"] == "completed"
+    assert state["__provider_calls"] == len(provider_sequence)
+    assert state["workflow_outputs"]["drain_status"] == "BLOCKED"
+    assert state["steps"]["RunSelectedTrancheFromApprovedDesign"]["artifacts"]["item_outcome"] == (
+        "ESCALATE_ROADMAP_REVISION"
+    )
+    assert state["steps"]["RouteSelectedTrancheOutcome"]["artifacts"]["item_outcome"] == "ESCALATE_ROADMAP_REVISION"
+    assert manifest["tranches"][0]["status"] == "pending"
+    assert (tmp_path / item_root / "final_roadmap_change_request_path.txt").is_file()
 
 
 def test_tranche_stack_replan_runtime_uses_second_active_plan_visit(tmp_path: Path):
