@@ -6,6 +6,7 @@ Do not use `git worktree` or another checkout.
 If the repo is dirty, stay in the current checkout and leave unrelated files alone.
 Do not modify YAML, prompt files, or transient state files unless the plan explicitly requires it.
 Preserve layout and ownership decisions from the design and plan. If implementation needs to change a location or unit boundary, record the deviation and rationale in the execution report.
+Do not make target acceptance pass by changing tests, catalogs, examples, reports, or docs to expect blocked, failing, unsupported, or candidate-only behavior. If you need to test that a report, ledger, or routing file truthfully records an unresolved blocker, keep that check separate from target-behavior acceptance and record what must change before the blocker can be removed.
 
 For the output contract's `execution_report_path`, read the path recorded in that file and write the concise execution report to that current-checkout-relative path. Leave the `execution_report_path` file containing only the path.
 

@@ -1,6 +1,6 @@
 Major-project implementation fix additions:
 - Read the consumed `implementation_iteration_context` and `implementation_escalation_context` artifacts.
-- If the threshold has crossed and the latest decision is still `REVISE`, include a short escalation assessment in the execution report explaining why local implementation still appears to be the right locus.
+- If the threshold has crossed and the latest decision is still `REVISE`, include a short escalation assessment in the execution report explaining whether local implementation remains the right locus. If it does not, record why the blocker should be escalated.
 - Do not silently widen tranche scope or redesign architecture under a `REVISE` path.
 
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
@@ -30,6 +30,10 @@ Prioritize in this order:
 3. record genuine follow-up work without implementing it
 
 Address review findings in dependency order. Fix the required behavior, interface, data shape, integration, or user-visible result before updating work that depends on it.
+
+Do not satisfy a review by changing tests, catalogs, examples, reports, or docs to expect blocked, failing, unsupported, or candidate-only behavior. An implementation review finding can require escalation or revision; it cannot reduce approved scope by itself. Checks that a report, ledger, or routing file truthfully records an unresolved blocker are valid only when kept separate from target-behavior acceptance; they do not replace target-behavior acceptance.
+If systematic-debugging shows that a blocking target behavior cannot be completed under the approved plan, do not make further edits for that blocker. Preserve the target blocker, record the root-cause evidence in the execution report, and continue only with independent findings that do not depend on the blocked target behavior. Do not normalize the blocked state into the new passing contract.
+If the required fix appears to need unplanned architecture, missing prerequisite machinery, different task decomposition, or a different tranche boundary, record that conclusion in the execution report instead of widening the implementation under a `REVISE` path.
 
 For numerical parity failures already in scope, first rule out semantic causes such as inputs, units, axes, shapes, metadata, row meanings, normalization, and domain assumptions. If the remaining discrepancy is supported by evidence as numerical-method drift, apply a narrow tolerance or comparison-standard change at the authoritative spec, catalog, test helper, or gate; keep unrelated invariant checks strict; record the affected comparison, old and new standard, output scale, precision/backend context, and residual evidence in the execution report. If the evidence is incomplete or the authoritative standard is unclear, preserve the blocker and report the proposed change instead.
 For parity or benchmark work, expected outputs, oracle data, fixtures, and generated evidence may be used only for tests, diagnostics, or validation. Do not use them as production answers or runtime lookup tables unless the approved design explicitly defines the feature as reference-data lookup.
