@@ -257,6 +257,32 @@ def create_parser() -> argparse.ArgumentParser:
         help='Port to bind (default: 8765)'
     )
 
+    monitor_parser = subparsers.add_parser('monitor', help='Monitor workflow runs and send notifications')
+    monitor_parser.add_argument(
+        '--config',
+        required=True,
+        help='Path to monitor YAML config'
+    )
+    monitor_parser.add_argument(
+        '--once',
+        action='store_true',
+        help='Scan once and exit instead of polling forever'
+    )
+    monitor_parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Render notifications without sending email'
+    )
+    monitor_parser.add_argument(
+        '--dry-run-mark-sent',
+        action='store_true',
+        help='With --dry-run, update the ledger after rendering notifications'
+    )
+    monitor_parser.add_argument(
+        '--ledger',
+        help='Override notification ledger path'
+    )
+
     return parser
 
 
@@ -288,6 +314,15 @@ def main(args: Optional[list] = None) -> int:
             workspace=parsed_args.workspace,
             host=parsed_args.host,
             port=parsed_args.port,
+        )
+    elif parsed_args.command == 'monitor':
+        from orchestrator.cli.commands import monitor_workflows
+        return monitor_workflows(
+            config=parsed_args.config,
+            once=parsed_args.once,
+            dry_run=parsed_args.dry_run,
+            dry_run_mark_sent=parsed_args.dry_run_mark_sent,
+            ledger=parsed_args.ledger,
         )
     else:
         parser.print_help()
