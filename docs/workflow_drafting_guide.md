@@ -131,6 +131,17 @@ Exception: keep redundancy when the step is high-risk and you want belt-and-susp
 
 For design, design-review, and planning prompts that may affect architecture, data contracts, workflow APIs, or stable modules, explicitly instruct the agent to read `docs/index.md` first when present, then use it to select the relevant specs, architecture docs, workflow guides, and findings docs. This instruction belongs in the prompt because it is part of the review or design judgment standard. Keep the workflow `depends_on.inject` list narrow and treat it as candidate context, not a mandatory reading list.
 
+### Guard Against Substitute-Path Closure
+
+For implementation and implementation-review prompts, guard against agents satisfying the acceptance surface by changing the provenance of the result instead of implementing the requested behavior.
+
+When a task depends on fixtures, oracle artifacts, generated evidence, cached outputs, mocks, stubs, fallback paths, feature flags, replay tables, reference templates, or candidate/dev-only helpers, make the expected boundary explicit:
+- the normal, public, production, default, or user-facing path that must produce the accepted behavior
+- the helper or evidence paths that may support tests, diagnostics, and review
+- the helper or evidence paths that must not be promoted, relabeled, or routed into the accepted path
+
+Review prompts should check provenance, not only final output equality. If validation data is also the production mechanism being validated, that is a blocking issue unless the approved design explicitly defines the feature as reference-data lookup.
+
 ### Keep Workflow Mechanics Out Of Prompts
 
 Prompts should describe the task, scope, and required outputs from the agent's point of view. They should not teach the agent how the orchestrator works internally.

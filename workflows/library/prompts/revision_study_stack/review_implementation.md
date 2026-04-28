@@ -19,6 +19,7 @@ When reviewing:
 - identify compile or inspection failures
 - identify edits to unrelated files or the seed revision design
 - identify verification that was claimed but not actually run
+- reject substitute-path closure. A result is not complete if the target behavior only passes because expected outputs, fixture data, oracle/reference artifacts, mocks, stubs, cached results, replay tables, fallback paths, dev-only helpers, feature flags, or test-only paths were moved into or made reachable from the production/default/reviewer-facing path. Review the provenance of the successful behavior, not only the final output.
 - distinguish:
   - remaining required plan work
   - defects in already-implemented work that block subsequent required plan work or materially distort revision-study evidence

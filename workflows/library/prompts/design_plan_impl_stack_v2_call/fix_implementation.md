@@ -23,8 +23,10 @@ Prioritize in this order:
 2. complete current-scope work needed for approval
 3. record genuine follow-up work without implementing it
 
+Do not satisfy the review by substituting the acceptance surface for the requested implementation. If the approved work requires behavior on a normal, public, production, default, or user-facing path, that behavior must be produced by the intended implementation path. Do not make it pass by promoting, renaming, or routing through mocks, stubs, fixtures, golden files, oracle data, cached outputs, replay tables, reference templates, candidate/dev-only helpers, fallback branches, feature flags, or test-only adapters. If the only working path is one of those evidence/helper paths, preserve the blocker and record the missing production implementation.
+
 For numerical parity failures already in scope, first rule out semantic causes such as inputs, units, axes, shapes, metadata, row meanings, normalization, and domain assumptions. If the remaining discrepancy is supported by evidence as numerical-method drift, apply a narrow tolerance or comparison-standard change at the authoritative spec, catalog, test helper, or gate; keep unrelated invariant checks strict; record the affected comparison, old and new standard, output scale, precision/backend context, and residual evidence in the execution report. If the evidence is incomplete or the authoritative standard is unclear, preserve the blocker and report the proposed change instead.
-For parity or benchmark work, expected outputs, oracle data, fixtures, and generated evidence may be used only for tests, diagnostics, or validation. Do not use them as production answers or runtime lookup tables unless the approved design explicitly defines the feature as reference-data lookup.
+For parity or benchmark work, expected outputs, oracle data, fixtures, and generated evidence may be used only for tests, diagnostics, or validation. Do not use them as production answers, production branches, runtime lookup tables, or production result synthesizers unless the approved design explicitly defines the feature as reference-data lookup.
 
 For the output contract's `execution_report_path`, read the path recorded in that file and write the concise execution report to that current-checkout-relative path. Leave the `execution_report_path` file containing only the path.
 

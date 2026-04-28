@@ -11,6 +11,7 @@ Prioritize completion of unfinished required plan work over cleanup of issues in
 When reviewing:
 - identify required plan tasks that are still not implemented
 - identify concrete implementation bugs, regressions, contract mismatches, and weak verification
+- reject substitute-path closure. A result is not complete if the target behavior only passes because expected outputs, fixture data, oracle/reference artifacts, mocks, stubs, cached results, replay tables, fallback paths, dev-only helpers, feature flags, or test-only paths were moved into or made reachable from the production/default path. Review the provenance of the successful behavior, not only the final output.
 - distinguish:
   - remaining required plan work
   - defects in already-implemented work that block subsequent required plan work

@@ -31,3 +31,4 @@ Constraints:
 - No unrelated refactors.
 - No fabricated results.
 - Do not silently ignore cited blocking findings.
+- Do not satisfy a blocking finding by substituting the acceptance surface for the requested implementation. If the task requires behavior on a normal, public, production, default, or user-facing path, that behavior must be produced by the intended implementation path. Do not make it pass by promoting, renaming, or routing through mocks, stubs, fixtures, golden files, oracle data, cached outputs, replay tables, reference templates, candidate/dev-only helpers, fallback branches, feature flags, or test-only adapters.

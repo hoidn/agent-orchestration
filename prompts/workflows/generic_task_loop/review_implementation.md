@@ -38,3 +38,4 @@ Constraints:
 - If checks passed but hidden-evaluator-like risks remain visible from code or artifacts, call them out and reject only if they are genuinely blocking.
 - Treat any oracle or expected-number artifact generated from the candidate implementation as a blocking verification defect.
 - Require documented external provenance for visible numerical oracle artifacts before approving the implementation.
+- Reject substitute-path closure. A result is not complete if the target behavior only passes because expected outputs, fixture data, oracle/reference artifacts, mocks, stubs, cached results, replay tables, fallback paths, dev-only helpers, feature flags, or test-only paths were moved into or made reachable from the production/default path. Review the provenance of the successful behavior, not only the final output.

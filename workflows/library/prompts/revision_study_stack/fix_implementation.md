@@ -25,6 +25,8 @@ Prioritize in this order:
 2. identify the earliest required unfinished plan task or coherent tranche
 3. implement that tranche before optional later work
 
+Do not satisfy the review by substituting the acceptance surface for the requested implementation. If the approved work requires behavior on a normal, public, production, default, reviewer-facing, or manuscript-facing path, that behavior must be produced by the intended implementation path. Do not make it pass by promoting, renaming, or routing through mocks, stubs, fixtures, golden files, oracle data, cached outputs, replay tables, reference templates, candidate/dev-only helpers, fallback branches, feature flags, or test-only adapters. If the only working path is one of those evidence/helper paths, preserve the blocker and record the missing production implementation.
+
 Write an updated execution report to the path recorded by the `execution_report_path` output-contract pointer.
 
 The execution report must include:

@@ -35,3 +35,4 @@ Constraints:
 - Do not write outputs anywhere except the contract paths required by this invocation.
 - Do not generate expected numerical outputs, oracle artifacts, or reference metrics from the candidate implementation.
 - Any visible oracle artifact must come from a reference path or a pre-existing artifact with documented external provenance.
+- Do not satisfy the task by substituting the acceptance surface for the requested implementation. If the task requires behavior on a normal, public, production, default, or user-facing path, that behavior must be produced by the intended implementation path. Do not make it pass by promoting, renaming, or routing through mocks, stubs, fixtures, golden files, oracle data, cached outputs, replay tables, reference templates, candidate/dev-only helpers, fallback branches, feature flags, or test-only adapters.

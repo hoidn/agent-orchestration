@@ -48,6 +48,15 @@ Use this section when the work affects nontrivial tooling, validators, generator
 - Path and ownership expectations:
 - Compatibility and migration constraints:
 
+## Evidence And Implementation Boundaries
+
+Use this section when the work uses reference data, fixtures, generated artifacts, mocks, cached outputs, fallback paths, feature flags, candidate/dev-only helpers, or any other evidence mechanism that could be confused with the implementation itself.
+
+- Evidence/helper paths that may be used for tests, diagnostics, review, or validation:
+- Production/default paths that must produce the accepted behavior independently:
+- Evidence/helper paths that must not be promoted, relabeled, or routed into production acceptance:
+- Review checks needed to prove the behavior came from the intended path:
+
 ## Invariants And Failure Modes
 
 - Invariants the implementation must preserve:

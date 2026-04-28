@@ -9,6 +9,7 @@ Do not edit the original revision design seed unless the approved plan explicitl
 Do not commit unless the approved plan explicitly requires a commit.
 
 Follow the plan's provenance and pivot gates. If evidence shows that a planned metric, figure, experiment, or manuscript claim would be scientifically unsafe, record the stop or pivot in the execution report instead of papering over it.
+Do not satisfy the plan by substituting the acceptance surface for the requested implementation. If the approved work requires behavior on a normal, public, production, default, reviewer-facing, or manuscript-facing path, that behavior must be produced by the intended implementation path. Do not make it pass by promoting, renaming, or routing through mocks, stubs, fixtures, golden files, oracle data, cached outputs, replay tables, reference templates, candidate/dev-only helpers, fallback branches, feature flags, or test-only adapters.
 
 Write a concise execution report to the path recorded by the `execution_report_path` output-contract pointer.
 

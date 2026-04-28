@@ -26,6 +26,7 @@ When reviewing:
 - flag implementations that drift from roadmap, design, or plan layout and ownership decisions, or combine things the design or plan kept separate without a recorded rationale
 - use systematic-debugging to identify the root cause of any nontrivial runtime failures
 - flag implementations that make tests or reports pass by expecting blocked, failing, unsupported, or candidate-only behavior when the approved target behavior is still required. Treat those changes as blocker-honesty evidence only, not as completion of the target behavior.
+- reject substitute-path closure. A result is not complete if the target behavior only passes because expected outputs, fixture data, oracle/reference artifacts, mocks, stubs, cached results, replay tables, fallback paths, dev-only helpers, feature flags, or test-only paths were moved into or made reachable from the production/default path. Review the provenance of the successful behavior, not only the final output.
 - for numerical parity failures in current-scope or claimed behavior, distinguish implementation defects, insufficient diagnosis, and cases where the comparison standard is too strict for the supported claim. Treat tolerance or comparator changes as acceptable only when residual evidence supports numerical-method drift rather than semantic or physics drift, unaffected invariants stay strict, and the authoritative spec, catalog, test helper, or gate is updated.
 - for parity or benchmark work, reject implementations where validation data is part of the production mechanism being validated, unless the approved design explicitly defines the feature as reference-data lookup. Validation data includes expected outputs, oracle data, fixtures, generated evidence, checked-in answer tables, derived reference templates, or equivalent encoded answers. It may support tests, diagnostics, and review evidence; it must not be what makes production behavior pass.
 - distinguish:
@@ -42,6 +43,7 @@ Use `REVISE` only when the remaining blocking work is directly actionable under 
 Use `ESCALATE_REPLAN` when a high-severity current-scope blocker appears to require unplanned architecture, missing prerequisite machinery, a different implementation sequence, or a different task decomposition.
 If the implementation review says "must implement X" but the available evidence shows that X is not executable from the approved plan, do not keep the locus at local implementation only because `threshold_crossed` is false.
 If an implementation improves blocked-state honesty while the approved target behavior remains unsolved, do not approve it and do not count that honesty work as target-behavior completion.
+If the implementation merely renames a blocked, private, helper, or evidence path as the required public/default path, treat that as a high-severity blocker. If the real implementation path is missing and cannot be completed under the approved plan, choose escalation instead of more local revision.
 
 Group findings by severity.
 If there are any high-severity findings, include a section header exactly `## High`.
