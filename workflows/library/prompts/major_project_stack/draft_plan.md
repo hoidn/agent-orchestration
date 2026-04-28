@@ -6,7 +6,7 @@ Major-project tranche planning additions:
 - If the consumed escalation context says implementation failed to converge, treat that as evidence that the plan may need a better task breakdown, sequence, scope boundary, verification strategy, or implementation architecture. Revise plan-owned decisions only; do not patch the implementation.
 
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `design` artifact before acting.
+Read the consumed `design` and `scope_boundary` artifacts before acting.
 
 Draft an execution plan from the approved design.
 
@@ -36,13 +36,13 @@ If the work is small enough for a single implementation unit, state that briefly
 
 If the design lacks a material architectural decision needed to plan safely, call out the missing decision explicitly instead of inventing conflicting architecture.
 
-Determine the implementation scope from the consumed design and any consumed brief, roadmap, or selection context. Preserve the intended deliverable: if the design calls for full implementation, plan all material design requirements. If the work is intentionally staged or too large to implement coherently in one pass, define the current slice and justify the boundary. Every material design requirement must be accounted for as current work or named Follow-Up Work with the reason it is deferred and the handoff criteria for picking it up. Do not use follow-up work to avoid required design obligations.
+Determine task sequencing from the consumed design, but treat `scope_boundary` as the roadmap-authoritative completion boundary for the selected tranche. Only roadmap revision can reduce, split, recharter, or move selected-tranche scope. Plan all required deliverables and evidence named by the scope boundary unless that same boundary records roadmap-authorized deferred work or non-goals. A staged implementation sequence is allowed, but it is not a smaller definition of done. If the design or plan cannot satisfy the scope boundary as one executable tranche, call that out as needing redesign or roadmap revision instead of moving required work to Follow-Up Work.
 
 Do not turn generated projections, report bundles, summaries, or incidental evidence artifacts into current-scope plan work unless the design identifies them as authoritative, as stable downstream inputs, or as explicit user-facing deliverables.
 
 The plan should:
-- define the current implementation scope, including whether it is the whole design or a justified slice
-- account for every material design requirement as current work or justified follow-up work
+- define the implementation sequence inside the roadmap-authoritative scope boundary
+- account for every material design and scope-boundary requirement as current work or roadmap-authorized follow-up work
 - put prerequisites before dependent work
 - organize implementation units around the Implementation Architecture boundaries when that section is present
 - call out migrations, compatibility boundaries, and explicit non-goals

@@ -136,6 +136,7 @@ def select_next_tranche(
         "reason": "Selected first ready pending tranche.",
         "selected_tranche_id": selected_id,
         "item_state_root": item_state_root,
+        "scope_boundary_path": f"{item_state_root}/scope_boundary.json",
         "upstream_escalation_context_path": f"{item_state_root}/upstream_escalation_context.json",
         "big_design_phase_state_root": f"{item_state_root}/big-design-phase",
         "plan_phase_state_root": f"{item_state_root}/plan-phase",

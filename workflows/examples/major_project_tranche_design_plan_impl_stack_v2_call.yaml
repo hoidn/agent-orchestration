@@ -27,7 +27,7 @@ outputs:
   item_outcome:
     kind: scalar
     type: enum
-    allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION"]
+    allowed: ["APPROVED", "SKIPPED_AFTER_DESIGN", "SKIPPED_AFTER_PLAN", "SKIPPED_AFTER_IMPLEMENTATION", "ESCALATE_ROADMAP_REVISION"]
     from:
       ref: root.steps.RunSelectedTranche.artifacts.item_outcome
   execution_report_path:
@@ -129,17 +129,19 @@ steps:
             raise SystemExit(f"Selected tranche missing required fields: {', '.join(missing)}")
 
         tranche_id = selected["tranche_id"]
+        item_state_root = f"state/major-project-tranche-stack/{project_id}/{tranche_id}"
         payload = {
             "selection_status": "SELECTED",
             "selected_tranche_id": tranche_id,
             "project_brief_path": project_brief_path,
             "project_roadmap_path": project_roadmap_path,
             "tranche_manifest_path": manifest_path.as_posix(),
-            "item_state_root": f"state/major-project-tranche-stack/{project_id}/{tranche_id}",
-            "upstream_escalation_context_path": f"state/major-project-tranche-stack/{project_id}/{tranche_id}/upstream_escalation_context.json",
-            "big_design_phase_state_root": f"state/major-project-tranche-stack/{project_id}/{tranche_id}/big-design-phase",
-            "plan_phase_state_root": f"state/major-project-tranche-stack/{project_id}/{tranche_id}/plan-phase",
-            "implementation_phase_state_root": f"state/major-project-tranche-stack/{project_id}/{tranche_id}/implementation-phase",
+            "item_state_root": item_state_root,
+            "scope_boundary_path": f"{item_state_root}/scope_boundary.json",
+            "upstream_escalation_context_path": f"{item_state_root}/upstream_escalation_context.json",
+            "big_design_phase_state_root": f"{item_state_root}/big-design-phase",
+            "plan_phase_state_root": f"{item_state_root}/plan-phase",
+            "implementation_phase_state_root": f"{item_state_root}/implementation-phase",
             "tranche_brief_path": selected["brief_path"],
             "design_target_path": selected["design_target_path"],
             "design_review_report_target_path": selected["design_review_report_target_path"],
@@ -177,6 +179,10 @@ steps:
           must_exist_target: true
         - name: item_state_root
           json_pointer: /item_state_root
+          type: relpath
+          under: state
+        - name: scope_boundary_path
+          json_pointer: /scope_boundary_path
           type: relpath
           under: state
         - name: upstream_escalation_context_path
@@ -234,6 +240,8 @@ steps:
     with:
       item_state_root:
         ref: root.steps.SelectNextTranche.artifacts.item_state_root
+      scope_boundary_path:
+        ref: root.steps.SelectNextTranche.artifacts.scope_boundary_path
       upstream_escalation_context_path:
         ref: root.steps.SelectNextTranche.artifacts.upstream_escalation_context_path
       big_design_phase_state_root:

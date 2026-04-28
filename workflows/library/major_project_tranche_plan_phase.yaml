@@ -13,6 +13,10 @@ inputs:
     type: relpath
     under: docs/plans
     must_exist_target: true
+  scope_boundary_path:
+    type: relpath
+    under: state
+    must_exist_target: true
   plan_target_path:
     type: relpath
     under: docs/plans
@@ -61,6 +65,11 @@ artifacts:
     pointer: ${inputs.state_root}/design_path.txt
     type: relpath
     under: docs/plans
+    must_exist_target: true
+  scope_boundary:
+    pointer: ${inputs.state_root}/scope_boundary_path.txt
+    type: relpath
+    under: state
     must_exist_target: true
   plan:
     pointer: ${inputs.state_root}/plan_path.txt
@@ -163,6 +172,7 @@ steps:
           exit 1
         fi
         printf '%s\n' "${inputs.design_path}" > "${inputs.state_root}/design_path.txt"
+        printf '%s\n' "${inputs.scope_boundary_path}" > "${inputs.state_root}/scope_boundary_path.txt"
         printf '%s\n' "${inputs.upstream_escalation_context_path}" > "${inputs.state_root}/upstream_escalation_context_path.txt"
     expected_outputs:
       - name: design_path
@@ -175,9 +185,16 @@ steps:
         type: relpath
         under: state
         must_exist_target: true
+      - name: scope_boundary_path
+        path: ${inputs.state_root}/scope_boundary_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
     publishes:
       - artifact: design
         from: design_path
+      - artifact: scope_boundary
+        from: scope_boundary_path
       - artifact: upstream_escalation_context
         from: upstream_escalation_context_path
 
@@ -190,10 +207,13 @@ steps:
       - artifact: design
         policy: latest_successful
         freshness: any
+      - artifact: scope_boundary
+        policy: latest_successful
+        freshness: any
       - artifact: upstream_escalation_context
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["design", "upstream_escalation_context"]
+    prompt_consumes: ["design", "scope_boundary", "upstream_escalation_context"]
     expected_outputs:
       - name: plan_path
         path: ${inputs.state_root}/plan_path.txt
@@ -252,6 +272,9 @@ steps:
             - artifact: design
               policy: latest_successful
               freshness: any
+            - artifact: scope_boundary
+              policy: latest_successful
+              freshness: any
             - artifact: plan
               policy: latest_successful
               freshness: any
@@ -261,7 +284,7 @@ steps:
             - artifact: upstream_escalation_context
               policy: latest_successful
               freshness: any
-          prompt_consumes: ["design", "plan", "open_findings", "upstream_escalation_context"]
+          prompt_consumes: ["design", "scope_boundary", "plan", "open_findings", "upstream_escalation_context"]
           expected_outputs:
             - name: plan_review_report_path
               path: ${inputs.state_root}/plan_review_report_path.txt
@@ -330,6 +353,9 @@ steps:
                       - artifact: design
                         policy: latest_successful
                         freshness: any
+                      - artifact: scope_boundary
+                        policy: latest_successful
+                        freshness: any
                       - artifact: plan
                         policy: latest_successful
                         freshness: any
@@ -339,7 +365,7 @@ steps:
                       - artifact: upstream_escalation_context
                         policy: latest_successful
                         freshness: any
-                    prompt_consumes: ["design", "plan", "plan_review_report", "upstream_escalation_context"]
+                    prompt_consumes: ["design", "scope_boundary", "plan", "plan_review_report", "upstream_escalation_context"]
                     expected_outputs:
                       - name: plan_path
                         path: ${inputs.state_root}/plan_path.txt

@@ -99,6 +99,11 @@ steps:
           type: relpath
           under: state
           required: false
+        - name: scope_boundary_path
+          json_pointer: /scope_boundary_path
+          type: relpath
+          under: state
+          required: false
         - name: upstream_escalation_context_path
           json_pointer: /upstream_escalation_context_path
           type: relpath
@@ -196,6 +201,8 @@ steps:
               with:
                 item_state_root:
                   ref: parent.steps.SelectNextTranche.artifacts.item_state_root
+                scope_boundary_path:
+                  ref: parent.steps.SelectNextTranche.artifacts.scope_boundary_path
                 upstream_escalation_context_path:
                   ref: parent.steps.SelectNextTranche.artifacts.upstream_escalation_context_path
                 big_design_phase_state_root:

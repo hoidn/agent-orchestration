@@ -7,6 +7,7 @@ imports:
 
 inputs:
   item_state_root: {type: relpath, under: state}
+  scope_boundary_path: {type: relpath, under: state}
   upstream_escalation_context_path: {type: relpath, under: state}
   big_design_phase_state_root: {type: relpath, under: state}
   plan_phase_state_root: {type: relpath, under: state}
@@ -52,6 +53,7 @@ steps:
     with:
       initial_phase: plan
       item_state_root: {ref: inputs.item_state_root}
+      scope_boundary_path: {ref: inputs.scope_boundary_path}
       upstream_escalation_context_path: {ref: inputs.upstream_escalation_context_path}
       big_design_phase_state_root: {ref: inputs.big_design_phase_state_root}
       plan_phase_state_root: {ref: inputs.plan_phase_state_root}

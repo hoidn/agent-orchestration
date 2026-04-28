@@ -1,11 +1,12 @@
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `design` and `plan` artifacts before acting.
+Read the consumed `design`, `plan`, and `scope_boundary` artifacts before acting.
 
 Use executing-plans to implement the approved plan in the current checkout.
 Do not use `git worktree` or another checkout.
 If the repo is dirty, stay in the current checkout and leave unrelated files alone.
 Do not modify YAML, prompt files, or transient state files unless the plan explicitly requires it.
 Preserve layout and ownership decisions from the design and plan. If implementation needs to change a location or unit boundary, record the deviation and rationale in the execution report.
+Treat `scope_boundary` as the selected tranche's roadmap-authoritative completion boundary. Do not reduce, split, recharter, or move required scope locally; if the approved plan cannot satisfy that boundary, preserve the blocker and record why escalation is required.
 Do not make target acceptance pass by changing tests, catalogs, examples, reports, or docs to expect blocked, failing, unsupported, or candidate-only behavior. If you need to test that a report, ledger, or routing file truthfully records an unresolved blocker, keep that check separate from target-behavior acceptance and record what must change before the blocker can be removed.
 Do not satisfy the plan by substituting the acceptance surface for the requested implementation. If the approved work requires behavior on a normal, public, production, default, or user-facing path, that behavior must be produced by the intended implementation path. Do not make it pass by promoting, renaming, or routing through mocks, stubs, fixtures, golden files, oracle data, cached outputs, replay tables, reference templates, candidate/dev-only helpers, fallback branches, feature flags, or test-only adapters. If the only working path is one of those evidence/helper paths, preserve the blocker, record the missing production implementation, and escalate when the approved plan cannot produce it.
 

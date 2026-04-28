@@ -7,6 +7,7 @@ import pathlib
 import sys
 from typing import Any
 
+from major_project_scope_boundary import check_completion
 from major_project_escalation_state import (
     activate_upstream,
     clear_upstream,
@@ -131,6 +132,7 @@ def route_after_implementation(
     tranche_brief_path: str,
     design_path: str,
     plan_path: str,
+    scope_boundary_path: str,
     execution_report_target_path: str,
     item_summary_target_path: str,
     output_bundle: pathlib.Path,
@@ -138,6 +140,68 @@ def route_after_implementation(
     phase_root = _current_phase_root(item_state_root, "implementation")
     decision = _read_text(phase_root / "final_implementation_review_decision.txt")
     if decision == "APPROVE":
+        execution_report_path = _read_text(phase_root / "final_execution_report_path.txt")
+        implementation_review_report_path = _read_text(phase_root / "final_implementation_review_report_path.txt")
+        implementation_escalation_context_path = _read_text(
+            phase_root / "final_implementation_escalation_context_path.txt"
+        )
+        guard = check_completion(
+            root=pathlib.Path.cwd(),
+            scope_boundary_path=scope_boundary_path,
+            implementation_decision=decision,
+            execution_report_path=execution_report_path,
+            implementation_review_report_path=implementation_review_report_path,
+            implementation_escalation_context_path=implementation_escalation_context_path,
+        )
+        _write_json(item_state_root / "completion_guard.json", guard)
+        if guard["completion_status"] == "SCOPE_MISMATCH":
+            roadmap_change_request_path = _write_roadmap_change_request(
+                item_state_root=item_state_root,
+                source_phase="implementation",
+                decision="ESCALATE_ROADMAP_REVISION",
+                reason_summary="Implementation approval did not satisfy the roadmap-authoritative tranche scope boundary.",
+                requested_changes=[
+                    "Revise the roadmap or tranche manifest so omitted required work is explicitly completed, split, blocked, or rechartered."
+                ],
+                evidence_paths={
+                    "scope_boundary": scope_boundary_path,
+                    "execution_report": execution_report_path,
+                    "implementation_review_report": implementation_review_report_path,
+                    "implementation_escalation_context": implementation_escalation_context_path,
+                    "completion_guard": (item_state_root / "completion_guard.json").as_posix(),
+                },
+                guard=guard,
+            )
+            _finalize_escalate_roadmap_revision(
+                item_state_root=item_state_root,
+                project_brief_path=project_brief_path,
+                project_roadmap_path=project_roadmap_path,
+                tranche_manifest_path=tranche_manifest_path,
+                tranche_brief_path=tranche_brief_path,
+                design_target_path=design_path,
+                plan_target_path=plan_path,
+                execution_report_target_path=execution_report_target_path,
+                item_summary_target_path=item_summary_target_path,
+                roadmap_change_request_path=roadmap_change_request_path,
+                message="Escalated to roadmap revision because implementation approval did not satisfy the tranche scope boundary.\n",
+            )
+            return _terminal("ESCALATE_ROADMAP_REVISION", output_bundle)
+        if guard["completion_status"] != "COMPLETE":
+            _finalize_skipped(
+                item_state_root=item_state_root,
+                project_brief_path=project_brief_path,
+                project_roadmap_path=project_roadmap_path,
+                tranche_manifest_path=tranche_manifest_path,
+                tranche_brief_path=tranche_brief_path,
+                design_path=design_path,
+                plan_path=plan_path,
+                execution_report_target_path=execution_report_target_path,
+                item_summary_target_path=item_summary_target_path,
+                outcome="SKIPPED_AFTER_IMPLEMENTATION",
+                failed_phase="implementation",
+                message="Implementation completion guard did not approve tranche completion.\n",
+            )
+            return _terminal("SKIPPED_AFTER_IMPLEMENTATION", output_bundle)
         _finalize_approved(
             item_state_root=item_state_root,
             project_brief_path=project_brief_path,
@@ -154,6 +218,36 @@ def route_after_implementation(
         source_context_path = pathlib.Path(_read_text(phase_root / "final_implementation_escalation_context_path.txt"))
         activate_upstream(item_state_root=item_state_root, source_context_path=source_context_path)
         return _continue(item_state_root, "plan", output_bundle)
+    if decision == "ESCALATE_ROADMAP_REVISION":
+        source_context_path = pathlib.Path(_read_text(phase_root / "final_implementation_escalation_context_path.txt"))
+        context = _read_optional_json(source_context_path)
+        roadmap_change_request_path = _write_roadmap_change_request(
+            item_state_root=item_state_root,
+            source_phase="implementation",
+            decision="ESCALATE_ROADMAP_REVISION",
+            reason_summary=_optional_string(context.get("reason_summary"))
+            or "Implementation review escalated selected-tranche scope to roadmap revision.",
+            requested_changes=_string_list(context.get("must_change"))
+            or ["Revise roadmap scope, prerequisites, or tranche split for this selected tranche."],
+            evidence_paths={
+                **_dict_or_empty(context.get("evidence_paths")),
+                "implementation_escalation_context": source_context_path.as_posix(),
+            },
+        )
+        _finalize_escalate_roadmap_revision(
+            item_state_root=item_state_root,
+            project_brief_path=project_brief_path,
+            project_roadmap_path=project_roadmap_path,
+            tranche_manifest_path=tranche_manifest_path,
+            tranche_brief_path=tranche_brief_path,
+            design_target_path=design_path,
+            plan_target_path=plan_path,
+            execution_report_target_path=execution_report_target_path,
+            item_summary_target_path=item_summary_target_path,
+            roadmap_change_request_path=roadmap_change_request_path,
+            message="Escalated to roadmap revision from implementation review.\n",
+        )
+        return _terminal("ESCALATE_ROADMAP_REVISION", output_bundle)
     _finalize_skipped(
         item_state_root=item_state_root,
         project_brief_path=project_brief_path,
@@ -231,10 +325,12 @@ def _finalize_escalate_roadmap_revision(
     execution_report_target_path: str,
     item_summary_target_path: str,
     roadmap_change_request_path: str,
+    message: str = "Escalated to roadmap revision from big-design review.\n",
 ) -> None:
     execution_report_path = pathlib.Path(execution_report_target_path)
     execution_report_path.parent.mkdir(parents=True, exist_ok=True)
-    execution_report_path.write_text("Escalated to roadmap revision from big-design review.\n", encoding="utf-8")
+    if not execution_report_path.exists():
+        execution_report_path.write_text(message, encoding="utf-8")
     _write_summary(
         item_summary_target_path,
         {
@@ -257,6 +353,34 @@ def _finalize_escalate_roadmap_revision(
         item_summary_target_path,
         roadmap_change_request_path,
     )
+
+
+def _write_roadmap_change_request(
+    *,
+    item_state_root: pathlib.Path,
+    source_phase: str,
+    decision: str,
+    reason_summary: str,
+    requested_changes: list[str],
+    evidence_paths: dict[str, Any],
+    guard: dict[str, Any] | None = None,
+) -> str:
+    request_path = item_state_root / "roadmap_change_request.json"
+    payload: dict[str, Any] = {
+        "active": True,
+        "source_phase": source_phase,
+        "decision": decision,
+        "reason_summary": reason_summary,
+        "requested_program_change": "roadmap_scope_revision",
+        "requested_changes": requested_changes,
+        "superseded_tranche_ids": [],
+        "proposed_new_tranche_ids": [],
+        "evidence_paths": evidence_paths,
+    }
+    if guard is not None:
+        payload["completion_guard"] = guard
+    _write_json(request_path, payload)
+    return request_path.as_posix()
 
 
 def _finalize_skipped(
@@ -327,6 +451,30 @@ def _write_json(path: pathlib.Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
+def _read_optional_json(path: pathlib.Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _optional_string(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str) and item]
+
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Route major-project tranche phase outcomes.")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -352,6 +500,8 @@ def main() -> int:
         else:
             command_parser.add_argument("--design-path", required=True)
             command_parser.add_argument("--plan-target-path", required=True)
+            if command == "route-after-implementation":
+                command_parser.add_argument("--scope-boundary-path", required=True)
 
     args = parser.parse_args()
     kwargs = vars(args)

@@ -17,6 +17,10 @@ inputs:
     type: relpath
     under: docs/plans
     must_exist_target: true
+  scope_boundary_path:
+    type: relpath
+    under: state
+    must_exist_target: true
   execution_report_target_path:
     type: relpath
     under: artifacts/work
@@ -40,7 +44,7 @@ outputs:
   implementation_review_decision:
     kind: scalar
     type: enum
-    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
     from:
       ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_review_decision
   implementation_escalation_context_path:
@@ -75,6 +79,11 @@ artifacts:
     type: relpath
     under: docs/plans
     must_exist_target: true
+  scope_boundary:
+    pointer: ${inputs.state_root}/scope_boundary_path.txt
+    type: relpath
+    under: state
+    must_exist_target: true
   execution_report:
     pointer: ${inputs.state_root}/execution_report_path.txt
     type: relpath
@@ -88,7 +97,7 @@ artifacts:
   implementation_review_decision:
     kind: scalar
     type: enum
-    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
   implementation_escalation_context:
     pointer: ${inputs.state_root}/implementation_escalation_context_path.txt
     type: relpath
@@ -102,7 +111,7 @@ artifacts:
   review_decision:
     kind: scalar
     type: enum
-    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
   loop_exhausted:
     kind: scalar
     type: bool
@@ -176,6 +185,7 @@ steps:
         fi
         printf '%s\n' "${inputs.design_path}" > "${inputs.state_root}/design_path.txt"
         printf '%s\n' "${inputs.plan_path}" > "${inputs.state_root}/plan_path.txt"
+        printf '%s\n' "${inputs.scope_boundary_path}" > "${inputs.state_root}/scope_boundary_path.txt"
     expected_outputs:
       - name: design_path
         path: ${inputs.state_root}/design_path.txt
@@ -187,11 +197,18 @@ steps:
         type: relpath
         under: docs/plans
         must_exist_target: true
+      - name: scope_boundary_path
+        path: ${inputs.state_root}/scope_boundary_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true
     publishes:
       - artifact: design
         from: design_path
       - artifact: plan
         from: plan_path
+      - artifact: scope_boundary
+        from: scope_boundary_path
 
   - name: ExecuteImplementation
     id: execute_implementation
@@ -205,7 +222,10 @@ steps:
       - artifact: plan
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["design", "plan"]
+      - artifact: scope_boundary
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["design", "plan", "scope_boundary"]
     expected_outputs:
       - name: execution_report_path
         path: ${inputs.state_root}/execution_report_path.txt
@@ -225,7 +245,7 @@ steps:
         review_decision:
           kind: scalar
           type: enum
-          allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+          allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
           from:
             ref: self.steps.RouteImplementationDecision.artifacts.review_decision
         loop_exhausted:
@@ -249,6 +269,11 @@ steps:
                 ref: self.outputs.review_decision
               op: eq
               right: ESCALATE_REPLAN
+          - compare:
+              left:
+                ref: self.outputs.review_decision
+              op: eq
+              right: ESCALATE_ROADMAP_REVISION
           - compare:
               left:
                 ref: self.outputs.review_decision
@@ -295,13 +320,16 @@ steps:
             - artifact: plan
               policy: latest_successful
               freshness: any
+            - artifact: scope_boundary
+              policy: latest_successful
+              freshness: any
             - artifact: execution_report
               policy: latest_successful
               freshness: any
             - artifact: implementation_iteration_context
               policy: latest_successful
               freshness: any
-          prompt_consumes: ["design", "plan", "execution_report", "implementation_iteration_context"]
+          prompt_consumes: ["design", "plan", "scope_boundary", "execution_report", "implementation_iteration_context"]
           expected_outputs:
             - name: implementation_review_report_path
               path: ${inputs.state_root}/implementation_review_report_path.txt
@@ -311,7 +339,7 @@ steps:
             - name: implementation_review_decision
               path: ${inputs.state_root}/implementation_review_decision.txt
               type: enum
-              allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+              allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
             - name: implementation_escalation_context_path
               path: ${inputs.state_root}/implementation_escalation_context_path.txt
               type: relpath
@@ -336,7 +364,7 @@ steps:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
                     from:
                       ref: self.steps.WriteApprovedImplementationDecision.artifacts.review_decision
                 steps:
@@ -351,7 +379,7 @@ steps:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
                     from:
                       ref: self.steps.WriteRevisedImplementationDecision.artifacts.review_decision
                 steps:
@@ -367,6 +395,9 @@ steps:
                       - artifact: plan
                         policy: latest_successful
                         freshness: any
+                      - artifact: scope_boundary
+                        policy: latest_successful
+                        freshness: any
                       - artifact: execution_report
                         policy: latest_successful
                         freshness: any
@@ -379,7 +410,7 @@ steps:
                       - artifact: implementation_escalation_context
                         policy: latest_successful
                         freshness: any
-                    prompt_consumes: ["design", "plan", "execution_report", "implementation_review_report", "implementation_iteration_context", "implementation_escalation_context"]
+                    prompt_consumes: ["design", "plan", "scope_boundary", "execution_report", "implementation_review_report", "implementation_iteration_context", "implementation_escalation_context"]
                     expected_outputs:
                       - name: execution_report_path
                         path: ${inputs.state_root}/execution_report_path.txt
@@ -400,7 +431,7 @@ steps:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
                     from:
                       ref: self.steps.WriteEscalateReplanImplementationDecision.artifacts.review_decision
                 steps:
@@ -409,13 +440,28 @@ steps:
                     set_scalar:
                       artifact: review_decision
                       value: ESCALATE_REPLAN
+              ESCALATE_ROADMAP_REVISION:
+                id: escalate_roadmap_revision_implementation_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
+                    from:
+                      ref: self.steps.WriteEscalateRoadmapRevisionImplementationDecision.artifacts.review_decision
+                steps:
+                  - name: WriteEscalateRoadmapRevisionImplementationDecision
+                    id: write_escalate_roadmap_revision_implementation_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: ESCALATE_ROADMAP_REVISION
               BLOCK:
                 id: block_implementation_path
                 outputs:
                   review_decision:
                     kind: scalar
                     type: enum
-                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+                    allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
                     from:
                       ref: self.steps.WriteBlockedImplementationDecision.artifacts.review_decision
                 steps:
@@ -501,7 +547,7 @@ steps:
       - name: implementation_review_decision
         path: ${inputs.state_root}/final_implementation_review_decision.txt
         type: enum
-        allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"]
+        allowed: ["APPROVE", "REVISE", "ESCALATE_REPLAN", "ESCALATE_ROADMAP_REVISION", "BLOCK"]
       - name: implementation_escalation_context_path
         path: ${inputs.state_root}/final_implementation_escalation_context_path.txt
         type: relpath

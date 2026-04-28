@@ -89,6 +89,10 @@ steps:
           json_pointer: /item_state_root
           type: relpath
           under: state
+        - name: scope_boundary_path
+          json_pointer: /scope_boundary_path
+          type: relpath
+          under: state
         - name: upstream_escalation_context_path
           json_pointer: /upstream_escalation_context_path
           type: relpath
@@ -154,6 +158,8 @@ steps:
     with:
       item_state_root:
         ref: root.steps.SelectNextTranche.artifacts.item_state_root
+      scope_boundary_path:
+        ref: root.steps.SelectNextTranche.artifacts.scope_boundary_path
       upstream_escalation_context_path:
         ref: root.steps.SelectNextTranche.artifacts.upstream_escalation_context_path
       big_design_phase_state_root:

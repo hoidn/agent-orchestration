@@ -12,6 +12,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from tests.workflow_bundle_helpers import bundle_context_dict
+from workflows.library.scripts.major_project_scope_boundary import check_completion, write_scope_boundary
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -85,6 +86,7 @@ def _copy_major_project_runtime_files(
         "workflows/library/scripts/major_project_escalation_state.py",
         "workflows/library/scripts/major_project_phase_visits.py",
         "workflows/library/scripts/major_project_tranche_phase_routes.py",
+        "workflows/library/scripts/major_project_scope_boundary.py",
         "workflows/library/scripts/publish_major_project_continue_outcome.py",
         "workflows/library/scripts/validate_major_project_tranche_manifest.py",
         "workflows/library/scripts/select_major_project_tranche.py",
@@ -223,10 +225,17 @@ def test_major_project_implementation_phase_uses_adjacent_only_escalation():
         "APPROVE",
         "REVISE",
         "ESCALATE_REPLAN",
+        "ESCALATE_ROADMAP_REVISION",
         "BLOCK",
     ]
     route_step = _step_by_name(workflow, "RouteImplementationDecision")
-    assert set(route_step["match"]["cases"]) == {"APPROVE", "REVISE", "ESCALATE_REPLAN", "BLOCK"}
+    assert set(route_step["match"]["cases"]) == {
+        "APPROVE",
+        "REVISE",
+        "ESCALATE_REPLAN",
+        "ESCALATE_ROADMAP_REVISION",
+        "BLOCK",
+    }
     assert "ESCALATE_REDESIGN" not in (ROOT / "workflows/library/major_project_tranche_implementation_phase.yaml").read_text(
         encoding="utf-8"
     )
@@ -389,6 +398,7 @@ def test_major_project_plan_and_implementation_interfaces_include_escalation_con
     assert set(plan_call["with"]) == {
         "state_root",
         "design_path",
+        "scope_boundary_path",
         "plan_target_path",
         "plan_review_report_target_path",
         "upstream_escalation_context_path",
@@ -398,9 +408,30 @@ def test_major_project_plan_and_implementation_interfaces_include_escalation_con
         "state_root",
         "design_path",
         "plan_path",
+        "scope_boundary_path",
         "execution_report_target_path",
         "implementation_review_report_target_path",
     }
+
+
+def test_plan_and_implementation_phases_consume_scope_boundary():
+    plan_workflow = _load_yaml("workflows/library/major_project_tranche_plan_phase.yaml")
+    implementation_workflow = _load_yaml("workflows/library/major_project_tranche_implementation_phase.yaml")
+
+    assert "scope_boundary_path" in plan_workflow["inputs"]
+    assert "scope_boundary" in plan_workflow["artifacts"]
+    assert "scope_boundary_path" in implementation_workflow["inputs"]
+    assert "scope_boundary" in implementation_workflow["artifacts"]
+
+    for step_name in ["DraftPlan", "ReviewPlanTracked", "RevisePlanTracked"]:
+        step = _step_by_name(plan_workflow, step_name)
+        assert "scope_boundary" in step["prompt_consumes"]
+        assert "scope_boundary" in {consume["artifact"] for consume in step["consumes"]}
+
+    for step_name in ["ExecuteImplementation", "ReviewImplementation", "FixImplementation"]:
+        step = _step_by_name(implementation_workflow, step_name)
+        assert "scope_boundary" in step["prompt_consumes"]
+        assert "scope_boundary" in {consume["artifact"] for consume in step["consumes"]}
 
 
 def test_tranche_stack_uses_current_phase_visit_roots_for_reentry():
@@ -458,12 +489,14 @@ def test_approved_design_stack_delegates_to_phase_complete_stack():
     workflow = _load_yaml("workflows/library/major_project_tranche_plan_impl_from_approved_design_stack.yaml")
 
     assert workflow["imports"]["phase_complete_tranche_stack"] == "major_project_tranche_design_plan_impl_stack.yaml"
+    assert "scope_boundary_path" in workflow["inputs"]
     assert "big_design_phase_state_root" in workflow["inputs"]
     assert "design_review_report_target_path" in workflow["inputs"]
 
     run_step = _step_by_name(workflow, "RunPhaseCompleteStackFromApprovedDesign")
     assert run_step["call"] == "phase_complete_tranche_stack"
     assert run_step["with"]["initial_phase"] == "plan"
+    assert run_step["with"]["scope_boundary_path"] == {"ref": "inputs.scope_boundary_path"}
     assert run_step["with"]["design_target_path"] == {"ref": "inputs.design_path"}
     assert run_step["with"]["big_design_phase_state_root"] == {"ref": "inputs.big_design_phase_state_root"}
     assert run_step["with"]["design_review_report_target_path"] == {
@@ -475,6 +508,9 @@ def test_continue_from_approved_design_routes_redesign_roadmap_escalation_before
     workflow = _load_yaml("workflows/examples/major_project_tranche_continue_from_approved_design_v2_call.yaml")
 
     run_step = _step_by_name(workflow, "RunSelectedTrancheFromApprovedDesign")
+    assert run_step["with"]["scope_boundary_path"] == {
+        "ref": "root.steps.SelectNextTranche.artifacts.scope_boundary_path"
+    }
     assert run_step["with"]["big_design_phase_state_root"] == {
         "ref": "root.steps.SelectNextTranche.artifacts.big_design_phase_state_root"
     }
@@ -971,6 +1007,7 @@ def test_select_next_tranche_publishes_typed_handoff_fields():
         "project_roadmap_path",
         "tranche_manifest_path",
         "item_state_root",
+        "scope_boundary_path",
         "big_design_phase_state_root",
         "plan_phase_state_root",
         "implementation_phase_state_root",
@@ -995,6 +1032,7 @@ def test_drain_selector_publishes_selected_done_and_blocked_statuses():
 
     assert fields["selection_status"]["type"] == "enum"
     assert fields["selection_status"]["allowed"] == ["SELECTED", "DONE", "BLOCKED"]
+    assert fields["scope_boundary_path"]["type"] == "relpath"
     assert "selected_tranche_id" not in fields
     assert set(router["match"]["cases"]) == {"SELECTED", "DONE", "BLOCKED"}
 
@@ -1057,6 +1095,117 @@ def test_drain_iteration_promotes_roadmap_revision_for_any_advisory_decision():
 
     output_names = {output["name"] for output in promote["expected_outputs"]}
     assert {"drain_status", "roadmap_revision_decision", "roadmap_revision_report_path"} <= output_names
+
+
+def test_scope_boundary_helper_derives_selected_tranche_boundary(tmp_path: Path):
+    manifest_path = tmp_path / "state/demo/tranche_manifest.json"
+    brief_path = tmp_path / "docs/backlog/generated/demo/t1.md"
+    boundary_path = tmp_path / "state/demo/items/t1/scope_boundary.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.parent.mkdir(parents=True, exist_ok=True)
+    brief_path.write_text("# T1 brief\nImplement the public behavior.\n", encoding="utf-8")
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "project_id": "demo",
+                "project_brief_path": "docs/backlog/demo.md",
+                "project_roadmap_path": "docs/plans/demo.md",
+                "tranches": [
+                    {
+                        "tranche_id": "T1-public-behavior",
+                        "title": "Public behavior",
+                        "brief_path": brief_path.relative_to(tmp_path).as_posix(),
+                        "completion_gate": "implementation_approved",
+                        "status": "pending",
+                        "prerequisites": [],
+                    }
+                ],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    payload = write_scope_boundary(
+        root=tmp_path,
+        tranche_manifest_path=manifest_path.relative_to(tmp_path).as_posix(),
+        tranche_brief_path=brief_path.relative_to(tmp_path).as_posix(),
+        scope_boundary_path=boundary_path.relative_to(tmp_path).as_posix(),
+    )
+
+    assert payload["tranche_id"] == "T1-public-behavior"
+    assert payload["completion_gate"] == "implementation_approved"
+    assert payload["required_deliverables"]
+    assert boundary_path.is_file()
+
+
+def test_completion_guard_rejects_approved_slice_with_unapproved_deferred_work(tmp_path: Path):
+    boundary = tmp_path / "state/demo/items/t1/scope_boundary.json"
+    execution_report = tmp_path / "artifacts/work/demo/execution.md"
+    review_report = tmp_path / "artifacts/review/demo/review.md"
+    for path in (boundary, execution_report, review_report):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    boundary.write_text(
+        json.dumps(
+            {
+                "tranche_id": "T1",
+                "required_deliverables": ["public solver"],
+                "required_evidence": [],
+                "authorized_deferred_work": [],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    execution_report.write_text("Task 3 is done. Exact public solver work remains deferred and blocked.\n", encoding="utf-8")
+    review_report.write_text("Decision: APPROVE\nBroader exact-runtime blockers remain deferred.\n", encoding="utf-8")
+
+    result = check_completion(
+        root=tmp_path,
+        scope_boundary_path=boundary.relative_to(tmp_path).as_posix(),
+        implementation_decision="APPROVE",
+        execution_report_path=execution_report.relative_to(tmp_path).as_posix(),
+        implementation_review_report_path=review_report.relative_to(tmp_path).as_posix(),
+    )
+
+    assert result["completion_status"] == "SCOPE_MISMATCH"
+    assert result["recommended_route"] == "escalate_roadmap_revision"
+
+
+def test_completion_guard_allows_roadmap_authorized_deferral(tmp_path: Path):
+    boundary = tmp_path / "state/demo/items/t1/scope_boundary.json"
+    execution_report = tmp_path / "artifacts/work/demo/execution.md"
+    review_report = tmp_path / "artifacts/review/demo/review.md"
+    for path in (boundary, execution_report, review_report):
+        path.parent.mkdir(parents=True, exist_ok=True)
+    boundary.write_text(
+        json.dumps(
+            {
+                "tranche_id": "T1",
+                "required_deliverables": ["public solver"],
+                "required_evidence": [],
+                "authorized_deferred_work": [
+                    {"work": "CUDA promotion", "authority": "roadmap", "handoff": "T1A"}
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    execution_report.write_text("CPU work complete. CUDA promotion remains deferred to T1A.\n", encoding="utf-8")
+    review_report.write_text("Decision: APPROVE\n", encoding="utf-8")
+
+    result = check_completion(
+        root=tmp_path,
+        scope_boundary_path=boundary.relative_to(tmp_path).as_posix(),
+        implementation_decision="APPROVE",
+        execution_report_path=execution_report.relative_to(tmp_path).as_posix(),
+        implementation_review_report_path=review_report.relative_to(tmp_path).as_posix(),
+    )
+
+    assert result["completion_status"] == "COMPLETE"
+    assert result["recommended_route"] == "complete"
 
 
 def test_example_and_reusable_workflows_validate_with_loader():
@@ -1699,7 +1848,27 @@ def test_tranche_stack_replan_runtime_uses_second_active_plan_visit(tmp_path: Pa
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
     manifest.parent.mkdir(parents=True, exist_ok=True)
-    manifest.write_text(json.dumps({"project_id": "direct", "tranches": []}) + "\n", encoding="utf-8")
+    manifest.write_text(
+        json.dumps(
+            {
+                "project_id": "direct",
+                "project_brief_path": project_brief.relative_to(tmp_path).as_posix(),
+                "project_roadmap_path": roadmap.relative_to(tmp_path).as_posix(),
+                "tranches": [
+                    {
+                        "tranche_id": "direct-tranche",
+                        "title": "Direct tranche",
+                        "brief_path": brief.relative_to(tmp_path).as_posix(),
+                        "status": "pending",
+                        "completion_gate": "implementation_approved",
+                        "prerequisites": [],
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
 
     def current_root(workspace: Path, phase: str) -> str:
         return (workspace / item_root / f"current_{phase}_phase_state_root.txt").read_text(encoding="utf-8").strip()
@@ -1787,6 +1956,7 @@ def test_tranche_stack_replan_runtime_uses_second_active_plan_visit(tmp_path: Pa
         provider_writers,
         bound_inputs={
             "item_state_root": item_root,
+            "scope_boundary_path": f"{item_root}/scope_boundary.json",
             "upstream_escalation_context_path": f"{item_root}/upstream_escalation_context.json",
             "big_design_phase_state_root": f"{item_root}/big-design-phase",
             "plan_phase_state_root": f"{item_root}/plan-phase",
@@ -1819,6 +1989,273 @@ def test_tranche_stack_replan_runtime_uses_second_active_plan_visit(tmp_path: Pa
     assert (tmp_path / item_root / "current_plan_phase_state_root.txt").read_text(encoding="utf-8").strip() == (
         f"{item_root}/plan-phase/visits/0001"
     )
+
+
+def test_tranche_stack_routes_implementation_roadmap_escalation(tmp_path: Path):
+    workflow_path = _copy_major_project_runtime_files(
+        tmp_path,
+        "workflows/library/major_project_tranche_design_plan_impl_stack.yaml",
+    )
+
+    item_root = "state/direct/item"
+    project_brief = tmp_path / "workflows/examples/inputs/major_project_brief.md"
+    roadmap = tmp_path / "docs/plans/direct/project-roadmap.md"
+    manifest = tmp_path / "state/direct/tranche_manifest.json"
+    brief = tmp_path / "docs/backlog/generated/direct/tranche.md"
+    for path, content in [
+        (project_brief, "# Project brief\n"),
+        (roadmap, "# Roadmap\n"),
+        (brief, "# Tranche brief\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "project_id": "direct",
+                "project_brief_path": project_brief.relative_to(tmp_path).as_posix(),
+                "project_roadmap_path": roadmap.relative_to(tmp_path).as_posix(),
+                "tranches": [
+                    {
+                        "tranche_id": "direct-tranche",
+                        "title": "Direct tranche",
+                        "brief_path": brief.relative_to(tmp_path).as_posix(),
+                        "status": "pending",
+                        "completion_gate": "implementation_approved",
+                        "prerequisites": [],
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def current_root(workspace: Path, phase: str) -> str:
+        return (workspace / item_root / f"current_{phase}_phase_state_root.txt").read_text(encoding="utf-8").strip()
+
+    def write_pointer_target(workspace: Path, phase: str, pointer_name: str, content: str) -> None:
+        root = current_root(workspace, phase)
+        _target_from_pointer(workspace, f"{root}/{pointer_name}").write_text(content, encoding="utf-8")
+
+    def review_implementation_escalates(workspace: Path) -> None:
+        root = current_root(workspace, "implementation")
+        report = _target_from_pointer(workspace, f"{root}/implementation_review_report_path.txt")
+        report.write_text("# Implementation review\nScope must be split at roadmap level.\n", encoding="utf-8")
+        (workspace / root / "implementation_review_decision.txt").write_text(
+            "ESCALATE_ROADMAP_REVISION\n",
+            encoding="utf-8",
+        )
+        context_path = _target_from_pointer(workspace, f"{root}/implementation_escalation_context_path.txt")
+        context_path.write_text(
+            json.dumps(
+                {
+                    "active": True,
+                    "source_phase": "implementation",
+                    "decision": "ESCALATE_ROADMAP_REVISION",
+                    "reason_summary": "scope split required",
+                    "must_change": ["split selected tranche"],
+                    "evidence_paths": {"review_report": report.relative_to(workspace).as_posix()},
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+    provider_sequence = [
+        "DraftBigDesign",
+        "ReviewBigDesign",
+        "DraftPlan",
+        "ReviewPlanTracked",
+        "ExecuteImplementation",
+        "ReviewImplementation",
+    ]
+    provider_writers = {
+        "DraftBigDesign": lambda ws: write_pointer_target(ws, "big_design", "design_path.txt", "# Big design\n"),
+        "ReviewBigDesign": lambda ws: _write_review_outputs(
+            ws,
+            pointer_relpath=f"{current_root(ws, 'big_design')}/design_review_report_path.txt",
+            decision_relpath=f"{current_root(ws, 'big_design')}/design_review_decision.txt",
+            high_count_relpath=f"{current_root(ws, 'big_design')}/unresolved_high_count.txt",
+            medium_count_relpath=f"{current_root(ws, 'big_design')}/unresolved_medium_count.txt",
+        ),
+        "DraftPlan": lambda ws: write_pointer_target(ws, "plan", "plan_path.txt", "# Plan\n"),
+        "ReviewPlanTracked": lambda ws: _write_review_outputs(
+            ws,
+            pointer_relpath=f"{current_root(ws, 'plan')}/plan_review_report_path.txt",
+            decision_relpath=f"{current_root(ws, 'plan')}/plan_review_decision.txt",
+            high_count_relpath=f"{current_root(ws, 'plan')}/unresolved_high_count.txt",
+            medium_count_relpath=f"{current_root(ws, 'plan')}/unresolved_medium_count.txt",
+        ),
+        "ExecuteImplementation": lambda ws: write_pointer_target(
+            ws,
+            "implementation",
+            "execution_report_path.txt",
+            "# Execution report\n",
+        ),
+        "ReviewImplementation": review_implementation_escalates,
+    }
+
+    state = _run_with_mocked_providers(
+        tmp_path,
+        workflow_path,
+        provider_sequence,
+        provider_writers,
+        bound_inputs={
+            "item_state_root": item_root,
+            "scope_boundary_path": f"{item_root}/scope_boundary.json",
+            "upstream_escalation_context_path": f"{item_root}/upstream_escalation_context.json",
+            "big_design_phase_state_root": f"{item_root}/big-design-phase",
+            "plan_phase_state_root": f"{item_root}/plan-phase",
+            "implementation_phase_state_root": f"{item_root}/implementation-phase",
+            "project_brief_path": project_brief.relative_to(tmp_path).as_posix(),
+            "project_roadmap_path": roadmap.relative_to(tmp_path).as_posix(),
+            "tranche_manifest_path": manifest.relative_to(tmp_path).as_posix(),
+            "tranche_brief_path": brief.relative_to(tmp_path).as_posix(),
+            "design_target_path": "docs/plans/direct/design.md",
+            "design_review_report_target_path": "artifacts/review/direct/design-review.json",
+            "plan_target_path": "docs/plans/direct/plan.md",
+            "plan_review_report_target_path": "artifacts/review/direct/plan-review.json",
+            "execution_report_target_path": "artifacts/work/direct/execution.md",
+            "implementation_review_report_target_path": "artifacts/review/direct/implementation-review.md",
+            "item_summary_target_path": "artifacts/work/direct/summary.json",
+        },
+    )
+
+    assert state["status"] == "completed"
+    assert (tmp_path / item_root / "item_outcome.txt").read_text(encoding="utf-8").strip() == (
+        "ESCALATE_ROADMAP_REVISION"
+    )
+    assert (tmp_path / item_root / "final_roadmap_change_request_path.txt").is_file()
+
+
+def test_tranche_stack_completion_guard_escalates_approved_slice_with_deferred_scope(tmp_path: Path):
+    workflow_path = _copy_major_project_runtime_files(
+        tmp_path,
+        "workflows/library/major_project_tranche_design_plan_impl_stack.yaml",
+    )
+
+    item_root = "state/direct/item"
+    project_brief = tmp_path / "workflows/examples/inputs/major_project_brief.md"
+    roadmap = tmp_path / "docs/plans/direct/project-roadmap.md"
+    manifest = tmp_path / "state/direct/tranche_manifest.json"
+    brief = tmp_path / "docs/backlog/generated/direct/tranche.md"
+    for path, content in [
+        (project_brief, "# Project brief\n"),
+        (roadmap, "# Roadmap\n"),
+        (brief, "# Tranche brief\n"),
+    ]:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content, encoding="utf-8")
+    manifest.parent.mkdir(parents=True, exist_ok=True)
+    manifest.write_text(
+        json.dumps(
+            {
+                "project_id": "direct",
+                "project_brief_path": project_brief.relative_to(tmp_path).as_posix(),
+                "project_roadmap_path": roadmap.relative_to(tmp_path).as_posix(),
+                "tranches": [
+                    {
+                        "tranche_id": "direct-tranche",
+                        "title": "Direct tranche",
+                        "brief_path": brief.relative_to(tmp_path).as_posix(),
+                        "status": "pending",
+                        "completion_gate": "implementation_approved",
+                        "prerequisites": [],
+                    }
+                ],
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    def current_root(workspace: Path, phase: str) -> str:
+        return (workspace / item_root / f"current_{phase}_phase_state_root.txt").read_text(encoding="utf-8").strip()
+
+    def write_pointer_target(workspace: Path, phase: str, pointer_name: str, content: str) -> None:
+        root = current_root(workspace, phase)
+        _target_from_pointer(workspace, f"{root}/{pointer_name}").write_text(content, encoding="utf-8")
+
+    def review_implementation_approves_deferred_scope(workspace: Path) -> None:
+        root = current_root(workspace, "implementation")
+        report = _target_from_pointer(workspace, f"{root}/implementation_review_report_path.txt")
+        report.write_text(
+            "Decision: APPROVE\nTasks 4 and 5 remain real work and are still deferred.\n",
+            encoding="utf-8",
+        )
+        (workspace / root / "implementation_review_decision.txt").write_text("APPROVE\n", encoding="utf-8")
+
+    provider_sequence = [
+        "DraftBigDesign",
+        "ReviewBigDesign",
+        "DraftPlan",
+        "ReviewPlanTracked",
+        "ExecuteImplementation",
+        "ReviewImplementation",
+    ]
+    provider_writers = {
+        "DraftBigDesign": lambda ws: write_pointer_target(ws, "big_design", "design_path.txt", "# Big design\n"),
+        "ReviewBigDesign": lambda ws: _write_review_outputs(
+            ws,
+            pointer_relpath=f"{current_root(ws, 'big_design')}/design_review_report_path.txt",
+            decision_relpath=f"{current_root(ws, 'big_design')}/design_review_decision.txt",
+            high_count_relpath=f"{current_root(ws, 'big_design')}/unresolved_high_count.txt",
+            medium_count_relpath=f"{current_root(ws, 'big_design')}/unresolved_medium_count.txt",
+        ),
+        "DraftPlan": lambda ws: write_pointer_target(ws, "plan", "plan_path.txt", "# Plan\n"),
+        "ReviewPlanTracked": lambda ws: _write_review_outputs(
+            ws,
+            pointer_relpath=f"{current_root(ws, 'plan')}/plan_review_report_path.txt",
+            decision_relpath=f"{current_root(ws, 'plan')}/plan_review_decision.txt",
+            high_count_relpath=f"{current_root(ws, 'plan')}/unresolved_high_count.txt",
+            medium_count_relpath=f"{current_root(ws, 'plan')}/unresolved_medium_count.txt",
+        ),
+        "ExecuteImplementation": lambda ws: write_pointer_target(
+            ws,
+            "implementation",
+            "execution_report_path.txt",
+            "# Execution report\nTask 3 is complete. Public solver closure remains deferred and blocked.\n",
+        ),
+        "ReviewImplementation": review_implementation_approves_deferred_scope,
+    }
+
+    state = _run_with_mocked_providers(
+        tmp_path,
+        workflow_path,
+        provider_sequence,
+        provider_writers,
+        bound_inputs={
+            "item_state_root": item_root,
+            "scope_boundary_path": f"{item_root}/scope_boundary.json",
+            "upstream_escalation_context_path": f"{item_root}/upstream_escalation_context.json",
+            "big_design_phase_state_root": f"{item_root}/big-design-phase",
+            "plan_phase_state_root": f"{item_root}/plan-phase",
+            "implementation_phase_state_root": f"{item_root}/implementation-phase",
+            "project_brief_path": project_brief.relative_to(tmp_path).as_posix(),
+            "project_roadmap_path": roadmap.relative_to(tmp_path).as_posix(),
+            "tranche_manifest_path": manifest.relative_to(tmp_path).as_posix(),
+            "tranche_brief_path": brief.relative_to(tmp_path).as_posix(),
+            "design_target_path": "docs/plans/direct/design.md",
+            "design_review_report_target_path": "artifacts/review/direct/design-review.json",
+            "plan_target_path": "docs/plans/direct/plan.md",
+            "plan_review_report_target_path": "artifacts/review/direct/plan-review.json",
+            "execution_report_target_path": "artifacts/work/direct/execution.md",
+            "implementation_review_report_target_path": "artifacts/review/direct/implementation-review.md",
+            "item_summary_target_path": "artifacts/work/direct/summary.json",
+        },
+    )
+
+    guard = json.loads((tmp_path / item_root / "completion_guard.json").read_text(encoding="utf-8"))
+
+    assert state["status"] == "completed"
+    assert guard["completion_status"] == "SCOPE_MISMATCH"
+    assert (tmp_path / item_root / "item_outcome.txt").read_text(encoding="utf-8").strip() == (
+        "ESCALATE_ROADMAP_REVISION"
+    )
+    assert (tmp_path / item_root / "final_roadmap_change_request_path.txt").is_file()
 
 
 def test_drain_provider_failure_does_not_mark_tranche_blocked(tmp_path: Path):
@@ -1936,6 +2373,7 @@ name: "stub-escalating-tranche-stack"
 
 inputs:
   item_state_root: {type: relpath, under: state}
+  scope_boundary_path: {type: relpath, under: state}
   upstream_escalation_context_path: {type: relpath, under: state}
   big_design_phase_state_root: {type: relpath, under: state}
   plan_phase_state_root: {type: relpath, under: state}

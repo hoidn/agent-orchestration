@@ -4,7 +4,7 @@ Major-project implementation fix additions:
 - Do not silently widen tranche scope or redesign architecture under a `REVISE` path.
 
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `design`, `plan`, `execution_report`, and `implementation_review_report` artifacts before acting.
+Read the consumed `design`, `plan`, `scope_boundary`, `execution_report`, and `implementation_review_report` artifacts before acting.
 
 Use executing-plans to address the implementation review while staying aligned with the design and plan.
 For nontrivial failures or repeated review findings, use systematic-debugging before changing code: reproduce, isolate, hypothesize, then fix.
@@ -12,6 +12,7 @@ Do not use `git worktree` or another checkout.
 If the repo is dirty, stay in the current checkout and leave unrelated files alone.
 Do not modify YAML, prompt files, or transient state files unless the plan explicitly requires it.
 Preserve layout and ownership decisions from the design and plan. If implementation needs to change a location or unit boundary, record the deviation and rationale in the execution report.
+Treat `scope_boundary` as the selected tranche's roadmap-authoritative completion boundary. A fix pass may sequence or complete work inside that boundary, but it may not reduce, split, recharter, or move the selected-tranche scope. If the boundary is wrong or too broad, preserve the blocker and record roadmap escalation evidence.
 
 Your task may include either or both of:
 - fixing defects or regressions in already-implemented work
@@ -22,7 +23,7 @@ Determine remaining work by:
 2. reading the consumed `implementation_review_report`
 3. inspecting the current codebase and execution report
 
-Do not expand the task just because the plan contains explicitly justified later work. Treat later plan tasks as follow-up only when the plan gives clear authority, rationale, and handoff criteria for deferring them. If the review shows that a deferral is unjustified or required for the delivered behavior to be correct, handle it as current-scope work.
+Do not expand the task just because the plan contains explicitly justified later work. Treat later plan tasks as follow-up only when the consumed `scope_boundary` or roadmap-level context gives clear authority, rationale, and handoff criteria for deferring them. If the review shows that a deferral is unjustified or required for the delivered behavior to be correct, handle it as current-scope work.
 
 Prioritize in this order:
 1. fix any blocking high-severity correctness or contract issues in already-implemented work

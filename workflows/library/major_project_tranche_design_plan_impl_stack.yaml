@@ -9,6 +9,7 @@ imports:
 
 inputs:
   item_state_root: {type: relpath, under: state}
+  scope_boundary_path: {type: relpath, under: state}
   upstream_escalation_context_path: {type: relpath, under: state}
   initial_phase:
     kind: scalar
@@ -80,6 +81,11 @@ steps:
         python workflows/library/scripts/major_project_phase_visits.py init \
           --item-state-root "${inputs.item_state_root}" \
           --output-bundle "${inputs.item_state_root}/phase_visit_init_output.json"
+        python workflows/library/scripts/major_project_scope_boundary.py write-boundary \
+          --tranche-manifest-path "${inputs.tranche_manifest_path}" \
+          --tranche-brief-path "${inputs.tranche_brief_path}" \
+          --scope-boundary-path "${inputs.scope_boundary_path}" \
+          --output-bundle "${inputs.item_state_root}/scope_boundary_write_output.json"
         printf '%s\n' "${inputs.item_state_root}/roadmap_change_request.json" > "${inputs.item_state_root}/final_roadmap_change_request_path.txt"
         cat > "${inputs.item_state_root}/roadmap_change_request.json" <<'JSON'
         {
@@ -256,6 +262,7 @@ steps:
                     with:
                       state_root: {ref: self.steps.PreparePlanVisit.artifacts.phase_state_root}
                       design_path: {ref: inputs.design_target_path}
+                      scope_boundary_path: {ref: inputs.scope_boundary_path}
                       plan_target_path: {ref: inputs.plan_target_path}
                       plan_review_report_target_path: {ref: inputs.plan_review_report_target_path}
                       upstream_escalation_context_path: {ref: inputs.upstream_escalation_context_path}
@@ -324,6 +331,7 @@ steps:
                       state_root: {ref: self.steps.PrepareImplementationVisit.artifacts.phase_state_root}
                       design_path: {ref: inputs.design_target_path}
                       plan_path: {ref: inputs.plan_target_path}
+                      scope_boundary_path: {ref: inputs.scope_boundary_path}
                       execution_report_target_path: {ref: inputs.execution_report_target_path}
                       implementation_review_report_target_path: {ref: inputs.implementation_review_report_target_path}
                   - name: RouteAfterImplementation
@@ -346,6 +354,8 @@ steps:
                       - ${inputs.design_target_path}
                       - --plan-target-path
                       - ${inputs.plan_target_path}
+                      - --scope-boundary-path
+                      - ${inputs.scope_boundary_path}
                       - --execution-report-target-path
                       - ${inputs.execution_report_target_path}
                       - --item-summary-target-path

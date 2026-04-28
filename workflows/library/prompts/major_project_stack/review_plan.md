@@ -6,11 +6,11 @@ Major-project tranche plan review additions:
 - Write a plan escalation context JSON to the target named by the `plan_escalation_context_path` output. It may be inactive for `APPROVE` or `REVISE`, but it must exist.
 
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `design`, `plan`, and `open_findings` artifacts before acting.
+Read the consumed `design`, `scope_boundary`, `plan`, and `open_findings` artifacts before acting.
 
 First, review the current plan from scratch.
-Check that the plan faithfully carries the consumed design into bounded executable work: material design requirements should appear as concrete tasks, or be explicitly identified as outside this plan's scope with the reason.
-Check scope accountability before approval. The plan may cover the whole design when the consumed design, brief, roadmap, or selection context makes that the intended deliverable and the task sequence is coherent. Reject underscoped plans that defer material design requirements without explicit authority, rationale, and handoff criteria. Reject overbroad plans that collapse separable phases or responsibilities into one hard-to-review implementation unit instead of sequencing them. If the plan chooses a slice, every deferred material requirement must be named in follow-up work with the reason it is deferred.
+Check that the plan faithfully carries the consumed design and roadmap-authoritative `scope_boundary` into bounded executable work. Material design requirements and scope-boundary deliverables should appear as concrete tasks unless the scope boundary itself authorizes the work as a non-goal or deferred successor.
+Check scope accountability before approval. The plan may sequence work inside the selected tranche, but it may not reduce, split, recharter, or move selected-tranche scope. Reject underscoped plans that defer material design or scope-boundary requirements without roadmap-level authority from `scope_boundary`. Reject overbroad plans that collapse separable phases or responsibilities into one hard-to-review implementation unit instead of sequencing them. If the selected tranche boundary itself must change, do not approve a local slice; require redesign or roadmap revision through the appropriate escalation path.
 Reject plans that put dependent work too early. If a later task relies on a behavior, interface, data shape, integration, or user-visible result, the plan must first include the task that makes that result true and the check that proves it.
 Reject plans that collapse the design's component boundaries, interfaces, invariants, or durable artifact contracts into undifferentiated implementation work instead of assigning tasks along those boundaries.
 Reject plans that ignore or weaken design or roadmap layout and ownership decisions, or change locations or unit boundaries without explicit rationale.
@@ -55,4 +55,4 @@ Also write:
 - the unresolved high count integer to the `unresolved_high_count` path specified in the Output Contract
 - the unresolved medium count integer to the `unresolved_medium_count` path specified in the Output Contract
 
-Approve only if there are no unresolved high findings and the plan is ready to execute without inventing architecture, silently dropping material design requirements, or deferring required work without authority.
+Approve only if there are no unresolved high findings and the plan is ready to execute without inventing architecture, silently dropping material design or scope-boundary requirements, or deferring required work without roadmap-level authority.
