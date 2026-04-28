@@ -89,6 +89,13 @@ After a run, generate a readable report:
 python -m orchestrator report --format md
 ```
 
+For headless email alerts when runs complete, fail, crash, or stall across
+multiple workspaces, see [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md):
+
+```bash
+python -m orchestrator monitor --config ~/.config/orchestrator/monitor.yaml --once --dry-run
+```
+
 If a run stops partway through, resume it:
 
 ```bash

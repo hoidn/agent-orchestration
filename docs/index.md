@@ -38,6 +38,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** runtime, execution, state, lifecycle, control-flow  
 **Use this when:** You need to understand what the engine actually does during `run`/`resume`.
 
+### [Workflow Monitoring](workflow_monitoring.md)
+**Description:** Operational runbook for `orchestrator monitor`, including multi-workspace email notification setup, headless SMTP configuration, dry-run checks, and interpreting completed, failed, crashed, or stalled workflow emails.  
+**Keywords:** monitor, email, notifications, headless, stalled, crashed  
+**Use this when:** You want email alerts for workflow completion or failures across one or more repositories.
+
 ### [Workflow Drafting Guide](workflow_drafting_guide.md)
 **Description:** Authoring guidance for writing robust workflows, including prompt/runtime/flow contract separation, deterministic handoff patterns, and special-case guidance for workflows with DSL-level git rollback/checkpoint behavior.
 **Keywords:** authoring, prompts, contracts, deterministic-handoff, gates, git

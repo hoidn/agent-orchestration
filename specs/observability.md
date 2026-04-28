@@ -49,6 +49,18 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - `run.error` quarantine context for interrupted provider-session visits
     - `output.provider_session` step summaries including `mode`, `session_id`, `metadata_path`, and `publication_state`
   - v2.11 adjudicated provider snapshots may expose selected candidate id, selected score or null score, selection reason, run-local score ledger path, workspace-visible score ledger mirror path, promotion status, and adjudication failure type. Candidate workspaces, evaluator packets, and ledgers are observability sidecars, not ordinary artifact lineage.
+
+- Workflow monitor notifications
+  - `orchestrator monitor` is a read-only observer over configured workspace roots. It scans `.orchestrate/runs/*/state.json` and must not mutate `state.json`, reconcile run status, resume runs, kill processes, or execute workflow control.
+  - Monitor event kinds are:
+    - `COMPLETED`: persisted `state.status` is `completed`.
+    - `FAILED`: persisted `state.status` is `failed`.
+    - `CRASHED`: persisted `state.status` is `running`, and run-local process metadata confirms the original process identity is no longer alive.
+    - `STALLED`: persisted `state.status` is `running`, and the active execution cursor heartbeat or fallback `state.updated_at` is older than the configured stale threshold.
+  - Freshness classification must prefer the deepest active execution cursor heartbeat, including heartbeats in running reusable call frames, over root `state.updated_at`.
+  - A live PID alone is not sufficient process identity. When process identity cannot be confirmed, the monitor must fall back to heartbeat/stale classification rather than suppressing notifications.
+  - The notification ledger is external to watched repositories by default and de-duplicates by resolved workspace path, run directory id, and event kind.
+  - Email bodies must use bounded run-local log previews, exclude prompt audits and provider-session transport logs by default, and redact configured SMTP secrets plus simple secret-looking key/value lines.
   - v2.2 lowered structured-control nodes appear in snapshots as ordinary top-level entries:
     - branch markers use kind `structured_if_branch`
     - statement join nodes use kind `structured_if_join`

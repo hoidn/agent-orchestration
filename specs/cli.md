@@ -14,6 +14,13 @@
     - The default bind host is `127.0.0.1`; binding to another host is an explicit operator choice.
     - Routes include `/runs`, `/runs/<workspace_id>/<run_dir>`, step detail, state preview, and route-scoped workspace/run file previews.
     - Dashboard routes must not execute `resume`, `report`, tmux, provider CLIs, shell commands, or child processes. Copyable commands are rendered as inert text only.
+  - `orchestrator monitor --config <path> [--once] [--dry-run] [--dry-run-mark-sent] [--ledger <path>]`
+    - Monitors explicit workspace roots from the config file and sends email notifications for completed, failed, crashed, or stalled workflow runs.
+    - `--once` performs one scan and exits; without it, the monitor polls until interrupted.
+    - `--dry-run` renders notifications without SMTP delivery and does not mark them sent by default.
+    - `--dry-run-mark-sent` may be used only with `--dry-run`; it updates the ledger after rendering so duplicate suppression can be rehearsed.
+    - `--ledger` overrides the default notification ledger path.
+    - Exit code `0` means the scan completed and eligible notifications were handled; `1` means config, scan, or delivery failed; `130` means polling was interrupted.
   - Optional/post-MVP: `orchestrate run-step <step_name> --workflow <file>`, `orchestrate watch <workflow.yaml>`
 
 - Debugging and recovery flags
@@ -53,6 +60,9 @@ orchestrate report --format md
 
 # Serve local dashboard for one or more explicit workspaces
 orchestrate dashboard --workspace "$(pwd)" --host 127.0.0.1 --port 8765
+
+# Monitor configured workspaces once without sending email
+orchestrator monitor --config ~/.config/orchestrator/monitor.yaml --once --dry-run
 
 # Validate and show advisory lint warnings without executing
 orchestrate run workflows/demo.yaml --dry-run
