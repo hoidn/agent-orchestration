@@ -20,6 +20,7 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_input_contracts,
 )
 from orchestrator.workflow.linting import lint_workflow
+from orchestrator.monitor.process import write_process_metadata
 from orchestrator.workflow.signatures import bind_workflow_inputs
 
 
@@ -355,6 +356,10 @@ def run_workflow(args: Namespace) -> int:
             observability=observability,
         )
         logger.info(f"Created new run: {run_state.run_id}")
+        try:
+            write_process_metadata(state_manager.run_root)
+        except OSError as exc:
+            logger.debug("Failed to write monitor process metadata: %s", exc)
 
         # Execute workflow
         executor = WorkflowExecutor(

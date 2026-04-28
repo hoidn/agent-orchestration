@@ -12,6 +12,7 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_context, workflow_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.monitor.process import write_process_metadata
 
 
 logger = logging.getLogger(__name__)
@@ -285,6 +286,11 @@ def resume_workflow(
             print(f"  Completed steps: {', '.join(completed_steps)}")
         if pending_steps:
             print(f"  Pending steps: {', '.join(pending_steps)}")
+
+    try:
+        write_process_metadata(state_manager.run_root)
+    except OSError as exc:
+        logger.debug("Failed to write monitor process metadata: %s", exc)
 
     # Initialize executor with existing state
     workspace_dir = Path.cwd()
