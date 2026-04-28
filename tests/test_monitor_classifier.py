@@ -5,7 +5,7 @@ from pathlib import Path
 from orchestrator.monitor.classifier import classify_run
 from orchestrator.monitor.config import load_monitor_config
 from orchestrator.monitor.models import MonitorEventKind
-from orchestrator.monitor.process import write_process_metadata
+from orchestrator.monitor.process import PROCESS_METADATA_SCHEMA, write_process_metadata
 from orchestrator.monitor.scanner import scan_monitor_runs
 
 
@@ -97,6 +97,41 @@ def test_running_state_with_fresh_heartbeat_produces_no_event(tmp_path: Path):
     assert classify_run(run, now=NOW, stale_after_seconds=cfg.monitor.stale_after_seconds) is None
 
 
+def test_running_call_frame_with_fresh_nested_heartbeat_produces_no_event(tmp_path: Path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    _write_state(
+        workspace,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "running",
+            "updated_at": (NOW - timedelta(hours=1)).isoformat(),
+            "current_step": {
+                "name": "RunSelectedTranche",
+                "step_id": "root.run_selected_tranche",
+            },
+            "call_frames": {
+                "frame-1": {
+                    "status": "running",
+                    "caller_step_id": "root.run_selected_tranche",
+                    "state": {
+                        "current_step": {
+                            "name": "ReviewDesign",
+                            "step_id": "root.review_design",
+                            "last_heartbeat_at": (NOW - timedelta(seconds=30)).isoformat(),
+                        }
+                    },
+                }
+            },
+        },
+    )
+
+    run, cfg = _scan_one(tmp_path, workspace)
+
+    assert classify_run(run, now=NOW, stale_after_seconds=cfg.monitor.stale_after_seconds) is None
+
+
 def test_running_state_with_stale_heartbeat_produces_stalled_event(tmp_path: Path):
     workspace = tmp_path / "repo"
     workspace.mkdir()
@@ -163,6 +198,38 @@ def test_running_state_with_dead_recorded_pid_produces_crashed_event(tmp_path: P
     assert event is not None
     assert event.kind is MonitorEventKind.CRASHED
     assert event.reason == "process_not_alive"
+
+
+def test_running_state_without_process_identity_token_can_still_stall(tmp_path: Path):
+    workspace = tmp_path / "repo"
+    workspace.mkdir()
+    run_root = _write_state(
+        workspace,
+        "run1",
+        {
+            "run_id": "run1",
+            "status": "running",
+            "updated_at": (NOW - timedelta(minutes=10)).isoformat(),
+        },
+    )
+    (run_root / "monitor_process.json").write_text(
+        json.dumps(
+            {
+                "schema": PROCESS_METADATA_SCHEMA,
+                "pid": 1,
+                "started_at": NOW.isoformat(),
+                "argv": ["python", "-m", "orchestrator"],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    run, cfg = _scan_one(tmp_path, workspace)
+    event = classify_run(run, now=NOW, stale_after_seconds=cfg.monitor.stale_after_seconds)
+
+    assert event is not None
+    assert event.kind is MonitorEventKind.STALLED
+    assert event.reason == "stale_updated_at"
 
 
 def test_scanner_records_invalid_state_without_crashing(tmp_path: Path):

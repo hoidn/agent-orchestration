@@ -5,8 +5,10 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from orchestrator.dashboard.cursor import ExecutionCursorProjector
+
 from .models import MonitorEvent, MonitorEventKind, MonitorRun
-from .process import is_pid_alive
+from .process import process_identity_matches
 
 
 def classify_run(
@@ -29,10 +31,12 @@ def classify_run(
     if status != "running":
         return None
 
-    if run.process is not None and not is_pid_alive(run.process.pid):
-        return MonitorEvent(MonitorEventKind.CRASHED, run, "process_not_alive", observed_at)
+    if run.process is not None:
+        process_match = process_identity_matches(run.process)
+        if process_match is False:
+            return MonitorEvent(MonitorEventKind.CRASHED, run, "process_not_alive", observed_at)
 
-    heartbeat = _current_step_heartbeat(run.state)
+    heartbeat = _active_cursor_heartbeat(run.state)
     if heartbeat is not None:
         if (_normalize_now(now) - heartbeat).total_seconds() > stale_after_seconds:
             return MonitorEvent(MonitorEventKind.STALLED, run, "stale_heartbeat", observed_at)
@@ -45,14 +49,19 @@ def classify_run(
     return None
 
 
-def _current_step_heartbeat(state: Any) -> datetime | None:
-    current_step = state.get("current_step") if isinstance(state, dict) else None
-    if not isinstance(current_step, dict):
+def _active_cursor_heartbeat(state: Any) -> datetime | None:
+    if not isinstance(state, dict):
         return None
-    heartbeat = _parse_datetime(current_step.get("last_heartbeat_at"))
-    if heartbeat is not None:
-        return heartbeat
-    return _parse_datetime(current_step.get("started_at"))
+    cursor = ExecutionCursorProjector().project(state)
+    current_nodes = [node for node in cursor.nodes if node.kind == "current_step"]
+    for node in reversed(current_nodes):
+        heartbeat = _parse_datetime(node.details.get("last_heartbeat_at"))
+        if heartbeat is not None:
+            return heartbeat
+        started_at = _parse_datetime(node.details.get("started_at"))
+        if started_at is not None:
+            return started_at
+    return None
 
 
 def _parse_datetime(value: Any) -> datetime | None:

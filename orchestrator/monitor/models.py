@@ -62,6 +62,7 @@ class ProcessMetadata:
 
     pid: int
     started_at: str
+    process_start_time: str | None = None
     argv: tuple[str, ...] = ()
     tmux: str | None = None
 

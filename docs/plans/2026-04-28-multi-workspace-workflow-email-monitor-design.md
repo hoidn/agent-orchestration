@@ -71,13 +71,16 @@ For each configured workspace, the monitor scans
 - `COMPLETED`: persisted `state.status` is `completed`.
 - `FAILED`: persisted `state.status` is `failed`.
 - `CRASHED`: persisted `state.status` is `running`, but the launcher process,
-  recorded process, or known tmux session is gone.
+  recorded process, or known tmux session is confirmed gone. A bare live PID is
+  not enough to suppress crash/stalled detection; process identity should use a
+  platform start token where available to avoid PID-reuse false negatives.
 - `STALLED`: persisted `state.status` is `running` and the current step
   heartbeat or state update is older than `stale_after_seconds`.
 
-When `current_step.last_heartbeat_at` is present, stale detection should prefer
-that heartbeat over `state.updated_at`. Falling back to `state.updated_at` is
-acceptable only when no current-step heartbeat exists.
+When an active execution cursor exposes `last_heartbeat_at`, stale detection
+should prefer the deepest active heartbeat over `state.updated_at`, including
+heartbeats inside running reusable call frames. Falling back to
+`state.updated_at` is acceptable only when no active cursor heartbeat exists.
 
 The monitor should label process absence and stale heartbeat differently. A
 missing process is a stronger crash signal; stale heartbeat while a process may
@@ -110,13 +113,19 @@ the repository immediately:
 - started, updated, heartbeat, and duration fields when available
 - current step or failed step
 - run-level or step-level error type and message
-- stdout and stderr tails when available from `state.json` or log files
+- capped stdout and stderr previews from run-local step logs when available
 - workflow outputs and high-value artifact paths when present
 - suggested local commands, such as `python -m orchestrator report --run-id ...`
   and `python -m orchestrator resume ...`
 
 Message composition should be deterministic and local. No provider call is
 needed to summarize the run.
+
+Email bodies must be bounded and conservative. They should read only run-local
+logs, cap previews, exclude prompt audits and provider-session transport logs by
+default, and redact configured SMTP secret values plus simple secret-looking
+key/value lines before rendering. Larger or more sensitive artifacts should be
+linked by path rather than embedded.
 
 ## Delivery
 
@@ -128,6 +137,8 @@ Required behavior:
 - read username/password only from configured environment variable names
 - never write secrets into state, logs, or notification ledgers
 - support `--dry-run` to print or write the would-be email without sending
+- keep `--dry-run` from marking notifications as sent unless an explicit
+  rehearsal flag such as `--dry-run-mark-sent` is used
 - fail closed when email config is missing or invalid
 
 A local `sendmail` backend can be added later for machines that already have a
@@ -147,6 +158,41 @@ The monitor is an external observer, not workflow control flow.
 This boundary matters because the feature is specifically meant to report
 failures when workflow control is broken.
 
+## Specification And Documentation Updates
+
+The implementation must update the discoverable contract surfaces along with
+the monitor code. The feature has both normative behavior and operational setup;
+those should not be mixed into one hidden design document.
+
+Normative updates:
+
+- `specs/observability.md` must describe the monitor as a read-only observer,
+  the event kinds (`COMPLETED`, `FAILED`, `CRASHED`, `STALLED`), heartbeat
+  precedence over `state.updated_at`, notification-ledger de-duplication, and
+  the requirement that monitoring does not mutate run state.
+- `specs/cli.md` must document the `orchestrator monitor` command surface,
+  including `--config`, `--once`, `--dry-run`, expected exit behavior, and the
+  relationship between polling mode and single-scan mode.
+- If implementation adds durable process or tmux-session sidecars, the owning
+  spec must define their schema and lifecycle before the monitor depends on
+  them for confirmed crash classification.
+
+Operational documentation:
+
+- Add a discoverable runbook, for example `docs/workflow_monitoring.md`, with
+  setup instructions, a full config example, SMTP environment variables,
+  headless operation notes, suggested tmux or systemd launch commands, dry-run
+  verification, and guidance for interpreting completion, failure, crashed, and
+  stalled emails.
+- Update `docs/index.md` so operators can find the monitoring runbook from the
+  documentation hub.
+- Add a short pointer from `README.md` or another existing quick-start surface
+  to the monitoring command and runbook.
+
+The config file format is operational configuration, not a workflow DSL
+extension. Its behavior should be documented in the runbook and CLI docs, while
+the event semantics and read-only guarantees belong in the specs.
+
 ## Testing Strategy
 
 Unit tests should cover:
@@ -158,6 +204,8 @@ Unit tests should cover:
 - notification ledger de-duplication
 - SMTP backend dry-run behavior without network access
 - redaction of configured secret values from logs and rendered messages
+- documentation coverage for the CLI/spec/runbook/index surfaces, without
+  asserting exact prompt or prose phrasing
 
 Integration or CLI smoke tests should create temporary workspace roots with
 sample run states and run the monitor in `--once --dry-run` mode.
