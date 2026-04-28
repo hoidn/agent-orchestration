@@ -263,6 +263,8 @@ steps:
                       state_root: {ref: self.steps.PreparePlanVisit.artifacts.phase_state_root}
                       design_path: {ref: inputs.design_target_path}
                       scope_boundary_path: {ref: inputs.scope_boundary_path}
+                      project_roadmap_path: {ref: inputs.project_roadmap_path}
+                      tranche_manifest_path: {ref: inputs.tranche_manifest_path}
                       plan_target_path: {ref: inputs.plan_target_path}
                       plan_review_report_target_path: {ref: inputs.plan_review_report_target_path}
                       upstream_escalation_context_path: {ref: inputs.upstream_escalation_context_path}

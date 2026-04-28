@@ -7,10 +7,11 @@ Major-project tranche plan revision additions:
 - If the consumed escalation context says implementation failed to converge, treat that as evidence that the plan may need a better task breakdown, sequence, scope boundary, verification strategy, or implementation architecture. Revise plan-owned decisions only; do not patch the implementation.
 
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `design`, `plan`, and `plan_review_report` artifacts before acting.
+Read the consumed `design`, `scope_boundary`, `project_roadmap`, `tranche_manifest`, `plan`, and `plan_review_report` artifacts before acting.
 
 Revise the plan in place to address every unresolved or new in-scope finding.
 Keep scope, order, and ownership coherent.
+Use `project_roadmap` and `tranche_manifest` only to cross-check selected-tranche scope, prerequisites, completion gate, and authorized deferrals. Do not mine unrelated roadmap tranches as extra implementation scope.
 
 When revising task order, preserve or add `Key Invariants` when the work has a central behavior, interface, data shape, integration, or user-visible result. State the results that later tasks rely on. Put each dependent task after the task and check that establish the result it needs.
 
