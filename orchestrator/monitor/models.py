@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
+from typing import Any, Mapping
 
 
 @dataclass(frozen=True)
@@ -43,3 +45,45 @@ class MonitorConfig:
     workspaces: tuple[MonitorWorkspace, ...]
     monitor: MonitorTiming
     email: EmailConfig
+
+
+class MonitorEventKind(Enum):
+    """Notification-worthy monitor event kinds."""
+
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    CRASHED = "CRASHED"
+    STALLED = "STALLED"
+
+
+@dataclass(frozen=True)
+class ProcessMetadata:
+    """Run-local process metadata used for crash classification."""
+
+    pid: int
+    started_at: str
+    argv: tuple[str, ...] = ()
+    tmux: str | None = None
+
+
+@dataclass(frozen=True)
+class MonitorRun:
+    """One scanned run state from a configured workspace."""
+
+    workspace: MonitorWorkspace
+    run_dir_id: str
+    run_root: Path
+    state_path: Path
+    state: Mapping[str, Any] | None = None
+    read_error: str | None = None
+    process: ProcessMetadata | None = None
+
+
+@dataclass(frozen=True)
+class MonitorEvent:
+    """One event that may be sent as a notification."""
+
+    kind: MonitorEventKind
+    run: MonitorRun
+    reason: str
+    observed_at: str
