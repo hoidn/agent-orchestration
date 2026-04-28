@@ -409,6 +409,8 @@ def test_major_project_plan_and_implementation_interfaces_include_escalation_con
         "design_path",
         "plan_path",
         "scope_boundary_path",
+        "project_roadmap_path",
+        "tranche_manifest_path",
         "execution_report_target_path",
         "implementation_review_report_target_path",
     }
@@ -422,6 +424,10 @@ def test_plan_and_implementation_phases_consume_scope_boundary():
     assert "scope_boundary" in plan_workflow["artifacts"]
     assert "scope_boundary_path" in implementation_workflow["inputs"]
     assert "scope_boundary" in implementation_workflow["artifacts"]
+    assert "project_roadmap_path" in implementation_workflow["inputs"]
+    assert "tranche_manifest_path" in implementation_workflow["inputs"]
+    assert "project_roadmap" in implementation_workflow["artifacts"]
+    assert "tranche_manifest" in implementation_workflow["artifacts"]
 
     for step_name in ["DraftPlan", "ReviewPlanTracked", "RevisePlanTracked"]:
         step = _step_by_name(plan_workflow, step_name)
@@ -432,6 +438,16 @@ def test_plan_and_implementation_phases_consume_scope_boundary():
         step = _step_by_name(implementation_workflow, step_name)
         assert "scope_boundary" in step["prompt_consumes"]
         assert "scope_boundary" in {consume["artifact"] for consume in step["consumes"]}
+
+    review_step = _step_by_name(implementation_workflow, "ReviewImplementation")
+    assert "project_roadmap" in review_step["prompt_consumes"]
+    assert "tranche_manifest" in review_step["prompt_consumes"]
+    assert "project_roadmap" in {consume["artifact"] for consume in review_step["consumes"]}
+    assert "tranche_manifest" in {consume["artifact"] for consume in review_step["consumes"]}
+
+    execute_step = _step_by_name(implementation_workflow, "ExecuteImplementation")
+    assert "project_roadmap" not in execute_step["prompt_consumes"]
+    assert "tranche_manifest" not in execute_step["prompt_consumes"]
 
 
 def test_tranche_stack_uses_current_phase_visit_roots_for_reentry():

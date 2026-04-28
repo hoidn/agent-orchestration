@@ -11,9 +11,10 @@ Major-project implementation escalation additions:
 - Write an implementation escalation context JSON to the target named by the `implementation_escalation_context_path` output. It may be inactive for `APPROVE` or `REVISE`, but it must exist.
 
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `design`, `plan`, `scope_boundary`, and `execution_report` artifacts before acting.
+Read the consumed `design`, `plan`, `scope_boundary`, `project_roadmap`, `tranche_manifest`, and `execution_report` artifacts before acting.
 
 Review the implementation against the design, the approved plan, and the roadmap-authoritative `scope_boundary`.
+Use the consumed `project_roadmap` and `tranche_manifest` to verify that the scope boundary and any claimed deferrals match roadmap-level authority.
 Only roadmap revision can reduce, split, recharter, or move selected-tranche scope. Treat plan or implementation "current scope" language as task sequencing, not as authority to change the tranche completion boundary. Explicit deferrals are non-blocking only when the consumed `scope_boundary` records roadmap-level authority for them.
 Do not treat generated reports, projections, summaries, or other derived evidence artifacts as blocking by themselves unless they are the authoritative source of truth, a stable downstream input, or an explicit user-facing deliverable in the approved design or plan.
 
