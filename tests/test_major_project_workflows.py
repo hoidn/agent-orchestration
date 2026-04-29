@@ -53,6 +53,26 @@ def _step_by_name(workflow: dict, name: str) -> dict:
     raise AssertionError(f"Missing step {name}")
 
 
+def _step_names(workflow: dict) -> set[str]:
+    return {step["name"] for _, step in _walk_steps(workflow["steps"])}
+
+
+def _bundle_field(step: dict, name: str) -> dict:
+    fields = {field["name"]: field for field in step["output_bundle"]["fields"]}
+    return fields[name]
+
+
+def _all_allowed_values(node):
+    if isinstance(node, dict):
+        if isinstance(node.get("allowed"), list):
+            yield node["allowed"]
+        for value in node.values():
+            yield from _all_allowed_values(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _all_allowed_values(value)
+
+
 def _on_config(step: dict) -> dict:
     return step.get("on", step.get(True, {}))
 
@@ -1332,6 +1352,40 @@ def test_roadmap_revision_phase_uses_single_advisory_review():
     ]
     assert "repeat_until" not in _step_by_name(workflow, "ReviewRoadmapRevision")
     assert "RoadmapRevisionReviewLoop" not in [step["name"] for step in workflow["steps"]]
+
+
+def test_neurips_implementation_phase_uses_terminal_implementation_states():
+    workflow = _load_yaml("workflows/library/neurips_backlog_implementation_phase.yaml")
+    execute = _step_by_name(workflow, "ExecuteImplementation")
+    write_state = _step_by_name(workflow, "WriteImplementationState")
+    finalize = _step_by_name(workflow, "FinalizeImplementationPhaseOutputs")
+    fix = _step_by_name(workflow, "FixImplementation")
+
+    assert workflow["outputs"]["implementation_state"]["allowed"] == ["COMPLETED", "BLOCKED"]
+    assert _bundle_field(execute, "implementation_state")["allowed"] == ["COMPLETED", "BLOCKED"]
+    assert write_state["expected_outputs"][0]["allowed"] == ["COMPLETED", "BLOCKED"]
+    assert finalize["expected_outputs"][0]["allowed"] == ["COMPLETED", "BLOCKED"]
+    assert execute["timeout_sec"] == 86400
+    assert fix["timeout_sec"] == 86400
+    assert "PublishProgressReport" not in _step_names(workflow)
+
+
+def test_neurips_selected_item_does_not_emit_waiting_status():
+    workflow = _load_yaml("workflows/library/neurips_selected_backlog_item.yaml")
+
+    assert workflow["outputs"]["drain_status"]["allowed"] == ["CONTINUE", "BLOCKED"]
+    assert "RecordImplementationWaiting" not in _step_names(workflow)
+    for allowed in _all_allowed_values(workflow):
+        assert "WAITING" not in allowed
+
+
+def test_neurips_top_level_drain_does_not_emit_waiting_status():
+    workflow = _load_yaml("workflows/examples/neurips_steered_backlog_drain.yaml")
+
+    assert workflow["outputs"]["drain_status"]["allowed"] == ["CONTINUE", "DONE", "BLOCKED"]
+    assert workflow["artifacts"]["drain_status"]["allowed"] == ["CONTINUE", "DONE", "BLOCKED"]
+    for allowed in _all_allowed_values(workflow):
+        assert "WAITING" not in allowed
 
 
 def test_drain_iteration_promotes_roadmap_revision_for_any_advisory_decision():
