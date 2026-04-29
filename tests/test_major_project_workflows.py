@@ -1379,6 +1379,50 @@ def test_neurips_selected_item_does_not_emit_waiting_status():
         assert "WAITING" not in allowed
 
 
+def test_neurips_selected_item_recovers_or_runs_plan_gate_before_implementation():
+    workflow = _load_yaml("workflows/library/neurips_selected_backlog_item.yaml")
+
+    materialize = _step_by_name(workflow, "MaterializeSelectedItemInputs")
+    materialized_fields = {field["name"]: field for field in materialize["output_bundle"]["fields"]}
+    assert materialized_fields["plan_gate_recovery_bundle_path"]["under"] == "state"
+    assert materialized_fields["plan_gate_recovery_report_target_path"]["under"] == "artifacts/review"
+
+    recover = _step_by_name(workflow, "RecoverPlanGateOutputs")
+    recovery_fields = {field["name"]: field for field in recover["output_bundle"]["fields"]}
+    assert recovery_fields["plan_gate_status"]["allowed"] == ["RECOVERED", "MISSING"]
+    assert recovery_fields["recovered_plan_path"]["required"] is False
+    assert recovery_fields["recovered_plan_path"]["under"] == "docs/plans"
+
+    fresh = _step_by_name(workflow, "RunFreshPlanPhase")
+    assert fresh["when"]["compare"]["left"] == {
+        "ref": "root.steps.RecoverPlanGateOutputs.artifacts.plan_gate_status"
+    }
+    assert fresh["when"]["compare"]["op"] == "eq"
+    assert fresh["when"]["compare"]["right"] == "MISSING"
+
+    resolve = _step_by_name(workflow, "ResolvePlanGateOutputs")
+    assert resolve["expected_outputs"][0]["name"] == "plan_path"
+    command_text = "\n".join(str(part) for part in resolve["command"])
+    assert "plan_gate_status" in command_text
+    assert "final_plan_path.txt" in command_text
+    assert "reconciled_selected_item_path.txt" in command_text
+
+    rewrite = _step_by_name(workflow, "RewriteSelectedItemPlanPath")
+    assert rewrite["when"]["compare"]["left"] == {
+        "ref": "root.steps.RecoverPlanGateOutputs.artifacts.plan_gate_status"
+    }
+    assert rewrite["when"]["compare"]["right"] == "MISSING"
+
+
+def test_neurips_selected_item_implementation_uses_normalized_plan_gate_output():
+    workflow = _load_yaml("workflows/library/neurips_selected_backlog_item.yaml")
+
+    implementation = _step_by_name(workflow, "RunImplementationPhase")
+    assert implementation["with"]["plan_path"] == {
+        "ref": "root.steps.ResolvePlanGateOutputs.artifacts.plan_path"
+    }
+
+
 def test_neurips_top_level_drain_does_not_emit_waiting_status():
     workflow = _load_yaml("workflows/examples/neurips_steered_backlog_drain.yaml")
 
