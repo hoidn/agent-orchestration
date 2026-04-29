@@ -18,6 +18,8 @@
 - Progress and metrics
   - Optional `--progress` renders `[n/N] StepName: Running (Xs)...` and loop progress `[i/total]`.
   - State includes timing metrics: step duration, provider time, wait duration, file I/O counts where applicable.
+  - Active runtime may be derived from run-level executor sessions in `state.runtime_observability`. Active runtime is the sum of closed executor-session durations plus the age of a currently live executor session whose process identity can be confirmed. It excludes time between a stopped, interrupted, or abandoned executor process and a later resume process.
+  - Active runtime is observability-only. It must not drive `when`, `assert`, `goto`, retry, provider timeout, or workflow deadline behavior unless a future control-flow spec explicitly defines such behavior.
 
 - Trace context
   - Steps may include trace IDs in commands using variable substitution.
@@ -45,6 +47,7 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
     - `last_result_visit_count`: visit ordinal recorded on the latest persisted result at `steps.<StepName>`
   - v2.0 status/report snapshots may expose `step_id` alongside display `name`; display names remain the human-facing label, while `step_id` is the durable lineage/resume identity.
   - v2.1 status/report snapshots may expose `bound_inputs`, `workflow_outputs`, and any run-level workflow-boundary `error` object.
+  - Status/report snapshots may expose `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, `run.current_executor_session`, `run.excluded_suspended_ms`, and `run.suspended_gap_excluded` when executor-session accounting is available.
   - v2.10 status/report snapshots may expose:
     - `run.error` quarantine context for interrupted provider-session visits
     - `output.provider_session` step summaries including `mode`, `session_id`, `metadata_path`, and `publication_state`

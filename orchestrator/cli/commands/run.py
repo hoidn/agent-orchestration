@@ -20,7 +20,8 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_input_contracts,
 )
 from orchestrator.workflow.linting import lint_workflow
-from orchestrator.monitor.process import write_process_metadata
+from orchestrator.monitor.process import process_start_time_token, write_process_metadata
+from orchestrator.runtime_observability import close_executor_session, open_executor_session
 from orchestrator.workflow.signatures import bind_workflow_inputs
 
 
@@ -356,41 +357,63 @@ def run_workflow(args: Namespace) -> int:
             observability=observability,
         )
         logger.info(f"Created new run: {run_state.run_id}")
+
+        session_id: str | None = None
+        session_status = "failed"
         try:
-            write_process_metadata(state_manager.run_root)
-        except OSError as exc:
-            logger.debug("Failed to write monitor process metadata: %s", exc)
+            session_id = open_executor_session(
+                state_manager.state,
+                entrypoint="run",
+                process_start_time=process_start_time_token(os.getpid()),
+            )
+            state_manager._write_state()
+            try:
+                write_process_metadata(
+                    state_manager.run_root,
+                    executor_session_id=session_id,
+                )
+            except OSError as exc:
+                logger.debug("Failed to write monitor process metadata: %s", exc)
 
-        # Execute workflow
-        executor = WorkflowExecutor(
-            workflow=workflow,
-            workspace=workspace,
-            state_manager=state_manager,
-            logs_dir=state_manager.logs_dir,
-            debug=args.debug if hasattr(args, 'debug') else False,
-            stream_output=args.stream_output if hasattr(args, 'stream_output') else False,
-            max_retries=args.max_retries,
-            retry_delay_ms=args.retry_delay,
-            observability=observability,
-        )
+            # Execute workflow
+            executor = WorkflowExecutor(
+                workflow=workflow,
+                workspace=workspace,
+                state_manager=state_manager,
+                logs_dir=state_manager.logs_dir,
+                debug=args.debug if hasattr(args, 'debug') else False,
+                stream_output=args.stream_output if hasattr(args, 'stream_output') else False,
+                max_retries=args.max_retries,
+                retry_delay_ms=args.retry_delay,
+                observability=observability,
+            )
 
-        result = executor.execute(
-            run_id=run_state.run_id,
-            on_error=args.on_error,
-            max_retries=args.max_retries,
-            retry_delay_ms=args.retry_delay
-        )
+            result = executor.execute(
+                run_id=run_state.run_id,
+                on_error=args.on_error,
+                max_retries=args.max_retries,
+                retry_delay_ms=args.retry_delay
+            )
 
-        if isinstance(result, dict):
-            run_succeeded = result.get("status") == "completed"
-        else:
-            run_succeeded = bool(result)
+            if isinstance(result, dict):
+                run_succeeded = result.get("status") == "completed"
+            else:
+                run_succeeded = bool(result)
+            session_status = "completed" if run_succeeded else "failed"
 
-        # Archive processed directory on successful completion only.
-        if run_succeeded and archive_dest:
-            archive_processed_directory(processed_dir, archive_dest)
+            # Archive processed directory on successful completion only.
+            if run_succeeded and archive_dest:
+                archive_processed_directory(processed_dir, archive_dest)
 
-        return 0 if run_succeeded else 1
+            return 0 if run_succeeded else 1
+        finally:
+            if session_id is not None and state_manager.state is not None:
+                close_executor_session(
+                    state_manager.state,
+                    session_id=session_id,
+                    status=session_status,
+                )
+                state_manager._write_state()
 
     except FileNotFoundError as e:
         logger.error(f"File not found: {e}")

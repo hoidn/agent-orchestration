@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 from pathlib import Path
 from typing import Optional, Dict, Any
 import sys
@@ -12,7 +13,8 @@ from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.loaded_bundle import workflow_context, workflow_input_contracts
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.exceptions import WorkflowValidationError
-from orchestrator.monitor.process import write_process_metadata
+from orchestrator.monitor.process import process_start_time_token, write_process_metadata
+from orchestrator.runtime_observability import close_executor_session, open_executor_session
 
 
 logger = logging.getLogger(__name__)
@@ -287,26 +289,37 @@ def resume_workflow(
         if pending_steps:
             print(f"  Pending steps: {', '.join(pending_steps)}")
 
+    session_id: str | None = None
+    session_status = "failed"
     try:
-        write_process_metadata(state_manager.run_root)
-    except OSError as exc:
-        logger.debug("Failed to write monitor process metadata: %s", exc)
+        session_id = open_executor_session(
+            state_manager.state,
+            entrypoint="run" if force_restart else "resume",
+            process_start_time=process_start_time_token(os.getpid()),
+        )
+        state_manager._write_state()
+        try:
+            write_process_metadata(
+                state_manager.run_root,
+                executor_session_id=session_id,
+            )
+        except OSError as exc:
+            logger.debug("Failed to write monitor process metadata: %s", exc)
 
-    # Initialize executor with existing state
-    workspace_dir = Path.cwd()
-    executor = WorkflowExecutor(
-        workflow=workflow_bundle,
-        workspace=workspace_dir,
-        state_manager=state_manager,
-        max_retries=max_retries,
-        retry_delay_ms=retry_delay_ms,
-        debug=debug,
-        stream_output=stream_output,
-        observability=observability,
-    )
+        # Initialize executor with existing state
+        workspace_dir = Path.cwd()
+        executor = WorkflowExecutor(
+            workflow=workflow_bundle,
+            workspace=workspace_dir,
+            state_manager=state_manager,
+            max_retries=max_retries,
+            retry_delay_ms=retry_delay_ms,
+            debug=debug,
+            stream_output=stream_output,
+            observability=observability,
+        )
 
-    # Execute workflow
-    try:
+        # Execute workflow
         # AT-68: For force_restart, we start fresh without resume flag
         result = executor.execute(
             run_id=run_id,
@@ -333,14 +346,17 @@ def resume_workflow(
             if isinstance(message, str) and message:
                 print(f"Error: {message}", file=sys.stderr)
         if final_status == 'completed':
+            session_status = "completed"
             print("Workflow resumed and completed successfully")
             return 0
         else:
+            session_status = "failed" if final_status == "failed" else "completed"
             print(f"Workflow execution ended with status: {final_status}")
             return 1 if final_status == 'failed' else 0
 
     except KeyboardInterrupt:
         print("\nWorkflow execution interrupted by user")
+        session_status = "interrupted"
         state_manager.update_status('suspended')
         return 130  # Standard exit code for SIGINT
     except Exception as e:
@@ -348,3 +364,11 @@ def resume_workflow(
         print(f"Error during workflow execution: {e}", file=sys.stderr)
         state_manager.update_status('failed')
         return 1
+    finally:
+        if session_id is not None and state_manager.state is not None:
+            close_executor_session(
+                state_manager.state,
+                session_id=session_id,
+                status=session_status,
+            )
+            state_manager._write_state()

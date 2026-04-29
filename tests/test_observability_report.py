@@ -1,5 +1,6 @@
 """Tests for deterministic workflow status reporting."""
 
+import os
 from dataclasses import replace
 
 from datetime import datetime, timedelta, timezone
@@ -15,6 +16,7 @@ from orchestrator.observability.report import (
     derive_status_projection,
     render_status_markdown,
 )
+from orchestrator.monitor.process import process_start_time_token
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -217,6 +219,57 @@ def test_markdown_renderer_emits_human_readable_status(tmp_path: Path):
     assert "DraftPlan" in md
     assert "Prompt body" in md
     assert "Progress" in md
+
+
+def test_snapshot_and_markdown_surface_active_runtime(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "runtime-report"
+    (run_root / "logs").mkdir(parents=True)
+    state = {
+        "run_id": "runtime-report",
+        "status": "running",
+        "started_at": "2026-04-29T10:00:00+00:00",
+        "updated_at": "2026-04-29T22:15:00+00:00",
+        "workflow_file": "workflows/test.yaml",
+        "runtime_observability": {
+            "schema_version": 1,
+            "executor_sessions": [
+                {
+                    "session_id": "exec-0001",
+                    "entrypoint": "run",
+                    "started_at": "2026-04-29T10:00:00+00:00",
+                    "ended_at": "2026-04-29T10:20:00+00:00",
+                    "status": "failed",
+                    "duration_ms": 1_200_000,
+                },
+                {
+                    "session_id": "exec-0002",
+                    "entrypoint": "resume",
+                    "pid": os.getpid(),
+                    "process_start_time": process_start_time_token(os.getpid()),
+                    "started_at": "2026-04-29T22:15:00+00:00",
+                    "ended_at": None,
+                    "status": "running",
+                    "duration_ms": None,
+                },
+            ],
+        },
+        "steps": {},
+    }
+
+    snapshot = build_status_snapshot(
+        _load_bundle(tmp_path, _sample_workflow_payload()),
+        state,
+        run_root,
+        now=datetime(2026, 4, 29, 22, 20, tzinfo=timezone.utc),
+    )
+    md = render_status_markdown(snapshot)
+
+    assert snapshot["run"]["active_runtime_ms"] == 1_500_000
+    assert snapshot["run"]["active_runtime"] == "25m 0s"
+    assert snapshot["run"]["executor_session_count"] == 2
+    assert snapshot["run"]["excluded_suspended_ms"] == 42_900_000
+    assert "- active_runtime: `25m 0s`" in md
+    assert "- suspended_gap_excluded: `11h 55m 0s`" in md
 
 
 def test_snapshot_recognizes_call_steps(tmp_path: Path):

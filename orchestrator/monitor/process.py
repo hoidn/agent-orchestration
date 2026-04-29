@@ -27,6 +27,7 @@ def write_process_metadata(
     pid: int | None = None,
     argv: Sequence[str] | None = None,
     process_start_time: str | None = None,
+    executor_session_id: str | None = None,
 ) -> Path:
     """Write run-local process metadata for monitor crash detection."""
 
@@ -44,6 +45,8 @@ def write_process_metadata(
     }
     if start_time is not None:
         payload["process_start_time"] = start_time
+    if executor_session_id is not None:
+        payload["executor_session_id"] = executor_session_id
     tmux = os.environ.get("TMUX")
     if tmux:
         payload["tmux"] = tmux

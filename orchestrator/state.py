@@ -85,6 +85,7 @@ class RunState:
     finalization: Dict[str, Any] = field(default_factory=dict)
     error: Optional[Dict[str, Any]] = None
     observability: Optional[Dict[str, Any]] = None
+    runtime_observability: Optional[Dict[str, Any]] = None
     current_step: Optional[Dict[str, Any]] = None
     steps: Dict[str, Any] = field(default_factory=dict)
     for_each: Dict[str, ForEachState] = field(default_factory=dict)
@@ -124,6 +125,8 @@ class RunState:
             result["run_root"] = self.run_root
         if self.observability is not None:
             result["observability"] = self.observability
+        if self.runtime_observability is not None:
+            result["runtime_observability"] = self.runtime_observability
         if self.error is not None:
             result["error"] = self.error
         if self.current_step is not None:
@@ -171,6 +174,7 @@ class RunState:
             finalization=data.get("finalization", {}),
             error=data.get("error"),
             observability=data.get("observability"),
+            runtime_observability=data.get("runtime_observability"),
             current_step=data.get("current_step"),
             steps=data.get("steps", {}),
             for_each=for_each,

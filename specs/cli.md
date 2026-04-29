@@ -7,6 +7,7 @@
     - v2.10: if the persisted run stopped mid-visit on a session-enabled provider step, resume quarantines that exact visit instead of replaying the provider. Later resume attempts fail fast from the persisted quarantine marker until the operator chooses `--force-restart` or starts a new run.
   - `orchestrate report [--run-id <id>] [--runs-root <dir>] [--format md|json] [--output <path>]`
     - Report output may include advisory lint warnings (`lint.warnings[]` in JSON or an appendix in Markdown); warnings remain informational only.
+    - Report output may include active runtime fields derived from executor sessions, including `run.active_runtime_ms`, `run.active_runtime`, `run.executor_session_count`, and `run.excluded_suspended_ms`. These fields exclude suspended gaps between executor processes and are informational only.
     - v2.10 report output may surface provider-session metadata paths and quarantine context from the persisted run-level error.
   - `orchestrate dashboard --workspace <root> [--workspace <root> ...] [--host 127.0.0.1] [--port <port>]`
     - Serves a local, read-only dashboard for explicit workspace roots.

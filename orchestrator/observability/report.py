@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Iterable, Mapping, Optional
 
+from orchestrator.runtime_observability import compute_active_runtime
 from orchestrator.workflow.loaded_bundle import workflow_bundle
 
 
@@ -331,6 +332,10 @@ def build_status_snapshot(
     if isinstance(state.get("error"), dict):
         run_payload["error"] = state.get("error")
 
+    runtime_payload = compute_active_runtime(state, now=now)
+    if runtime_payload.get("active_runtime_ms") is not None:
+        run_payload.update(runtime_payload)
+
     return {
         "run": {
             **run_payload,
@@ -341,7 +346,7 @@ def build_status_snapshot(
 
 
 def _render_kv_lines(items: Iterable[tuple[str, Any]]) -> str:
-    return "\n".join(f"- {key}: `{value}`" for key, value in items)
+    return "\n".join(f"- {key}: `{value}`" for key, value in items if value is not None)
 
 
 def render_status_markdown(snapshot: Dict[str, Any]) -> str:
@@ -359,6 +364,9 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
                 ("workflow_file", run.get("workflow_file")),
                 ("started_at", run.get("started_at")),
                 ("updated_at", run.get("updated_at")),
+                ("active_runtime", run.get("active_runtime")),
+                ("executor_sessions", run.get("executor_session_count")),
+                ("suspended_gap_excluded", run.get("suspended_gap_excluded")),
             ]
         ),
         "",
