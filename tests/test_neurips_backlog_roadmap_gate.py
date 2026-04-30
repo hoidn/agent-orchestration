@@ -3,10 +3,13 @@ import subprocess
 import sys
 from pathlib import Path
 
+import yaml
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT = REPO_ROOT / "workflows/library/scripts/build_neurips_backlog_manifest.py"
 RECONCILE_SCRIPT = REPO_ROOT / "workflows/library/scripts/reconcile_neurips_backlog_roadmap_gate.py"
+STEERED_DRAIN_WORKFLOW = REPO_ROOT / "workflows/examples/neurips_steered_backlog_drain.yaml"
 
 
 def _write_backlog_item(
@@ -124,6 +127,23 @@ def test_roadmap_gate_refreshes_stale_manifest_before_prerequisite_routing(tmp_p
     assert prerequisite_id in eligible_ids
     assert dependent_id not in eligible_ids
     assert "missing prerequisites: " + prerequisite_id in ineligible_by_id[dependent_id]["ineligibility_reasons"]
+
+
+def test_steered_drain_selected_item_uses_selector_eligible_manifest() -> None:
+    workflow = yaml.safe_load(STEERED_DRAIN_WORKFLOW.read_text(encoding="utf-8"))
+    drain_step = next(step for step in workflow["steps"] if step["name"] == "DrainBacklogItems")
+    iteration_steps = drain_step["repeat_until"]["steps"]
+
+    select_step = next(step for step in iteration_steps if step["name"] == "SelectNextItem")
+    route_step = next(step for step in iteration_steps if step["name"] == "RouteItemSelection")
+    selected_case_steps = route_step["match"]["cases"]["SELECTED"]["steps"]
+    run_selected_step = next(step for step in selected_case_steps if step["name"] == "RunSelectedItem")
+
+    expected_ref = "self.steps.ReconcileBacklogRoadmapGate.artifacts.eligible_manifest_path"
+    assert select_step["with"]["manifest_path"] == {"ref": expected_ref}
+    assert run_selected_step["with"]["manifest_path"] == {
+        "ref": expected_ref.replace("self.steps", "parent.steps", 1)
+    }
 
 
 def test_manifest_builder_accepts_block_scalar_check_commands(tmp_path: Path) -> None:

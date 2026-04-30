@@ -83,6 +83,12 @@ Use when a step emits many scalar artifacts.
 
 For provider steps, the prompt suffix includes the concrete JSON bundle path and field-level JSON pointer contract after runtime path substitution. Do not duplicate that path in the prompt unless the step is unusually high-risk.
 
+### C) Derived manifests after deterministic gates
+
+When a workflow builds a broad manifest and then applies a deterministic gate, treat the gate output as a new derived manifest with its own authority. The pre-gate manifest is provenance and gate input; the post-gate manifest is the downstream selection and execution authority.
+
+Do not require equality between the two manifests. They are expected to differ when the gate filters blocked, out-of-scope, completed, or otherwise ineligible rows. Instead, enforce lineage and selection validity: the derived manifest should record the source manifest path, downstream selector and execution steps should consume the same derived manifest, and selected items should be rejected if they are not present in that derived manifest.
+
 Summary:
 
 | Pattern | Best for | Tradeoffs |
