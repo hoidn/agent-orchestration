@@ -149,7 +149,7 @@ Keep prompts focused on decision-quality instructions, not DSL plumbing.
 | Forbidden shortcuts (when failure modes are predictable). | "Audit-only" language that can be mistaken for execution. |
 | Evidence format (what files to write and where). | Over-specifying pointer plumbing already enforced by contracts. |
 
-Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders.
+Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders. Plans and reviews should distinguish mandatory contract artifacts from preferred packaging: exact names or paths are binding when machine-consumed, explicitly mandatory, authoritative, user-facing, or needed for provenance, claim boundaries, or discoverability; otherwise equivalent discoverable artifacts should satisfy the same contract.
 
 For design, design-review, and planning prompts that may affect architecture, data contracts, workflow APIs, or stable modules, explicitly instruct the agent to read `docs/index.md` first when present, then use it to select the relevant specs, architecture docs, workflow guides, and findings docs. This instruction belongs in the prompt because it is part of the review or design judgment standard. Keep the workflow `depends_on.inject` list narrow and treat it as candidate context, not a mandatory reading list.
 
