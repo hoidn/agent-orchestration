@@ -2402,7 +2402,7 @@ class WorkflowLoader:
     def _validate_variables_usage(self, step: Dict[str, Any], name: str):
         """Validate variable usage and reject ${env.*} namespace (AT-7)."""
         # Fields that allow variable substitution
-        variable_fields = ['command', 'input_file', 'output_file', 'provider_params']
+        variable_fields = ['command', 'input_file', 'output_file', 'provider', 'provider_params']
 
         for field in variable_fields:
             if field in step:
@@ -2907,6 +2907,9 @@ class WorkflowLoader:
             return
 
         provider_name = step.get('provider')
+        if isinstance(provider_name, str) and "${" in provider_name:
+            self._add_error(f"{context} requires a static provider template")
+            return
         provider_template = self._provider_registry.get(provider_name) if isinstance(provider_name, str) else None
         if provider_template is None:
             self._add_error(f"{context} requires a known provider template")

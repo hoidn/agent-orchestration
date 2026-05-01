@@ -3459,13 +3459,23 @@ class WorkflowExecutor:
                 delay_ms=self.retry_delay_ms
             )
 
-        # Execute with retries
-        attempt = 0
-        result: Optional[Dict[str, Any]] = None
-
         # Build context for provider parameter substitution (AT-44)
         # This should include all variable namespaces
         provider_context = self._create_provider_context(context, state)
+        resolved_provider_name, provider_name_error = self._resolve_provider_name_for_step(
+            step,
+            provider_context,
+        )
+        if provider_name_error is not None:
+            return {
+                'status': 'failed',
+                'exit_code': 2,
+                'error': provider_name_error,
+            }
+
+        # Execute with retries
+        attempt = 0
+        result: Optional[Dict[str, Any]] = None
 
         # Import types
         from ..providers.types import ProviderParams
@@ -3480,7 +3490,7 @@ class WorkflowExecutor:
             )
 
             invocation, error = self.provider_executor.prepare_invocation(
-                provider_name=step['provider'],
+                provider_name=resolved_provider_name,
                 params=params,
                 context=provider_context,
                 prompt_content=prompt,
@@ -3647,6 +3657,47 @@ class WorkflowExecutor:
             result['debug'] = debug_info
 
         return self._apply_expected_outputs_contract(step, result, state, context=context)
+
+    def _resolve_provider_name_for_step(
+        self,
+        step: Dict[str, Any],
+        provider_context: Dict[str, Any],
+    ) -> tuple[Optional[str], Optional[Dict[str, Any]]]:
+        """Resolve one provider step's provider alias before template lookup."""
+        raw_provider = step.get("provider")
+        step_name = step.get("name", f"step_{self.current_step}")
+        if not isinstance(raw_provider, str) or not raw_provider.strip():
+            return None, {
+                "type": "validation_error",
+                "message": "Provider step requires a non-empty provider name",
+                "context": {"step": step_name, "provider": raw_provider},
+            }
+
+        try:
+            resolved = self.variable_substitutor.substitute(raw_provider, provider_context)
+        except ValueError as exc:
+            return None, {
+                "type": "substitution_error",
+                "message": "Failed to substitute provider name",
+                "context": {
+                    "step": step_name,
+                    "provider": raw_provider,
+                    "error": str(exc),
+                },
+            }
+
+        if not isinstance(resolved, str) or not resolved.strip():
+            return None, {
+                "type": "validation_error",
+                "message": "Provider name resolved to an empty value",
+                "context": {
+                    "step": step_name,
+                    "provider": raw_provider,
+                    "resolved_provider": resolved,
+                },
+            }
+
+        return resolved.strip(), None
 
     def _compose_provider_prompt_for_step(
         self,

@@ -60,7 +60,7 @@
   - Optional metadata: `agent: string` (informational).
   - Optional stable identity: `id: string` (v2.0+; unique within the lexical sibling scope; pattern `[A-Za-z][A-Za-z0-9_]*`)
   - Execution (mutually exclusive in a single step):
-    - `provider: string` (+ optional `provider_params`) OR
+    - `provider: string` (+ optional `provider_params`; provider strings may use `${...}` substitution and resolve at provider-step execution time) OR
     - `command: string[]` OR
     - `assert: Condition|TypedPredicate` (v1.5+; exclusive with provider/command/wait_for/for_each) OR
     - `set_scalar: { artifact, value }` (v1.7+; exclusive with provider/command/wait_for/assert/for_each) OR

@@ -80,6 +80,56 @@ class TestLoaderValidation:
         assert any("${env.*} namespace not allowed" in str(err.message)
                   for err in exc_info.value.errors)
 
+    def test_provider_field_allows_context_variable(self):
+        """Provider aliases may be resolved dynamically from workflow data."""
+        workflow = {
+            "version": "2.7",
+            "name": "dynamic-provider",
+            "context": {"provider_alias": "claude"},
+            "providers": {
+                "claude": {
+                    "command": ["claude", "-p", "${PROMPT}"],
+                }
+            },
+            "steps": [{
+                "name": "step1",
+                "provider": "${context.provider_alias}",
+                "input_file": "prompt.md",
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
+
+        assert surface["steps"][0]["provider"] == "${context.provider_alias}"
+
+    def test_at7_env_in_provider_field_rejected(self):
+        """AT-7: ${env.*} rejected in provider field."""
+        workflow = {
+            "version": "2.7",
+            "name": "test",
+            "providers": {
+                "claude": {
+                    "command": ["claude", "-p", "${PROMPT}"],
+                }
+            },
+            "steps": [{
+                "name": "step1",
+                "provider": "${env.PROVIDER}",
+                "input_file": "prompt.md",
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("${env.*} namespace not allowed" in str(err.message)
+                  for err in exc_info.value.errors)
+
     def test_at10_provider_command_exclusivity(self):
         """AT-10: Provider/Command exclusivity - validation error when both present."""
         workflow = {
@@ -1366,6 +1416,45 @@ class TestLoaderValidation:
         surface = thaw_surface_workflow(loaded)
 
         assert surface["steps"][0]["provider_session"]["mode"] == "fresh"
+
+    def test_v210_provider_session_rejects_dynamic_provider_name(self):
+        """provider_session support is loader-validated and requires a static provider alias."""
+        workflow = {
+            "version": "2.10",
+            "name": "provider-session-dynamic-provider",
+            "context": {"provider_alias": "session_provider"},
+            "providers": {
+                "session_provider": {
+                    "command": ["tool", "--model", "${model}"],
+                    "input_mode": "stdin",
+                    "session_support": {
+                        "metadata_mode": "codex_exec_jsonl_stdout",
+                        "fresh_command": ["tool", "--json", "--model", "${model}"],
+                    },
+                }
+            },
+            "artifacts": {
+                "implementation_session_id": {
+                    "kind": "scalar",
+                    "type": "string",
+                }
+            },
+            "steps": [{
+                "name": "StartImplementation",
+                "provider": "${context.provider_alias}",
+                "provider_session": {
+                    "mode": "fresh",
+                    "publish_artifact": "implementation_session_id",
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any("requires a static provider template" in str(err.message)
+                  for err in exc_info.value.errors)
 
     def test_v210_provider_session_rejects_nested_usage(self):
         """provider_session is rejected in nested loop/branch scopes in v1."""

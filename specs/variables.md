@@ -9,7 +9,7 @@
   - Workflow inputs (v2.1+): `${inputs.<name>}`
 
 - Where variables are substituted
-  - Provider templates and `provider_params` values
+  - Provider step `provider` aliases, provider templates, and `provider_params` values
   - Raw `command` arrays
   - File paths (e.g., `input_file`, `asset_file`, `asset_depends_on`, `output_file`)
   - Conditions (`when.equals.left/right`)

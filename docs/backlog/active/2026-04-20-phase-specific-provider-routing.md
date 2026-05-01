@@ -1,6 +1,8 @@
-# Phase-Specific Provider Routing For Reusable Stacks
+# KISS Provider Role Routing For Reusable Stacks
 
 Active backlog item.
+
+Plan: `docs/plans/2026-05-01-kiss-provider-role-routing-implementation-plan.md`
 
 ## Problem
 
@@ -10,36 +12,70 @@ Because imported workflows keep private provider namespaces, a caller-level prov
 
 ## Desired Outcome
 
-Workflow authors can choose providers per phase role without editing prompt text, using PATH shims, or forking whole workflow stacks for every provider combination.
+Workflow authors can choose providers for specific reusable-stack roles, such as `ExecuteImplementation`, without editing prompt text, using PATH shims, or forking whole workflow stacks for every provider combination.
 
 ## Scope
 
-- Major-project tranche stack:
-  - roadmap draft/review/revise
-  - big-design draft/review/revise
-  - plan draft/review/revise
-  - implementation execute/review/fix
-- Generic backlog item stack if the same mechanism applies cleanly.
-- Provider templates and workflow inputs/context needed to select providers by role.
-- Tests or smoke checks proving imported workflows receive the intended provider role choices.
+- Add the smallest DSL/runtime support needed for provider names to be resolved from workflow data, for example `provider: "${context.implementation_execute_provider}"`, with deterministic validation before provider launch.
+- Define role-specific provider settings in reusable library workflows, starting with:
+  - `implementation_execute_provider`
+  - `implementation_review_provider`
+  - `implementation_fix_provider`
+- Keep provider templates local to the callee workflow scope. The callee should define the supported aliases, such as `codex` and `claude_opus`.
+- Pass role values through imported workflow calls where the top-level stack needs to override defaults.
+- Apply first to the NeurIPS/generic backlog implementation phase and then to the major-project tranche stack if the same convention remains clean.
+- Add tests or smoke checks proving imported workflows receive the intended provider role choices.
 
 ## Non-Goals
 
 - Do not make prompt wording decide provider routing.
 - Do not require runtime inspection of prompt text.
-- Do not add a broad provider plugin framework before a small role-based convention is proven.
+- Do not add a broad provider plugin framework before this role-based convention is proven.
+- Do not add arbitrary provider maps or implicit caller/callee provider namespace merging.
+- Do not make model inheritance part of the first fix beyond ordinary provider template defaults and `provider_params`.
 - Do not break existing workflows that assume one provider for every step.
 
 ## Candidate Design Direction
 
-Add a small role-based provider convention for reusable stacks. For example, library workflows may expose context or inputs such as `design_author_provider`, `design_review_provider`, `plan_provider`, `implementation_provider`, and `implementation_review_provider`, with defaults preserving current behavior. The stack should pass those values into imported phases, and each phase should use explicit provider names or a documented provider-role mapping rather than relying on a single hard-coded `codex` provider.
+Add a small role-based provider convention for reusable stacks. Library workflows expose context or inputs with defaults preserving current behavior:
 
-If the DSL cannot currently express provider names from inputs/context, document the limitation and choose the smallest runtime or workflow-authoring extension needed. Avoid solving unrelated provider-session or model-selection problems in this item.
+```yaml
+context:
+  implementation_execute_provider: codex
+  implementation_review_provider: codex
+  implementation_fix_provider: codex
+
+providers:
+  codex: ...
+  claude_opus: ...
+
+steps:
+  - name: ExecuteImplementation
+    provider: "${context.implementation_execute_provider}"
+
+  - name: ReviewImplementation
+    provider: "${context.implementation_review_provider}"
+
+  - name: FixImplementation
+    provider: "${context.implementation_fix_provider}"
+```
+
+The caller passes role values through `call.with` only when it wants a different assignment:
+
+```yaml
+with:
+  implementation_execute_provider: claude_opus
+  implementation_review_provider: codex
+  implementation_fix_provider: codex
+```
+
+If the DSL cannot currently express provider names from inputs/context, implement that narrow substitution and validation path. Avoid solving unrelated provider-session, model-selection, provider-map, or plugin problems in this item.
 
 ## Acceptance Criteria
 
-- A major-project tranche workflow can run with Codex for big-design draft/revise and Claude for all other provider steps without PATH shims.
+- A workflow can run `ExecuteImplementation` with `claude_opus` while review/fix steps still use `codex`, without PATH shims.
 - Imported workflow boundaries make provider role propagation explicit and testable.
 - Existing all-Codex/default-provider workflows remain valid.
-- At least one mocked-provider runtime smoke proves that the expected provider command is invoked for design drafting/revision and a different expected provider command is invoked for review/planning/implementation.
+- Invalid provider role values fail before provider launch with a clear contract error.
+- At least one mocked-provider runtime smoke proves that the expected provider command is invoked for `ExecuteImplementation` and a different expected provider command can be invoked for review/fix.
 - Documentation explains the convention and warns that prompt-text routing shims are only an operational workaround, not workflow design.

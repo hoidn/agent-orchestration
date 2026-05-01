@@ -54,6 +54,22 @@ If semantic enforcement matters, put the standard in the review or design prompt
 
 Codex provider note: when a Codex workflow is expected to use shell tools to read or write the checkout, include `--dangerously-bypass-approvals-and-sandbox` in the provider command; `--skip-git-repo-check` is often paired with it for workflows that may run from copied or generated checkouts. The bypass flag matches the built-in `codex` provider and avoids Codex starting in its default Linux sandbox, which can fail in nested or externally sandboxed environments. Only use this for trusted workflow workspaces because it disables Codex's own approval and sandbox layer.
 
+Provider role routing pattern: reusable workflows may expose typed provider-role inputs and use them in `provider` fields while keeping supported provider aliases local to the callee:
+
+```yaml
+inputs:
+  implementation_execute_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+steps:
+  - name: ExecuteImplementation
+    provider: "${inputs.implementation_execute_provider}"
+```
+
+Pass role choices through `call.with`; do not depend on caller/callee provider-template merging or prompt-text routing.
+
 For v2.10 provider-session steps, treat the session handle as runtime-owned dataflow, not prompt content:
 - use `provider_session.mode: fresh` to publish a typed scalar `string` handle into normal lineage
 - use `provider_session.mode: resume` plus the reserved `session_id_from` consume to bind `${SESSION_ID}` at runtime

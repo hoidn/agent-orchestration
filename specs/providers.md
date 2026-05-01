@@ -13,7 +13,10 @@
 
 - Step usage
   - `provider: <name>` uses the template; merge `defaults` overlaid by `provider_params` (step wins).
+  - `provider` may contain `${run|context|inputs|steps.*}` substitutions. The resolved provider name is validated immediately before provider template lookup and execution.
+  - Provider aliases resolve in the active workflow provider namespace. Imported workflows do not inherit or merge caller provider templates; pass role choices through declared inputs and define supported aliases inside the callee.
   - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
+  - In this tranche, `provider_session` steps require a static provider alias because loader-time session-support validation must inspect the provider template.
   - In argv mode, `${PROMPT}` is replaced by the composed prompt (see below).
   - In stdin mode, the composed prompt is piped to the child stdin; provider templates MUST NOT include `${PROMPT}`.
   - Provider prompt sources are distinct from workflow-boundary `inputs` / `outputs`, runtime dependencies (`depends_on`, `consumes`), and artifact storage / lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`).
