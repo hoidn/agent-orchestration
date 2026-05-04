@@ -105,6 +105,8 @@ When a workflow builds a broad manifest and then applies a deterministic gate, t
 
 Do not require equality between the two manifests. They are expected to differ when the gate filters blocked, out-of-scope, completed, or otherwise ineligible rows. Instead, enforce lineage and selection validity: the derived manifest should record the source manifest path, downstream selector and execution steps should consume the same derived manifest, and selected items should be rejected if they are not present in that derived manifest.
 
+For queue drains, broad manifest construction should partition invalid rows instead of failing on the first bad row. The post-gate selection manifest is the downstream authority and should contain only valid selectable rows. Invalid rows belong in diagnostics. Once an item is selected, missing required artifacts should fail hard before execution.
+
 Summary:
 
 | Pattern | Best for | Tradeoffs |
@@ -149,7 +151,7 @@ Keep prompts focused on decision-quality instructions, not DSL plumbing.
 | Forbidden shortcuts (when failure modes are predictable). | "Audit-only" language that can be mistaken for execution. |
 | Evidence format (what files to write and where). | Over-specifying pointer plumbing already enforced by contracts. |
 
-Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders. Plans and reviews should distinguish mandatory contract artifacts from preferred packaging: exact names or paths are binding when machine-consumed, explicitly mandatory, authoritative, user-facing, or needed for provenance, claim boundaries, or discoverability; otherwise equivalent discoverable artifacts should satisfy the same contract.
+Exception: keep redundancy when the step is high-risk and you want belt-and-suspenders. Plans and reviews should distinguish mandatory contract artifacts/checks from preferred packaging or supporting verification: exact names, paths, or checks are binding when machine-consumed, explicitly mandatory, authoritative, user-facing, or needed for provenance, claim boundaries, or discoverability; otherwise equivalent discoverable evidence should satisfy the same contract.
 
 For design, design-review, and planning prompts that may affect architecture, data contracts, workflow APIs, or stable modules, explicitly instruct the agent to read `docs/index.md` first when present, then use it to select the relevant specs, architecture docs, workflow guides, and findings docs. This instruction belongs in the prompt because it is part of the review or design judgment standard. Keep the workflow `depends_on.inject` list narrow and treat it as candidate context, not a mandatory reading list.
 

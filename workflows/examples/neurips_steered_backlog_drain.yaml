@@ -61,7 +61,7 @@ inputs:
     kind: scalar
     type: enum
     allowed: ["codex", "claude_opus"]
-    default: "codex"
+    default: "claude_opus"
 
 outputs:
   drain_status:
