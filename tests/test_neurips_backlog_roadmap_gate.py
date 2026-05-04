@@ -9,6 +9,7 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parents[1]
 BUILD_SCRIPT = REPO_ROOT / "workflows/library/scripts/build_neurips_backlog_manifest.py"
 RECONCILE_SCRIPT = REPO_ROOT / "workflows/library/scripts/reconcile_neurips_backlog_roadmap_gate.py"
+VALIDATE_GAP_DRAFT_SCRIPT = REPO_ROOT / "workflows/library/scripts/validate_neurips_backlog_gap_draft.py"
 STEERED_DRAIN_WORKFLOW = REPO_ROOT / "workflows/examples/neurips_steered_backlog_drain.yaml"
 
 
@@ -196,3 +197,193 @@ related_roadmap_phases:
     commands = manifest["items"][0]["check_commands"]
     assert commands[0] == "python -m compileall -q scripts"
     assert "print(\"hello\")" in commands[1]
+
+
+def test_gap_draft_validator_accepts_block_scalar_check_commands(tmp_path: Path) -> None:
+    gap_request = tmp_path / "state/gap_request.json"
+    draft_bundle = tmp_path / "state/draft_bundle.json"
+    policy_path = tmp_path / "docs/backlog/roadmap_gate.json"
+    plan_path = tmp_path / "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog-gaps/2026-05-04-phase2.md"
+    item_path = tmp_path / "docs/backlog/active/2026-05-04-phase2-gap.md"
+    output_path = tmp_path / "state/draft_validation.json"
+    gap_request.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    item_path.parent.mkdir(parents=True, exist_ok=True)
+
+    gap_request.write_text(
+        json.dumps(
+            {
+                "allowed_roadmap_phase_prefixes": ["phase-2-pdebench-"],
+                "disallowed_roadmap_phase_prefixes": ["phase-3-"],
+                "gap_item_target_dir": "docs/backlog/active",
+                "gap_plan_target_root": "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog-gaps",
+                "roadmap_path": "docs/plans/2026-04-20-neurips-hybrid-resnet-submission-roadmap.md",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    policy_path.write_text(
+        json.dumps(
+            {
+                "allowed_roadmap_phase_prefixes": ["phase-2-pdebench-"],
+                "disallowed_roadmap_phase_prefixes": ["phase-3-"],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    plan_path.write_text("# Phase 2 Plan\n", encoding="utf-8")
+    item_path.write_text(
+        f"""---
+priority: 5
+plan_path: {plan_path.relative_to(tmp_path).as_posix()}
+check_commands:
+  - |
+    python - <<'PY'
+    print("valid block command")
+    PY
+related_roadmap_phases:
+  - phase-2-pdebench-full-training-evidence
+---
+
+# Backlog Item: Phase 2 Gap
+
+## Objective
+
+- Close the missing Phase 2 evidence gap.
+""",
+        encoding="utf-8",
+    )
+    draft_bundle.write_text(
+        json.dumps(
+            {
+                "draft_status": "DRAFTED",
+                "backlog_item_path": item_path.relative_to(tmp_path).as_posix(),
+                "seed_plan_path": plan_path.relative_to(tmp_path).as_posix(),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(VALIDATE_GAP_DRAFT_SCRIPT),
+            "--gap-request-path",
+            gap_request.relative_to(tmp_path).as_posix(),
+            "--draft-bundle-path",
+            draft_bundle.relative_to(tmp_path).as_posix(),
+            "--gate-policy-path",
+            policy_path.relative_to(tmp_path).as_posix(),
+            "--output",
+            output_path.relative_to(tmp_path).as_posix(),
+        ],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["draft_validation_status"] == "VALID"
+    assert payload["backlog_item_path"] == "docs/backlog/active/2026-05-04-phase2-gap.md"
+
+
+def test_gap_draft_validator_writes_invalid_diagnostic_on_rejection(tmp_path: Path) -> None:
+    gap_request = tmp_path / "state/gap_request.json"
+    draft_bundle = tmp_path / "state/draft_bundle.json"
+    policy_path = tmp_path / "docs/backlog/roadmap_gate.json"
+    plan_path = tmp_path / "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog-gaps/2026-05-04-future.md"
+    item_path = tmp_path / "docs/backlog/active/2026-05-04-future-gap.md"
+    output_path = tmp_path / "state/draft_validation.json"
+    gap_request.parent.mkdir(parents=True, exist_ok=True)
+    policy_path.parent.mkdir(parents=True, exist_ok=True)
+    plan_path.parent.mkdir(parents=True, exist_ok=True)
+    item_path.parent.mkdir(parents=True, exist_ok=True)
+
+    gap_request.write_text(
+        json.dumps(
+            {
+                "allowed_roadmap_phase_prefixes": ["phase-2-pdebench-"],
+                "disallowed_roadmap_phase_prefixes": ["phase-3-"],
+                "gap_item_target_dir": "docs/backlog/active",
+                "gap_plan_target_root": "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog-gaps",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    policy_path.write_text(
+        json.dumps(
+            {
+                "allowed_roadmap_phase_prefixes": ["phase-2-pdebench-"],
+                "disallowed_roadmap_phase_prefixes": ["phase-3-"],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    plan_path.write_text("# Future Plan\n", encoding="utf-8")
+    item_path.write_text(
+        f"""---
+priority: 5
+plan_path: {plan_path.relative_to(tmp_path).as_posix()}
+check_commands:
+  - python -c "print('future')"
+related_roadmap_phases:
+  - phase-3-cdi-anchor-regeneration
+---
+
+# Backlog Item: Future Gap
+
+## Objective
+
+- Draft future work.
+""",
+        encoding="utf-8",
+    )
+    draft_bundle.write_text(
+        json.dumps(
+            {
+                "draft_status": "DRAFTED",
+                "backlog_item_path": item_path.relative_to(tmp_path).as_posix(),
+                "seed_plan_path": plan_path.relative_to(tmp_path).as_posix(),
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(VALIDATE_GAP_DRAFT_SCRIPT),
+            "--gap-request-path",
+            gap_request.relative_to(tmp_path).as_posix(),
+            "--draft-bundle-path",
+            draft_bundle.relative_to(tmp_path).as_posix(),
+            "--gate-policy-path",
+            policy_path.relative_to(tmp_path).as_posix(),
+            "--output",
+            output_path.relative_to(tmp_path).as_posix(),
+        ],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "disallowed" in result.stderr.lower() or "allowed" in result.stderr.lower()
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["draft_validation_status"] == "INVALID"
+    assert "disallowed" in payload["reason"].lower() or "allowed" in payload["reason"].lower()
