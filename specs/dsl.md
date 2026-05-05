@@ -269,7 +269,9 @@
       - `managed_jobs.on.complete`, `.failed`, and `.invalid` are validated like ordinary goto targets.
       - `managed_jobs.on.outstanding` is the literal `fail_resumable` in the first tranche.
       - The first tranche rejects `managed_jobs` on non-provider steps, adjudicated provider steps, steps with `retries`, and steps with ordinary `on` handlers.
-        - fail with `contract_violation` (exit 2) when missing/stale/type-invalid
+      - The policy file referenced by `managed_jobs.policy` is external YAML that classifies provider-launched payloads. It is not provider-template YAML and does not change prompt delivery.
+      - Policy entries use `mode: force_managed|auto_managed|force_local|unmanaged`. Managed entries must provide `job` metadata or a named `extractor`; unmanaged and force-local entries bypass managed launch.
+      - Explicit `job` metadata includes `name_template`, `state_root_template`, optional `output_root_arg`, `verify_files`, `snapshot_roots`, and optional `config_globs`. See `providers.md` for the policy YAML contract and shim behavior.
   - Control:
     - `timeout_sec: number` (applies to provider/command; exit 124 on timeout)
     - `retries: { max: number, delay_ms?: number }`

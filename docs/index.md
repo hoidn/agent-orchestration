@@ -18,6 +18,7 @@ These are the highest-impact terminology and contract confusions.
 | Docs vs specs precedence | "Any docs page is authoritative." | `specs/` are normative. `docs/` are explanatory. | [Master Spec](../specs/index.md) |
 | Workflow authoring surfaces | "Workflow inputs, prompt files, dependencies, and artifacts are all the same kind of input." | Keep four surfaces separate: workflow boundary (`inputs`/`outputs`), runtime dependencies (`depends_on`/`consumes`), provider prompt sources (`input_file`/`asset_file`/`asset_depends_on`), and artifact storage or lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`). | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
 | Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
+| Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | `managed_jobs` is a v2.13 provider-step modifier. Workflow YAML declares policy, watch roots, backend, poll budget, and managed outcome routes; runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md), [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml) |
 
 ---
 
@@ -44,8 +45,8 @@ These are the highest-impact terminology and contract confusions.
 **Use this when:** You want email alerts for workflow completion or failures across one or more repositories.
 
 ### [Workflow Drafting Guide](workflow_drafting_guide.md)
-**Description:** Authoring guidance for writing robust workflows, including prompt/runtime/flow contract separation, deterministic handoff patterns, and special-case guidance for workflows with DSL-level git rollback/checkpoint behavior.
-**Keywords:** authoring, prompts, contracts, deterministic-handoff, gates, git
+**Description:** Authoring guidance for writing robust workflows, including prompt/runtime/flow contract separation, deterministic handoff patterns, managed-provider job conventions, and special-case guidance for workflows with DSL-level git rollback/checkpoint behavior.
+**Keywords:** authoring, prompts, contracts, deterministic-handoff, managed-jobs, gates, git
 **Use this when:** You are writing or refactoring workflow YAML and prompt patterns.
 
 ### [Prompt Index](../prompts/README.md)
@@ -127,7 +128,7 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 
 ### [Providers and Prompt Delivery](../specs/providers.md)
 **Description:** Provider template contracts, prompt composition order, placeholder substitution, and provider runtime semantics.  
-**Keywords:** providers, prompt-composition, argv, stdin, placeholders  
+**Keywords:** providers, prompt-composition, argv, stdin, placeholders, managed-jobs
 **Use this when:** Creating provider templates or debugging what providers actually receive.
 
 ### [Step IO and Output Capture](../specs/io.md)
@@ -162,7 +163,7 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 
 ### [Versioning and Migration](../specs/versioning.md)
 **Description:** DSL evolution from v1.1 through current v2.x gates, migration guidance, and planned feature gating notes.
-**Keywords:** versioning, migration, v2.11, provider-session, adjudicated-provider
+**Keywords:** versioning, migration, v2.13, managed-jobs, provider-session, adjudicated-provider
 **Use this when:** Migrating workflows between DSL versions.
 
 ### [Acceptance Tests](../specs/acceptance/index.md)
@@ -201,8 +202,13 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 
 ### [Workflow Index](../workflows/README.md)
 **Description:** Catalog of workflows under `workflows/`, with short purpose summaries and quick pointers for choosing an example.
-**Keywords:** workflows, catalog, index, examples, runbooks
+**Keywords:** workflows, catalog, index, examples, runbooks, managed-jobs
 **Use this when:** You need to find the right workflow file before reading or running it.
+
+### [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml)
+**Description:** Minimal v2.13 workflow showing `managed_jobs` on a provider step, a local managed training launch, runtime-owned audit/recovery state, and managed outcome routing to review/fix steps.
+**Keywords:** managed-jobs, provider, v2.13, audit, recovery, shim
+**Use this when:** You need a copyable starting point for provider-launched training or batch jobs that should be recovered without relaunching the provider.
 
 ### [v0 Artifact-Contract Prototype Runbook](../workflows/examples/README_v0_artifact_contract.md)
 **Description:** Runbook for deterministic file-based handoff prototypes, including verification commands and known limits.  
@@ -277,6 +283,11 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 **Description:** Implementation plan for DSL v2.12 `repeat_until.on_exhausted.outputs`, typed pipeline support, and major-project review-loop non-convergence escalation.
 **Keywords:** implementation-plan, repeat-until, v2.12, exhaustion, escalation, major-project
 **Use this when:** You need deterministic routing for bounded review loops that fail to converge without treating successful loop iterations as runtime crashes.
+
+### [Roadmap Revision Soft Review Implementation Plan](plans/2026-04-27-roadmap-revision-soft-review-implementation-plan.md)
+**Description:** Implementation plan for making major-project roadmap revision review advisory when roadmap revision is the top available authority, while still recording findings and promoting finalized roadmap and manifest candidates.
+**Keywords:** implementation-plan, roadmap-revision, advisory-review, major-project, tranche-drain
+**Use this when:** You need the rationale and verification path for top-authority roadmap revision phases that should record review findings without blocking the updated roadmap.
 
 ## Finding Information
 

@@ -75,9 +75,60 @@ For v2.10 provider-session steps, treat the session handle as runtime-owned data
 - use `provider_session.mode: resume` plus the reserved `session_id_from` consume to bind `${SESSION_ID}` at runtime
 - do not ask prompts to echo, store, or restate the session id; that handle is intentionally excluded from prompt injection and `consume_bundle`
 
-For v2.13 managed provider steps, declare managed job interception on the provider step with `managed_jobs` instead of hand-authoring audit paths, guard wrappers, and recovery command gates in workflow YAML. The provider prompt still describes the work; the runtime owns guard setup, audit sidecars, recovery, and resumable outstanding-job state. Manual `RecoverManagedJobs` command steps are a fallback only for older runtimes that do not support `managed_jobs`.
+### Managed Provider Steps (v2.13)
 
-Managed job policies must provide complete deterministic metadata directly or through a named extractor: state root template, output-root handling, verification targets, source/config snapshot inputs, and backend selection. Shims cover direct `python`/`torchrun` launches plus supported `conda run ... python|torchrun ...` and `uv run python|torchrun ...` forms; unsupported shell activation or wrapper forms should fail closed or stay explicitly unmanaged. For Slurm, run from an immutable snapshot workspace or use generated scripts that verify recorded source/config hashes before execution.
+Use `managed_jobs` when a provider may launch long-running local, Slurm, or training-style jobs that must be audited, recovered, and resumed without relaunching the provider. Start from `workflows/examples/managed_provider_jobs_demo.yaml` for a runnable local pattern.
+
+Do not hand-author guard wrappers, audit paths, or `RecoverManagedJobs` command steps in new v2.13 workflows. Manual recovery steps are a compatibility fallback for older runtimes.
+
+Workflow YAML owns only the managed boundary and routes:
+
+```yaml
+steps:
+  - name: ExecuteManagedJob
+    id: execute_managed_job
+    provider: local_managed_provider
+    managed_jobs:
+      policy: workflows/managed_jobs/policy.yaml
+      watch_roots:
+        - scripts/training
+      backend: auto
+      poll_budget_sec: 82800
+      on:
+        complete: ReviewManagedJob
+        failed: FixManagedJob
+        invalid: FixManagedJob
+        outstanding: fail_resumable
+```
+
+Policy YAML owns the command classification and deterministic job metadata:
+
+```yaml
+backend_defaults:
+  backend: local
+entries:
+  - id: train_model
+    mode: force_managed
+    path: scripts/training/train.py
+    backend: slurm
+    job:
+      name_template: train-{job_identity_hash}
+      state_root_template: state/managed_jobs/{entry_id}/{job_identity_hash}
+      output_root_arg: --output-dir
+      verify_files:
+        - "{output_root}/metrics.json"
+      snapshot_roots:
+        - scripts/training
+      config_globs:
+        - configs/training/*.yaml
+```
+
+Conventions:
+- Managed policy entries must provide complete deterministic metadata directly or through a named extractor: state root template, output-root handling, verification targets, source/config snapshot inputs, and backend selection.
+- Use `managed_jobs.on.complete`, `.failed`, and `.invalid` for managed outcome routing. `outstanding` is `fail_resumable` in v2.13 so `orchestrator resume <run_id>` re-enters recovery.
+- Do not combine `managed_jobs` with step-level `retries` or ordinary `on` handlers. Managed provider execution suppresses provider retries to avoid duplicate job launches.
+- Shims cover direct `python`/`torchrun` launches plus supported `conda run ... python|torchrun ...` and `uv run python|torchrun ...` forms. Unsupported activation or wrapper forms should fail closed or stay explicitly unmanaged.
+- For Slurm, run from an immutable snapshot workspace or use generated scripts that verify recorded source/config hashes before execution.
 
 Pointer ownership note (v1.4): consume preflight for relpath artifacts is read-only and does not rewrite registry pointer files. If a command step needs deterministic consumed values, prefer `consume_bundle` JSON and read values from that bundle instead of relying on consume-time pointer mutation.
 

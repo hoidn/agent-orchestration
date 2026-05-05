@@ -25,6 +25,36 @@
     - `input_file` stays workspace-relative and is for workspace-owned or runtime-generated prompt material.
     - `asset_file` is the workflow-source-relative prompt/template surface for bundled reusable-workflow assets.
 
+- Managed provider job policy YAML (v2.13)
+  - `managed_jobs.policy` points to workspace-relative YAML that classifies payloads launched by the guarded provider process. It is separate from provider-template YAML.
+  - Minimal explicit-metadata shape:
+    ```yaml
+    backend_defaults:
+      backend: local        # auto|local|slurm
+    entries:
+      - id: train_model
+        mode: force_managed # force_managed|auto_managed|force_local|unmanaged
+        path: scripts/training/train.py
+        backend: slurm      # optional override; auto|local|slurm
+        job:
+          name_template: train-{job_identity_hash}
+          state_root_template: state/managed_jobs/{entry_id}/{job_identity_hash}
+          output_root_arg: --output-dir
+          verify_files:
+            - "{output_root}/metrics.json"
+          snapshot_roots:
+            - scripts/training
+          config_globs:
+            - configs/training/*.yaml
+    ```
+  - Named extractors may be declared under top-level `extractors` and referenced from an entry with `extractor: <name>` instead of inline `job` metadata.
+  - Managed modes (`force_managed`, `auto_managed`) require complete `job` metadata or an `extractor` that derives the same metadata. Missing state root, verification targets, snapshot inputs, or extractor output is invalid before launch.
+  - Unmanaged modes (`force_local`, `unmanaged`) run locally through the original payload path and do not append managed-job audit events.
+  - `state_root_template` and snapshot/config paths are workspace-relative and path-safe. `state_root_template` may use `{entry_id}` and `{job_identity_hash}`.
+  - Job identity includes normalized payload arguments, source hashes, config hashes, extractor identity/version, policy-entry hash, and snapshot manifest inputs.
+  - `backend: local` executes the payload from the immutable snapshot workspace and records the same identity metadata as Slurm. `backend: slurm` generates a snapshot-bound submission script or a script with preflight source/config hash checks.
+  - Supported shim payloads are direct `python`, `python3`, and `torchrun`; `conda run ... python|torchrun ...`; and `uv run python|torchrun ...`. Unsupported `conda`/`uv` forms fail closed unless explicitly classified unmanaged.
+
 - Prompt composition
   - Read exactly one base prompt source:
     - `input_file` literally from WORKSPACE for workspace-owned or runtime-generated prompt material, or
