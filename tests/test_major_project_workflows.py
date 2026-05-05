@@ -1423,6 +1423,16 @@ def test_neurips_selected_item_implementation_uses_normalized_plan_gate_output()
     }
 
 
+def test_neurips_selected_item_recovers_premature_done_only_after_implementation():
+    workflow = _load_yaml("workflows/library/neurips_selected_backlog_item.yaml")
+
+    rewrite = _step_by_name(workflow, "RewriteSelectedItemPlanPath")
+    post_impl = _step_by_name(workflow, "ReconcileSelectedItemQueueAfterImplementation")
+
+    assert "--recover-premature-done" not in rewrite["command"]
+    assert "--recover-premature-done" in post_impl["command"]
+
+
 def test_neurips_top_level_drain_does_not_emit_waiting_status():
     workflow = _load_yaml("workflows/examples/neurips_steered_backlog_drain.yaml")
 
