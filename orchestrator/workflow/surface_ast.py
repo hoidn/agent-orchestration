@@ -66,6 +66,27 @@ class SurfaceOnConfig:
 
 
 @dataclass(frozen=True)
+class SurfaceManagedJobsRoutes:
+    """Typed authored managed-job outcome routing."""
+
+    complete: str
+    failed: str
+    invalid: str
+    outstanding: str
+
+
+@dataclass(frozen=True)
+class SurfaceManagedJobsConfig:
+    """Typed authored managed-job provider-step modifier."""
+
+    policy: str
+    watch_roots: tuple[str, ...]
+    backend: str
+    poll_budget_sec: int
+    on: SurfaceManagedJobsRoutes
+
+
+@dataclass(frozen=True)
 class SurfaceStepCommonConfig:
     """Typed authored step fields shared across executable step kinds."""
 
@@ -178,6 +199,7 @@ class SurfaceStep:
     command: Any = ()
     provider: Optional[str] = None
     provider_params: Any = None
+    managed_jobs: Optional[SurfaceManagedJobsConfig] = None
     adjudicated_provider: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     input_file: Any = None
     asset_file: Any = None

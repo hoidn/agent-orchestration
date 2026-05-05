@@ -157,6 +157,7 @@ class OutcomeRecorder:
             truncated=result.get("truncated") if "truncated" in result or result.get("adjudication") else False,
             artifacts=result.get("artifacts"),
             adjudication=result.get("adjudication"),
+            managed_jobs=result.get("managed_jobs"),
             skipped=result.get("skipped", False),
             files=result.get("files"),
             wait_duration_ms=result.get("wait_duration_ms"),

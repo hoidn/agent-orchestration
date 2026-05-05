@@ -25,6 +25,7 @@ class CompatibilityStepDefinition:
     max_visits: Optional[int] = None
     provider_session_enabled: bool = False
     provider_session_mode: Optional[str] = None
+    managed_jobs_enabled: bool = False
 
 
 @dataclass(frozen=True)

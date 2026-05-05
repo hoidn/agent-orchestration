@@ -30,6 +30,8 @@ from .executable_ir import (
     LoopOutputAddress,
     MatchCaseMarkerNode,
     MatchJoinNode,
+    ManagedJobsConfig,
+    ManagedJobsRoutes,
     NodeResultAddress,
     ProviderStepConfig,
     RepeatUntilFrameNode,
@@ -420,7 +422,7 @@ class _IRBuilder:
             "lexical_scope": tuple(token for token in step.step_id.split(".") if token),
             "execution_config": _execution_config_for_step(step),
         }
-        routed_transfers = _leaf_goto_transfers(step.common.on, context.root_targets)
+        routed_transfers = _leaf_goto_transfers(step.common.on, context.root_targets, step.managed_jobs)
         if step.kind is SurfaceStepKind.CALL:
             call_transfers = dict(routed_transfers)
             call_transfers["call_return"] = ExecutableTransfer(
@@ -844,6 +846,23 @@ def _surface_on_mapping(on: SurfaceOnConfig | None) -> Mapping[str, Any]:
     return freeze_mapping(payload)
 
 
+def _managed_jobs_config(managed_jobs: Any) -> ManagedJobsConfig | None:
+    if managed_jobs is None:
+        return None
+    return ManagedJobsConfig(
+        policy=managed_jobs.policy,
+        watch_roots=managed_jobs.watch_roots,
+        backend=managed_jobs.backend,
+        poll_budget_sec=managed_jobs.poll_budget_sec,
+        on=ManagedJobsRoutes(
+            complete=managed_jobs.on.complete,
+            failed=managed_jobs.on.failed,
+            invalid=managed_jobs.on.invalid,
+            outstanding=managed_jobs.on.outstanding,
+        ),
+    )
+
+
 def _common_execution_config(common: SurfaceStepCommonConfig) -> StepCommonConfig:
     return StepCommonConfig(
         on=_surface_on_mapping(common.on),
@@ -886,6 +905,7 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             inject_consumes=step.inject_consumes,
             prompt_consumes=step.prompt_consumes,
             consumes_injection_position=step.consumes_injection_position,
+            managed_jobs=_managed_jobs_config(step.managed_jobs),
         )
     if step.kind is SurfaceStepKind.ADJUDICATED_PROVIDER:
         return AdjudicatedProviderStepConfig(
@@ -973,6 +993,7 @@ def _compatibility_step_definition(node: ExecutableNode) -> CompatibilityStepDef
     max_visits = common.max_visits if common is not None else None
     command = config.command if isinstance(config, CommandStepConfig) else None
     provider = config.provider if isinstance(config, ProviderStepConfig) else None
+    managed_jobs = config.managed_jobs if isinstance(config, ProviderStepConfig) else None
     return CompatibilityStepDefinition(
         report_kind=_report_kind_for_node(node),
         command=freeze_value(command) if command is not None else None,
@@ -991,6 +1012,7 @@ def _compatibility_step_definition(node: ExecutableNode) -> CompatibilityStepDef
             and isinstance(provider_session.get("mode"), str)
             else None
         ),
+        managed_jobs_enabled=managed_jobs is not None,
     )
 
 
@@ -1043,24 +1065,37 @@ def _bind_goto_transfer(
 def _leaf_goto_transfers(
     on: SurfaceOnConfig | None,
     root_targets: Mapping[str, _BindingTarget],
+    managed_jobs: Any = None,
 ) -> Mapping[str, ExecutableTransfer]:
-    if on is None:
+    if on is None and managed_jobs is None:
         return MappingProxyType({})
 
     routed_transfers: Dict[str, ExecutableTransfer] = {}
-    for handler_name, transfer_key in (
-        ("success", "on_success_goto"),
-        ("failure", "on_failure_goto"),
-        ("always", "on_always_goto"),
-    ):
-        handler = getattr(on, handler_name)
-        transfer = _bind_goto_transfer(
-            transfer_key,
-            handler.goto if handler is not None else None,
-            root_targets,
-        )
-        if transfer is not None:
-            routed_transfers[transfer_key] = transfer
+    if on is not None:
+        for handler_name, transfer_key in (
+            ("success", "on_success_goto"),
+            ("failure", "on_failure_goto"),
+            ("always", "on_always_goto"),
+        ):
+            handler = getattr(on, handler_name)
+            transfer = _bind_goto_transfer(
+                transfer_key,
+                handler.goto if handler is not None else None,
+                root_targets,
+            )
+            if transfer is not None:
+                routed_transfers[transfer_key] = transfer
+
+    if managed_jobs is not None:
+        for handler_name, transfer_key in (
+            ("complete", "managed_jobs_complete_goto"),
+            ("failed", "managed_jobs_failed_goto"),
+            ("invalid", "managed_jobs_invalid_goto"),
+        ):
+            target = getattr(managed_jobs.on, handler_name)
+            transfer = _bind_goto_transfer(transfer_key, target, root_targets)
+            if transfer is not None:
+                routed_transfers[transfer_key] = transfer
 
     return MappingProxyType(routed_transfers)
 

@@ -28,6 +28,8 @@ from .surface_ast import (
     SurfaceBranchBlock,
     SurfaceContract,
     SurfaceFinallyBlock,
+    SurfaceManagedJobsConfig,
+    SurfaceManagedJobsRoutes,
     SurfaceMatchCaseBlock,
     SurfaceOnConfig,
     SurfaceOnHandler,
@@ -404,6 +406,11 @@ def _elaborate_step(
         command=_frozen_command(step.get("command")) if kind is SurfaceStepKind.COMMAND else (),
         provider=step.get("provider") if kind is SurfaceStepKind.PROVIDER and isinstance(step.get("provider"), str) else None,
         provider_params=freeze_value(step["provider_params"]) if kind is SurfaceStepKind.PROVIDER and "provider_params" in step else None,
+        managed_jobs=(
+            _parse_surface_managed_jobs_config(step.get("managed_jobs"))
+            if kind is SurfaceStepKind.PROVIDER
+            else None
+        ),
         adjudicated_provider=(
             freeze_mapping(step.get("adjudicated_provider"))
             if kind is SurfaceStepKind.ADJUDICATED_PROVIDER
@@ -641,6 +648,43 @@ def _parse_surface_on_handler(node: Any) -> SurfaceOnHandler | None:
     if not isinstance(goto, str):
         return None
     return SurfaceOnHandler(goto=goto)
+
+
+def _parse_surface_managed_jobs_config(node: Any) -> SurfaceManagedJobsConfig | None:
+    if not isinstance(node, Mapping):
+        return None
+    routes = node.get("on")
+    if not isinstance(routes, Mapping):
+        return None
+    policy = node.get("policy")
+    watch_roots = node.get("watch_roots")
+    backend = node.get("backend")
+    poll_budget_sec = node.get("poll_budget_sec")
+    route_values = {
+        name: routes.get(name)
+        for name in ("complete", "failed", "invalid", "outstanding")
+    }
+    if (
+        not isinstance(policy, str)
+        or not isinstance(watch_roots, (list, tuple))
+        or not all(isinstance(item, str) for item in watch_roots)
+        or not isinstance(backend, str)
+        or type(poll_budget_sec) is not int
+        or not all(isinstance(value, str) for value in route_values.values())
+    ):
+        return None
+    return SurfaceManagedJobsConfig(
+        policy=policy,
+        watch_roots=tuple(watch_roots),
+        backend=backend,
+        poll_budget_sec=poll_budget_sec,
+        on=SurfaceManagedJobsRoutes(
+            complete=route_values["complete"],
+            failed=route_values["failed"],
+            invalid=route_values["invalid"],
+            outstanding=route_values["outstanding"],
+        ),
+    )
 
 
 def _parse_contracts(

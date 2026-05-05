@@ -203,3 +203,5 @@ class ProviderInvocation:
     command_variant: str = "command"
     metadata_mode: Optional[str] = None
     session_request: Optional[ProviderSessionRequest] = None
+    terminate_process_tree: bool = False
+    metadata: Dict[str, Any] = field(default_factory=dict)

@@ -3,6 +3,7 @@
 import json
 import logging
 import os
+import signal
 import subprocess
 import sys
 import threading
@@ -243,6 +244,44 @@ class ProviderExecutor:
                 )
 
             if not stream_output:
+                if invocation.terminate_process_tree:
+                    process = subprocess.Popen(
+                        invocation.command,
+                        cwd=str(working_dir),
+                        env=process_env,
+                        stdin=subprocess.PIPE if stdin_input is not None else subprocess.DEVNULL,
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        start_new_session=True,
+                    )
+                    try:
+                        stdout, stderr = process.communicate(
+                            input=stdin_input,
+                            timeout=invocation.timeout_sec,
+                        )
+                        duration_ms = int((time.time() - start_time) * 1000)
+                        return ProviderExecutionResult(
+                            exit_code=process.returncode,
+                            stdout=stdout,
+                            stderr=stderr,
+                            duration_ms=duration_ms,
+                        )
+                    except subprocess.TimeoutExpired as exc:
+                        self._terminate_process_tree(process)
+                        stdout, stderr = process.communicate()
+                        duration_ms = int((time.time() - start_time) * 1000)
+                        return ProviderExecutionResult(
+                            exit_code=124,
+                            stdout=(exc.stdout or b"") + (stdout or b""),
+                            stderr=(exc.stderr or b"") + (stderr or b""),
+                            duration_ms=duration_ms,
+                            error={
+                                "type": "timeout",
+                                "message": f"Provider timed out after {invocation.timeout_sec} seconds",
+                                "context": {"timeout_sec": invocation.timeout_sec},
+                            },
+                        )
+
                 # Execute command
                 # Note: We use 'input' parameter for stdin content, not both 'stdin' and 'input'
                 result = subprocess.run(
@@ -271,6 +310,7 @@ class ProviderExecutor:
                 stdin=subprocess.PIPE if stdin_input is not None else subprocess.DEVNULL,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                start_new_session=invocation.terminate_process_tree,
             )
 
             if stdin_input is not None and process.stdin is not None:
@@ -306,7 +346,10 @@ class ProviderExecutor:
                     duration_ms=duration_ms
                 )
             except subprocess.TimeoutExpired:
-                process.kill()
+                if invocation.terminate_process_tree:
+                    self._terminate_process_tree(process)
+                else:
+                    process.kill()
                 process.wait()
                 stdout_thread.join()
                 stderr_thread.join()
@@ -353,6 +396,30 @@ class ProviderExecutor:
                     "context": {}
                 }
             )
+
+    def _terminate_process_tree(self, process: subprocess.Popen) -> None:
+        """Terminate a managed provider process group with a hard-kill fallback."""
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except Exception:
+            process.terminate()
+        try:
+            process.wait(timeout=2)
+            return
+        except subprocess.TimeoutExpired:
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            return
+        except Exception:
+            process.kill()
+        try:
+            process.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            pass
 
     def _capture_pipe(
         self,

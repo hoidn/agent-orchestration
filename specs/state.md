@@ -36,6 +36,10 @@
     - canonical visit metadata records live under `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.json`
     - stable masked transport spools live under `.orchestrate/runs/<run_id>/provider_sessions/<step_id>__v<visit>.transport.log`
     - successful fresh session steps may expose `steps.<Step>.debug.provider_session = {mode, session_id, metadata_path, publication_state, ...}`
+  - v2.13 managed provider observability:
+    - runtime-owned audit and recovery sidecars live under `.orchestrate/runs/<run_id>/managed_jobs/<step-id-or-name>/`
+    - managed provider step results may expose `steps.<Step>.managed_jobs = {phase, audit_path, outcome, recovery_status, jobs, ...}`
+    - outstanding managed jobs leave the provider step in a resumable recovery state so `resume <run_id>` re-enters recovery without relaunching the provider
   - v2.2 structured-control additions:
     - lowered branch markers and lowered branch-body steps are recorded as ordinary top-level step entries under presentation keys such as `RouteReview.then` and `RouteReview.then.WriteApproved`
     - the lowered join node keeps the authored statement presentation key (for example `RouteReview`) and materializes branch outputs there
@@ -79,6 +83,7 @@
   - v2.3 structured finalization also reuses schema `2.0`; finalization bookkeeping and lowered `finally.*` step entries are additive fields.
   - v2.5 reusable `call` is the schema boundary that moves state to `2.1`, because bare artifact-name ledgers cannot preserve callee-private lineage or freshness safely.
   - v2.7 `repeat_until` extends schema `2.1` additively; loop-frame bookkeeping lives under the new top-level `repeat_until` map.
+  - v2.13 managed provider jobs extend schema `2.1` additively; managed recovery metadata lives on the step result and run-owned sidecars rather than the artifact lineage surfaces.
 
 - Output contract failure shape
   - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:

@@ -78,7 +78,7 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath", "string"}
     STRING_CONTRACT_VERSION = "2.10"
@@ -86,7 +86,7 @@ class WorkflowLoader:
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13",
     ]
 
     def __init__(self, workspace: Path):
@@ -923,6 +923,9 @@ class WorkflowLoader:
                     version=version,
                     artifacts_registry=artifacts_registry,
                 )
+
+            if 'managed_jobs' in step:
+                self._validate_managed_jobs(step, name, version)
 
             # AT-40: Reject deprecated command_override
             if 'command_override' in step:
@@ -2987,6 +2990,74 @@ class WorkflowLoader:
                     f"{context} requires at least one non-session consume when consume_bundle is declared"
                 )
 
+    def _validate_managed_jobs(self, step: Dict[str, Any], step_name: str, version: str) -> None:
+        """Validate the step-local managed provider job contract."""
+        context = f"Step '{step_name}': managed_jobs"
+        if not self._version_at_least(version, "2.13"):
+            self._add_error(f"{context} requires version '2.13'")
+            return
+
+        if 'adjudicated_provider' in step:
+            self._add_error(f"{context} is invalid with adjudicated_provider")
+            return
+        if 'provider' not in step:
+            self._add_error(f"{context} is valid only on provider steps")
+            return
+        if 'retries' in step:
+            self._add_error(f"{context} cannot be combined with provider retries")
+        if 'on' in step:
+            self._add_error(f"{context} cannot be combined with ordinary on handlers")
+
+        node = step.get('managed_jobs')
+        if not isinstance(node, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        policy = node.get('policy')
+        if not isinstance(policy, str) or not policy.strip():
+            self._add_error(f"{context}.policy is required")
+        else:
+            self._validate_path_safety(policy, f"{context}.policy")
+
+        watch_roots = node.get('watch_roots')
+        if not isinstance(watch_roots, list) or not watch_roots:
+            self._add_error(f"{context}.watch_roots must be a non-empty list")
+        elif isinstance(watch_roots, list):
+            for index, watch_root in enumerate(watch_roots):
+                item_context = f"{context}.watch_roots[{index}]"
+                if not isinstance(watch_root, str) or not watch_root.strip():
+                    self._add_error(f"{item_context} must be a non-empty string")
+                    continue
+                self._validate_path_safety(watch_root, item_context)
+
+        backend = node.get('backend', 'auto')
+        if backend not in {'auto', 'local', 'slurm'}:
+            self._add_error(f"{context}.backend must be one of 'auto', 'local', or 'slurm'")
+
+        poll_budget_sec = node.get('poll_budget_sec')
+        if type(poll_budget_sec) is not int or poll_budget_sec <= 0:
+            self._add_error(f"{context}.poll_budget_sec must be a positive integer")
+        else:
+            timeout_sec = step.get('timeout_sec')
+            if isinstance(timeout_sec, (int, float)) and poll_budget_sec > timeout_sec:
+                self._add_error(f"{context}.poll_budget_sec cannot exceed timeout_sec")
+
+        routes = node.get('on')
+        if not isinstance(routes, dict):
+            self._add_error(f"{context}.on must be a dictionary")
+            return
+        for route_name in ('complete', 'failed', 'invalid', 'outstanding'):
+            if route_name not in routes:
+                self._add_error(f"{context}.on.{route_name} is required")
+        for route_name in ('complete', 'failed', 'invalid'):
+            if route_name not in routes:
+                continue
+            target = routes.get(route_name)
+            if not isinstance(target, str) or not target.strip():
+                self._add_error(f"{context}.on.{route_name} must be a non-empty step name")
+        if 'outstanding' in routes and routes.get('outstanding') != 'fail_resumable':
+            self._add_error(f"{context}.on.outstanding must be 'fail_resumable'")
+
     def _validate_provider_session_artifact(
         self,
         registry: Dict[str, Any],
@@ -3898,6 +3969,17 @@ class WorkflowLoader:
                         target = step['on'][handler]['goto']
                         if target not in valid_names:
                             self._add_error(f"Step '{name}' on.{handler}.goto references unknown target '{target}'")
+
+            managed_jobs = step.get('managed_jobs')
+            if isinstance(managed_jobs, dict):
+                routes = managed_jobs.get('on')
+                if isinstance(routes, dict):
+                    for handler in ['complete', 'failed', 'invalid']:
+                        target = routes.get(handler)
+                        if isinstance(target, str) and target not in valid_names:
+                            self._add_error(
+                                f"Step '{name}' managed_jobs.on.{handler} references unknown target '{target}'"
+                            )
 
             if 'for_each' in step and 'steps' in step['for_each']:
                 self._check_goto_references(step['for_each']['steps'], valid_names)

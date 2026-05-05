@@ -22,6 +22,8 @@ from ..exec.retry import RetryPolicy
 from ..providers.executor import ProviderExecutor
 from ..providers.registry import ProviderRegistry
 from ..providers.types import ProviderParams, ProviderSessionMode, ProviderSessionRequest
+from ..managed_jobs.recovery import recover_managed_jobs
+from ..managed_jobs.runtime import ManagedProviderRuntime
 from ..deps.resolver import DependencyResolver
 from ..deps.injector import DependencyInjector
 from ..contracts.output_contract import (
@@ -84,6 +86,7 @@ from .runtime_context import RuntimeContext
 from .runtime_step import RuntimeStep
 from .runtime_types import RoutingDecision, StepExecutionIdentity
 from .signatures import WorkflowSignatureError, resolve_workflow_outputs
+from .executable_ir import ManagedJobsConfig, ManagedJobsRoutes
 from .adjudication import (
     AdjudicationDeadline,
     BASELINE_COPY_POLICY,
@@ -140,6 +143,30 @@ def _thaw_workflow_value(value: Any) -> Any:
     if isinstance(value, list):
         return [_thaw_workflow_value(item) for item in value]
     return value
+
+
+def _managed_jobs_config_from_step(step: Mapping[str, Any]) -> Optional[ManagedJobsConfig]:
+    node = step.get("managed_jobs")
+    if not isinstance(node, Mapping):
+        return None
+    routes = node.get("on")
+    if not isinstance(routes, Mapping):
+        return None
+    try:
+        return ManagedJobsConfig(
+            policy=str(node["policy"]),
+            watch_roots=tuple(str(item) for item in node["watch_roots"]),
+            backend=str(node["backend"]),
+            poll_budget_sec=int(node["poll_budget_sec"]),
+            on=ManagedJobsRoutes(
+                complete=str(routes["complete"]),
+                failed=str(routes["failed"]),
+                invalid=str(routes["invalid"]),
+                outstanding=str(routes["outstanding"]),
+            ),
+        )
+    except (KeyError, TypeError, ValueError):
+        return None
 
 
 class _CallFrameStateManager:
@@ -344,10 +371,22 @@ class _CallFrameStateManager:
         self.state.current_step["last_heartbeat_at"] = datetime.now(timezone.utc).isoformat()
         self._persist()
 
-    def clear_current_step(self, step_name: Optional[str] = None) -> None:
+    def clear_current_step(
+        self,
+        step_name: Optional[str] = None,
+        *,
+        preserve_managed_recovery: bool = False,
+    ) -> None:
         if self.state.current_step is None:
             return
         if step_name and self.state.current_step.get("name") != step_name:
+            return
+        managed_jobs = self.state.current_step.get("managed_jobs")
+        if (
+            preserve_managed_recovery
+            and isinstance(managed_jobs, dict)
+            and managed_jobs.get("phase") == "recovery"
+        ):
             return
         self.state.current_step = None
         self._persist()
@@ -711,6 +750,7 @@ class WorkflowExecutor:
         current_node_id: str,
         *,
         exit_code: int,
+        managed_job_outcome: Optional[str] = None,
     ) -> Optional[ExecutableTransfer]:
         """Return the explicit typed goto transfer selected by one step result."""
         if self.executable_ir is None:
@@ -718,6 +758,15 @@ class WorkflowExecutor:
         node = self.executable_ir.nodes.get(current_node_id)
         if node is None:
             return None
+
+        if isinstance(managed_job_outcome, str):
+            managed_key = {
+                "COMPLETE": "managed_jobs_complete_goto",
+                "FAILED": "managed_jobs_failed_goto",
+                "INVALID": "managed_jobs_invalid_goto",
+            }.get(managed_job_outcome)
+            if managed_key is not None:
+                return node.routed_transfers.get(managed_key)
 
         selected = None
         if exit_code == 0:
@@ -2136,7 +2185,10 @@ class WorkflowExecutor:
             try:
                 yield
             finally:
-                self.state_manager.clear_current_step(step_name)
+                self.state_manager.clear_current_step(
+                    step_name,
+                    preserve_managed_recovery=True,
+                )
             return
 
         stop_event = threading.Event()
@@ -2160,7 +2212,10 @@ class WorkflowExecutor:
         finally:
             stop_event.set()
             heartbeat_thread.join(timeout=1.0)
-            self.state_manager.clear_current_step(step_name)
+            self.state_manager.clear_current_step(
+                step_name,
+                preserve_managed_recovery=True,
+            )
 
     def _create_summary_observer(self) -> Optional[SummaryObserver]:
         """Create summary observer from runtime observability config."""
@@ -2682,9 +2737,16 @@ class WorkflowExecutor:
             return '_stop'
 
         if isinstance(current_node_id, str):
+            managed_jobs = step_result.get('managed_jobs')
+            managed_job_outcome = (
+                managed_jobs.get('managed_job_outcome')
+                if isinstance(managed_jobs, dict)
+                else None
+            )
             goto_transfer = self._typed_on_goto_transfer(
                 current_node_id,
                 exit_code=exit_code,
+                managed_job_outcome=managed_job_outcome,
             )
             if goto_transfer is not None:
                 return goto_transfer.target_node_id or "_end"
@@ -3000,7 +3062,14 @@ class WorkflowExecutor:
             publish_error = self._record_published_artifacts(step, step_name, result, state)
             if publish_error is not None:
                 result = publish_error
-            return self._persist_step_result(state, step_name, step, result)
+            finalized = self._persist_step_result(state, step_name, step, result)
+            self._mark_managed_jobs_recovery_if_outstanding(
+                step,
+                step_name,
+                state,
+                finalized,
+            )
+            return finalized
 
         session_info = self._active_provider_session(step_name)
         additional_publishes: List[Dict[str, str]] = []
@@ -3083,6 +3152,12 @@ class WorkflowExecutor:
             expected_step_id=finalized.get("step_id"),
             expected_visit_count=visit_count if isinstance(visit_count, int) else None,
         )
+        self._mark_managed_jobs_recovery_if_outstanding(
+            step,
+            step_name,
+            state,
+            finalized,
+        )
         if session_info is not None:
             retain_transport_spool = self.debug or finalized.get("exit_code", 0) != 0
             parser_summary = {}
@@ -3118,6 +3193,51 @@ class WorkflowExecutor:
             )
         self._emit_step_summary(step_name, step, finalized)
         return finalized
+
+    def _mark_managed_jobs_recovery_if_outstanding(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        state: Dict[str, Any],
+        finalized: Dict[str, Any],
+    ) -> None:
+        """Persist the recovery phase for managed jobs that outlive the provider."""
+        managed_jobs = finalized.get("managed_jobs")
+        if not (
+            isinstance(managed_jobs, dict)
+            and managed_jobs.get("managed_job_outcome") == "OUTSTANDING"
+        ):
+            return
+
+        step_visits = state.get("step_visits", {})
+        visit_count = step_visits.get(step_name) if isinstance(step_visits, dict) else None
+        recovery_state = {
+            "phase": "recovery",
+            "audit_path": managed_jobs.get("audit_path"),
+            "outcome": "OUTSTANDING",
+            "poll_budget_sec": step.get("managed_jobs", {}).get("poll_budget_sec")
+            if isinstance(step.get("managed_jobs"), dict)
+            else None,
+        }
+        self.state_manager.mark_current_step_recovery(
+            step_name=step_name,
+            step_index=self.current_step,
+            step_type=self._resolve_step_type(step),
+            step_id=finalized.get("step_id"),
+            visit_count=visit_count if isinstance(visit_count, int) else None,
+            managed_jobs=recovery_state,
+        )
+        state["current_step"] = {
+            "name": step_name,
+            "index": self.current_step,
+            "type": self._resolve_step_type(step),
+            "status": "running",
+            "managed_jobs": recovery_state,
+        }
+        if finalized.get("step_id") is not None:
+            state["current_step"]["step_id"] = finalized.get("step_id")
+        if isinstance(visit_count, int):
+            state["current_step"]["visit_count"] = visit_count
 
     @staticmethod
     def _to_step_result(result: Dict[str, Any], fallback_name: str) -> StepResult:
@@ -3331,6 +3451,34 @@ class WorkflowExecutor:
         # Initialize debug info dict for injection metadata
         debug_info = {}
         step_name = step.get('name', f'step_{self.current_step}')
+        managed_jobs_config = _managed_jobs_config_from_step(step)
+        current_step_state = state.get('current_step')
+        current_managed_state = (
+            current_step_state.get('managed_jobs')
+            if isinstance(current_step_state, dict) and current_step_state.get('name') == step_name
+            else None
+        )
+        if managed_jobs_config is not None and isinstance(current_managed_state, dict) and current_managed_state.get('phase') == 'recovery':
+            audit_path = current_managed_state.get('audit_path')
+            recovery_summary = recover_managed_jobs(Path(audit_path)) if isinstance(audit_path, str) else {
+                "managed_job_outcome": "INVALID",
+                "recovery_status": "INVALID",
+                "audit_path": audit_path,
+                "jobs": [{"status": "INVALID", "error": "missing managed audit path"}],
+            }
+            result = {
+                'status': 'completed' if recovery_summary.get('managed_job_outcome') == 'COMPLETE' else 'failed',
+                'exit_code': 0 if recovery_summary.get('managed_job_outcome') == 'COMPLETE' else 1,
+                'duration_ms': 0,
+                'managed_jobs': recovery_summary,
+            }
+            if result['exit_code'] != 0:
+                result['error'] = {
+                    "type": "managed_jobs_recovery",
+                    "message": f"Managed jobs recovery outcome: {recovery_summary.get('managed_job_outcome')}",
+                    "context": recovery_summary,
+                }
+            return result
         runtime_context = self._runtime_context(context, state)
         variables = runtime_context.build_variables(self.variable_substitutor, state)
         resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
@@ -3449,7 +3597,9 @@ class WorkflowExecutor:
 
         # Create retry policy for provider steps (AT-21)
         # Providers use global max_retries or step-specific retries
-        if session_request is not None:
+        if managed_jobs_config is not None:
+            retry_policy = RetryPolicy.for_command(0)
+        elif session_request is not None:
             retry_policy = RetryPolicy.for_command(0)
         elif 'retries' in step:
             retry_policy = RetryPolicy.for_command(step['retries'])
@@ -3510,6 +3660,21 @@ class WorkflowExecutor:
                         'message': 'Failed to create provider invocation',
                     }
                 }
+
+            if managed_jobs_config is not None:
+                visit_count = 1
+                step_visits = state.get('step_visits')
+                if isinstance(step_visits, dict) and isinstance(step_visits.get(step_name), int):
+                    visit_count = step_visits[step_name]
+                invocation = ManagedProviderRuntime(
+                    run_root=self.state_manager.run_root,
+                    workspace=self.workspace,
+                ).wrap_invocation(
+                    invocation,
+                    step_name=step_name,
+                    visit_count=visit_count,
+                    config=managed_jobs_config,
+                )
 
             session_runtime = self._active_provider_session(step_name)
             if session_runtime is not None:
@@ -3653,6 +3818,29 @@ class WorkflowExecutor:
             }
 
         # Add debug info if present (AT-35: injection truncation metadata)
+        if managed_jobs_config is not None:
+            managed_metadata = getattr(invocation, "metadata", {}).get("managed_jobs", {})
+            audit_path = managed_metadata.get("audit_path") if isinstance(managed_metadata, dict) else None
+            recovery_summary = recover_managed_jobs(Path(audit_path)) if isinstance(audit_path, str) else {
+                "managed_job_outcome": "INVALID",
+                "recovery_status": "INVALID",
+                "audit_path": audit_path,
+                "jobs": [{"status": "INVALID", "error": "missing managed audit path"}],
+            }
+            result["managed_jobs"] = recovery_summary
+            outcome = recovery_summary.get("managed_job_outcome")
+            if outcome == "COMPLETE":
+                result["status"] = "completed"
+                result["exit_code"] = 0
+            else:
+                result["status"] = "failed"
+                result["exit_code"] = 1
+                result.setdefault("error", {
+                    "type": "managed_jobs_recovery",
+                    "message": f"Managed jobs recovery outcome: {outcome}",
+                    "context": recovery_summary,
+                })
+
         if debug_info:
             result['debug'] = debug_info
 

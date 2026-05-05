@@ -17,6 +17,7 @@
   - Provider aliases resolve in the active workflow provider namespace. Imported workflows do not inherit or merge caller provider templates; pass role choices through declared inputs and define supported aliases inside the callee.
   - v2.10 top-level provider steps may also declare `provider_session` to select either `session_support.fresh_command` or `session_support.resume_command`.
   - In this tranche, `provider_session` steps require a static provider alias because loader-time session-support validation must inspect the provider template.
+  - v2.13 provider steps may declare `managed_jobs` as a step modifier. The provider template remains ordinary; after existing provider and provider-session command selection, the runtime wraps the selected invocation with the managed-job guard and owns audit/recovery state.
   - In argv mode, `${PROMPT}` is replaced by the composed prompt (see below).
   - In stdin mode, the composed prompt is piped to the child stdin; provider templates MUST NOT include `${PROMPT}`.
   - Provider prompt sources are distinct from workflow-boundary `inputs` / `outputs`, runtime dependencies (`depends_on`, `consumes`), and artifact storage / lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`).
@@ -79,6 +80,7 @@
 
 - Timeouts
   - When `timeout_sec` is set, the orchestrator enforces it: sends a graceful termination signal and then a hard kill after a short grace period. Records exit code `124` and timeout context in state.
+  - Managed provider invocations run in a process group/session boundary so a timeout terminates the guard and its provider child process tree. Already-submitted managed jobs are recovered from persisted managed-job state rather than by relaunching the provider.
 
 - Examples
 - Claude: `command: ["claude","-p","${PROMPT}","--model","${model}"]`, defaults `{ model: "claude-opus-4-6" }`.

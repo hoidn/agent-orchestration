@@ -111,10 +111,10 @@ def _common_keys(common: StepCommonConfig) -> Iterator[str]:
         "timeout_sec",
         "output_capture",
         "output_file",
-        "allow_parse_error",
-    ):
-        if _common_value(common, key) is not _MISSING:
-            yield key
+            "allow_parse_error",
+        ):
+            if _common_value(common, key) is not _MISSING:
+                yield key
 
 
 @dataclass(frozen=True)
@@ -192,6 +192,20 @@ class RuntimeStep(Mapping[str, Any]):
                     return thaw_runtime_value(config.prompt_consumes)
             if key == "consumes_injection_position" and config.consumes_injection_position is not None:
                 return config.consumes_injection_position
+            if key == "managed_jobs" and config.managed_jobs is not None:
+                managed = config.managed_jobs
+                return {
+                    "policy": managed.policy,
+                    "watch_roots": list(managed.watch_roots),
+                    "backend": managed.backend,
+                    "poll_budget_sec": managed.poll_budget_sec,
+                    "on": {
+                        "complete": managed.on.complete,
+                        "failed": managed.on.failed,
+                        "invalid": managed.on.invalid,
+                        "outstanding": managed.on.outstanding,
+                    },
+                }
             raise KeyError(key)
 
         if isinstance(config, AdjudicatedProviderStepConfig):
@@ -298,6 +312,7 @@ class RuntimeStep(Mapping[str, Any]):
                 "inject_consumes",
                 "prompt_consumes",
                 "consumes_injection_position",
+                "managed_jobs",
             ):
                 try:
                     self[key]

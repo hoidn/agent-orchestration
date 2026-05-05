@@ -1,0 +1,48 @@
+version: "2.13"
+name: managed-provider-jobs-demo
+
+providers:
+  local_managed_provider:
+    input_mode: stdin
+    command:
+      - python
+      - -c
+      - |
+        import subprocess
+        raise SystemExit(subprocess.run(["python", "tests/fixtures/managed_jobs/train_demo.py"]).returncode)
+
+steps:
+  - name: ExecuteManagedJob
+    id: execute_managed_job
+    provider: local_managed_provider
+    managed_jobs:
+      policy: tests/fixtures/managed_jobs/policy.yaml
+      watch_roots:
+        - tests/fixtures/managed_jobs
+      backend: local
+      poll_budget_sec: 1
+      on:
+        complete: ReviewManagedJob
+        failed: FixManagedJob
+        invalid: FixManagedJob
+        outstanding: fail_resumable
+
+  - name: FixManagedJob
+    id: fix_managed_job
+    command:
+      - python
+      - -c
+      - |
+        from pathlib import Path
+        Path("state/managed_provider_jobs_demo").mkdir(parents=True, exist_ok=True)
+        Path("state/managed_provider_jobs_demo/fix.txt").write_text("fix\n", encoding="utf-8")
+
+  - name: ReviewManagedJob
+    id: review_managed_job
+    command:
+      - python
+      - -c
+      - |
+        from pathlib import Path
+        Path("state/managed_provider_jobs_demo").mkdir(parents=True, exist_ok=True)
+        Path("state/managed_provider_jobs_demo/review.txt").write_text("review\n", encoding="utf-8")

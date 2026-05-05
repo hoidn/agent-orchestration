@@ -7,6 +7,7 @@
   - Injection (v1.1.1): modes, default instruction, prepend/append position, truncation record.
   - IO capture: modes, limits, tee semantics, JSON parse behavior and `allow_parse_error`.
   - Providers: argv vs stdin, placeholder validation, unresolved placeholders, parameter merge.
+  - Managed providers (v2.13): version-gated provider-only schema validation, managed route target validation, guarded process-tree execution, watcher classification with pending-policy reconciliation, deterministic job metadata or extractor validation, local and Slurm backend identity state, immutable source/config snapshot or Slurm preflight hash verification, supported `python`/`torchrun` plus `conda run` and `uv run` shim payloads, job audit/recovery after success/failure/timeout, managed outcome routing, resumable outstanding jobs, and resume without provider relaunch.
   - Adjudicated providers (v2.11): version gating, candidate isolation, same-trust-boundary evaluator evidence, selection, promotion, ledger ownership, and stdout suppression.
   - Deterministic artifact contracts: `expected_outputs`/`output_bundle` validation, typed parsing, publish/consume lineage, and contract violation handling.
   - Wait-for: exclusivity, timeout semantics, state metrics.
@@ -194,6 +195,10 @@
 183. v2.11 score ledger ownership: run-local ledgers and workspace-visible mirrors use stable candidate/score keys and owner tuples; mirror conflicts, dynamic ledger/output collisions, and invalid JSONL ownership fail before publication
 184. v2.11 stdout suppression and observability: adjudicated step results do not expose candidate/evaluator stdout as `output`, `lines`, `json`, `truncated`, or parse-error debug state, while reports may expose selected candidate, score, ledger paths, promotion status, and failure type
 185. v2.11 resume/retry contract: logical deadlines, candidate/evaluator retry scopes, resume idempotency, promotion-state reconciliation, and `adjudication_resume_mismatch` are covered by implementation tests before full production rollout
+186. v2.13 loader gating: `managed_jobs` is rejected below `version: "2.13"` and is accepted on provider steps at `version: "2.13"`
+187. v2.13 managed provider schema: `managed_jobs` is rejected on non-provider and adjudicated-provider steps, with provider retries, with ordinary `on`, with unsafe paths, invalid backend, invalid poll budget, missing routes, or unknown route targets
+188. v2.13 managed provider runtime: managed provider steps force provider retry policy to zero, wrap the selected provider invocation, terminate the guarded process tree on timeout, and run recovery after success/failure/timeout
+189. v2.13 managed provider recovery: completed jobs are verified from deterministic job state, failed or invalid jobs route through `managed_jobs.on`, outstanding jobs fail resumably, and resume re-enters recovery without relaunching the provider
 
 ## DSL Evolution Rollout Crosswalk
 

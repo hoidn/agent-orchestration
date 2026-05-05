@@ -1,0 +1,17 @@
+backend_defaults:
+  backend: local
+entries:
+  - id: train_demo
+    mode: force_managed
+    path: tests/fixtures/managed_jobs/train_demo.py
+    backend: local
+    job:
+      name_template: train-demo-{job_identity_hash}
+      state_root_template: state/managed_jobs/{entry_id}/{job_identity_hash}
+      output_root_arg: --output-dir
+      verify_files:
+        - "{output_root}/metrics.json"
+      snapshot_roots:
+        - tests/fixtures/managed_jobs
+      config_globs:
+        - tests/fixtures/managed_jobs/*.yaml

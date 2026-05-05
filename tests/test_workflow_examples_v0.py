@@ -36,6 +36,7 @@ EXAMPLE_FILES = [
     "dsl_review_first_fix_loop_provider_session.yaml",
     "finally_demo.yaml",
     "match_demo.yaml",
+    "managed_provider_jobs_demo.yaml",
     "neurips_hybrid_resnet_plan_impl_review.yaml",
     "repeat_until_demo.yaml",
     "repeat_until_exhaustion_escalation_demo.yaml",
@@ -173,6 +174,37 @@ def test_backlog_plan_execute_v0_runtime(tmp_path: Path):
     assert "artifacts" not in state["steps"]["SelectBacklogItem"]
     assert state["steps"]["DraftPlan"]["artifacts"]["plan_path"] == "docs/plans/plan-item-001.md"
     assert state["steps"]["ExecutePlan"]["artifacts"]["execution_log_path"] == "artifacts/execution/run.log"
+
+
+def test_managed_provider_jobs_demo_runtime(tmp_path: Path):
+    """Managed provider demo exercises guard, shim, audit, recovery, and complete routing."""
+
+    workspace, workflow_path, workflow_relpath = _copy_example_to_workspace(
+        tmp_path,
+        "managed_provider_jobs_demo.yaml",
+    )
+    _copy_repo_file_to_workspace(workspace, "tests/fixtures/managed_jobs/policy.yaml")
+    _copy_repo_file_to_workspace(workspace, "tests/fixtures/managed_jobs/train_demo.py")
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, bundle_context_dict(workflow))
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["ExecuteManagedJob"]["managed_jobs"]["managed_job_outcome"] == "COMPLETE"
+    assert (workspace / "state/managed_provider_jobs_demo/review.txt").read_text(encoding="utf-8") == "review\n"
+    audit_path = (
+        Path(state["run_root"])
+        / "managed_jobs"
+        / "ExecuteManagedJob"
+        / "1"
+        / "managed_job_events.jsonl"
+    )
+    assert audit_path.is_file()
+    assert "job_submitted" in audit_path.read_text(encoding="utf-8")
 
 
 def test_assert_gate_demo_runtime(tmp_path: Path):

@@ -38,6 +38,7 @@ class StepResult:
     debug: Optional[Dict[str, Any]] = None
     artifacts: Optional[Dict[str, Any]] = None
     adjudication: Optional[Dict[str, Any]] = None
+    managed_jobs: Optional[Dict[str, Any]] = None
     skipped: bool = False
     # Wait-for specific fields (AT-60)
     files: Optional[List[str]] = None
@@ -715,7 +716,12 @@ class StateManager:
             self.state.current_step["last_heartbeat_at"] = datetime.now(timezone.utc).isoformat()
             self._write_state()
 
-    def clear_current_step(self, step_name: Optional[str] = None):
+    def clear_current_step(
+        self,
+        step_name: Optional[str] = None,
+        *,
+        preserve_managed_recovery: bool = False,
+    ):
         """Clear current running step metadata."""
         with self._lock:
             if not self.state or self.state.current_step is None:
@@ -723,8 +729,47 @@ class StateManager:
 
             if step_name and self.state.current_step.get("name") != step_name:
                 return
+            managed_jobs = self.state.current_step.get("managed_jobs")
+            if (
+                preserve_managed_recovery
+                and isinstance(managed_jobs, dict)
+                and managed_jobs.get("phase") == "recovery"
+            ):
+                return
 
             self.state.current_step = None
+            self._write_state()
+
+    def mark_current_step_recovery(
+        self,
+        *,
+        step_name: str,
+        step_index: Optional[int],
+        step_type: str,
+        step_id: Optional[str],
+        visit_count: Optional[int],
+        managed_jobs: Dict[str, Any],
+    ) -> None:
+        """Persist a resumable recovery phase for an otherwise settled step."""
+        with self._lock:
+            if not self.state:
+                raise RuntimeError("State not initialized")
+
+            now = datetime.now(timezone.utc).isoformat()
+            current_step: Dict[str, Any] = {
+                "name": step_name,
+                "index": step_index,
+                "type": step_type,
+                "status": "running",
+                "started_at": now,
+                "last_heartbeat_at": now,
+                "managed_jobs": managed_jobs,
+            }
+            if step_id:
+                current_step["step_id"] = step_id
+            if visit_count is not None:
+                current_step["visit_count"] = visit_count
+            self.state.current_step = current_step
             self._write_state()
 
     def get_step_result(self, step_name: str) -> Optional[StepResult]:

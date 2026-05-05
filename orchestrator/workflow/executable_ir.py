@@ -136,6 +136,27 @@ class CommandStepConfig:
 
 
 @dataclass(frozen=True)
+class ManagedJobsRoutes:
+    """Executable managed-job outcome routing."""
+
+    complete: str
+    failed: str
+    invalid: str
+    outstanding: str
+
+
+@dataclass(frozen=True)
+class ManagedJobsConfig:
+    """Executable managed-job provider-step modifier."""
+
+    policy: str
+    watch_roots: tuple[str, ...]
+    backend: str
+    poll_budget_sec: int
+    on: ManagedJobsRoutes
+
+
+@dataclass(frozen=True)
 class ProviderStepConfig:
     """Executable provider-step config."""
 
@@ -150,6 +171,7 @@ class ProviderStepConfig:
     inject_consumes: Optional[bool] = None
     prompt_consumes: Optional[tuple[Any, ...]] = None
     consumes_injection_position: Optional[str] = None
+    managed_jobs: Optional[ManagedJobsConfig] = None
 
 
 @dataclass(frozen=True)

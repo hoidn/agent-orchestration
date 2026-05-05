@@ -544,6 +544,76 @@ def test_ir_lowering_preserves_scalar_commands_and_provider_dependency_mappings(
     }
 
 
+def test_managed_jobs_lowers_to_provider_config_and_routes(tmp_path: Path):
+    workflow_path = _write_yaml(
+        tmp_path / "managed_provider.yaml",
+        {
+            "version": "2.13",
+            "name": "managed-provider-ir",
+            "providers": {
+                "impl": {
+                    "command": ["python", "-c", "print('ok')"],
+                    "input_mode": "stdin",
+                }
+            },
+            "steps": [
+                {
+                    "name": "Execute",
+                    "id": "execute",
+                    "provider": "impl",
+                    "managed_jobs": {
+                        "policy": "workflows/managed_jobs/policy.yaml",
+                        "watch_roots": ["scripts/training", "scripts/studies"],
+                        "backend": "auto",
+                        "poll_budget_sec": 60,
+                        "on": {
+                            "complete": "Review",
+                            "failed": "Fix",
+                            "invalid": "Fix",
+                            "outstanding": "fail_resumable",
+                        },
+                    },
+                },
+                {"name": "Review", "id": "review", "command": ["true"]},
+                {"name": "Fix", "id": "fix", "command": ["true"]},
+            ],
+        },
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    execute_step = bundle.surface.steps[0]
+    execute_node = bundle.ir.nodes[execute_step.step_id]
+
+    assert execute_step.managed_jobs is not None
+    assert execute_step.managed_jobs.policy == "workflows/managed_jobs/policy.yaml"
+    assert isinstance(execute_node.execution_config, ProviderStepConfig)
+    managed_jobs = execute_node.execution_config.managed_jobs
+    assert managed_jobs is not None
+    assert managed_jobs.watch_roots == ("scripts/training", "scripts/studies")
+    assert managed_jobs.on.complete == "Review"
+    assert execute_node.routed_transfers["managed_jobs_complete_goto"].target_node_id == "root.review"
+    assert execute_node.routed_transfers["managed_jobs_failed_goto"].target_node_id == "root.fix"
+    assert execute_node.routed_transfers["managed_jobs_invalid_goto"].target_node_id == "root.fix"
+
+    materialized = materialize_execution_config_for_test(
+        execute_node.execution_config,
+        step_name="Execute",
+        step_id=execute_step.step_id,
+    )
+    assert materialized["managed_jobs"] == {
+        "policy": "workflows/managed_jobs/policy.yaml",
+        "watch_roots": ["scripts/training", "scripts/studies"],
+        "backend": "auto",
+        "poll_budget_sec": 60,
+        "on": {
+            "complete": "Review",
+            "failed": "Fix",
+            "invalid": "Fix",
+            "outstanding": "fail_resumable",
+        },
+    }
+
+
 def test_ir_lowering_patches_for_each_body_fallthrough_and_iteration_owned_call_boundaries(
     tmp_path: Path,
 ):

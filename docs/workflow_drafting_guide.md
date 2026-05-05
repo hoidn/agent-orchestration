@@ -75,6 +75,10 @@ For v2.10 provider-session steps, treat the session handle as runtime-owned data
 - use `provider_session.mode: resume` plus the reserved `session_id_from` consume to bind `${SESSION_ID}` at runtime
 - do not ask prompts to echo, store, or restate the session id; that handle is intentionally excluded from prompt injection and `consume_bundle`
 
+For v2.13 managed provider steps, declare managed job interception on the provider step with `managed_jobs` instead of hand-authoring audit paths, guard wrappers, and recovery command gates in workflow YAML. The provider prompt still describes the work; the runtime owns guard setup, audit sidecars, recovery, and resumable outstanding-job state. Manual `RecoverManagedJobs` command steps are a fallback only for older runtimes that do not support `managed_jobs`.
+
+Managed job policies must provide complete deterministic metadata directly or through a named extractor: state root template, output-root handling, verification targets, source/config snapshot inputs, and backend selection. Shims cover direct `python`/`torchrun` launches plus supported `conda run ... python|torchrun ...` and `uv run python|torchrun ...` forms; unsupported shell activation or wrapper forms should fail closed or stay explicitly unmanaged. For Slurm, run from an immutable snapshot workspace or use generated scripts that verify recorded source/config hashes before execution.
+
 Pointer ownership note (v1.4): consume preflight for relpath artifacts is read-only and does not rewrite registry pointer files. If a command step needs deterministic consumed values, prefer `consume_bundle` JSON and read values from that bundle instead of relying on consume-time pointer mutation.
 
 `expected_outputs` also supports optional guidance fields (`description`, `format_hint`, `example`) that are injected into the `Output Contract` block. Use them to reduce ambiguity for agent-written artifacts. They are prompt guidance only and do not change runtime validation rules.

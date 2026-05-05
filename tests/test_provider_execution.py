@@ -9,6 +9,9 @@ import pytest
 import tempfile
 import time
 import threading
+import os
+import signal
+import sys
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 import subprocess
@@ -273,6 +276,39 @@ class TestProviderExecutor:
         command_str = " ".join(invocation.command)
         assert "${PROMPT}" not in command_str
         assert "test-model" in command_str
+
+    def test_managed_invocation_timeout_terminates_process_tree(self):
+        """Managed provider timeout kills the guard process group, including children."""
+        pid_file = self.workspace / "child.pid"
+        script = self.workspace / "spawn_child.py"
+        script.write_text(
+            "import subprocess, sys, time\n"
+            "child = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(30)'])\n"
+            f"open({str(pid_file)!r}, 'w').write(str(child.pid))\n"
+            "time.sleep(30)\n",
+            encoding="utf-8",
+        )
+        invocation = ProviderInvocation(
+            command=[sys.executable, str(script)],
+            input_mode=InputMode.ARGV,
+            timeout_sec=1,
+            terminate_process_tree=True,
+        )
+
+        result = self.executor.execute(invocation)
+
+        assert result.exit_code == 124
+        child_pid = int(pid_file.read_text(encoding="utf-8"))
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            try:
+                os.kill(child_pid, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            os.kill(child_pid, signal.SIGKILL)
+            pytest.fail("child process survived managed provider timeout")
 
     def test_at48_missing_placeholders(self):
         """AT-48: Missing placeholders cause exit 2 with context."""

@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", or "2.12"). Strict gating: unknown fields at a given version → validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", or "2.13"). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -246,7 +246,29 @@
           - `version: "1.2"` / `"1.3"`: materialize the selected value to the canonical pointer file
           - `version: "1.4"`: read-only consume resolution (no pointer-file mutation)
         - `kind: scalar` artifacts never write pointer files and use the typed value directly
-        - v2.10 `provider_session.mode: resume` reserves one consume for runtime `${SESSION_ID}` binding rather than prompt or consume-bundle output
+      - v2.10 `provider_session.mode: resume` reserves one consume for runtime `${SESSION_ID}` binding rather than prompt or consume-bundle output
+    - `managed_jobs` (optional; v2.13+; provider steps only)
+      - step modifier for runtime-owned managed-job interception, audit, recovery, and resume semantics
+      - initial shape:
+        ```yaml
+        managed_jobs:
+          policy: workflows/managed_jobs/policy.yaml
+          watch_roots:
+            - scripts/training
+          backend: auto
+          poll_budget_sec: 82800
+          on:
+            complete: Review
+            failed: Fix
+            invalid: Fix
+            outstanding: fail_resumable
+        ```
+      - `policy` and `watch_roots` are relative paths governed by the normal path-safety model.
+      - `backend` is `auto`, `local`, or `slurm` in the first tranche.
+      - `poll_budget_sec` is a positive integer and must not exceed `timeout_sec` when the step declares one.
+      - `managed_jobs.on.complete`, `.failed`, and `.invalid` are validated like ordinary goto targets.
+      - `managed_jobs.on.outstanding` is the literal `fail_resumable` in the first tranche.
+      - The first tranche rejects `managed_jobs` on non-provider steps, adjudicated provider steps, steps with `retries`, and steps with ordinary `on` handlers.
         - fail with `contract_violation` (exit 2) when missing/stale/type-invalid
   - Control:
     - `timeout_sec: number` (applies to provider/command; exit 124 on timeout)
@@ -313,6 +335,7 @@
     - `max_transitions` and `max_visits` require `version: "1.8"` or higher.
     - scalar `string`, `provider_session`, and provider `session_support` require `version: "2.10"` or higher.
     - `adjudicated_provider` requires `version: "2.11"` or higher.
+    - `managed_jobs` requires `version: "2.13"` or higher.
   - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.

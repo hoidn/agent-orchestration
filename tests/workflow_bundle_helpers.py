@@ -159,6 +159,7 @@ def materialize_execution_config_for_test(
         _set_runtime_field(step, "prompt_consumes", config.prompt_consumes)
         if config.consumes_injection_position is not None:
             step["consumes_injection_position"] = config.consumes_injection_position
+        _set_runtime_field(step, "managed_jobs", config.managed_jobs)
         return step
 
     if isinstance(config, WaitForStepConfig):
@@ -384,6 +385,7 @@ def _surface_step(step: SurfaceStep) -> dict[str, Any]:
             payload["inject_consumes"] = step.inject_consumes
         _set_if_present(payload, "prompt_consumes", _thaw(step.prompt_consumes))
         _set_if_present(payload, "consumes_injection_position", step.consumes_injection_position)
+        _set_if_present(payload, "managed_jobs", _thaw(step.managed_jobs))
     elif step.kind is SurfaceStepKind.WAIT_FOR:
         payload["wait_for"] = _thaw(step.wait_for)
     elif step.kind is SurfaceStepKind.SET_SCALAR:
