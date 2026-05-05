@@ -1357,17 +1357,57 @@ def test_roadmap_revision_phase_uses_single_advisory_review():
 def test_neurips_implementation_phase_uses_terminal_implementation_states():
     workflow = _load_yaml("workflows/library/neurips_backlog_implementation_phase.yaml")
     execute = _step_by_name(workflow, "ExecuteImplementation")
+    materialize = _step_by_name(workflow, "MaterializeImplementationState")
     write_state = _step_by_name(workflow, "WriteImplementationState")
     finalize = _step_by_name(workflow, "FinalizeImplementationPhaseOutputs")
     fix = _step_by_name(workflow, "FixImplementation")
 
     assert workflow["outputs"]["implementation_state"]["allowed"] == ["COMPLETED", "BLOCKED"]
-    assert _bundle_field(execute, "implementation_state")["allowed"] == ["COMPLETED", "BLOCKED"]
+    assert "output_bundle" not in execute
+    assert execute["prompt_consumes"] == [
+        "design",
+        "plan",
+        "execution_report_target",
+        "progress_report_target",
+    ]
+    materialize_script = "\n".join(str(part) for part in materialize["command"])
+    assert "implementation_state.json" in materialize_script
+    assert "phase_started_at_ns" in materialize_script
+    assert "Blocker Class" in materialize_script
     assert write_state["expected_outputs"][0]["allowed"] == ["COMPLETED", "BLOCKED"]
     assert finalize["expected_outputs"][0]["allowed"] == ["COMPLETED", "BLOCKED"]
     assert execute["timeout_sec"] == 86400
     assert fix["timeout_sec"] == 86400
     assert "PublishProgressReport" not in _step_names(workflow)
+
+
+def test_neurips_execute_prompt_treats_partial_progress_as_reviewable_pass():
+    prompt = (
+        Path("workflows/library/prompts/neurips_backlog_implementation_phase/implement_implementation.md")
+        .read_text(encoding="utf-8")
+    )
+
+    assert "Choose exactly one implementation state" not in prompt
+    assert "write the execution report" in prompt
+    assert "partial" in prompt.lower()
+    assert "Remaining Required Plan Tasks" in prompt
+    assert "Blocker Class" in prompt
+
+
+def test_neurips_implementation_phase_materializer_uses_current_pass_evidence():
+    workflow = _load_yaml("workflows/library/neurips_backlog_implementation_phase.yaml")
+    init = _step_by_name(workflow, "InitializeImplementationPhasePaths")
+    init_script = "\n".join(init["command"])
+    assert "phase_started_at_ns.txt" in init_script
+    assert "implementation_state.json" in init_script
+    assert "final_implementation_state.txt" in init_script
+
+    materialize = _step_by_name(workflow, "MaterializeImplementationState")
+    materialize_args = materialize["command"]
+    assert "${inputs.state_root}/phase_started_at_ns.txt" in materialize_args
+    materialize_script = "\n".join(str(part) for part in materialize_args)
+    assert "is_fresh_report" in materialize_script
+    assert "Existing implementation state bundle" not in materialize_script
 
 
 def test_neurips_selected_item_does_not_emit_waiting_status():
@@ -1423,6 +1463,13 @@ def test_neurips_selected_item_implementation_uses_normalized_plan_gate_output()
     }
 
 
+def test_neurips_selected_item_does_not_block_on_implementation_review_revise():
+    workflow = _load_yaml("workflows/library/neurips_selected_backlog_item.yaml")
+
+    assert "RecordImplementationReviewBlocked" not in _step_names(workflow)
+    assert "Implementation review did not approve" not in yaml.safe_dump(workflow)
+
+
 def test_neurips_selected_item_recovers_premature_done_only_after_implementation():
     workflow = _load_yaml("workflows/library/neurips_selected_backlog_item.yaml")
 
@@ -1448,15 +1495,13 @@ def test_neurips_top_level_drain_continues_after_selected_item_blocks():
     route = _step_by_name(workflow, "RouteItemSelection")
     selected_case = route["match"]["cases"]["SELECTED"]
     output_ref = selected_case["outputs"]["drain_status"]["from"]["ref"]
-    assert output_ref == "self.steps.NormalizeSelectedItemDrainStatus.artifacts.drain_status"
+    assert output_ref == "self.steps.WriteSelectedItemContinue.artifacts.drain_status"
 
-    normalize = next(
-        step for step in selected_case["steps"] if step["name"] == "NormalizeSelectedItemDrainStatus"
+    assert any(step["name"] == "RunSelectedItem" for step in selected_case["steps"])
+    write_continue = next(
+        step for step in selected_case["steps"] if step["name"] == "WriteSelectedItemContinue"
     )
-    command_text = "\n".join(str(part) for part in normalize["command"])
-    assert 'selected_item_status == "BLOCKED"' in command_text
-    assert 'drain_status = "CONTINUE"' in command_text
-    assert "run_state.blocked_items" in command_text
+    assert write_continue["set_scalar"] == {"artifact": "drain_status", "value": "CONTINUE"}
 
 
 def test_drain_iteration_promotes_roadmap_revision_for_any_advisory_decision():
