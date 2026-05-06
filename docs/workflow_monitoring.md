@@ -41,6 +41,9 @@ export WORKFLOW_MONITOR_SMTP_USER='workflow-monitor@example.com'
 export WORKFLOW_MONITOR_SMTP_PASSWORD='app-password-or-token'
 ```
 
+For Gmail on a headless machine, see
+[`gmail_app_password_headless_monitor.md`](gmail_app_password_headless_monitor.md).
+
 ## Dry Run
 
 Verify scan and message content without sending email:
