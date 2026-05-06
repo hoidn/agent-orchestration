@@ -30,7 +30,7 @@ Reject or block the roadmap if:
 
 Approve only when the roadmap is a coherent project architecture, the tranche dependency graph safely gates downstream work, the roadmap's completion claim matches the brief's completion boundary, omitted in-scope work is accounted for, and the manifest can safely drive one-tranche design-plan-implementation runs.
 
-Write a JSON review report to the path recorded by the output contract's `roadmap_review_report_path` pointer. Also write the decision token to `roadmap_review_decision` and unresolved counts to the count files.
+Write a JSON review report to the exact review-report target path listed in the injected concrete output paths block. Also write the decision token and unresolved counts to the exact file paths listed there.
 
 The report must contain:
 - `decision`: `APPROVE`, `REVISE`, or `BLOCK`

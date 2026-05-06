@@ -106,6 +106,12 @@ steps:
         printf '%s\n' "${inputs.tranche_manifest_target_path}" > "${inputs.state_root}/tranche_manifest_path.txt"
         printf '%s\n' "${inputs.roadmap_review_report_target_path}" > "${inputs.state_root}/roadmap_review_report_path.txt"
         printf '%s\n' "${inputs.state_root}/open_findings.json" > "${inputs.state_root}/open_findings_path.txt"
+        cat > "${inputs.state_root}/roadmap_review_output_paths.md" <<EOF
+        Review report target path: ${inputs.roadmap_review_report_target_path}
+        Review decision path: ${inputs.state_root}/roadmap_review_decision.txt
+        Unresolved high count path: ${inputs.state_root}/unresolved_high_count.txt
+        Unresolved medium count path: ${inputs.state_root}/unresolved_medium_count.txt
+        EOF
         cat > "${inputs.state_root}/open_findings.json" <<'JSON'
         {
           "findings": []
@@ -240,6 +246,13 @@ steps:
           provider: codex
           asset_file: prompts/major_project_stack/review_project_roadmap.md
           timeout_sec: 1800
+          depends_on:
+            required:
+              - ${inputs.state_root}/roadmap_review_output_paths.md
+            inject:
+              mode: content
+              instruction: "Concrete output paths for this roadmap review step:"
+              position: append
           consumes:
             - artifact: project_brief
               policy: latest_successful
@@ -254,6 +267,37 @@ steps:
               policy: latest_successful
               freshness: any
           prompt_consumes: ["project_brief", "project_roadmap", "tranche_manifest", "open_findings"]
+          expected_outputs:
+            - name: roadmap_review_decision
+              path: ${inputs.state_root}/roadmap_review_decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE", "BLOCK"]
+            - name: unresolved_high_count
+              path: ${inputs.state_root}/unresolved_high_count.txt
+              type: integer
+            - name: unresolved_medium_count
+              path: ${inputs.state_root}/unresolved_medium_count.txt
+              type: integer
+
+        - name: PublishRoadmapReviewArtifacts
+          id: publish_roadmap_review_artifacts
+          command:
+            - bash
+            - -lc
+            - |
+              python - <<'PY'
+              import json
+              from pathlib import Path
+
+              review_target = Path("${inputs.roadmap_review_report_target_path}")
+              if not review_target.is_file():
+                  raise SystemExit(f"Missing roadmap review artifact: {review_target}")
+
+              json.loads(review_target.read_text(encoding="utf-8"))
+
+              pointer = Path("${inputs.state_root}/roadmap_review_report_path.txt")
+              pointer.write_text("${inputs.roadmap_review_report_target_path}\n", encoding="utf-8")
+              PY
           expected_outputs:
             - name: roadmap_review_report_path
               path: ${inputs.state_root}/roadmap_review_report_path.txt
@@ -279,7 +323,7 @@ steps:
         - name: RouteRoadmapDecision
           id: route_roadmap_decision
           match:
-            ref: self.steps.ReviewProjectRoadmap.artifacts.roadmap_review_decision
+            ref: self.steps.PublishRoadmapReviewArtifacts.artifacts.roadmap_review_decision
             cases:
               APPROVE:
                 id: approve_roadmap_path

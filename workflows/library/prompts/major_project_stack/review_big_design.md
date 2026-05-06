@@ -4,9 +4,7 @@ Review the candidate design in a code-review stance. Findings first. Look for bu
 
 <notes>
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
-Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, `tranche_manifest`, `design`, `open_findings`, and `upstream_escalation_context` artifacts before acting.
-
-Escalation decisions are available in this major-project review. Use `ESCALATE_ROADMAP_REVISION` when the design cannot be repaired by redesigning the current tranche alone and needs a program-level change such as split, reorder, prerequisite insertion, or ownership reassignment. This may be used on the first review pass if tranche shape is already visibly wrong. Use `BLOCK` only when the brief, roadmap, manifest, or repository evidence is too incomplete or contradictory to author a safe roadmap change request.
+Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, `tranche_manifest`, `design`, and `open_findings` artifacts before acting.
 
 Treat `design` as the candidate design under review, not as evidence that the design has already been approved.
 
@@ -15,8 +13,6 @@ If `docs/index.md` is present, read it first, then use it to select relevant spe
 Review the candidate design from scratch before reconciling carried-forward findings.
 
 Treat the rejection bullets as review aids, not an equal-weight checklist. Focus findings on gaps that would materially affect the tranche outcome, force later phases to invent important decisions, or create avoidable long-lived debt.
-
-Treat generated reports, projections, summaries, and review evidence as derived outputs by default. Require them as design-level contract surfaces only when they are the maintained source of truth, a stable downstream input, or an explicit user-facing deliverable.
 
 Reject designs that:
 - conflict with the project roadmap or selected tranche brief without explaining and justifying the change
@@ -29,9 +25,8 @@ Reject designs that:
 - omit required architecture, interface, data-flow, ownership, oracle, provenance, migration, or compatibility decisions
 - propose implementation before blocking design decisions are resolved
 - hide work in vague "follow existing pattern" language where the existing pattern may be wrong for the tranche outcome
-- make multiple surfaces authoritative for the same fact without naming one maintained source of truth and the derivation path for the others
 - leave unclear what is authored versus derived, who owns it, or what must validate it when that distinction affects the tranche contract
-- introduce or change a nontrivial subsystem, process, integration surface, automation, or stable consumed contract without explicit component boundaries, ownership, interfaces, invariants, failure modes, and test or review boundaries
+- introduce or change a nontrivial subsystem, process, integration surface, automation, or durable artifact contract without explicit component boundaries, ownership, interfaces, invariants, failure modes, and test or review boundaries
 - omit cross-tranche family analysis when the roadmap or repository evidence shows a repeated work shape
 - duplicate prior tranche-local mechanics for a second or later family member without deciding whether to reuse, refactor into shared helpers, or justify a local fork
 - refactor prior tranche work without preserving prior behavior, interfaces, and regression checks
@@ -53,7 +48,7 @@ The report must contain:
 - `unresolved_high_count`
 - `unresolved_medium_count`
 
-Use `REVISE` for fixable design problems. Use `BLOCK` only when the tranche cannot be designed from the available brief, roadmap, manifest, and repository context.
+Use `REVISE` for fixable design problems. Use `ESCALATE_ROADMAP_REVISION` when the needed correction would change the tranche claim, scope, ordering, prerequisites, or ownership rather than repair the current design locally. Do not use repeated `REVISE` decisions to ask the design to silently narrow or recharter the selected tranche. Use `BLOCK` only when the tranche cannot be designed from the available brief, roadmap, manifest, and repository context.
 
 Also write a design escalation context JSON to the target named by `design_escalation_context_path`, and write a roadmap change request JSON to the target named by `roadmap_change_request_path`. These may be inactive placeholder objects unless the decision is `ESCALATE_ROADMAP_REVISION`.
 </output instruction>

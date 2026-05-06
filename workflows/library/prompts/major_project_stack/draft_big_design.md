@@ -1,7 +1,3 @@
-Major-project escalation additions:
-- Read the consumed `upstream_escalation_context` artifact. If it is active, treat it as required downstream evidence about why lower phases failed to converge.
-- Even when the context is inactive, assess whether the tranche appears too broad or wrongly partitioned to execute as one implementation phase.
-
 Read the `Consumed Artifacts` section first and treat it as the authoritative input list.
 Read the consumed `tranche_brief`, `project_brief`, `project_roadmap`, and `tranche_manifest` artifacts before acting.
 
@@ -41,9 +37,9 @@ A tranche may refactor prior tranche-local work into shared helpers when that re
 
 Freeze the long-lived ownership boundaries for the tranche: decide what extends an existing subsystem versus introducing a new local component, and decide where the lasting source of truth for changed behavior, stable interfaces, and maintained data or contracts will live.
 
-For any tranche that creates or materially changes production code, stable APIs, maintained data or contracts, or externally consumed persistent artifacts, identify the stable locations, interfaces, provenance assumptions, and checks that belong in the tranche contract. Distinguish authored from derived outputs when both exist. Generated reports, projections, summaries, and review evidence are derived by default, not tranche-contract surfaces, unless a downstream consumer, external user, or stable gate depends on them directly. Define layout at the level needed to fix component ownership and stable locations; leave complete file lists, function-level structure, exact commands, and incidental generated outputs to the plan unless they are part of the contract. Justify any large hand-curated data stored inside executable code.
+For any tranche that creates source code, tools, durable artifacts, or curated data, identify stable locations, stable interfaces, provenance assumptions, and required checks that are part of the tranche contract. Distinguish authored from derived files when both exist. Define layout at the level needed to fix component ownership and stable locations; leave complete file lists, function-level structure, and exact commands to the plan unless they are part of the contract. For example, the design might place a new package under `src/<package>/<component>/` and its command entrypoint under `tools/<project>/`, while leaving exact module names and command flags to the plan. Or it might decide that promoted reference data lives under `artifacts/<kind>/<owner>/` and run reports live under `artifacts/work/<project>/`, while leaving exact filenames to the plan. Justify any large hand-curated data stored inside executable code.
 
-If the tranche introduces or changes a nontrivial subsystem, process, integration surface, automation, or stable consumed contract, include an `Implementation Architecture` section that defines:
+If the tranche introduces or changes a nontrivial subsystem, process, integration surface, automation, or durable artifact contract, include an `Implementation Architecture` section that defines:
 - component boundaries and what each component owns
 - owned components and stable location roots for the durable things being created or changed; name exact files, modules, or artifact paths only when they are themselves a stable API, source of truth, provenance boundary, or required handoff
 - data, control-flow, API, or artifact interfaces between components
