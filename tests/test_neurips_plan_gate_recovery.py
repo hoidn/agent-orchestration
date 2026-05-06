@@ -33,9 +33,10 @@ def _run_recovery(
     *,
     selection_mode: str,
     item_path: str,
+    report_relpath: str = "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md",
 ) -> dict:
     output = workspace / "state/item/plan-gate-recovery.json"
-    report = workspace / "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md"
+    report = workspace / report_relpath
     result = subprocess.run(
         [
             sys.executable,
@@ -75,6 +76,26 @@ def test_recovers_approved_plan_gate_from_in_progress_item_frontmatter(tmp_path:
     assert payload["plan_review_decision"] == "APPROVE"
     assert payload["plan_review_report_path"] == (
         "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md"
+    )
+    assert (tmp_path / payload["plan_review_report_path"]).is_file()
+
+
+def test_recovers_approved_plan_gate_to_hidden_artifacts_review_root(tmp_path: Path) -> None:
+    plan_path = "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/item/execution_plan.md"
+    (tmp_path / plan_path).parent.mkdir(parents=True, exist_ok=True)
+    (tmp_path / plan_path).write_text("# Execution plan\n", encoding="utf-8")
+    _write_item(tmp_path, "docs/backlog/in_progress/item.md", plan_path=plan_path)
+
+    payload = _run_recovery(
+        tmp_path,
+        selection_mode="RECOVERED_IN_PROGRESS",
+        item_path="docs/backlog/in_progress/item.md",
+        report_relpath=".artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md",
+    )
+
+    assert payload["plan_gate_status"] == "RECOVERED"
+    assert payload["plan_review_report_path"] == (
+        ".artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md"
     )
     assert (tmp_path / payload["plan_review_report_path"]).is_file()
 

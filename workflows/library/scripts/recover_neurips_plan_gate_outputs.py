@@ -35,6 +35,13 @@ def _safe_relpath(value: str) -> Path | None:
     return path
 
 
+def _is_review_artifact_path(path: Path) -> bool:
+    return path.parts[:2] in {
+        ("artifacts", "review"),
+        (".artifacts", "review"),
+    }
+
+
 def _parse_frontmatter(path: Path) -> dict[str, object]:
     text = path.read_text(encoding="utf-8")
     if not text.startswith("---\n"):
@@ -120,7 +127,7 @@ def main() -> int:
         return _missing(output_path)
 
     report_path = _safe_relpath(args.recovery_report_target_path.strip())
-    if report_path is None or report_path.parts[:2] != ("artifacts", "review"):
+    if report_path is None or not _is_review_artifact_path(report_path):
         raise SystemExit(f"Unsafe recovery report path: {args.recovery_report_target_path}")
     _write_recovery_report(REPO_ROOT / report_path, item_path=selected_item_path, plan_path=plan_path)
 
