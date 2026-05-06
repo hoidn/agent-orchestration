@@ -87,6 +87,33 @@ def test_runs_index_returns_html_with_security_headers_and_escaped_fields(tmp_pa
     assert f'href="{tmp_path}' not in body
 
 
+def test_runs_index_orders_entries_by_most_recent_updated_at_first(tmp_path: Path):
+    _write_run(
+        tmp_path,
+        "aaa-old",
+        {
+            "run_id": "aaa-old",
+            "status": "completed",
+            "updated_at": "2026-04-13T10:00:00+00:00",
+        },
+    )
+    _write_run(
+        tmp_path,
+        "zzz-new",
+        {
+            "run_id": "zzz-new",
+            "status": "completed",
+            "updated_at": "2026-04-13T12:00:00+00:00",
+        },
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert body.index('href="/runs/w0/zzz-new"') < body.index('href="/runs/w0/aaa-old"')
+
+
 def test_runs_index_renders_cursor_freshness_and_availability_fields(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run1"
     (run_root / "logs").mkdir(parents=True)

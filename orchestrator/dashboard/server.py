@@ -494,7 +494,27 @@ class DashboardApp:
                 if updated_at is None or now - updated_at > recency_filter:
                     continue
             filtered.append(row)
+        filtered.sort(key=self._run_recency_sort_key)
         return filtered
+
+    def _run_recency_sort_key(self, row) -> tuple[float, str, str, str]:
+        return (
+            -self._run_recency_timestamp(row),
+            row.workspace_label,
+            row.workspace_id,
+            row.run_dir_id,
+        )
+
+    def _run_recency_timestamp(self, row) -> float:
+        updated_at = self._parse_datetime(row.updated_at)
+        if updated_at is not None:
+            return updated_at.timestamp()
+        if isinstance(row.state_mtime, (int, float)):
+            return float(row.state_mtime)
+        started_at = self._parse_datetime(row.started_at)
+        if started_at is not None:
+            return started_at.timestamp()
+        return float("-inf")
 
     def _html_response(self, body: str, *, status: int = 200) -> DashboardResponse:
         return DashboardResponse(
