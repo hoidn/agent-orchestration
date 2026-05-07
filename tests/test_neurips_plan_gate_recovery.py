@@ -34,8 +34,9 @@ def _run_recovery(
     selection_mode: str,
     item_path: str,
     report_relpath: str = "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md",
-) -> dict:
-    output = workspace / "state/item/plan-gate-recovery.json"
+) -> tuple[dict, str]:
+    output = workspace / "state/item/plan-gate/final_plan_gate.json"
+    status_output = workspace / "state/item/plan_gate_status.txt"
     report = workspace / report_relpath
     result = subprocess.run(
         [
@@ -49,6 +50,8 @@ def _run_recovery(
             report.relative_to(workspace).as_posix(),
             "--output",
             output.relative_to(workspace).as_posix(),
+            "--status-output",
+            status_output.relative_to(workspace).as_posix(),
         ],
         cwd=workspace,
         text=True,
@@ -56,7 +59,7 @@ def _run_recovery(
         check=True,
     )
     assert result.stderr == ""
-    return json.loads(output.read_text(encoding="utf-8"))
+    return json.loads(output.read_text(encoding="utf-8")), status_output.read_text(encoding="utf-8").strip()
 
 
 def test_recovers_approved_plan_gate_from_in_progress_item_frontmatter(tmp_path: Path) -> None:
@@ -65,13 +68,16 @@ def test_recovers_approved_plan_gate_from_in_progress_item_frontmatter(tmp_path:
     (tmp_path / plan_path).write_text("# Execution plan\n", encoding="utf-8")
     _write_item(tmp_path, "docs/backlog/in_progress/item.md", plan_path=plan_path)
 
-    payload = _run_recovery(
+    payload, status = _run_recovery(
         tmp_path,
         selection_mode="RECOVERED_IN_PROGRESS",
         item_path="docs/backlog/in_progress/item.md",
     )
 
-    assert payload["plan_gate_status"] == "RECOVERED"
+    assert status == "APPROVED"
+    assert payload["status"] == "APPROVED"
+    assert payload["source"] == "RECOVERED"
+    assert payload["selected_item_path"] == "docs/backlog/in_progress/item.md"
     assert payload["plan_path"] == plan_path
     assert payload["plan_review_decision"] == "APPROVE"
     assert payload["plan_review_report_path"] == (
@@ -86,14 +92,16 @@ def test_recovers_approved_plan_gate_to_hidden_artifacts_review_root(tmp_path: P
     (tmp_path / plan_path).write_text("# Execution plan\n", encoding="utf-8")
     _write_item(tmp_path, "docs/backlog/in_progress/item.md", plan_path=plan_path)
 
-    payload = _run_recovery(
+    payload, status = _run_recovery(
         tmp_path,
         selection_mode="RECOVERED_IN_PROGRESS",
         item_path="docs/backlog/in_progress/item.md",
         report_relpath=".artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md",
     )
 
-    assert payload["plan_gate_status"] == "RECOVERED"
+    assert status == "APPROVED"
+    assert payload["status"] == "APPROVED"
+    assert payload["source"] == "RECOVERED"
     assert payload["plan_review_report_path"] == (
         ".artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/item-plan-recovery.md"
     )
@@ -106,13 +114,14 @@ def test_active_selection_does_not_recover_existing_plan_path(tmp_path: Path) ->
     (tmp_path / plan_path).write_text("# Execution plan\n", encoding="utf-8")
     _write_item(tmp_path, "docs/backlog/active/item.md", plan_path=plan_path)
 
-    payload = _run_recovery(
+    payload, status = _run_recovery(
         tmp_path,
         selection_mode="ACTIVE_SELECTION",
         item_path="docs/backlog/active/item.md",
     )
 
-    assert payload == {"plan_gate_status": "MISSING"}
+    assert status == "MISSING"
+    assert payload == {"status": "MISSING", "source": "NONE"}
 
 
 def test_recovered_item_with_missing_or_unsafe_plan_path_falls_back_to_fresh_plan(tmp_path: Path) -> None:
@@ -127,10 +136,11 @@ def test_recovered_item_with_missing_or_unsafe_plan_path_falls_back_to_fresh_pla
         item_path = f"docs/backlog/in_progress/item-{index}.md"
         _write_item(tmp_path, item_path, plan_path=plan_path)
 
-        payload = _run_recovery(
+        payload, status = _run_recovery(
             tmp_path,
             selection_mode="RECOVERED_IN_PROGRESS",
             item_path=item_path,
         )
 
-        assert payload == {"plan_gate_status": "MISSING"}
+        assert status == "MISSING"
+        assert payload == {"status": "MISSING", "source": "NONE"}

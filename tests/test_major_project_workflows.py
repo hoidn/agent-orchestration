@@ -1425,13 +1425,13 @@ def test_neurips_selected_item_recovers_or_runs_plan_gate_before_implementation(
     materialize = _step_by_name(workflow, "MaterializeSelectedItemInputs")
     materialized_fields = {field["name"]: field for field in materialize["output_bundle"]["fields"]}
     assert materialized_fields["plan_gate_recovery_bundle_path"]["under"] == "state"
+    assert materialized_fields["final_plan_gate_bundle_path"]["under"] == "state"
+    assert materialized_fields["plan_gate_state_root"]["under"] == "state"
     assert materialized_fields["plan_gate_recovery_report_target_path"]["under"] == "artifacts/review"
 
     recover = _step_by_name(workflow, "RecoverPlanGateOutputs")
-    recovery_fields = {field["name"]: field for field in recover["output_bundle"]["fields"]}
-    assert recovery_fields["plan_gate_status"]["allowed"] == ["RECOVERED", "MISSING"]
-    assert recovery_fields["recovered_plan_path"]["required"] is False
-    assert recovery_fields["recovered_plan_path"]["under"] == "docs/plans"
+    recovery_fields = {field["name"]: field for field in recover["expected_outputs"]}
+    assert recovery_fields["plan_gate_status"]["allowed"] == ["APPROVED", "MISSING"]
 
     fresh = _step_by_name(workflow, "RunFreshPlanPhase")
     assert fresh["when"]["compare"]["left"] == {
@@ -1440,12 +1440,15 @@ def test_neurips_selected_item_recovers_or_runs_plan_gate_before_implementation(
     assert fresh["when"]["compare"]["op"] == "eq"
     assert fresh["when"]["compare"]["right"] == "MISSING"
 
-    resolve = _step_by_name(workflow, "ResolvePlanGateOutputs")
-    assert resolve["expected_outputs"][0]["name"] == "plan_path"
+    resolve = _step_by_name(workflow, "ValidatePlanGateBundle")
+    resolved_fields = {field["name"]: field for field in resolve["expected_outputs"]}
+    assert resolved_fields["plan_path"]["under"] == "docs/plans"
+    assert resolved_fields["plan_gate_source"]["allowed"] == ["RECOVERED", "FRESH"]
     command_text = "\n".join(str(part) for part in resolve["command"])
-    assert "plan_gate_status" in command_text
+    assert "Unexpected plan gate bundle status" in command_text
     assert "final_plan_path.txt" in command_text
     assert "reconciled_selected_item_path.txt" in command_text
+    assert "selected_plan_gate_source.txt" in command_text
 
     rewrite = _step_by_name(workflow, "RewriteSelectedItemPlanPath")
     assert rewrite["when"]["compare"]["left"] == {
@@ -1459,7 +1462,7 @@ def test_neurips_selected_item_implementation_uses_normalized_plan_gate_output()
 
     implementation = _step_by_name(workflow, "RunImplementationPhase")
     assert implementation["with"]["plan_path"] == {
-        "ref": "root.steps.ResolvePlanGateOutputs.artifacts.plan_path"
+        "ref": "root.steps.ValidatePlanGateBundle.artifacts.plan_path"
     }
 
 
