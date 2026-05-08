@@ -13,6 +13,19 @@ from orchestrator.workflow.signatures import bind_workflow_inputs
 from tests.workflow_bundle_helpers import bundle_context_dict
 
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+
+
+def test_neurips_steered_backlog_drain_defaults_route_execute_to_opus_and_fix_to_codex():
+    workflow = yaml.safe_load(
+        (REPO_ROOT / "workflows/examples/neurips_steered_backlog_drain.yaml").read_text(encoding="utf-8")
+    )
+
+    assert workflow["inputs"]["implementation_execute_provider"]["default"] == "claude_opus"
+    assert workflow["inputs"]["implementation_review_provider"]["default"] == "codex"
+    assert workflow["inputs"]["implementation_fix_provider"]["default"] == "codex"
+
+
 def _write_workflow(workspace: Path, payload: dict) -> Path:
     path = workspace / "workflow.yaml"
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
