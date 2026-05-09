@@ -213,16 +213,13 @@ def main() -> int:
     eligible, ineligible = _classify_items(manifest, policy, progress, run_state)
     valid_items = manifest.get("items") if isinstance(manifest.get("items"), list) else []
     invalid_items = manifest.get("invalid_items") if isinstance(manifest.get("invalid_items"), list) else []
-    total_active_count = int(manifest.get("total_active_count") or len(valid_items) + len(invalid_items))
     all_items = valid_items + invalid_items
     has_current_phase_item = _has_current_phase_item(
         all_items,
         policy["allowed_roadmap_phase_prefixes"],
         policy["disallowed_roadmap_phase_prefixes"],
     )
-    if total_active_count == 0:
-        gate_status = "DONE"
-    elif eligible:
+    if eligible:
         gate_status = "ELIGIBLE"
     elif has_current_phase_item:
         gate_status = "BLOCKED"

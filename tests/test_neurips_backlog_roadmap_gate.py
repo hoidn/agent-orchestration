@@ -84,6 +84,9 @@ def _write_gate_inputs(
     *,
     allowed: list[str] | None = None,
     disallowed: list[str] | None = None,
+    gap_policy: str = "draft_backlog_item",
+    current_gate_id: str = "dsl-v214-phase1-runtime",
+    required_scope_summary: str = "Draft the next eligible backlog item for the current roadmap gate.",
 ) -> tuple[Path, Path, Path]:
     policy_path = workspace / "state/backlog/gate-policy.json"
     progress_path = workspace / "state/backlog/progress.json"
@@ -94,7 +97,9 @@ def _write_gate_inputs(
             {
                 "allowed_roadmap_phase_prefixes": allowed or ["phase-2"],
                 "disallowed_roadmap_phase_prefixes": disallowed or ["phase-4"],
-                "gap_policy": "draft_backlog_item",
+                "gap_policy": gap_policy,
+                "current_gate_id": current_gate_id,
+                "required_scope_summary": required_scope_summary,
             },
             indent=2,
         )
@@ -327,6 +332,123 @@ def test_roadmap_gate_blocks_when_only_current_phase_item_is_invalid(tmp_path: P
     assert gate["gate_status"] == "BLOCKED"
     assert gate["eligible_items"] == []
     assert gate["invalid_count"] == 1
+
+
+def test_roadmap_gate_empty_active_backlog_drafts_gap_request(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "state/backlog/manifest.json"
+    output_path = tmp_path / "state/backlog/roadmap-gate.json"
+    (tmp_path / "docs/backlog/active").mkdir(parents=True, exist_ok=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_version": 2,
+                "backlog_root": "docs/backlog/active",
+                "active_count": 0,
+                "total_active_count": 0,
+                "invalid_count": 0,
+                "items": [],
+                "invalid_items": [],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    policy_path, progress_path, run_state_path = _write_gate_inputs(
+        tmp_path,
+        allowed=["phase-1-dsl-v214-runtime"],
+        disallowed=["phase-2-dsl-v214-neurips-stack"],
+        gap_policy="draft_backlog_item",
+        current_gate_id="dsl-v214-phase1-runtime",
+        required_scope_summary="Advance the current Phase 1 runtime gate.",
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(RECONCILE_SCRIPT),
+            "--manifest-path",
+            manifest_path.relative_to(tmp_path).as_posix(),
+            "--gate-policy-path",
+            policy_path.relative_to(tmp_path).as_posix(),
+            "--progress-ledger-path",
+            progress_path.relative_to(tmp_path).as_posix(),
+            "--run-state-path",
+            run_state_path.relative_to(tmp_path).as_posix(),
+            "--output",
+            output_path.relative_to(tmp_path).as_posix(),
+        ],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    gate = json.loads(output_path.read_text(encoding="utf-8"))
+    gap_request_path = tmp_path / gate["gap_request_path"]
+    gap_request = json.loads(gap_request_path.read_text(encoding="utf-8"))
+
+    assert gate["gate_status"] == "BACKLOG_GAP"
+    assert gap_request["current_gate_id"] == "dsl-v214-phase1-runtime"
+    assert gap_request["required_scope_summary"] == "Advance the current Phase 1 runtime gate."
+    assert gap_request["allowed_roadmap_phase_prefixes"] == ["phase-1-dsl-v214-runtime"]
+    assert gap_request["disallowed_roadmap_phase_prefixes"] == ["phase-2-dsl-v214-neurips-stack"]
+    assert gap_request["source_manifest_path"] == "state/backlog/manifest.json"
+    assert gap_request["eligible_count"] == 0
+    assert gap_request["ineligible_count"] == 0
+    assert gap_request["invalid_count"] == 0
+
+
+def test_roadmap_gate_empty_active_backlog_blocks_when_gap_policy_blocks(tmp_path: Path) -> None:
+    manifest_path = tmp_path / "state/backlog/manifest.json"
+    output_path = tmp_path / "state/backlog/roadmap-gate.json"
+    (tmp_path / "docs/backlog/active").mkdir(parents=True, exist_ok=True)
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "manifest_version": 2,
+                "backlog_root": "docs/backlog/active",
+                "active_count": 0,
+                "total_active_count": 0,
+                "invalid_count": 0,
+                "items": [],
+                "invalid_items": [],
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    policy_path, progress_path, run_state_path = _write_gate_inputs(
+        tmp_path,
+        gap_policy="block",
+    )
+
+    subprocess.run(
+        [
+            sys.executable,
+            str(RECONCILE_SCRIPT),
+            "--manifest-path",
+            manifest_path.relative_to(tmp_path).as_posix(),
+            "--gate-policy-path",
+            policy_path.relative_to(tmp_path).as_posix(),
+            "--progress-ledger-path",
+            progress_path.relative_to(tmp_path).as_posix(),
+            "--run-state-path",
+            run_state_path.relative_to(tmp_path).as_posix(),
+            "--output",
+            output_path.relative_to(tmp_path).as_posix(),
+        ],
+        cwd=tmp_path,
+        text=True,
+        capture_output=True,
+        check=True,
+    )
+
+    gate = json.loads(output_path.read_text(encoding="utf-8"))
+    assert gate["gate_status"] == "BLOCKED"
 
 
 def test_steered_drain_selected_item_uses_selector_eligible_manifest() -> None:
