@@ -13,6 +13,19 @@ from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_p
 from tests.workflow_bundle_helpers import materialize_projection_body_steps, thaw_surface_workflow
 
 
+def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        WorkflowLoader,
+        "SUPPORTED_VERSIONS",
+        WorkflowLoader.SUPPORTED_VERSIONS | {"2.14"},
+    )
+    monkeypatch.setattr(
+        WorkflowLoader,
+        "VERSION_ORDER",
+        [*WorkflowLoader.VERSION_ORDER, "2.14"],
+    )
+
+
 class TestLoaderValidation:
     """Test strict DSL validation in the loader."""
 
@@ -373,6 +386,270 @@ class TestLoaderValidation:
 
         assert exc_info.value.exit_code == 2
         assert any("variant_output requires version '2.14'" in str(err.message) for err in exc_info.value.errors)
+
+    def test_variant_specific_materialize_ref_requires_author_time_proof(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Variant-only artifacts must not be consumable without match/requires_variant proof."""
+        _enable_v214_loader(monkeypatch)
+        workflow = {
+            "version": "2.14",
+            "name": "variant-proof-required",
+            "steps": [
+                {
+                    "name": "EmitVariantBundle",
+                    "id": "emit_variant_bundle",
+                    "command": ["echo", "ok"],
+                    "variant_output": {
+                        "path": "state/implementation_state.json",
+                        "discriminant": {
+                            "name": "implementation_state",
+                            "json_pointer": "/implementation_state",
+                            "type": "enum",
+                            "allowed": ["COMPLETED", "BLOCKED"],
+                        },
+                        "variants": {
+                            "COMPLETED": {
+                                "fields": [
+                                    {
+                                        "name": "execution_report_path",
+                                        "json_pointer": "/execution_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    }
+                                ]
+                            },
+                            "BLOCKED": {
+                                "fields": [
+                                    {
+                                        "name": "progress_report_path",
+                                        "json_pointer": "/progress_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    }
+                                ]
+                            },
+                        },
+                    },
+                },
+                {
+                    "name": "UseExecutionReport",
+                    "id": "use_execution_report",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "execution_report_copy",
+                                "source": {
+                                    "ref": "root.steps.EmitVariantBundle.artifacts.execution_report_path",
+                                },
+                                "contract": {
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                },
+                            }
+                        ]
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "execution_report_path" in str(err.message) and "variant proof" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def test_match_case_proof_allows_variant_specific_materialize_ref(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """A match over the same discriminant should prove access to that variant's fields."""
+        _enable_v214_loader(monkeypatch)
+        workflow = {
+            "version": "2.14",
+            "name": "match-variant-proof",
+            "steps": [
+                {
+                    "name": "EmitVariantBundle",
+                    "id": "emit_variant_bundle",
+                    "command": ["echo", "ok"],
+                    "variant_output": {
+                        "path": "state/implementation_state.json",
+                        "discriminant": {
+                            "name": "implementation_state",
+                            "json_pointer": "/implementation_state",
+                            "type": "enum",
+                            "allowed": ["COMPLETED", "BLOCKED"],
+                        },
+                        "variants": {
+                            "COMPLETED": {
+                                "fields": [
+                                    {
+                                        "name": "execution_report_path",
+                                        "json_pointer": "/execution_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    }
+                                ]
+                            },
+                            "BLOCKED": {
+                                "fields": [
+                                    {
+                                        "name": "progress_report_path",
+                                        "json_pointer": "/progress_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    }
+                                ]
+                            },
+                        },
+                    },
+                },
+                {
+                    "name": "RouteOutcome",
+                    "id": "route_outcome",
+                    "match": {
+                        "ref": "root.steps.EmitVariantBundle.artifacts.implementation_state",
+                        "cases": {
+                            "COMPLETED": [
+                                {
+                                    "name": "UseExecutionReport",
+                                    "id": "use_execution_report",
+                                    "materialize_artifacts": {
+                                        "values": [
+                                            {
+                                                "name": "execution_report_copy",
+                                                "source": {
+                                                    "ref": "root.steps.EmitVariantBundle.artifacts.execution_report_path",
+                                                },
+                                                "contract": {
+                                                    "type": "relpath",
+                                                    "under": "artifacts/work",
+                                                    "must_exist_target": True,
+                                                },
+                                            }
+                                        ]
+                                    },
+                                }
+                            ],
+                            "BLOCKED": [
+                                {
+                                    "name": "UseProgressReport",
+                                    "id": "use_progress_report",
+                                    "materialize_artifacts": {
+                                        "values": [
+                                            {
+                                                "name": "progress_report_copy",
+                                                "source": {
+                                                    "ref": "root.steps.EmitVariantBundle.artifacts.progress_report_path",
+                                                },
+                                                "contract": {
+                                                    "type": "relpath",
+                                                    "under": "artifacts/work",
+                                                    "must_exist_target": True,
+                                                },
+                                            }
+                                        ]
+                                    },
+                                }
+                            ],
+                        },
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
+
+        assert surface["version"] == "2.14"
+        assert surface["steps"][1]["name"] == "RouteOutcome"
+
+    def test_snapshot_refs_are_restricted_to_selector_evidence(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Snapshot refs must not be usable as general structured refs."""
+        _enable_v214_loader(monkeypatch)
+        workflow = {
+            "version": "2.14",
+            "name": "snapshot-refs-restricted",
+            "steps": [
+                {
+                    "name": "MaterializeReportPath",
+                    "id": "materialize_report_path",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "report_path",
+                                "source": {"literal": "artifacts/work/execution_report.md"},
+                                "contract": {
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": False,
+                                },
+                                "pointer": {"path": "state/report_path.txt"},
+                            }
+                        ]
+                    },
+                },
+                {
+                    "name": "CaptureBefore",
+                    "id": "capture_before",
+                    "pre_snapshot": {
+                        "name": "before",
+                        "digest": "sha256",
+                        "candidates": {
+                            "COMPLETED": {
+                                "ref": "root.steps.MaterializeReportPath.artifacts.report_path",
+                            }
+                        },
+                    },
+                    "command": ["echo", "ok"],
+                },
+                {
+                    "name": "InvalidSnapshotUse",
+                    "id": "invalid_snapshot_use",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "snapshot_copy",
+                                "source": {
+                                    "ref": "root.steps.CaptureBefore.snapshots.before",
+                                },
+                                "contract": {
+                                    "type": "string",
+                                },
+                            }
+                        ]
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "snapshots.before" in str(err.message)
+            and "select_variant_output.evidence.snapshot.ref" in str(err.message)
+            for err in exc_info.value.errors
+        )
 
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""

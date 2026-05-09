@@ -68,6 +68,49 @@ def _adjudication_projection(payload: Mapping[str, Any], result: Mapping[str, An
     }
 
 
+def _snapshot_projection(payload: Any) -> Optional[Dict[str, Dict[str, Any]]]:
+    if not isinstance(payload, Mapping) or not payload:
+        return None
+
+    projected: Dict[str, Dict[str, Any]] = {}
+    for snapshot_name, snapshot_payload in payload.items():
+        if not isinstance(snapshot_name, str) or not isinstance(snapshot_payload, Mapping):
+            continue
+        candidates = snapshot_payload.get("candidates")
+        changed_candidates: list[str] = []
+        if isinstance(candidates, Mapping):
+            changed_candidates = [
+                candidate_name
+                for candidate_name, candidate_payload in candidates.items()
+                if isinstance(candidate_name, str)
+                and isinstance(candidate_payload, Mapping)
+                and candidate_payload.get("changed") is True
+            ]
+        projected[snapshot_name] = {
+            "schema": snapshot_payload.get("schema"),
+            "candidate_count": len(candidates) if isinstance(candidates, Mapping) else 0,
+            "changed_candidates": changed_candidates,
+        }
+    return projected or None
+
+
+def _selected_variant_projection(result: Mapping[str, Any]) -> Optional[str]:
+    debug_payload = result.get("debug")
+    if isinstance(debug_payload, Mapping):
+        select_variant_output = debug_payload.get("select_variant_output")
+        if isinstance(select_variant_output, Mapping):
+            selected_variant = select_variant_output.get("selected_variant")
+            if isinstance(selected_variant, str) and selected_variant:
+                return selected_variant
+
+    artifacts = result.get("artifacts")
+    if isinstance(artifacts, Mapping):
+        selected_variant = artifacts.get("selected_variant")
+        if isinstance(selected_variant, str) and selected_variant:
+            return selected_variant
+    return None
+
+
 def _read_prompt_audit(run_root: Path, step_name: str) -> Optional[str]:
     prompt_file = run_root / "logs" / f"{step_name}.prompt.txt"
     if not prompt_file.exists():
@@ -266,6 +309,12 @@ def build_status_snapshot(
             adjudication_payload = result.get("adjudication")
             if isinstance(adjudication_payload, dict):
                 entry["output"]["adjudication"] = _adjudication_projection(adjudication_payload, result)
+            snapshots_payload = _snapshot_projection(result.get("snapshots"))
+            if snapshots_payload is not None:
+                entry["output"]["snapshots"] = snapshots_payload
+            selected_variant = _selected_variant_projection(result)
+            if selected_variant is not None:
+                entry["output"]["selected_variant"] = selected_variant
 
         if status == "completed":
             entry["summary"] = "completed"
@@ -464,6 +513,14 @@ def render_status_markdown(snapshot: Dict[str, Any]) -> str:
                 lines.append("  - adjudication:")
                 for key, value in adjudication.items():
                     lines.append(f"    - {key}: `{value}`")
+            selected_variant = output_payload.get("selected_variant")
+            if selected_variant:
+                lines.append(f"  - selected_variant: `{selected_variant}`")
+            snapshots = output_payload.get("snapshots")
+            if snapshots:
+                lines.append("  - snapshots:")
+                for snapshot_name, snapshot_payload in snapshots.items():
+                    lines.append(f"    - {snapshot_name}: `{snapshot_payload}`")
 
         lines.append("")
 

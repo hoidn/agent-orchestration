@@ -1350,3 +1350,86 @@ def test_snapshot_uses_typed_surface_metadata_without_raw_workflow_fallback(tmp_
     )
 
     assert snapshot["run"]["max_transitions"] == 7
+
+
+def test_snapshot_and_markdown_surface_variant_and_snapshot_summaries(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "variant-snapshot-report"
+    (run_root / "logs").mkdir(parents=True)
+
+    workflow = {
+        "version": "1.3",
+        "name": "variant-snapshot-report",
+        "steps": [
+            {
+                "name": "ExecuteImplementation",
+                "command": ["bash", "-lc", "echo execute"],
+            },
+            {
+                "name": "SelectImplementationOutcome",
+                "command": ["bash", "-lc", "echo select"],
+            },
+        ],
+    }
+    state = {
+        "run_id": "variant-snapshot-report",
+        "status": "completed",
+        "started_at": "2026-05-08T00:00:00+00:00",
+        "updated_at": "2026-05-08T00:00:05+00:00",
+        "workflow_file": "workflow.yaml",
+        "steps": {
+            "ExecuteImplementation": {
+                "status": "completed",
+                "exit_code": 0,
+                "snapshots": {
+                    "implementation_outcome_before": {
+                        "schema": "snapshot_diff/v1",
+                        "candidates": {
+                            "COMPLETED": {
+                                "path": "artifacts/work/execution_report.md",
+                                "existed_before": False,
+                                "exists_now": True,
+                                "changed": True,
+                            },
+                            "BLOCKED": {
+                                "path": "artifacts/work/progress_report.md",
+                                "existed_before": False,
+                                "exists_now": False,
+                                "changed": False,
+                            },
+                        },
+                    }
+                },
+            },
+            "SelectImplementationOutcome": {
+                "status": "completed",
+                "exit_code": 0,
+                "artifacts": {
+                    "implementation_state": "COMPLETED",
+                    "execution_report_path": "artifacts/work/execution_report.md",
+                },
+                "debug": {
+                    "select_variant_output": {
+                        "selected_variant": "COMPLETED",
+                        "changed_candidate_keys": ["COMPLETED"],
+                    }
+                },
+            },
+        },
+    }
+
+    snapshot = build_status_snapshot(_load_bundle(tmp_path, workflow), state, run_root)
+    steps = {entry["name"]: entry for entry in snapshot["steps"]}
+
+    assert steps["ExecuteImplementation"]["output"]["snapshots"] == {
+        "implementation_outcome_before": {
+            "schema": "snapshot_diff/v1",
+            "candidate_count": 2,
+            "changed_candidates": ["COMPLETED"],
+        }
+    }
+    assert steps["SelectImplementationOutcome"]["output"]["selected_variant"] == "COMPLETED"
+
+    markdown = render_status_markdown(snapshot)
+
+    assert "selected_variant: `COMPLETED`" in markdown
+    assert "implementation_outcome_before" in markdown

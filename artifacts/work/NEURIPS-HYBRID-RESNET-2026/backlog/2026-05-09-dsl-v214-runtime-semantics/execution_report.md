@@ -1,38 +1,32 @@
 ## Completed In This Pass
 
-- Implemented executable runtime handling for `materialize_artifacts` and `select_variant_output` in the workflow executor instead of lowering them into skipped nodes.
-- Added durable `pre_snapshot` capture for command and provider steps, including step-state projection under `steps.<Step>.snapshots.<name>` and sidecar inflation/hash checking for larger snapshot records.
-- Added snapshot structured-ref support (`root.steps.<Step>.snapshots.<name>`) so `select_variant_output.evidence.snapshot.ref` resolves through the normal runtime reference surface.
-- Added a pre-execution `requires_variant` runtime guard that fails the consumer step with `variant_unavailable` when the producer selected a different variant.
-- Fixed adjudicated-provider prompt assembly so `variant_output` survives path resolution and reaches prompt-contract injection as `variant_output` rather than being downgraded to `output_bundle`.
-- Extended loader/dataflow validation so `materialize_artifacts` outputs can satisfy `publishes.from`, and adjudicated-provider validation now accepts `variant_output` as the single declared output contract.
-- Added focused regression coverage in `tests/test_v214_runtime_semantics.py` for materialization, snapshot capture/selection, ambiguous no-commit behavior, `requires_variant`, and the adjudicated-provider prompt regression.
+- Extended the loader’s Phase 1 artifact catalog so `variant_output`, `select_variant_output`, and `materialize_artifacts` surfaces publish typed authored-step metadata for validation-time ref analysis.
+- Added narrow loader validation for `materialize_artifacts`, `pre_snapshot`, `select_variant_output`, and `requires_variant`, including author-time variant-proof enforcement on variant-only refs and explicit rejection of snapshot refs outside `select_variant_output.evidence.snapshot.ref`.
+- Propagated match-case proof context for discriminant-based variant routing so variant-only refs inside the proven case load successfully without weakening the existing runtime `variant_unavailable` guard.
+- Added normalized report projections for selected variants and snapshot summaries in `orchestrator/observability/report.py`, with markdown rendering that surfaces those summaries directly instead of requiring readers to inspect raw debug payloads.
+- Added focused regression coverage in `tests/test_loader_validation.py` and `tests/test_observability_report.py` for unproved variant refs, match-proved refs, snapshot-ref misuse, and the new report projection.
 
 ## Completed Current-Scope Work
 
-- Review finding 1 is fixed: authored `materialize_artifacts` and `select_variant_output` steps now execute and persist normal step results instead of disappearing behind the unknown-step fallback.
-- Review finding 2 is fixed for the approved runtime slice: snapshot evidence is captured before execution, persisted on the producing step, resolved by structured ref, and consumed by `select_variant_output` to atomically commit a validated selected bundle or fail without committing.
-- Review finding 3 is fixed: explicit `requires_variant` now enforces variant availability before step execution, matching the Phase 1 runtime-guard requirement for variant-only artifacts.
-- Review finding 4 is fixed: adjudicated-provider prompt injection preserves `variant_output`, so provider-side variant contract instructions remain available after path resolution.
+- Review finding 1 is fixed: variant-only structured refs now fail at load time without match or `requires_variant` proof, and match over the same discriminant provides the approved author-time proof path.
+- Review finding 2 is fixed: snapshot refs remain runtime-resolvable for selector evidence, but authored misuse outside `select_variant_output.evidence.snapshot.ref` is now rejected during load.
+- Review finding 3 is fixed: status reports now project selected variants and snapshot summaries directly from step state/debug payloads, satisfying the remaining current-scope observability requirement.
 
 ## Follow-Up Work
 
-- Add dedicated loader/runtime tests for author-time `match` proof propagation and unproved variant-ref rejection; this pass implemented the explicit runtime guard path and snapshot/runtime execution paths that were blocking review.
-- Expand observability/report projections so snapshot summaries and selected-variant details are surfaced outside step-local state/debug payloads.
+- Add resume-path corruption and missing-sidecar coverage for persisted snapshot records before wider workflow dependence accumulates around snapshot sidecars.
+- Broaden author-time proof coverage beyond the current Phase 1 materialization/snapshot-selector surfaces if later tranches introduce additional authored ref surfaces that can legally target variant-only fields.
 
 ## Residual Risks
 
-- `select_variant_output` currently covers the minimal extractor surface required by this tranche; broader extractor shapes need separate tests before depending on them in wider workflows.
-- Snapshot sidecar integrity handling is implemented, but resume-path corruption/missing-sidecar scenarios were not part of this pass's executed test set.
+- Snapshot sidecar integrity handling is implemented, but resume-path corruption and missing-sidecar scenarios were not part of this pass's executed test set.
+- The new author-time proof enforcement is intentionally scoped to the current Phase 1 authored surfaces that can consume typed refs (`materialize_artifacts`, `pre_snapshot`, `select_variant_output`, and match-case routing); any future expansion of variant-only ref surfaces should add the same proof plumbing explicitly.
 
 ## Verification
 
-- `pytest --collect-only tests/test_v214_runtime_semantics.py -q`
-- `pytest tests/test_v214_runtime_semantics.py -q`
-- `pytest tests/test_prompt_contract_injection.py -q`
-- `pytest tests/test_adjudicated_provider_loader.py -q`
-- `pytest tests/test_artifact_dataflow_integration.py -q`
-- `pytest tests/test_v214_runtime_semantics.py tests/test_prompt_contract_injection.py tests/test_adjudicated_provider_loader.py tests/test_artifact_dataflow_integration.py tests/test_loader_validation.py::TestLoaderValidation::test_version_2_14_is_rejected -q`
+- `pytest tests/test_loader_validation.py -q -k 'variant_specific_materialize_ref_requires_author_time_proof or match_case_proof_allows_variant_specific_materialize_ref or snapshot_refs_are_restricted_to_selector_evidence'`
+- `pytest tests/test_observability_report.py -q -k 'variant_and_snapshot_summaries'`
+- `pytest tests/test_loader_validation.py tests/test_observability_report.py tests/test_v214_runtime_semantics.py -q`
 - `pytest tests/test_v214_primitive_oracle.py tests/test_neurips_v214_equivalence_oracle.py -q`
 - `pytest tests/test_loader_validation.py::TestLoaderValidation::test_version_2_14_is_rejected -q`
 - `python -m json.tool docs/backlog/roadmap_gate.json`

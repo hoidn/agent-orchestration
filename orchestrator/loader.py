@@ -707,6 +707,7 @@ class WorkflowLoader:
         parent_non_step_results: Optional[Set[str]] = None,
         top_level: bool = True,
         allow_nested_structured: bool = False,
+        proof_context: Optional[Dict[str, str]] = None,
     ):
         """Validate step definitions."""
         if not isinstance(steps, list):
@@ -783,6 +784,7 @@ class WorkflowLoader:
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
                     allow_nested=allow_nested_structured,
+                    proof_context=proof_context,
                 )
                 continue
 
@@ -801,6 +803,7 @@ class WorkflowLoader:
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
                     allow_nested=allow_nested_structured,
+                    proof_context=proof_context,
                 )
                 continue
 
@@ -818,6 +821,7 @@ class WorkflowLoader:
                     scope_non_step_results=scope_non_step_results,
                     parent_non_step_results=parent_non_step_results,
                     top_level=top_level,
+                    proof_context=proof_context,
                 )
                 continue
 
@@ -849,6 +853,7 @@ class WorkflowLoader:
                     scope_artifacts,
                     scope_multi_visit,
                     scope_non_step_results,
+                    proof_context=proof_context,
                 )
 
             if 'max_visits' in step:
@@ -984,6 +989,57 @@ class WorkflowLoader:
 
             if 'requires_variant' in step and not self._version_at_least(version, "2.14"):
                 self._add_error(f"Step '{name}': requires_variant requires version '2.14'")
+
+            step_proof_context = dict(proof_context or {})
+            if self._version_at_least(version, "2.14"):
+                step_proof_context = self._extend_variant_proof_context(
+                    step=step,
+                    step_name=name,
+                    root_catalog=root_catalog,
+                    proof_context=step_proof_context,
+                )
+                if 'materialize_artifacts' in step:
+                    self._validate_materialize_artifacts(
+                        step['materialize_artifacts'],
+                        name,
+                        version,
+                        root_catalog,
+                        scope_artifacts,
+                        scope_multi_visit,
+                        parent_artifacts,
+                        parent_multi_visit,
+                        scope_non_step_results,
+                        parent_non_step_results,
+                        step_proof_context,
+                    )
+                if 'pre_snapshot' in step:
+                    self._validate_pre_snapshot(
+                        step['pre_snapshot'],
+                        name,
+                        version,
+                        root_catalog,
+                        scope_artifacts,
+                        scope_multi_visit,
+                        parent_artifacts,
+                        parent_multi_visit,
+                        scope_non_step_results,
+                        parent_non_step_results,
+                        step_proof_context,
+                    )
+                if 'select_variant_output' in step:
+                    self._validate_select_variant_output(
+                        step['select_variant_output'],
+                        name,
+                        version,
+                        root_catalog,
+                        scope_artifacts,
+                        scope_multi_visit,
+                        parent_artifacts,
+                        parent_multi_visit,
+                        scope_non_step_results,
+                        parent_non_step_results,
+                        step_proof_context,
+                    )
 
             declared_output_contracts = [
                 field_name
@@ -1234,6 +1290,7 @@ class WorkflowLoader:
         parent_scope_artifacts: Optional[Dict[str, Any]] = None,
         parent_scope_multi_visit: Optional[Set[str]] = None,
         parent_scope_non_step_results: Optional[Set[str]] = None,
+        proof_context: Optional[Dict[str, str]] = None,
     ):
         """Validate for_each loop configuration."""
         if not isinstance(for_each, dict):
@@ -1276,6 +1333,7 @@ class WorkflowLoader:
                 scope_non_step_results=nested_scope_non_step_results,
                 parent_non_step_results=parent_scope_non_step_results,
                 top_level=False,
+                proof_context=proof_context,
             )
 
     def _validate_positive_integer(self, value: Any, context: str, allow_zero: bool = False) -> None:
@@ -1302,6 +1360,7 @@ class WorkflowLoader:
         parent_non_step_results: Optional[Set[str]],
         top_level: bool,
         allow_nested: bool = False,
+        proof_context: Optional[Dict[str, str]] = None,
     ) -> None:
         """Validate one top-level structured if/else statement."""
         if not top_level and not allow_nested:
@@ -1366,6 +1425,7 @@ class WorkflowLoader:
             parent_scope_artifacts=scope_artifacts,
             parent_scope_multi_visit=scope_multi_visit,
             parent_scope_non_step_results=scope_non_step_results,
+            proof_context=proof_context,
         )
         else_outputs = self._validate_if_branch(
             statement_name=step_name,
@@ -1377,6 +1437,7 @@ class WorkflowLoader:
             parent_scope_artifacts=scope_artifacts,
             parent_scope_multi_visit=scope_multi_visit,
             parent_scope_non_step_results=scope_non_step_results,
+            proof_context=proof_context,
         )
 
         if then_outputs is None or else_outputs is None:
@@ -1413,6 +1474,7 @@ class WorkflowLoader:
         parent_scope_artifacts: Dict[str, Any],
         parent_scope_multi_visit: Set[str],
         parent_scope_non_step_results: Set[str],
+        proof_context: Optional[Dict[str, str]] = None,
     ) -> Optional[Dict[str, Dict[str, Any]]]:
         """Validate one branch block of a structured if/else statement."""
         if branch is None:
@@ -1455,6 +1517,7 @@ class WorkflowLoader:
             scope_non_step_results=branch_scope_non_step_results,
             parent_non_step_results=parent_scope_non_step_results,
             top_level=False,
+            proof_context=proof_context,
         )
 
         outputs = branch.get('outputs', {})
@@ -1510,6 +1573,7 @@ class WorkflowLoader:
         parent_non_step_results: Optional[Set[str]],
         top_level: bool,
         allow_nested: bool = False,
+        proof_context: Optional[Dict[str, str]] = None,
     ) -> None:
         """Validate one top-level structured match statement."""
         if not top_level and not allow_nested:
@@ -1568,6 +1632,12 @@ class WorkflowLoader:
                 self._add_error(f"Step '{step_name}': duplicate case id '{token}'")
             else:
                 case_tokens[token] = case_name
+            case_proof_context = self._extend_match_case_variant_proof(
+                step_name=step_name,
+                case_name=case_name,
+                ref_contract=ref_contract,
+                proof_context=proof_context,
+            )
             outputs = self._validate_match_case(
                 statement_name=step_name,
                 case_name=case_name,
@@ -1578,6 +1648,7 @@ class WorkflowLoader:
                 parent_scope_artifacts=scope_artifacts,
                 parent_scope_multi_visit=scope_multi_visit,
                 parent_scope_non_step_results=scope_non_step_results,
+                proof_context=case_proof_context,
             )
             if outputs is not None:
                 case_outputs[case_name] = outputs
@@ -1631,6 +1702,7 @@ class WorkflowLoader:
         parent_scope_artifacts: Dict[str, Any],
         parent_scope_multi_visit: Set[str],
         parent_scope_non_step_results: Set[str],
+        proof_context: Optional[Dict[str, str]] = None,
     ) -> Optional[Dict[str, Dict[str, Any]]]:
         """Validate one case block of a structured match statement."""
         if case_block is None:
@@ -1673,6 +1745,7 @@ class WorkflowLoader:
             scope_non_step_results=case_scope_non_step_results,
             parent_non_step_results=parent_scope_non_step_results,
             top_level=False,
+            proof_context=proof_context,
         )
 
         outputs = case_block.get('outputs', {})
@@ -1727,6 +1800,7 @@ class WorkflowLoader:
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
         top_level: bool,
+        proof_context: Optional[Dict[str, str]] = None,
     ) -> None:
         """Validate one top-level post-test repeat_until statement."""
         if not top_level:
@@ -1809,6 +1883,7 @@ class WorkflowLoader:
             parent_non_step_results=scope_non_step_results,
             top_level=False,
             allow_nested_structured=True,
+            proof_context=proof_context,
         )
 
         outputs = block.get('outputs')
@@ -2875,6 +2950,284 @@ class WorkflowLoader:
             if 'required' in spec and not isinstance(spec['required'], bool):
                 self._add_error(f"{field_context} 'required' must be a boolean")
 
+    def _extend_variant_proof_context(
+        self,
+        *,
+        step: Dict[str, Any],
+        step_name: str,
+        root_catalog: Dict[str, Any],
+        proof_context: Dict[str, str],
+    ) -> Dict[str, str]:
+        """Merge step-local requires_variant proof into the inherited proof context."""
+        requires_variant = step.get('requires_variant')
+        if not isinstance(requires_variant, dict):
+            return proof_context
+
+        producer_step = requires_variant.get('step')
+        required_variant = requires_variant.get('value')
+        if not isinstance(producer_step, str) or not producer_step or not isinstance(required_variant, str) or not required_variant:
+            self._add_error(f"Step '{step_name}': requires_variant must declare non-empty step and value")
+            return proof_context
+
+        discriminant_spec = self._variant_discriminant_spec_for_step(root_catalog, producer_step)
+        if not isinstance(discriminant_spec, dict):
+            self._add_error(
+                f"Step '{step_name}': requires_variant.step '{producer_step}' does not reference a variant-producing step"
+            )
+            return proof_context
+
+        allowed = discriminant_spec.get('allowed')
+        if isinstance(allowed, list) and required_variant not in allowed:
+            self._add_error(
+                f"Step '{step_name}': requires_variant.value '{required_variant}' is not allowed for step '{producer_step}'"
+            )
+            return proof_context
+
+        merged = dict(proof_context)
+        existing_variant = merged.get(producer_step)
+        if existing_variant is not None and existing_variant != required_variant:
+            self._add_error(
+                f"Step '{step_name}': requires_variant for step '{producer_step}' contradicts active proof '{existing_variant}'"
+            )
+            return merged
+        merged[producer_step] = required_variant
+        return merged
+
+    def _extend_match_case_variant_proof(
+        self,
+        *,
+        step_name: str,
+        case_name: str,
+        ref_contract: Optional[Dict[str, Any]],
+        proof_context: Optional[Dict[str, str]],
+    ) -> Dict[str, str]:
+        """Attach match-case proof when the selector is a variant discriminant."""
+        merged = dict(proof_context or {})
+        if not isinstance(ref_contract, dict):
+            return merged
+        if ref_contract.get('variant_role') != 'discriminant':
+            return merged
+
+        producer_step = ref_contract.get('variant_owner_step')
+        if not isinstance(producer_step, str) or not producer_step:
+            return merged
+
+        existing_variant = merged.get(producer_step)
+        if existing_variant is not None and existing_variant != case_name:
+            self._add_error(
+                f"Step '{step_name}': match case '{case_name}' contradicts active proof '{existing_variant}' for step '{producer_step}'"
+            )
+            return merged
+        merged[producer_step] = case_name
+        return merged
+
+    def _variant_discriminant_spec_for_step(
+        self,
+        root_catalog: Dict[str, Any],
+        producer_step: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Return the discriminant artifact spec for one variant-producing step."""
+        artifacts = root_catalog.get('artifacts', {})
+        step_artifacts = artifacts.get(producer_step) if isinstance(artifacts, dict) else None
+        if not isinstance(step_artifacts, dict):
+            return None
+        for artifact_spec in step_artifacts.values():
+            if isinstance(artifact_spec, dict) and artifact_spec.get('variant_role') == 'discriminant':
+                return artifact_spec
+        return None
+
+    def _validate_materialize_artifacts(
+        self,
+        materialize_artifacts: Any,
+        step_name: str,
+        version: str,
+        root_catalog: Dict[str, Any],
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+        proof_context: Dict[str, str],
+    ) -> None:
+        """Validate private v2.14 materialize_artifacts refs and pointers."""
+        context = f"Step '{step_name}': materialize_artifacts"
+        if not isinstance(materialize_artifacts, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        values = materialize_artifacts.get('values')
+        if not isinstance(values, list) or not values:
+            self._add_error(f"{context}.values must be a non-empty list")
+            return
+
+        for index, spec in enumerate(values):
+            value_context = f"{context}.values[{index}]"
+            if not isinstance(spec, dict):
+                self._add_error(f"{value_context} must be a dictionary")
+                continue
+
+            name = spec.get('name')
+            if not isinstance(name, str) or not name.strip():
+                self._add_error(f"{value_context}.name must be a non-empty string")
+
+            source = spec.get('source')
+            if not isinstance(source, dict):
+                self._add_error(f"{value_context}.source must be a dictionary")
+                continue
+
+            source_fields = [field_name for field_name in ('input', 'ref', 'literal') if field_name in source]
+            if len(source_fields) != 1:
+                self._add_error(f"{value_context}.source must declare exactly one of input, ref, or literal")
+                continue
+
+            if 'input' in source:
+                input_name = source.get('input')
+                if not isinstance(input_name, str) or not input_name:
+                    self._add_error(f"{value_context}.source.input must be a non-empty string")
+                elif not isinstance(self._workflow_input_specs.get(input_name), dict):
+                    self._add_error(f"{value_context}.source.input references unknown workflow input '{input_name}'")
+            elif 'ref' in source:
+                ref_type = self._validate_structured_ref(
+                    source.get('ref'),
+                    step_name,
+                    version,
+                    root_catalog,
+                    scope_artifacts,
+                    scope_multi_visit,
+                    parent_artifacts,
+                    parent_multi_visit,
+                    scope_non_step_results,
+                    parent_non_step_results,
+                    proof_context=proof_context,
+                )
+                contract = spec.get('contract')
+                declared_type = contract.get('type') if isinstance(contract, dict) else None
+                if (
+                    isinstance(declared_type, str)
+                    and ref_type != 'unknown'
+                    and declared_type != ref_type
+                    and not (declared_type == 'float' and ref_type == 'integer')
+                ):
+                    self._add_error(
+                        f"{value_context}.source.ref resolves to '{ref_type}' but contract declares '{declared_type}'"
+                    )
+
+            pointer = spec.get('pointer')
+            if isinstance(pointer, dict) and 'path' in pointer:
+                pointer_path = pointer.get('path')
+                if not isinstance(pointer_path, str):
+                    self._add_error(f"{value_context}.pointer.path must be a string")
+                else:
+                    self._validate_path_safety(pointer_path, f"{value_context}.pointer.path")
+
+            if 'ensure_parent' in spec and not isinstance(spec['ensure_parent'], bool):
+                self._add_error(f"{value_context}.ensure_parent must be a boolean")
+
+    def _validate_pre_snapshot(
+        self,
+        pre_snapshot: Any,
+        step_name: str,
+        version: str,
+        root_catalog: Dict[str, Any],
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+        proof_context: Dict[str, str],
+    ) -> None:
+        """Validate private v2.14 pre_snapshot candidate refs."""
+        context = f"Step '{step_name}': pre_snapshot"
+        if not isinstance(pre_snapshot, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        snapshot_name = pre_snapshot.get('name')
+        if not isinstance(snapshot_name, str) or not snapshot_name:
+            self._add_error(f"{context}.name must be a non-empty string")
+
+        digest = pre_snapshot.get('digest')
+        if not isinstance(digest, str) or not digest:
+            self._add_error(f"{context}.digest must be a non-empty string")
+
+        candidates = pre_snapshot.get('candidates')
+        if not isinstance(candidates, dict) or not candidates:
+            self._add_error(f"{context}.candidates must be a non-empty dictionary")
+            return
+
+        for candidate_name, candidate in candidates.items():
+            candidate_context = f"{context}.candidates.{candidate_name}"
+            ref = candidate.get('ref') if isinstance(candidate, dict) else None
+            ref_type = self._validate_structured_ref(
+                ref,
+                step_name,
+                version,
+                root_catalog,
+                scope_artifacts,
+                scope_multi_visit,
+                parent_artifacts,
+                parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
+                proof_context=proof_context,
+            )
+            if ref_type != 'unknown' and ref_type != 'relpath':
+                self._add_error(f"{candidate_context}.ref must resolve to a relpath artifact")
+
+    def _validate_select_variant_output(
+        self,
+        select_variant_output: Any,
+        step_name: str,
+        version: str,
+        root_catalog: Dict[str, Any],
+        scope_artifacts: Dict[str, Any],
+        scope_multi_visit: Set[str],
+        parent_artifacts: Optional[Dict[str, Any]],
+        parent_multi_visit: Optional[Set[str]],
+        scope_non_step_results: Set[str],
+        parent_non_step_results: Optional[Set[str]],
+        proof_context: Dict[str, str],
+    ) -> None:
+        """Validate private v2.14 select_variant_output snapshot evidence refs."""
+        context = f"Step '{step_name}': select_variant_output"
+        if not isinstance(select_variant_output, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        bundle_path = select_variant_output.get('path')
+        if not isinstance(bundle_path, str):
+            self._add_error(f"{context}.path must be a string")
+        else:
+            self._validate_path_safety(bundle_path, f"{context}.path")
+
+        evidence = select_variant_output.get('evidence')
+        if not isinstance(evidence, dict):
+            self._add_error(f"{context}.evidence must be a dictionary")
+            return
+        snapshot = evidence.get('snapshot')
+        if not isinstance(snapshot, dict):
+            self._add_error(f"{context}.evidence.snapshot must be a dictionary")
+            return
+
+        ref_type = self._validate_structured_ref(
+            snapshot.get('ref'),
+            step_name,
+            version,
+            root_catalog,
+            scope_artifacts,
+            scope_multi_visit,
+            parent_artifacts,
+            parent_multi_visit,
+            scope_non_step_results,
+            parent_non_step_results,
+            proof_context=proof_context,
+            allow_snapshot_ref=True,
+        )
+        if ref_type != 'unknown' and ref_type != 'snapshot':
+            self._add_error(f"{context}.evidence.snapshot.ref must resolve to a snapshot ref")
+
     def _validate_consume_bundle(self, consume_bundle: Any, step_name: str, consumes: Any):
         """Validate consume_bundle structure and consumes subset constraints (v1.3)."""
         context = f"Step '{step_name}': consume_bundle"
@@ -3333,6 +3686,95 @@ class WorkflowLoader:
                                 spec,
                                 persisted=step.get('persist_artifacts_in_state', True) is not False,
                             )
+
+            variant_output = step.get('variant_output')
+            if isinstance(variant_output, dict):
+                discriminant = variant_output.get('discriminant')
+                if isinstance(discriminant, dict):
+                    artifact_name = discriminant.get('name')
+                    if isinstance(artifact_name, str):
+                        outputs[artifact_name] = {
+                            **self._normalize_output_contract_artifact_spec(
+                                discriminant,
+                                persisted=step.get('persist_artifacts_in_state', True) is not False,
+                            ),
+                            'variant_owner_step': name,
+                            'variant_role': 'discriminant',
+                        }
+                variants = variant_output.get('variants')
+                if isinstance(variants, dict):
+                    for variant_name, variant_spec in variants.items():
+                        if not isinstance(variant_spec, dict):
+                            continue
+                        fields = variant_spec.get('fields')
+                        if not isinstance(fields, list):
+                            continue
+                        for spec in fields:
+                            if not isinstance(spec, dict):
+                                continue
+                            artifact_name = spec.get('name')
+                            if isinstance(artifact_name, str):
+                                outputs[artifact_name] = {
+                                    **self._normalize_output_contract_artifact_spec(
+                                        spec,
+                                        persisted=step.get('persist_artifacts_in_state', True) is not False,
+                                    ),
+                                    'variant_owner_step': name,
+                                    'variant_role': 'field',
+                                    'variant_required': variant_name,
+                                }
+            select_variant_output = step.get('select_variant_output')
+            if isinstance(select_variant_output, dict):
+                discriminant = select_variant_output.get('discriminant')
+                if isinstance(discriminant, dict):
+                    artifact_name = discriminant.get('name')
+                    if isinstance(artifact_name, str):
+                        outputs[artifact_name] = {
+                            **self._normalize_output_contract_artifact_spec(
+                                discriminant,
+                                persisted=step.get('persist_artifacts_in_state', True) is not False,
+                            ),
+                            'variant_owner_step': name,
+                            'variant_role': 'discriminant',
+                        }
+                variants = select_variant_output.get('variants')
+                if isinstance(variants, dict):
+                    for variant_name, variant_spec in variants.items():
+                        if not isinstance(variant_spec, dict):
+                            continue
+                        fields = variant_spec.get('fields')
+                        if not isinstance(fields, list):
+                            continue
+                        for spec in fields:
+                            if not isinstance(spec, dict):
+                                continue
+                            artifact_name = spec.get('name')
+                            if isinstance(artifact_name, str):
+                                outputs[artifact_name] = {
+                                    **self._normalize_output_contract_artifact_spec(
+                                        spec,
+                                        persisted=step.get('persist_artifacts_in_state', True) is not False,
+                                    ),
+                                    'variant_owner_step': name,
+                                    'variant_role': 'field',
+                                    'variant_required': variant_name,
+                                }
+
+            materialize_artifacts = step.get('materialize_artifacts')
+            if isinstance(materialize_artifacts, dict):
+                values = materialize_artifacts.get('values')
+                if isinstance(values, list):
+                    for spec in values:
+                        if not isinstance(spec, dict):
+                            continue
+                        artifact_name = spec.get('name')
+                        contract = spec.get('contract')
+                        if isinstance(artifact_name, str) and isinstance(contract, dict):
+                            outputs[artifact_name] = {
+                                'type': contract.get('type'),
+                                'persisted': step.get('persist_artifacts_in_state', True) is not False,
+                                'allowed': deepcopy(contract.get('allowed')) if isinstance(contract.get('allowed'), list) else None,
+                            }
 
             for field_name in ('set_scalar', 'increment_scalar'):
                 node = step.get(field_name)
@@ -3797,6 +4239,8 @@ class WorkflowLoader:
         parent_multi_visit: Optional[Set[str]],
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
+        proof_context: Optional[Dict[str, str]] = None,
+        allow_snapshot_ref: bool = False,
     ) -> str:
         contract = self._resolve_structured_ref_contract(
             ref,
@@ -3809,6 +4253,8 @@ class WorkflowLoader:
             parent_multi_visit,
             scope_non_step_results,
             parent_non_step_results,
+            proof_context=proof_context,
+            allow_snapshot_ref=allow_snapshot_ref,
         )
         if not isinstance(contract, dict):
             return 'unknown'
@@ -3826,6 +4272,8 @@ class WorkflowLoader:
         parent_multi_visit: Optional[Set[str]],
         scope_non_step_results: Set[str],
         parent_non_step_results: Optional[Set[str]],
+        proof_context: Optional[Dict[str, str]] = None,
+        allow_snapshot_ref: bool = False,
     ) -> Optional[Dict[str, Any]]:
         if not isinstance(ref, str) or not ref:
             self._add_error(f"Step '{step_name}': structured refs must be non-empty strings")
@@ -3959,7 +4407,28 @@ class WorkflowLoader:
                     f"Step '{step_name}': structured ref '{ref}' targets a non-persisted artifact"
                 )
                 return None
+            required_variant = artifact_spec.get('variant_required') if isinstance(artifact_spec, dict) else None
+            if isinstance(required_variant, str) and proof_context is not None:
+                variant_owner = artifact_spec.get('variant_owner_step', target_step)
+                proven_variant = proof_context.get(variant_owner)
+                if proven_variant != required_variant:
+                    if proven_variant is None:
+                        self._add_error(
+                            f"Step '{step_name}': structured ref '{ref}' targets variant-specific artifact '{artifact_name}' without required author-time variant proof"
+                        )
+                    else:
+                        self._add_error(
+                            f"Step '{step_name}': structured ref '{ref}' requires variant proof '{required_variant}' but active proof is '{proven_variant}'"
+                        )
+                    return None
             return artifact_spec
+        if parsed_ref.field == 'snapshots':
+            if not allow_snapshot_ref:
+                self._add_error(
+                    f"Step '{step_name}': structured ref '{ref}' targets a snapshot; snapshot refs are only allowed in select_variant_output.evidence.snapshot.ref"
+                )
+                return None
+            return {'type': 'snapshot'}
 
         self._add_error(f"Step '{step_name}': invalid structured ref '{ref}'")
         return None
