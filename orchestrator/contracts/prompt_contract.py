@@ -68,6 +68,34 @@ def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
+    """Render a stable prompt suffix describing a tagged-union JSON output bundle."""
+    discriminant = variant_output["discriminant"]
+    lines: List[str] = [
+        "## Variant Output Contract",
+        "Write the following JSON bundle exactly as specified.",
+        f"- path: {variant_output['path']}",
+        "  format: JSON object",
+        "  discriminant:",
+        f"    name: {discriminant['name']}",
+        f"    json_pointer: {discriminant['json_pointer']}",
+        f"    type: {discriminant.get('type', 'enum')}",
+    ]
+    if "allowed" in discriminant:
+        allowed_values = ", ".join(str(value) for value in discriminant["allowed"])
+        lines.append(f"    allowed: {allowed_values}")
+    lines.append("  variants:")
+    for variant_name, variant_spec in variant_output.get("variants", {}).items():
+        lines.append(f"    {variant_name}:")
+        lines.append("      fields:")
+        for spec in variant_spec.get("fields", []):
+            lines.append(f"        - name: {spec['name']}")
+            lines.append(f"          json_pointer: {spec['json_pointer']}")
+            lines.append(f"          type: {spec['type']}")
+            _append_field_constraints(lines, spec)
+    return "\n".join(lines) + "\n"
+
+
 def render_consumed_artifacts_block(
     consumed: Dict[str, Any],
     guidance_by_name: Optional[Dict[str, Dict[str, str]]] = None,

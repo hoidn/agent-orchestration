@@ -467,6 +467,16 @@ def _elaborate_step(
             if kind is SurfaceStepKind.INCREMENT_SCALAR
             else freeze_mapping(None)
         ),
+        materialize_artifacts=(
+            freeze_mapping(step.get("materialize_artifacts"))
+            if kind is SurfaceStepKind.MATERIALIZE_ARTIFACTS
+            else freeze_mapping(None)
+        ),
+        select_variant_output=(
+            freeze_mapping(step.get("select_variant_output"))
+            if kind is SurfaceStepKind.SELECT_VARIANT_OUTPUT
+            else freeze_mapping(None)
+        ),
         call_alias=step.get("call") if kind is SurfaceStepKind.CALL and isinstance(step.get("call"), str) else None,
         call_bindings=MappingProxyType(call_bindings),
     )
@@ -601,6 +611,9 @@ def _parse_surface_common_config(step: Mapping[str, Any]) -> SurfaceStepCommonCo
         publishes=_frozen_sequence(step.get("publishes")),
         expected_outputs=_frozen_sequence(step.get("expected_outputs")),
         output_bundle=freeze_value(step["output_bundle"]) if "output_bundle" in step else None,
+        variant_output=freeze_value(step["variant_output"]) if "variant_output" in step else None,
+        pre_snapshot=freeze_value(step["pre_snapshot"]) if "pre_snapshot" in step else None,
+        requires_variant=freeze_value(step["requires_variant"]) if "requires_variant" in step else None,
         persist_artifacts_in_state=(
             step.get("persist_artifacts_in_state")
             if isinstance(step.get("persist_artifacts_in_state"), bool)
@@ -808,4 +821,8 @@ def _surface_step_kind(step: Mapping[str, Any]) -> SurfaceStepKind:
         return SurfaceStepKind.SET_SCALAR
     if "increment_scalar" in step:
         return SurfaceStepKind.INCREMENT_SCALAR
+    if "materialize_artifacts" in step:
+        return SurfaceStepKind.MATERIALIZE_ARTIFACTS
+    if "select_variant_output" in step:
+        return SurfaceStepKind.SELECT_VARIANT_OUTPUT
     raise ValueError(f"Unsupported surface step shape for '{step.get('name', '<unnamed>')}'")

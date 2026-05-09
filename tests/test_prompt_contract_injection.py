@@ -17,6 +17,19 @@ def _write_workflow(workspace: Path, workflow: dict) -> Path:
     return workflow_file
 
 
+def _enable_v214_loader(monkeypatch) -> None:
+    monkeypatch.setattr(
+        WorkflowLoader,
+        "SUPPORTED_VERSIONS",
+        WorkflowLoader.SUPPORTED_VERSIONS | {"2.14"},
+    )
+    monkeypatch.setattr(
+        WorkflowLoader,
+        "VERSION_ORDER",
+        [*WorkflowLoader.VERSION_ORDER, "2.14"],
+    )
+
+
 def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Path):
     """Provider steps append a deterministic output contract block by default."""
     (tmp_path / "prompts").mkdir()
@@ -78,6 +91,121 @@ def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Pa
     assert "name: review_decision" in captured["prompt"]
     assert "path: state/review_decision.txt" in captured["prompt"]
     assert "type: enum" in captured["prompt"]
+
+
+def test_provider_variant_output_appends_variant_contract_block_to_prompt(tmp_path: Path, monkeypatch) -> None:
+    """Provider steps append a deterministic variant contract block for experimental v2.14 internals."""
+    _enable_v214_loader(monkeypatch)
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "implement.md").write_text("Implement the backlog item.\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "prompt-contract-variant-output",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Implement",
+            "id": "implement",
+            "provider": "mock_provider",
+            "input_file": "prompts/implement.md",
+            "variant_output": {
+                "path": "state/variant_bundle.json",
+                "discriminant": {
+                    "name": "implementation_state",
+                    "json_pointer": "/implementation_state",
+                    "type": "enum",
+                    "allowed": ["COMPLETED", "BLOCKED"],
+                },
+                "variants": {
+                    "COMPLETED": {
+                        "fields": [
+                            {
+                                "name": "execution_report_path",
+                                "json_pointer": "/execution_report_path",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                            }
+                        ]
+                    },
+                    "BLOCKED": {
+                        "fields": [
+                            {
+                                "name": "progress_report_path",
+                                "json_pointer": "/progress_report_path",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                            },
+                            {
+                                "name": "blocker_class",
+                                "json_pointer": "/blocker_class",
+                                "type": "enum",
+                                "allowed": [
+                                    "missing_resource",
+                                    "unavailable_hardware",
+                                    "roadmap_conflict",
+                                    "external_dependency_outside_authority",
+                                    "user_decision_required",
+                                    "unrecoverable_after_fix_attempt",
+                                ],
+                            },
+                        ]
+                    },
+                },
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        (tmp_path / "artifacts" / "work").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "artifacts" / "work" / "execution_report.md").write_text("# report\n", encoding="utf-8")
+        (tmp_path / "state").mkdir(exist_ok=True)
+        (tmp_path / "state" / "variant_bundle.json").write_text(
+            json.dumps(
+                {
+                    "implementation_state": "COMPLETED",
+                    "execution_report_path": "artifacts/work/execution_report.md",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Implement"]["exit_code"] == 0
+    assert "Variant Output Contract" in captured["prompt"]
+    assert "implementation_state" in captured["prompt"]
+    assert "execution_report_path" in captured["prompt"]
 
 
 def test_provider_expected_outputs_prompt_uses_resolved_path_templates(tmp_path: Path):

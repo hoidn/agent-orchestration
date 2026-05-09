@@ -26,6 +26,8 @@ class ExecutableNodeKind(str, Enum):
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
     INCREMENT_SCALAR = "increment_scalar"
+    MATERIALIZE_ARTIFACTS = "materialize_artifacts"
+    SELECT_VARIANT_OUTPUT = "select_variant_output"
     FOR_EACH = "for_each"
     CALL_BOUNDARY = "call_boundary"
     IF_BRANCH_MARKER = "if_branch_marker"
@@ -115,6 +117,9 @@ class StepCommonConfig:
     publishes: tuple[Any, ...] = ()
     expected_outputs: tuple[Any, ...] = ()
     output_bundle: Any = None
+    variant_output: Any = None
+    pre_snapshot: Any = None
+    requires_variant: Any = None
     persist_artifacts_in_state: Optional[bool] = None
     provider_session: Optional[Mapping[str, Any]] = None
     max_visits: Optional[int] = None
@@ -222,6 +227,22 @@ class IncrementScalarStepConfig:
 
 
 @dataclass(frozen=True)
+class MaterializeArtifactsStepConfig:
+    """Executable materialize_artifacts-step config."""
+
+    common: StepCommonConfig = field(default_factory=StepCommonConfig)
+    materialize_artifacts: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
+class SelectVariantOutputStepConfig:
+    """Executable select_variant_output-step config."""
+
+    common: StepCommonConfig = field(default_factory=StepCommonConfig)
+    select_variant_output: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
 class CallStepConfig:
     """Executable reusable-call step config."""
 
@@ -257,6 +278,8 @@ ExecutableStepConfig = (
     | AssertStepConfig
     | SetScalarStepConfig
     | IncrementScalarStepConfig
+    | MaterializeArtifactsStepConfig
+    | SelectVariantOutputStepConfig
     | CallStepConfig
     | ForEachStepConfig
     | RepeatUntilStepConfig

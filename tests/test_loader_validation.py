@@ -281,6 +281,99 @@ class TestLoaderValidation:
         assert exc_info.value.exit_code == 2
         assert any("Unsupported version '2.14'" in str(err.message) for err in exc_info.value.errors)
 
+    def test_materialize_artifacts_requires_version_2_14(self):
+        """Phase 1 internals must not expose materialize_artifacts on public pre-2.14 workflows."""
+        workflow = {
+            "version": "2.13",
+            "name": "materialize-gated",
+            "inputs": {
+                "design_path": {
+                    "type": "relpath",
+                    "under": "docs",
+                }
+            },
+            "steps": [{
+                "name": "MaterializeInputs",
+                "id": "materialize_inputs",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "design_path",
+                            "source": {"input": "design_path"},
+                            "contract": {"inherit": "source"},
+                        }
+                    ]
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("materialize_artifacts requires version '2.14'" in str(err.message) for err in exc_info.value.errors)
+
+    def test_variant_output_requires_version_2_14(self):
+        """Phase 1 internals must not expose variant_output on public pre-2.14 workflows."""
+        workflow = {
+            "version": "2.13",
+            "name": "variant-output-gated",
+            "providers": {
+                "mock_provider": {
+                    "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                    "input_mode": "stdin",
+                }
+            },
+            "steps": [{
+                "name": "EmitVariantBundle",
+                "id": "emit_variant_bundle",
+                "provider": "mock_provider",
+                "input_file": "prompt.md",
+                "variant_output": {
+                    "path": "state/variant_bundle.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "allowed": ["COMPLETED", "BLOCKED"],
+                    },
+                    "variants": {
+                        "COMPLETED": {
+                            "fields": [
+                                {
+                                    "name": "execution_report_path",
+                                    "json_pointer": "/execution_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                        "BLOCKED": {
+                            "fields": [
+                                {
+                                    "name": "progress_report_path",
+                                    "json_pointer": "/progress_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                    },
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("variant_output requires version '2.14'" in str(err.message) for err in exc_info.value.errors)
+
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""
         workflow = {

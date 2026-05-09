@@ -24,6 +24,7 @@ from .executable_ir import (
     ForEachNode,
     ForEachStepConfig,
     IncrementScalarStepConfig,
+    MaterializeArtifactsStepConfig,
     IfBranchMarkerNode,
     IfJoinNode,
     LeafExecutableNode,
@@ -36,6 +37,7 @@ from .executable_ir import (
     ProviderStepConfig,
     RepeatUntilFrameNode,
     RepeatUntilStepConfig,
+    SelectVariantOutputStepConfig,
     SetScalarStepConfig,
     StepCommonConfig,
     WaitForStepConfig,
@@ -821,6 +823,8 @@ def _leaf_node_kind(kind: SurfaceStepKind, region: WorkflowRegion) -> Executable
         SurfaceStepKind.ASSERT: ExecutableNodeKind.ASSERT,
         SurfaceStepKind.SET_SCALAR: ExecutableNodeKind.SET_SCALAR,
         SurfaceStepKind.INCREMENT_SCALAR: ExecutableNodeKind.INCREMENT_SCALAR,
+        SurfaceStepKind.MATERIALIZE_ARTIFACTS: ExecutableNodeKind.MATERIALIZE_ARTIFACTS,
+        SurfaceStepKind.SELECT_VARIANT_OUTPUT: ExecutableNodeKind.SELECT_VARIANT_OUTPUT,
         SurfaceStepKind.FOR_EACH: ExecutableNodeKind.FOR_EACH,
         SurfaceStepKind.CALL: ExecutableNodeKind.CALL_BOUNDARY,
     }
@@ -871,6 +875,9 @@ def _common_execution_config(common: SurfaceStepCommonConfig) -> StepCommonConfi
         publishes=common.publishes,
         expected_outputs=common.expected_outputs,
         output_bundle=common.output_bundle,
+        variant_output=common.variant_output,
+        pre_snapshot=common.pre_snapshot,
+        requires_variant=common.requires_variant,
         persist_artifacts_in_state=common.persist_artifacts_in_state,
         provider_session=common.provider_session,
         max_visits=common.max_visits,
@@ -937,6 +944,16 @@ def _execution_config_for_step(step: SurfaceStep) -> Optional[ExecutableStepConf
             common=common,
             increment_scalar=step.increment_scalar,
         )
+    if step.kind is SurfaceStepKind.MATERIALIZE_ARTIFACTS:
+        return MaterializeArtifactsStepConfig(
+            common=common,
+            materialize_artifacts=step.materialize_artifacts,
+        )
+    if step.kind is SurfaceStepKind.SELECT_VARIANT_OUTPUT:
+        return SelectVariantOutputStepConfig(
+            common=common,
+            select_variant_output=step.select_variant_output,
+        )
     if step.kind is SurfaceStepKind.CALL:
         return CallStepConfig(
             common=common,
@@ -980,6 +997,8 @@ def _report_kind_for_node(node: ExecutableNode) -> str:
         ExecutableNodeKind.ASSERT: "assert",
         ExecutableNodeKind.SET_SCALAR: "set_scalar",
         ExecutableNodeKind.INCREMENT_SCALAR: "increment_scalar",
+        ExecutableNodeKind.MATERIALIZE_ARTIFACTS: "materialize_artifacts",
+        ExecutableNodeKind.SELECT_VARIANT_OUTPUT: "select_variant_output",
     }
     return kind_map.get(node.kind, "unknown")
 

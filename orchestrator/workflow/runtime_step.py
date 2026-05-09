@@ -16,8 +16,10 @@ from .executable_ir import (
     FinalizationStepNode,
     ForEachStepConfig,
     IncrementScalarStepConfig,
+    MaterializeArtifactsStepConfig,
     ProviderStepConfig,
     RepeatUntilStepConfig,
+    SelectVariantOutputStepConfig,
     SetScalarStepConfig,
     StepCommonConfig,
     WaitForStepConfig,
@@ -67,6 +69,12 @@ def _common_value(common: StepCommonConfig, key: str) -> Any:
         )
     if key == "output_bundle":
         return thaw_runtime_value(common.output_bundle) if _include_value(common.output_bundle) else _MISSING
+    if key == "variant_output":
+        return thaw_runtime_value(common.variant_output) if _include_value(common.variant_output) else _MISSING
+    if key == "pre_snapshot":
+        return thaw_runtime_value(common.pre_snapshot) if _include_value(common.pre_snapshot) else _MISSING
+    if key == "requires_variant":
+        return thaw_runtime_value(common.requires_variant) if _include_value(common.requires_variant) else _MISSING
     if key == "persist_artifacts_in_state":
         return common.persist_artifacts_in_state if common.persist_artifacts_in_state is not None else _MISSING
     if key == "provider_session":
@@ -102,6 +110,9 @@ def _common_keys(common: StepCommonConfig) -> Iterator[str]:
         "publishes",
         "expected_outputs",
         "output_bundle",
+        "variant_output",
+        "pre_snapshot",
+        "requires_variant",
         "persist_artifacts_in_state",
         "provider_session",
         "max_visits",
@@ -253,6 +264,16 @@ class RuntimeStep(Mapping[str, Any]):
                 return thaw_runtime_value(config.increment_scalar)
             raise KeyError(key)
 
+        if isinstance(config, MaterializeArtifactsStepConfig):
+            if key == "materialize_artifacts":
+                return thaw_runtime_value(config.materialize_artifacts)
+            raise KeyError(key)
+
+        if isinstance(config, SelectVariantOutputStepConfig):
+            if key == "select_variant_output":
+                return thaw_runtime_value(config.select_variant_output)
+            raise KeyError(key)
+
         if isinstance(config, CallStepConfig):
             if key == "call":
                 if isinstance(self.node, CallBoundaryNode) and self.node.call_alias:
@@ -350,6 +371,14 @@ class RuntimeStep(Mapping[str, Any]):
 
         if isinstance(config, IncrementScalarStepConfig):
             yield "increment_scalar"
+            return
+
+        if isinstance(config, MaterializeArtifactsStepConfig):
+            yield "materialize_artifacts"
+            return
+
+        if isinstance(config, SelectVariantOutputStepConfig):
+            yield "select_variant_output"
             return
 
         if isinstance(config, CallStepConfig):

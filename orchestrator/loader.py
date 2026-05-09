@@ -86,7 +86,7 @@ class WorkflowLoader:
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
     VERSION_ORDER = [
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14",
     ]
 
     def __init__(self, workspace: Path):
@@ -822,7 +822,18 @@ class WorkflowLoader:
                 continue
 
             # AT-10: Provider/Command exclusivity
-            execution_fields = ['provider', 'adjudicated_provider', 'command', 'wait_for', 'assert', 'set_scalar', 'increment_scalar', 'call']
+            execution_fields = [
+                'provider',
+                'adjudicated_provider',
+                'command',
+                'wait_for',
+                'assert',
+                'set_scalar',
+                'increment_scalar',
+                'materialize_artifacts',
+                'select_variant_output',
+                'call',
+            ]
             exec_count = sum(1 for f in execution_fields if f in step)
 
             if 'for_each' in step:
@@ -902,6 +913,12 @@ class WorkflowLoader:
                         artifacts_registry=artifacts_registry,
                     )
 
+            if 'materialize_artifacts' in step and not self._version_at_least(version, "2.14"):
+                self._add_error(f"Step '{name}': materialize_artifacts requires version '2.14'")
+
+            if 'select_variant_output' in step and not self._version_at_least(version, "2.14"):
+                self._add_error(f"Step '{name}': select_variant_output requires version '2.14'")
+
             if 'call' in step:
                 self._validate_call_step(
                     step=step,
@@ -959,10 +976,29 @@ class WorkflowLoader:
                 else:
                     self._validate_output_bundle(step['output_bundle'], name, version)
 
-            if 'expected_outputs' in step and 'output_bundle' in step:
-                self._add_error(
-                    f"Step '{name}': output_bundle is mutually exclusive with expected_outputs"
-                )
+            if 'variant_output' in step and not self._version_at_least(version, "2.14"):
+                self._add_error(f"Step '{name}': variant_output requires version '2.14'")
+
+            if 'pre_snapshot' in step and not self._version_at_least(version, "2.14"):
+                self._add_error(f"Step '{name}': pre_snapshot requires version '2.14'")
+
+            if 'requires_variant' in step and not self._version_at_least(version, "2.14"):
+                self._add_error(f"Step '{name}': requires_variant requires version '2.14'")
+
+            declared_output_contracts = [
+                field_name
+                for field_name in ('expected_outputs', 'output_bundle', 'variant_output', 'select_variant_output')
+                if field_name in step
+            ]
+            if len(declared_output_contracts) > 1:
+                if declared_output_contracts == ['expected_outputs', 'output_bundle']:
+                    self._add_error(
+                        f"Step '{name}': output_bundle is mutually exclusive with expected_outputs"
+                    )
+                else:
+                    self._add_error(
+                        f"Step '{name}': mutually exclusive output contract fields {declared_output_contracts}"
+                    )
 
             if 'inject_output_contract' in step and not isinstance(step['inject_output_contract'], bool):
                 self._add_error(f"Step '{name}': 'inject_output_contract' must be a boolean")

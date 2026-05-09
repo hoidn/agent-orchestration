@@ -9,6 +9,7 @@ from ..contracts.prompt_contract import (
     render_consumed_artifacts_block,
     render_output_bundle_contract_block,
     render_output_contract_block,
+    render_variant_output_contract_block,
 )
 from .assets import AssetResolutionError, WorkflowAssetResolver
 
@@ -109,10 +110,13 @@ class PromptComposer:
 
         expected_outputs = step.get("expected_outputs")
         output_bundle = step.get("output_bundle")
+        variant_output = step.get("variant_output")
         if expected_outputs:
             contract_block = render_output_contract_block(expected_outputs)
         elif isinstance(output_bundle, dict) and output_bundle:
             contract_block = render_output_bundle_contract_block(output_bundle)
+        elif isinstance(variant_output, dict) and variant_output:
+            contract_block = render_variant_output_contract_block(variant_output)
         else:
             return prompt
 

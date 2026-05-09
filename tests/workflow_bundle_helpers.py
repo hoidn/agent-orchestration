@@ -19,9 +19,11 @@ from orchestrator.workflow.executable_ir import (
     ForEachNode,
     ForEachStepConfig,
     IncrementScalarStepConfig,
+    MaterializeArtifactsStepConfig,
     ProviderStepConfig,
     RepeatUntilFrameNode,
     RepeatUntilStepConfig,
+    SelectVariantOutputStepConfig,
     SetScalarStepConfig,
     StepCommonConfig,
     WaitForStepConfig,
@@ -98,6 +100,9 @@ def _render_common_config(step: dict[str, Any], common: StepCommonConfig) -> Non
     _set_runtime_field(step, "publishes", common.publishes)
     _set_runtime_field(step, "expected_outputs", common.expected_outputs)
     _set_runtime_field(step, "output_bundle", common.output_bundle)
+    _set_runtime_field(step, "variant_output", common.variant_output)
+    _set_runtime_field(step, "pre_snapshot", common.pre_snapshot)
+    _set_runtime_field(step, "requires_variant", common.requires_variant)
     if common.persist_artifacts_in_state is not None:
         step["persist_artifacts_in_state"] = common.persist_artifacts_in_state
     _set_runtime_field(step, "provider_session", common.provider_session)
@@ -135,6 +140,8 @@ def materialize_execution_config_for_test(
                 CallStepConfig,
                 SetScalarStepConfig,
                 IncrementScalarStepConfig,
+                MaterializeArtifactsStepConfig,
+                SelectVariantOutputStepConfig,
                 ForEachStepConfig,
                 RepeatUntilStepConfig,
             ),
@@ -175,6 +182,14 @@ def materialize_execution_config_for_test(
 
     if isinstance(config, IncrementScalarStepConfig):
         _set_runtime_field(step, "increment_scalar", config.increment_scalar, include_empty=True)
+        return step
+
+    if isinstance(config, MaterializeArtifactsStepConfig):
+        _set_runtime_field(step, "materialize_artifacts", config.materialize_artifacts, include_empty=True)
+        return step
+
+    if isinstance(config, SelectVariantOutputStepConfig):
+        _set_runtime_field(step, "select_variant_output", config.select_variant_output, include_empty=True)
         return step
 
     if isinstance(config, CallStepConfig):
@@ -298,6 +313,9 @@ def _apply_surface_common_fields(payload: dict[str, Any], common: SurfaceStepCom
     _set_if_present(payload, "publishes", _thaw(common.publishes))
     _set_if_present(payload, "expected_outputs", _thaw(common.expected_outputs))
     _set_if_present(payload, "output_bundle", _thaw(common.output_bundle))
+    _set_if_present(payload, "variant_output", _thaw(common.variant_output))
+    _set_if_present(payload, "pre_snapshot", _thaw(common.pre_snapshot))
+    _set_if_present(payload, "requires_variant", _thaw(common.requires_variant))
     if common.persist_artifacts_in_state is not None:
         payload["persist_artifacts_in_state"] = common.persist_artifacts_in_state
     _set_if_present(payload, "provider_session", _thaw(common.provider_session))
@@ -392,6 +410,10 @@ def _surface_step(step: SurfaceStep) -> dict[str, Any]:
         payload["set_scalar"] = _thaw(step.set_scalar)
     elif step.kind is SurfaceStepKind.INCREMENT_SCALAR:
         payload["increment_scalar"] = _thaw(step.increment_scalar)
+    elif step.kind is SurfaceStepKind.MATERIALIZE_ARTIFACTS:
+        payload["materialize_artifacts"] = _thaw(step.materialize_artifacts)
+    elif step.kind is SurfaceStepKind.SELECT_VARIANT_OUTPUT:
+        payload["select_variant_output"] = _thaw(step.select_variant_output)
     elif step.kind is SurfaceStepKind.IF:
         payload["if"] = _surface_condition(step.if_condition)
         if step.then_branch is not None:

@@ -31,6 +31,7 @@ from ..contracts.output_contract import (
     validate_contract_value,
     validate_expected_outputs,
     validate_output_bundle,
+    validate_variant_output_bundle,
 )
 from .pointers import PointerResolver
 from .conditions import ConditionEvaluator
@@ -3494,7 +3495,10 @@ class WorkflowExecutor:
             prompt_contract_step['expected_outputs'] = resolved_expected_outputs
         elif resolved_output_bundle is not None:
             prompt_contract_step = dict(step)
-            prompt_contract_step['output_bundle'] = resolved_output_bundle
+            if 'variant_output' in step:
+                prompt_contract_step['variant_output'] = resolved_output_bundle
+            else:
+                prompt_contract_step['output_bundle'] = resolved_output_bundle
 
         # Initialize prompt variable from either input_file or asset_file.
         prompt, prompt_error = self.prompt_composer.read_prompt_source(
@@ -5975,16 +5979,18 @@ class WorkflowExecutor:
                 resolved_expected_outputs.append(spec_copy)
 
         output_bundle = step.get('output_bundle')
+        variant_output = step.get('variant_output')
+        contract_bundle = variant_output if isinstance(variant_output, dict) else output_bundle
         resolved_output_bundle: Optional[Dict[str, Any]] = None
-        if isinstance(output_bundle, dict):
-            resolved_output_bundle = deepcopy(output_bundle)
+        if isinstance(contract_bundle, dict):
+            resolved_output_bundle = deepcopy(contract_bundle)
             path_value = resolved_output_bundle.get('path')
             if isinstance(path_value, str):
                 resolved_path, path_error = self._substitute_path_template(
                     path_value,
                     state,
                     step_name=step_name,
-                    field_name='output_bundle.path',
+                    field_name='variant_output.path' if isinstance(variant_output, dict) else 'output_bundle.path',
                     context=context,
                 )
                 if path_error is not None:
@@ -6003,7 +6009,8 @@ class WorkflowExecutor:
         """Validate deterministic output contracts and attach parsed values to step result."""
         expected_outputs = step.get('expected_outputs')
         output_bundle = step.get('output_bundle')
-        if not expected_outputs and not output_bundle:
+        variant_output = step.get('variant_output')
+        if not expected_outputs and not output_bundle and not variant_output:
             return result
 
         if result.get('exit_code', 0) != 0:
@@ -6019,7 +6026,12 @@ class WorkflowExecutor:
             return path_error
 
         try:
-            if resolved_output_bundle:
+            if isinstance(variant_output, dict):
+                artifacts = validate_variant_output_bundle(
+                    resolved_output_bundle or {},
+                    workspace=self.workspace,
+                )
+            elif resolved_output_bundle:
                 artifacts = validate_output_bundle(resolved_output_bundle, workspace=self.workspace)
             else:
                 artifacts = validate_expected_outputs(resolved_expected_outputs or [], workspace=self.workspace)

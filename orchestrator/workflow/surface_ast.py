@@ -42,6 +42,8 @@ class SurfaceStepKind(str, Enum):
     ASSERT = "assert"
     SET_SCALAR = "set_scalar"
     INCREMENT_SCALAR = "increment_scalar"
+    MATERIALIZE_ARTIFACTS = "materialize_artifacts"
+    SELECT_VARIANT_OUTPUT = "select_variant_output"
     FOR_EACH = "for_each"
     REPEAT_UNTIL = "repeat_until"
     CALL = "call"
@@ -96,6 +98,9 @@ class SurfaceStepCommonConfig:
     publishes: tuple[Any, ...] = ()
     expected_outputs: tuple[Any, ...] = ()
     output_bundle: Any = None
+    variant_output: Any = None
+    pre_snapshot: Any = None
+    requires_variant: Any = None
     persist_artifacts_in_state: Optional[bool] = None
     provider_session: Optional[Mapping[str, Any]] = None
     max_visits: Optional[int] = None
@@ -212,6 +217,8 @@ class SurfaceStep:
     wait_for: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     set_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     increment_scalar: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    materialize_artifacts: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+    select_variant_output: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     if_condition: Any = None
     then_branch: Optional[SurfaceBranchBlock] = None
     else_branch: Optional[SurfaceBranchBlock] = None

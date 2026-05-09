@@ -8,6 +8,7 @@ import orchestrator.contracts.output_contract as output_contract_module
 
 from orchestrator.contracts.output_contract import (
     OutputContractError,
+    validate_variant_output_bundle,
     validate_output_bundle,
     validate_expected_outputs,
 )
@@ -261,6 +262,123 @@ def test_validate_expected_outputs_rejects_duplicate_artifact_names(tmp_path: Pa
         validate_expected_outputs(specs, workspace=tmp_path)
 
     assert any(v["type"] == "duplicate_artifact_name" for v in exc_info.value.violations)
+
+
+def test_validate_variant_output_bundle_accepts_completed_variant(tmp_path: Path):
+    """variant_output exposes the discriminant and only the selected variant fields."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "execution_report.md").write_text("# report\n", encoding="utf-8")
+    bundle_path = tmp_path / "state" / "variant_bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "implementation_state": "COMPLETED",
+                "execution_report_path": "artifacts/work/execution_report.md",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    contract = {
+        "path": "state/variant_bundle.json",
+        "discriminant": {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        },
+        "variants": {
+            "COMPLETED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+        },
+    }
+
+    artifacts = validate_variant_output_bundle(contract, workspace=tmp_path)
+    assert artifacts == {
+        "implementation_state": "COMPLETED",
+        "execution_report_path": "artifacts/work/execution_report.md",
+    }
+
+
+def test_validate_variant_output_bundle_rejects_forbidden_variant_fields(tmp_path: Path):
+    """variant_output rejects fields from unselected variants."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "execution_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "artifacts" / "work" / "progress_report.md").write_text("# blocked\n", encoding="utf-8")
+    bundle_path = tmp_path / "state" / "variant_bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "implementation_state": "COMPLETED",
+                "execution_report_path": "artifacts/work/execution_report.md",
+                "progress_report_path": "artifacts/work/progress_report.md",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    contract = {
+        "path": "state/variant_bundle.json",
+        "discriminant": {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        },
+        "variants": {
+            "COMPLETED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+        },
+    }
+
+    with pytest.raises(OutputContractError) as exc_info:
+        validate_variant_output_bundle(contract, workspace=tmp_path)
+
+    assert any(v["type"] == "variant_forbidden_field_present" for v in exc_info.value.violations)
 
 
 def test_validate_output_bundle_parses_supported_types(tmp_path: Path):

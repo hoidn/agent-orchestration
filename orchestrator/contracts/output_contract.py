@@ -251,6 +251,220 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
     return artifacts
 
 
+def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Path) -> Dict[str, Any]:
+    """Validate a tagged-union JSON bundle and expose only the selected variant artifacts."""
+    resolved_workspace = workspace.resolve()
+    violations: List[ContractViolation] = []
+
+    bundle_path = str(variant_output.get("path", ""))
+    bundle_file = _resolve_workspace_path(resolved_workspace, bundle_path)
+    if bundle_file is None:
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_bundle_path",
+                message="Variant output bundle path escapes workspace",
+                context={"path": bundle_path},
+            )
+        ])
+    if not bundle_file.exists():
+        raise OutputContractError([
+            ContractViolation(
+                type="missing_bundle_file",
+                message="Variant output bundle file was not created",
+                context={"path": bundle_path},
+            )
+        ])
+
+    try:
+        document = json.loads(bundle_file.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_json_document",
+                message="Variant output bundle file is not valid JSON",
+                context={"path": bundle_path, "error": str(exc)},
+            )
+        ])
+
+    discriminant = variant_output.get("discriminant")
+    if not isinstance(discriminant, dict):
+        raise OutputContractError([
+            ContractViolation(
+                type="variant_discriminant_missing",
+                message="variant_output requires a discriminant definition",
+                context={"path": bundle_path},
+            )
+        ])
+
+    discriminant_name = discriminant.get("name")
+    discriminant_pointer = discriminant.get("json_pointer")
+    if not isinstance(discriminant_name, str) or not discriminant_name:
+        raise OutputContractError([
+            ContractViolation(
+                type="variant_discriminant_missing",
+                message="variant_output discriminant requires a non-empty name",
+                context={"path": bundle_path},
+            )
+        ])
+    if not isinstance(discriminant_pointer, str):
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_json_pointer",
+                message="variant_output discriminant requires a string json_pointer",
+                context={"path": bundle_path, "name": discriminant_name},
+            )
+        ])
+
+    found_discriminant, raw_discriminant = _resolve_json_pointer(document, discriminant_pointer)
+    if not found_discriminant:
+        raise OutputContractError([
+            ContractViolation(
+                type="variant_discriminant_missing",
+                message="variant_output discriminant json_pointer did not resolve to a value",
+                context={"path": bundle_path, "json_pointer": discriminant_pointer},
+            )
+        ])
+
+    parsed_discriminant, discriminant_violation = _parse_output_bundle_value(
+        raw_value=raw_discriminant,
+        value_type=str(discriminant.get("type", "enum")),
+        spec=discriminant,
+        workspace=resolved_workspace,
+    )
+    if discriminant_violation is not None:
+        discriminant_violation.type = "variant_discriminant_invalid"
+        discriminant_violation.context["path"] = bundle_path
+        discriminant_violation.context["json_pointer"] = discriminant_pointer
+        raise OutputContractError([discriminant_violation])
+
+    variants = variant_output.get("variants")
+    if not isinstance(variants, dict) or not variants:
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_variant_bundle",
+                message="variant_output requires a non-empty variants mapping",
+                context={"path": bundle_path},
+            )
+        ])
+
+    selected_variant = variants.get(parsed_discriminant)
+    if not isinstance(selected_variant, dict):
+        raise OutputContractError([
+            ContractViolation(
+                type="variant_discriminant_invalid",
+                message="variant_output discriminant selected an unknown variant",
+                context={"path": bundle_path, "value": parsed_discriminant},
+            )
+        ])
+
+    artifacts: Dict[str, Any] = {discriminant_name: parsed_discriminant}
+    selected_fields = selected_variant.get("fields")
+    if not isinstance(selected_fields, list):
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_variant_bundle",
+                message="variant_output variant fields must be a list",
+                context={"path": bundle_path, "variant": parsed_discriminant},
+            )
+        ])
+
+    for spec in selected_fields:
+        if not isinstance(spec, dict):
+            violations.append(
+                ContractViolation(
+                    type="invalid_variant_bundle",
+                    message="variant_output field must be a dictionary",
+                    context={"path": bundle_path, "variant": parsed_discriminant},
+                )
+            )
+            continue
+        field_name = spec.get("name")
+        json_pointer = spec.get("json_pointer")
+        if not isinstance(field_name, str) or not field_name:
+            violations.append(
+                ContractViolation(
+                    type="invalid_variant_bundle",
+                    message="variant_output field requires a non-empty name",
+                    context={"path": bundle_path, "variant": parsed_discriminant},
+                )
+            )
+            continue
+        if not isinstance(json_pointer, str):
+            violations.append(
+                ContractViolation(
+                    type="invalid_json_pointer",
+                    message="variant_output field requires a string json_pointer",
+                    context={"path": bundle_path, "variant": parsed_discriminant, "name": field_name},
+                )
+            )
+            continue
+
+        found, raw_value = _resolve_json_pointer(document, json_pointer)
+        if not found:
+            violations.append(
+                ContractViolation(
+                    type="variant_required_field_missing",
+                    message="variant_output required field is missing for the selected variant",
+                    context={
+                        "path": bundle_path,
+                        "variant": parsed_discriminant,
+                        "name": field_name,
+                        "json_pointer": json_pointer,
+                    },
+                )
+            )
+            continue
+
+        parsed_value, violation = _parse_output_bundle_value(
+            raw_value=raw_value,
+            value_type=spec.get("type"),
+            spec=spec,
+            workspace=resolved_workspace,
+        )
+        if violation is not None:
+            violation.type = "variant_field_type_invalid"
+            violation.context["path"] = bundle_path
+            violation.context["variant"] = parsed_discriminant
+            violation.context["json_pointer"] = json_pointer
+            violations.append(violation)
+            continue
+        artifacts[field_name] = parsed_value
+
+    for variant_name, variant_spec in variants.items():
+        if variant_name == parsed_discriminant or not isinstance(variant_spec, dict):
+            continue
+        fields = variant_spec.get("fields")
+        if not isinstance(fields, list):
+            continue
+        for spec in fields:
+            if not isinstance(spec, dict):
+                continue
+            json_pointer = spec.get("json_pointer")
+            field_name = spec.get("name")
+            if not isinstance(json_pointer, str) or not isinstance(field_name, str):
+                continue
+            found, _raw_value = _resolve_json_pointer(document, json_pointer)
+            if found:
+                violations.append(
+                    ContractViolation(
+                        type="variant_forbidden_field_present",
+                        message="variant_output contains a field from an unselected variant",
+                        context={
+                            "path": bundle_path,
+                            "selected_variant": parsed_discriminant,
+                            "forbidden_variant": variant_name,
+                            "name": field_name,
+                            "json_pointer": json_pointer,
+                        },
+                    )
+                )
+
+    if violations:
+        raise OutputContractError(violations)
+
+    return artifacts
+
+
 def _parse_output_value(
     raw_value: str,
     value_type: str,
