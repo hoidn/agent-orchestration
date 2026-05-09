@@ -64,6 +64,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** design, template, modularity, contracts, invariants
 **Use this when:** Drafting or reviewing a design artifact that will feed a plan and implementation phase.
 
+### [DSL v2.14 Variant Surface Decision](design/dsl_v214_variant_surface_decision.md)
+**Description:** Durable Phase 1 design note selecting `variant_output` over an `output_bundle.variants` extension for tagged-union output validation while keeping `select_variant_output` separate.
+**Keywords:** dsl-v214, variant-output, output-bundle, tagged-union, decision
+**Use this when:** You need the authoritative contract-surface decision before Phase 1 runtime implementation or doc alignment.
+
 ### [DSL v2.14 Materialization And Variant Draft](design/dsl_v214_materialization_variants_draft.md)
 **Description:** Non-normative Phase 0 reference that inventories the current materialization and tagged-union patterns being frozen before public v2.14 semantics exist.
 **Keywords:** dsl-v214, phase-0, materialization, variant-output, oracle

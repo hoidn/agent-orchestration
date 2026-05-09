@@ -3,6 +3,8 @@
 This roadmap is the local NeurIPS-style execution authority for the v2.14
 materialization and variant-output work. The detailed design authority is
 `docs/plans/2026-05-08-dsl-v214-materialization-variants-implementation-plan.md`.
+The tagged-union validation surface decision is recorded in
+`docs/design/dsl_v214_variant_surface_decision.md`.
 
 ## Current Gate
 
@@ -50,16 +52,16 @@ Objective: implement the narrow v2.14 semantic tranche after Phase 0 is stable.
 
 Backlog authority:
 
-- `docs/backlog/active/2026-05-09-output-bundle-variant-surface-review.md`
+- `docs/backlog/in_progress/2026-05-09-output-bundle-variant-surface-review.md`
 - `docs/backlog/active/2026-05-09-dsl-v214-pointer-authority-clarification.md`
 - `docs/backlog/active/2026-05-09-roadmap-gate-empty-active-gap.md`
-- `docs/backlog/in_progress/2026-05-09-dsl-v214-runtime-semantics.md`
+- `docs/backlog/done/2026-05-09-dsl-v214-runtime-semantics.md`
 
 Scope:
 
 - `materialize_artifacts`
 - `pre_snapshot`
-- `variant_output`
+- `variant_output` tagged-union provider/command output validation
 - `select_variant_output`
 - `requires_variant`
 - match-based variant proof

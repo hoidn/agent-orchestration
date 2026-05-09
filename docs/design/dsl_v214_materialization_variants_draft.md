@@ -62,6 +62,7 @@ Phase 0 oracle coverage:
 
 Current approximation:
 
+- selected future Phase 1 surface remains `variant_output`
 - implementation state bundle exposes a discriminant plus variant-specific
   fields (`execution_report_path` or `progress_report_path`)
 - downstream workflow logic branches on `implementation_state`

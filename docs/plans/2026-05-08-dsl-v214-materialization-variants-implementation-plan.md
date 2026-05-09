@@ -120,6 +120,11 @@ There are two valid surfaces:
 - `select_variant_output`: deterministically selects one variant and writes a
   valid bundle atomically.
 
+The authored Phase 1 validation surface is `variant_output`. Extending
+fixed-shape `output_bundle` with `output_bundle.variants` is rejected by
+`docs/design/dsl_v214_variant_surface_decision.md` so existing `output_bundle`
+semantics remain unconditional and stable.
+
 Both share the same internal `VariantContract`. A step must not declare both.
 
 ### Artifact Value, Pointer File, And Published Artifact Are Separate
