@@ -1,7 +1,7 @@
 # Workflow DSL and Control Flow (Normative)
 
 - Top-level workflow keys
-  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", or "2.13"). Strict gating: unknown fields at a given version -> validation error (exit 2).
+  - `version`: string (e.g., "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8", "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", or "2.14"). Strict gating: unknown fields at a given version -> validation error (exit 2).
   - `name`: optional string.
   - `strict_flow`: boolean (default true). Non-zero exit halts the run unless `on.failure.goto` is present.
   - `providers`: map of provider templates (see `providers.md`).
@@ -101,6 +101,20 @@
       - `score_ledger_path`, when present, must resolve under `artifacts/` and must not collide with statically known step-managed output files. Dynamic relpath-target collisions fail at runtime.
       - Candidate-managed path fields that depend on `${run.root}` or name the parent run root are invalid in v2.11.
       - Evaluator score JSON must contain matching `candidate_id`, finite numeric `score` in `[0.0, 1.0]`, and non-empty `summary`.
+    - Artifact materialization execution form (v2.14):
+      - `materialize_artifacts` is mutually exclusive with other execution forms.
+      - `values` resolves typed values from `source.input`, `source.ref`, `source.literal`, or `source.runtime: now_ns`.
+      - `input_values` is an optional shorthand for repeated workflow-input materialization. Each entry supplies `names: string[]`, the literal `contract: inherit`, and a `pointer_template` containing `{name}`; the loader expands it into the equivalent long-form `values` entries before validation and lowering.
+      - `source.input` inherits the workflow input contract; `source.ref` inherits the referenced artifact contract; `source.literal` requires an explicit contract; `runtime: now_ns` uses a built-in integer scalar contract.
+      - Contract refinements may only narrow the source contract. They may require an existing target, narrow `under` to a child root, or narrow enum values. Type changes, kind changes, broader roots, broader enum sets, and weakened `must_exist_target` are rejected.
+      - `input_values` names must reference declared workflow inputs, must not duplicate existing `values[*].name`, and must obey the same path-safety validation as authored long-form pointers.
+      - `pointer.path` is allowed only for relpath materializations. A local relpath value published to a top-level relpath artifact must either omit its local pointer or use the artifact's canonical pointer path.
+      - `ensure_parent: true` creates the parent directory for a relpath target after path-safety validation.
+    - Variant selector execution form (v2.14):
+      - `select_variant_output` is mutually exclusive with other execution forms.
+      - It selects one tagged-union variant from durable `snapshot_diff` evidence, constructs a JSON bundle in memory, validates it against the embedded variant contract, writes it with an atomic temp-file/rename commit, and exposes only the discriminant plus selected-variant fields as artifacts.
+      - Phase 1 evidence mode is `snapshot_diff` with `sha256`; exactly one candidate must be created or content-changed relative to the producer step's `pre_snapshot`.
+      - Variant field extractors are intentionally narrow in v2.14. The supported text extractor reads a line with an authored prefix and optional strip characters.
   - Structured control (v2.2+):
     - top-level `if: Condition|TypedPredicate`
     - `then: Step[] | { id?, steps: Step[], outputs: WorkflowOutputMap }`
@@ -201,6 +215,13 @@
         - `required: boolean` (optional, default true; when false, missing pointer is allowed)
       - Runtime enforcement runs only when the step process exits with code `0`.
       - Parsed values are exposed as `steps.<Step>.artifacts` (unless `persist_artifacts_in_state:false`).
+    - `variant_output` (optional; v2.14+): deterministic artifacts extracted from one JSON bundle with a tagged-union shape.
+      - Mutually exclusive with `expected_outputs`, `output_bundle`, and `select_variant_output`.
+      - The contract declares a `discriminant` artifact with enum `allowed` values and a `variants` map keyed by those values.
+      - `shared_fields` is optional and defaults to `[]`. Shared fields are always present after bundle validation, are exposed without variant proof, and must not duplicate artifact names or JSON pointers already used by the discriminant or any variant field.
+      - Each variant declares required `fields` and optional `forbidden` JSON pointers. Runtime validation selects exactly one variant, enforces that variant's fields, rejects forbidden fields, and exposes the discriminant, any shared fields, and the selected-variant fields as `steps.<Step>.artifacts`.
+      - Provider and adjudicated-provider steps inject the variant contract into the prompt unless `inject_output_contract: false`; command steps validate the bundle after success without prompt injection.
+      - Variant-only fields require proof before downstream use. v2.14 supports proof through a `match` over the same discriminant artifact or through step-level `requires_variant`.
     - `consume_bundle` (optional; v1.3+): materialize resolved consumes into one JSON file.
       - `path: string` (required output JSON path under WORKSPACE)
       - `include: string[]` (optional subset of consumed artifact names; default all resolved consumes)
@@ -272,6 +293,14 @@
       - The policy file referenced by `managed_jobs.policy` is external YAML that classifies provider-launched payloads. It is not provider-template YAML and does not change prompt delivery.
       - Policy entries use `mode: force_managed|auto_managed|force_local|unmanaged`. Managed entries must provide `job` metadata or a named `extractor`; unmanaged and force-local entries bypass managed launch.
       - Explicit `job` metadata includes `name_template`, `state_root_template`, optional `output_root_arg`, `verify_files`, `snapshot_roots`, and optional `config_globs`. See `providers.md` for the policy YAML contract and shim behavior.
+    - `pre_snapshot` (optional; v2.14+; provider, adjudicated-provider, and command producer steps):
+      - Captures bounded `sha256` evidence for named candidate relpath artifacts immediately before the producer executes.
+      - Snapshot records are durable under `root.steps.<Step>.snapshots.<name>` and are not ordinary artifacts.
+      - Snapshot refs are valid only in `select_variant_output.evidence.snapshot.ref`; they are not publishable, consumable, prompt-injected, or valid as `materialize_artifacts.source.ref`.
+      - Candidate files are hashed by streaming content. Directories, unsafe paths, and files larger than the declared limit are rejected.
+    - `requires_variant` (optional; v2.14+):
+      - Provides an author-time proof that a step may reference fields available only for one selected variant from a variant-producing step.
+      - Runtime still checks the producer discriminant before execution and fails with `variant_unavailable` if the selected variant does not match.
   - Control:
     - `timeout_sec: number` (applies to provider/command; exit 124 on timeout)
     - `retries: { max: number, delay_ms?: number }`
@@ -320,8 +349,7 @@
     - v1.2 planned: `on_item_complete` (see `versioning.md`)
 
 - Mutual exclusivity and validation
-  - A step may specify exactly one of `provider`, `command`, `assert`, or `wait_for`.
-  - A step may specify exactly one of `provider`, `command`, `assert`, `set_scalar`, `increment_scalar`, or `wait_for`.
+  - A step may specify exactly one of `provider`, `command`, `assert`, `set_scalar`, `increment_scalar`, `wait_for`, `adjudicated_provider`, `call`, `materialize_artifacts`, or `select_variant_output`.
   - `assert` is a first-class execution form and cannot be combined with `provider`/`command`/`wait_for`/`for_each` on the same step.
   - `set_scalar` and `increment_scalar` are first-class execution forms and cannot be combined with `provider`/`command`/`wait_for`/`assert`/`for_each` on the same step.
   - `for_each` is a block form and cannot be combined with `provider`/`command`/`wait_for`/`assert` on the same step.
@@ -338,6 +366,7 @@
     - scalar `string`, `provider_session`, and provider `session_support` require `version: "2.10"` or higher.
     - `adjudicated_provider` requires `version: "2.11"` or higher.
     - `managed_jobs` requires `version: "2.13"` or higher.
+    - `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` require `version: "2.14"` or higher.
   - authored step `id` plus scoped `self`/`parent` refs require `version: "2.0"` or higher.
   - top-level `inputs`, `outputs`, and `inputs.*` typed refs require `version: "2.1"` or higher.
   - structured `if` / `then` / `else` require `version: "2.2"` or higher.

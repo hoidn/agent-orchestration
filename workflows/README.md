@@ -153,16 +153,23 @@ The generated prompt map is the source for exact missing-file rows. Current clas
 | `workflows/library/neurips_backlog_implementation_phase.v214.yaml` | `2.14` | `neurips-backlog-implementation-phase-v214` | Phase 2 same-version v2.14 counterpart to `neurips_backlog_implementation_phase.yaml`. Replaces the old `phase_started_at_ns` mtime gate plus flat-optional `output_bundle` variant emulation with `materialize_artifacts` for input/target pointers, `pre_snapshot` + `select_variant_output` for content-based outcome selection, and `requires_variant` proof for variant-only publish steps. |
 | `workflows/library/neurips_backlog_seeded_plan_phase.v214.yaml` | `2.14` | `neurips-backlog-seeded-plan-phase-v214` | Phase 2 same-version v2.14 counterpart to `neurips_backlog_seeded_plan_phase.yaml`. Replaces the old bash plan-context pointer-write boilerplate with one `materialize_artifacts` step while preserving the draft/review/revise plan loop. |
 | `workflows/library/neurips_backlog_roadmap_sync.v214.yaml` | `2.14` | `neurips-backlog-roadmap-sync-v214` | Phase 2 same-version v2.14 counterpart to `neurips_backlog_roadmap_sync_phase.yaml`. Replaces the old bash pointer-write inputs step with one `materialize_artifacts` step; otherwise minimal compatibility refactor. |
-| `workflows/library/neurips_selected_backlog_item.v214.yaml` | `2.14` | `neurips-selected-backlog-item-v214` | Phase 2 same-version v2.14 counterpart to `neurips_selected_backlog_item.yaml`. Imports only the `.v214.yaml` phase workflows so the stack obeys the same-version v2.14 call rule, while keeping domain-shaped recovery, reconcile, queue-move, run-state, and outcome-recording scripts unchanged. |
+| `workflows/library/neurips_selected_backlog_item.v214.yaml` | `2.14` | `neurips-selected-backlog-item-v214` | Phase 2 same-version v2.14 counterpart to `neurips_selected_backlog_item.yaml`. Imports only the `.v214.yaml` phase workflows, validates `selected-item-inputs.json` directly with `variant_output`, and keeps domain-shaped recovery, reconcile, queue-move, run-state, and outcome-recording scripts unchanged without reviving per-field pointer fanout. |
 
 ### When to use the v2.14 NeurIPS stack
 
 The `*.v214.yaml` workflows above are the Phase 2 same-version translation of the existing `2.7` NeurIPS selected-item stack. They replace only the glue patterns the v2.14 runtime now supports as first-class primitives:
 
 - `materialize_artifacts`: deterministic input/target pointer materialization that previously required bash `printf` + pointer-file `expected_outputs`.
+- `materialize_artifacts.input_values`: shorthand for uniform workflow-input pointer materialization when the authored contract is pure inheritance plus a repeated pointer template.
 - `pre_snapshot` + `select_variant_output`: content-hash-based outcome selection that previously relied on `phase_started_at_ns` mtime checks plus a flat-optional `output_bundle` tagged-union emulation.
-- `variant_output` (used implicitly through `select_variant_output`): a tagged-union JSON contract validated atomically before commit, replacing the optional-field pattern used by the old `MaterializeImplementationState` step.
+- `variant_output` (used directly on `selected-item-inputs.json` and implicitly through `select_variant_output`): a tagged-union JSON contract with optional `shared_fields`, validated atomically before commit, replacing optional-field and per-field fanout patterns.
 - `requires_variant`: proof annotation that allows variant-only publish steps to reference selected-variant artifacts safely.
+
+Compact v2.14 authoring pattern:
+
+- Keep native JSON bundles when the producer already emits the right shape; prefer validating the bundle directly over splitting it into sidecar text files.
+- Use `output_bundle` for fixed-shape JSON outputs whose fields are always available.
+- Use `variant_output` only when field availability truly depends on a discriminant, and move always-present fields into `shared_fields`.
 
 The original `2.7` workflows remain in place as the migration baseline and as the legacy comparison surface for behavioral-equivalence oracles. They are not deprecated by this tranche; a later removal decision is out of scope.
 | `workflows/library/depends_on_inject_imported_review.yaml` | `2.7` | `depends-on-inject-imported-review` | Library workflow for the imported-injection example: prepends workflow-source rubric assets, then injects a caller-produced runtime manifest into the provider prompt before exporting an enum review decision. |

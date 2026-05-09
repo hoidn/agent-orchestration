@@ -162,43 +162,15 @@ steps:
   - name: MaterializeImplementationInputs
     id: materialize_implementation_inputs
     materialize_artifacts:
+      input_values:
+        - names:
+            - design_path
+            - plan_path
+            - check_commands_path
+            - execution_report_target_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
       values:
-        - name: design_path
-          source: { input: design_path }
-          contract:
-            type: relpath
-            under: docs/plans
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/design_path.txt
-          ensure_parent: true
-        - name: plan_path
-          source: { input: plan_path }
-          contract:
-            type: relpath
-            under: docs/plans
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/plan_path.txt
-          ensure_parent: true
-        - name: check_commands_path
-          source: { input: check_commands_path }
-          contract:
-            type: relpath
-            under: state
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/check_commands_path.txt
-          ensure_parent: true
-        - name: execution_report_target_path
-          source: { input: execution_report_target_path }
-          contract:
-            type: relpath
-            under: artifacts/work
-            must_exist_target: false
-          pointer:
-            path: ${inputs.state_root}/execution_report_target_path.txt
-          ensure_parent: true
         - name: progress_report_target_path
           source:
             ref: root.steps.DeriveProgressReportTarget.artifacts.progress_report_target_path

@@ -300,6 +300,184 @@ def test_materialize_artifacts_publish_substitutes_registry_pointer_templates(
     assert not (tmp_path / "${inputs.state_root}").exists()
 
 
+def test_materialize_artifacts_input_values_write_the_same_pointers_as_long_form(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """input_values should expand to the same runtime behavior as long-form values."""
+    _enable_v214_loader(monkeypatch)
+    (tmp_path / "docs" / "plans").mkdir(parents=True)
+    (tmp_path / "docs" / "plans" / "approved-plan.md").write_text("# approved\n", encoding="utf-8")
+    (tmp_path / "docs" / "steering.md").write_text("# steering\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "materialize-input-values-runtime",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+            },
+            "steering_path": {
+                "type": "relpath",
+                "under": "docs",
+                "must_exist_target": True,
+            },
+            "design_path": {
+                "type": "relpath",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            },
+        },
+        "steps": [
+            {
+                "name": "MaterializeInputs",
+                "id": "materialize_inputs",
+                "materialize_artifacts": {
+                    "input_values": [
+                        {
+                            "names": ["steering_path", "design_path"],
+                            "contract": "inherit",
+                            "pointer_template": "${inputs.state_root}/{name}.txt",
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+
+    executor = _load_executor(
+        tmp_path,
+        workflow,
+        bound_inputs={
+            "state_root": "state/oracle",
+            "steering_path": "docs/steering.md",
+            "design_path": "docs/plans/approved-plan.md",
+        },
+    )
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["MaterializeInputs"]["artifacts"] == {
+        "steering_path": "docs/steering.md",
+        "design_path": "docs/plans/approved-plan.md",
+    }
+    assert (tmp_path / "state" / "oracle" / "steering_path.txt").read_text(encoding="utf-8") == "docs/steering.md\n"
+    assert (tmp_path / "state" / "oracle" / "design_path.txt").read_text(encoding="utf-8") == (
+        "docs/plans/approved-plan.md\n"
+    )
+    assert not (tmp_path / "${inputs.state_root}").exists()
+
+
+def test_variant_output_shared_fields_are_available_without_variant_proof(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Shared tagged-union fields should not require variant proof to consume downstream."""
+    _enable_v214_loader(monkeypatch)
+    (tmp_path / "docs" / "plans").mkdir(parents=True)
+    (tmp_path / "docs" / "plans" / "approved-plan.md").write_text("# approved\n", encoding="utf-8")
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "execution_report.md").write_text("# report\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "variant-shared-fields-runtime",
+        "steps": [
+            {
+                "name": "EmitVariantBundle",
+                "id": "emit_variant_bundle",
+                "command": [
+                    "python",
+                    "-c",
+                    (
+                        "import json\n"
+                        "from pathlib import Path\n"
+                        "path = Path('state/variant_bundle.json')\n"
+                        "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                        "path.write_text(json.dumps({"
+                        "'implementation_state': 'COMPLETED', "
+                        "'plan_path': 'docs/plans/approved-plan.md', "
+                        "'execution_report_path': 'artifacts/work/execution_report.md'"
+                        "}) + '\\n', encoding='utf-8')\n"
+                    ),
+                ],
+                "variant_output": {
+                    "path": "state/variant_bundle.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED", "BLOCKED"],
+                    },
+                    "shared_fields": [
+                        {
+                            "name": "plan_path",
+                            "json_pointer": "/plan_path",
+                            "type": "relpath",
+                            "under": "docs/plans",
+                            "must_exist_target": True,
+                        }
+                    ],
+                    "variants": {
+                        "COMPLETED": {
+                            "fields": [
+                                {
+                                    "name": "execution_report_path",
+                                    "json_pointer": "/execution_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                        "BLOCKED": {
+                            "fields": [
+                                {
+                                    "name": "progress_report_path",
+                                    "json_pointer": "/progress_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                    },
+                },
+            },
+            {
+                "name": "MaterializePlanPath",
+                "id": "materialize_plan_path",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "plan_path_copy",
+                            "source": {"ref": "root.steps.EmitVariantBundle.artifacts.plan_path"},
+                            "contract": {
+                                "type": "relpath",
+                                "under": "docs/plans",
+                                "must_exist_target": True,
+                            },
+                            "pointer": {"path": "state/plan_path_copy.txt"},
+                        }
+                    ]
+                },
+            },
+        ],
+    }
+
+    executor = _load_executor(tmp_path, workflow)
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert state["steps"]["MaterializePlanPath"]["artifacts"] == {
+        "plan_path_copy": "docs/plans/approved-plan.md",
+    }
+    assert (tmp_path / "state" / "plan_path_copy.txt").read_text(encoding="utf-8") == (
+        "docs/plans/approved-plan.md\n"
+    )
+
+
 def test_pre_snapshot_and_select_variant_output_choose_the_single_changed_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

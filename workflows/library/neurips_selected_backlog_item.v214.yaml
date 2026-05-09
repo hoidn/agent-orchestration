@@ -76,395 +76,113 @@ steps:
     id: resolve_selected_item_inputs
     command:
       - python
-      - -c
-      - |
-        import json
-        import pathlib
-        import subprocess
-        import sys
-
-        selection_path = sys.argv[1]
-        manifest_path = sys.argv[2]
-        state_root = pathlib.Path(sys.argv[3])
-        output_path = pathlib.Path(sys.argv[4])
-
-        subprocess.run(
-            [
-                "python",
-                "workflows/library/scripts/materialize_neurips_selected_item_inputs.py",
-                "--selection-path",
-                selection_path,
-                "--manifest-path",
-                manifest_path,
-                "--state-root",
-                state_root.as_posix(),
-                "--output",
-                output_path.as_posix(),
-            ],
-            check=True,
-        )
-
-        payload = json.loads(output_path.read_text(encoding="utf-8"))
-        fields_dir = state_root / "selected-item-inputs-fields"
-        fields_dir.mkdir(parents=True, exist_ok=True)
-        field_names = [
-            "selection_mode",
-            "selected_item_active_path",
-            "selected_item_in_progress_path",
-            "selected_item_context_path",
-            "check_commands_path",
-            "roadmap_sync_state_root",
-            "plan_phase_state_root",
-            "plan_gate_state_root",
-            "implementation_phase_state_root",
-            "plan_target_path",
-            "plan_gate_recovery_bundle_path",
-            "final_plan_gate_bundle_path",
-            "roadmap_sync_report_target_path",
-            "plan_review_report_target_path",
-            "plan_gate_recovery_report_target_path",
-            "execution_report_target_path",
-            "checks_report_target_path",
-            "implementation_review_report_target_path",
-            "item_summary_target_path",
-            "outcome_bundle_path",
-        ]
-        for field_name in field_names:
-            value = str(payload[field_name]).strip()
-            (fields_dir / f"{field_name}.txt").write_text(value + "\n", encoding="utf-8")
+      - workflows/library/scripts/materialize_neurips_selected_item_inputs.py
+      - --selection-path
       - ${inputs.selector_state_root}/selection.json
+      - --manifest-path
       - ${inputs.manifest_path}
+      - --state-root
       - ${inputs.state_root}
+      - --output
       - ${inputs.state_root}/selected-item-inputs.json
-    expected_outputs:
-      - name: selection_mode
-        path: ${inputs.state_root}/selected-item-inputs-fields/selection_mode.txt
-        type: enum
-        allowed: ["ACTIVE_SELECTION", "RECOVERED_IN_PROGRESS"]
-      - name: selected_item_active_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/selected_item_active_path.txt
-        type: relpath
-        under: docs/backlog/active
-      - name: selected_item_in_progress_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/selected_item_in_progress_path.txt
-        type: relpath
-        under: docs/backlog/in_progress
-      - name: selected_item_context_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/selected_item_context_path.txt
-        type: relpath
-        under: state
-        must_exist_target: true
-      - name: check_commands_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/check_commands_path.txt
-        type: relpath
-        under: state
-        must_exist_target: true
-      - name: roadmap_sync_state_root
-        path: ${inputs.state_root}/selected-item-inputs-fields/roadmap_sync_state_root.txt
-        type: relpath
-        under: state
-      - name: plan_phase_state_root
-        path: ${inputs.state_root}/selected-item-inputs-fields/plan_phase_state_root.txt
-        type: relpath
-        under: state
-      - name: plan_gate_state_root
-        path: ${inputs.state_root}/selected-item-inputs-fields/plan_gate_state_root.txt
-        type: relpath
-        under: state
-      - name: implementation_phase_state_root
-        path: ${inputs.state_root}/selected-item-inputs-fields/implementation_phase_state_root.txt
-        type: relpath
-        under: state
-      - name: plan_target_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/plan_target_path.txt
-        type: relpath
-        under: docs/plans
-      - name: plan_gate_recovery_bundle_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/plan_gate_recovery_bundle_path.txt
-        type: relpath
-        under: state
-      - name: final_plan_gate_bundle_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/final_plan_gate_bundle_path.txt
-        type: relpath
-        under: state
-      - name: roadmap_sync_report_target_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/roadmap_sync_report_target_path.txt
-        type: relpath
-        under: artifacts/review
-      - name: plan_review_report_target_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/plan_review_report_target_path.txt
-        type: relpath
-        under: artifacts/review
-      - name: plan_gate_recovery_report_target_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/plan_gate_recovery_report_target_path.txt
-        type: relpath
-        under: artifacts/review
-      - name: execution_report_target_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/execution_report_target_path.txt
-        type: relpath
-        under: artifacts/work
-      - name: checks_report_target_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/checks_report_target_path.txt
-        type: relpath
-        under: artifacts/checks
-      - name: implementation_review_report_target_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/implementation_review_report_target_path.txt
-        type: relpath
-        under: artifacts/review
-      - name: item_summary_target_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/item_summary_target_path.txt
-        type: relpath
-        under: artifacts/work
-      - name: outcome_bundle_path
-        path: ${inputs.state_root}/selected-item-inputs-fields/outcome_bundle_path.txt
-        type: relpath
-        under: state
-
-  - name: MaterializeSelectionModeAuthority
-    id: materialize_selection_mode_authority
-    command:
-      - python
-      - -c
-      - |
-        import json
-        import pathlib
-        import sys
-
-        selection_mode = sys.argv[1]
-        active_path = sys.argv[2]
-        in_progress_path = sys.argv[3]
-        output_path = pathlib.Path(sys.argv[4])
-
-        if selection_mode == "ACTIVE_SELECTION":
-            payload = {
-                "selection_mode": selection_mode,
-                "selected_item_active_path": active_path,
-            }
-        elif selection_mode == "RECOVERED_IN_PROGRESS":
-            payload = {
-                "selection_mode": selection_mode,
-                "selected_item_in_progress_path": in_progress_path,
-            }
-        else:
-            raise SystemExit(f"Unsupported selection mode: {selection_mode}")
-
-        output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-      - ${steps.ResolveSelectedItemInputs.artifacts.selection_mode}
-      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_active_path}
-      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
-      - ${inputs.state_root}/selection-mode-authority.json
     variant_output:
-      path: ${inputs.state_root}/selection-mode-authority.json
+      path: ${inputs.state_root}/selected-item-inputs.json
       discriminant:
         name: selection_mode
         json_pointer: /selection_mode
         type: enum
         allowed: ["ACTIVE_SELECTION", "RECOVERED_IN_PROGRESS"]
+      shared_fields:
+        - name: selected_item_active_path
+          json_pointer: /selected_item_active_path
+          type: relpath
+          under: docs/backlog/active
+        - name: selected_item_in_progress_path
+          json_pointer: /selected_item_in_progress_path
+          type: relpath
+          under: docs/backlog/in_progress
+        - name: selected_item_context_path
+          json_pointer: /selected_item_context_path
+          type: relpath
+          under: state
+          must_exist_target: true
+        - name: check_commands_path
+          json_pointer: /check_commands_path
+          type: relpath
+          under: state
+          must_exist_target: true
+        - name: roadmap_sync_state_root
+          json_pointer: /roadmap_sync_state_root
+          type: relpath
+          under: state
+        - name: plan_phase_state_root
+          json_pointer: /plan_phase_state_root
+          type: relpath
+          under: state
+        - name: plan_gate_state_root
+          json_pointer: /plan_gate_state_root
+          type: relpath
+          under: state
+        - name: implementation_phase_state_root
+          json_pointer: /implementation_phase_state_root
+          type: relpath
+          under: state
+        - name: plan_target_path
+          json_pointer: /plan_target_path
+          type: relpath
+          under: docs/plans
+        - name: plan_gate_recovery_bundle_path
+          json_pointer: /plan_gate_recovery_bundle_path
+          type: relpath
+          under: state
+        - name: final_plan_gate_bundle_path
+          json_pointer: /final_plan_gate_bundle_path
+          type: relpath
+          under: state
+        - name: roadmap_sync_report_target_path
+          json_pointer: /roadmap_sync_report_target_path
+          type: relpath
+          under: artifacts/review
+        - name: plan_review_report_target_path
+          json_pointer: /plan_review_report_target_path
+          type: relpath
+          under: artifacts/review
+        - name: plan_gate_recovery_report_target_path
+          json_pointer: /plan_gate_recovery_report_target_path
+          type: relpath
+          under: artifacts/review
+        - name: execution_report_target_path
+          json_pointer: /execution_report_target_path
+          type: relpath
+          under: artifacts/work
+        - name: checks_report_target_path
+          json_pointer: /checks_report_target_path
+          type: relpath
+          under: artifacts/checks
+        - name: implementation_review_report_target_path
+          json_pointer: /implementation_review_report_target_path
+          type: relpath
+          under: artifacts/review
+        - name: item_summary_target_path
+          json_pointer: /item_summary_target_path
+          type: relpath
+          under: artifacts/work
+        - name: outcome_bundle_path
+          json_pointer: /outcome_bundle_path
+          type: relpath
+          under: state
       variants:
         ACTIVE_SELECTION:
-          fields:
-            - name: selected_item_active_path
-              json_pointer: /selected_item_active_path
-              type: relpath
-              under: docs/backlog/active
+          fields: []
         RECOVERED_IN_PROGRESS:
-          fields:
-            - name: selected_item_in_progress_path
-              json_pointer: /selected_item_in_progress_path
-              type: relpath
-              under: docs/backlog/in_progress
-
-  - name: MaterializeSelectedItemInputs
-    id: materialize_selected_item_inputs
-    materialize_artifacts:
-      values:
-        - name: selection_mode
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.selection_mode
-          contract:
-            type: enum
-            allowed: ["ACTIVE_SELECTION", "RECOVERED_IN_PROGRESS"]
-        - name: selected_item_active_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.selected_item_active_path
-          contract:
-            type: relpath
-            under: docs/backlog/active
-          pointer:
-            path: ${inputs.state_root}/selected_item_active_path.txt
-          ensure_parent: true
-        - name: selected_item_in_progress_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path
-          contract:
-            type: relpath
-            under: docs/backlog/in_progress
-          pointer:
-            path: ${inputs.state_root}/selected_item_in_progress_path.txt
-          ensure_parent: true
-        - name: selected_item_context_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.selected_item_context_path
-          contract:
-            type: relpath
-            under: state
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/selected_item_context_path.txt
-          ensure_parent: true
-        - name: check_commands_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.check_commands_path
-          contract:
-            type: relpath
-            under: state
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/check_commands_path.txt
-          ensure_parent: true
-        - name: roadmap_sync_state_root
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.roadmap_sync_state_root
-          contract:
-            type: relpath
-            under: state
-          pointer:
-            path: ${inputs.state_root}/roadmap_sync_state_root.txt
-          ensure_parent: true
-        - name: plan_phase_state_root
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_phase_state_root
-          contract:
-            type: relpath
-            under: state
-          pointer:
-            path: ${inputs.state_root}/plan_phase_state_root.txt
-          ensure_parent: true
-        - name: plan_gate_state_root
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_gate_state_root
-          contract:
-            type: relpath
-            under: state
-          pointer:
-            path: ${inputs.state_root}/plan_gate_state_root.txt
-          ensure_parent: true
-        - name: implementation_phase_state_root
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.implementation_phase_state_root
-          contract:
-            type: relpath
-            under: state
-          pointer:
-            path: ${inputs.state_root}/implementation_phase_state_root.txt
-          ensure_parent: true
-        - name: plan_target_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_target_path
-          contract:
-            type: relpath
-            under: docs/plans
-          pointer:
-            path: ${inputs.state_root}/plan_target_path.txt
-          ensure_parent: true
-        - name: plan_gate_recovery_bundle_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_gate_recovery_bundle_path
-          contract:
-            type: relpath
-            under: state
-          pointer:
-            path: ${inputs.state_root}/plan_gate_recovery_bundle_path.txt
-          ensure_parent: true
-        - name: final_plan_gate_bundle_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.final_plan_gate_bundle_path
-          contract:
-            type: relpath
-            under: state
-          pointer:
-            path: ${inputs.state_root}/final_plan_gate_bundle_path.txt
-          ensure_parent: true
-        - name: roadmap_sync_report_target_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.roadmap_sync_report_target_path
-          contract:
-            type: relpath
-            under: artifacts/review
-          pointer:
-            path: ${inputs.state_root}/roadmap_sync_report_target_path.txt
-          ensure_parent: true
-        - name: plan_review_report_target_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_review_report_target_path
-          contract:
-            type: relpath
-            under: artifacts/review
-          pointer:
-            path: ${inputs.state_root}/plan_review_report_target_path.txt
-          ensure_parent: true
-        - name: plan_gate_recovery_report_target_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_gate_recovery_report_target_path
-          contract:
-            type: relpath
-            under: artifacts/review
-          pointer:
-            path: ${inputs.state_root}/plan_gate_recovery_report_target_path.txt
-          ensure_parent: true
-        - name: execution_report_target_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.execution_report_target_path
-          contract:
-            type: relpath
-            under: artifacts/work
-          pointer:
-            path: ${inputs.state_root}/execution_report_target_path.txt
-          ensure_parent: true
-        - name: checks_report_target_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.checks_report_target_path
-          contract:
-            type: relpath
-            under: artifacts/checks
-          pointer:
-            path: ${inputs.state_root}/checks_report_target_path.txt
-          ensure_parent: true
-        - name: implementation_review_report_target_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.implementation_review_report_target_path
-          contract:
-            type: relpath
-            under: artifacts/review
-          pointer:
-            path: ${inputs.state_root}/implementation_review_report_target_path.txt
-          ensure_parent: true
-        - name: item_summary_target_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.item_summary_target_path
-          contract:
-            type: relpath
-            under: artifacts/work
-          pointer:
-            path: ${inputs.state_root}/item_summary_target_path.txt
-          ensure_parent: true
-        - name: outcome_bundle_path
-          source:
-            ref: root.steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path
-          contract:
-            type: relpath
-            under: state
-          pointer:
-            path: ${inputs.state_root}/outcome_bundle_path.txt
-          ensure_parent: true
+          fields: []
 
   - name: RunRoadmapSyncPhase
     id: run_roadmap_sync_phase
     call: roadmap_sync_phase
     with:
       state_root:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.roadmap_sync_state_root
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.roadmap_sync_state_root
       steering_path:
         ref: inputs.steering_path
       design_path:
@@ -472,11 +190,11 @@ steps:
       roadmap_path:
         ref: inputs.current_roadmap_path
       selected_item_context_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.selected_item_context_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.selected_item_context_path
       progress_ledger_path:
         ref: inputs.progress_ledger_path
       roadmap_sync_report_target_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.roadmap_sync_report_target_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.roadmap_sync_report_target_path
     on:
       failure:
         goto: RecordSelectionRejected
@@ -525,17 +243,14 @@ steps:
     when:
       compare:
         left:
-          ref: self.steps.MaterializeSelectedItemInputs.artifacts.selection_mode
+          ref: self.steps.ResolveSelectedItemInputs.artifacts.selection_mode
         op: eq
         right: ACTIVE_SELECTION
-    requires_variant:
-      step: MaterializeSelectionModeAuthority
-      value: ACTIVE_SELECTION
     command:
       - python
       - workflows/library/scripts/move_neurips_backlog_item.py
       - --item-path
-      - ${steps.MaterializeSelectionModeAuthority.artifacts.selected_item_active_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_active_path}
       - --dest-state
       - in_progress
 
@@ -571,7 +286,7 @@ steps:
             ],
             check=True,
         )
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_in_progress_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
       - ${inputs.run_state_path}
       - ${steps.ApplyRoadmapSyncDecision.artifacts.current_roadmap_path}
 
@@ -581,13 +296,13 @@ steps:
       - python
       - workflows/library/scripts/recover_neurips_plan_gate_outputs.py
       - --selection-mode
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selection_mode}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selection_mode}
       - --selected-item-path
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_in_progress_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
       - --recovery-report-target-path
-      - ${steps.MaterializeSelectedItemInputs.artifacts.plan_gate_recovery_report_target_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.plan_gate_recovery_report_target_path}
       - --output
-      - ${steps.MaterializeSelectedItemInputs.artifacts.final_plan_gate_bundle_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.final_plan_gate_bundle_path}
       - --status-output
       - ${inputs.state_root}/plan_gate_status.txt
     expected_outputs:
@@ -607,7 +322,7 @@ steps:
     call: plan_phase
     with:
       state_root:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.plan_phase_state_root
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_phase_state_root
       steering_path:
         ref: inputs.steering_path
       design_path:
@@ -615,13 +330,13 @@ steps:
       roadmap_path:
         ref: root.steps.ApplyRoadmapSyncDecision.artifacts.current_roadmap_path
       selected_item_context_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.selected_item_context_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.selected_item_context_path
       progress_ledger_path:
         ref: inputs.progress_ledger_path
       plan_target_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.plan_target_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_target_path
       plan_review_report_target_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.plan_review_report_target_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.plan_review_report_target_path
     on:
       failure:
         goto: RecordPlanBlocked
@@ -660,9 +375,9 @@ steps:
       - python
       - workflows/library/scripts/reconcile_neurips_selected_item.py
       - --active-path
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_active_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_active_path}
       - --in-progress-path
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_in_progress_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
       - --plan-path
       - ${steps.RunFreshPlanPhase.artifacts.plan_path}
       - --output-path
@@ -747,9 +462,9 @@ steps:
         ):
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(value + "\n", encoding="utf-8")
-      - ${steps.MaterializeSelectedItemInputs.artifacts.final_plan_gate_bundle_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.plan_phase_state_root}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_in_progress_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.final_plan_gate_bundle_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.plan_phase_state_root}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
       - ${inputs.state_root}/reconciled_selected_item_path.txt
       - ${inputs.state_root}/selected_plan_path.txt
       - ${inputs.state_root}/selected_plan_review_report_path.txt
@@ -786,19 +501,19 @@ steps:
     call: implementation_phase
     with:
       state_root:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.implementation_phase_state_root
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.implementation_phase_state_root
       design_path:
         ref: inputs.design_path
       plan_path:
         ref: root.steps.ValidatePlanGateBundle.artifacts.plan_path
       check_commands_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.check_commands_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.check_commands_path
       execution_report_target_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.execution_report_target_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.execution_report_target_path
       checks_report_target_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.checks_report_target_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.checks_report_target_path
       implementation_review_report_target_path:
-        ref: root.steps.MaterializeSelectedItemInputs.artifacts.implementation_review_report_target_path
+        ref: root.steps.ResolveSelectedItemInputs.artifacts.implementation_review_report_target_path
       implementation_execute_provider:
         ref: inputs.implementation_execute_provider
       implementation_review_provider:
@@ -812,7 +527,7 @@ steps:
       - python
       - workflows/library/scripts/reconcile_neurips_selected_item.py
       - --active-path
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_active_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_active_path}
       - --in-progress-path
       - ${steps.ValidatePlanGateBundle.artifacts.selected_item_in_progress_path}
       - --plan-path
@@ -929,10 +644,10 @@ steps:
             encoding="utf-8",
         )
       - ${steps.ReconcileSelectedItemQueueAfterImplementation.artifacts.selected_item_in_progress_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.implementation_phase_state_root}
+      - ${steps.ResolveSelectedItemInputs.artifacts.implementation_phase_state_root}
       - ${steps.ValidatePlanGateBundle.artifacts.plan_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.item_summary_target_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.outcome_bundle_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.item_summary_target_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path}
       - ${inputs.run_state_path}
       - ${steps.ApplyRoadmapSyncDecision.artifacts.current_roadmap_path}
     on:
@@ -1013,9 +728,9 @@ steps:
             encoding="utf-8",
         )
       - ${steps.ReconcileSelectedItemQueueAfterImplementation.artifacts.selected_item_in_progress_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.implementation_phase_state_root}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.item_summary_target_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.outcome_bundle_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.implementation_phase_state_root}
+      - ${steps.ResolveSelectedItemInputs.artifacts.item_summary_target_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path}
       - ${inputs.run_state_path}
       - ${steps.ApplyRoadmapSyncDecision.artifacts.current_roadmap_path}
     on:
@@ -1068,10 +783,10 @@ steps:
             + "\n",
             encoding="utf-8",
         )
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_active_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_in_progress_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.item_summary_target_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.outcome_bundle_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_active_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.item_summary_target_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path}
       - ${inputs.current_roadmap_path}
     on:
       success:
@@ -1138,9 +853,9 @@ steps:
             + "\n",
             encoding="utf-8",
         )
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_in_progress_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.item_summary_target_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.outcome_bundle_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.item_summary_target_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path}
       - ${inputs.run_state_path}
       - ${inputs.current_roadmap_path}
     on:
@@ -1208,10 +923,10 @@ steps:
             + "\n",
             encoding="utf-8",
         )
-      - ${steps.MaterializeSelectedItemInputs.artifacts.selected_item_in_progress_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.plan_phase_state_root}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.item_summary_target_path}
-      - ${steps.MaterializeSelectedItemInputs.artifacts.outcome_bundle_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.selected_item_in_progress_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.plan_phase_state_root}
+      - ${steps.ResolveSelectedItemInputs.artifacts.item_summary_target_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path}
       - ${inputs.run_state_path}
       - ${steps.ApplyRoadmapSyncDecision.artifacts.current_roadmap_path}
     on:
@@ -1242,7 +957,7 @@ steps:
         summary_output.parent.mkdir(parents=True, exist_ok=True)
         status_output.write_text(status + "\n", encoding="utf-8")
         summary_output.write_text(item_summary_path + "\n", encoding="utf-8")
-      - ${steps.MaterializeSelectedItemInputs.artifacts.outcome_bundle_path}
+      - ${steps.ResolveSelectedItemInputs.artifacts.outcome_bundle_path}
       - ${inputs.state_root}/final_selected_item_status.txt
       - ${inputs.state_root}/final_item_summary_path.txt
     expected_outputs:

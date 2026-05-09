@@ -381,6 +381,77 @@ def test_validate_variant_output_bundle_rejects_forbidden_variant_fields(tmp_pat
     assert any(v["type"] == "variant_forbidden_field_present" for v in exc_info.value.violations)
 
 
+def test_validate_variant_output_bundle_accepts_shared_fields(tmp_path: Path):
+    """shared_fields are always exposed alongside the selected variant fields."""
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "execution_report.md").write_text("# report\n", encoding="utf-8")
+    (tmp_path / "docs" / "plans").mkdir(parents=True)
+    (tmp_path / "docs" / "plans" / "approved-plan.md").write_text("# plan\n", encoding="utf-8")
+    bundle_path = tmp_path / "state" / "variant_bundle.json"
+    bundle_path.parent.mkdir(parents=True)
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "implementation_state": "COMPLETED",
+                "plan_path": "docs/plans/approved-plan.md",
+                "execution_report_path": "artifacts/work/execution_report.md",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    contract = {
+        "path": "state/variant_bundle.json",
+        "discriminant": {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        },
+        "shared_fields": [
+            {
+                "name": "plan_path",
+                "json_pointer": "/plan_path",
+                "type": "relpath",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            }
+        ],
+        "variants": {
+            "COMPLETED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+        },
+    }
+
+    artifacts = validate_variant_output_bundle(contract, workspace=tmp_path)
+    assert artifacts == {
+        "implementation_state": "COMPLETED",
+        "plan_path": "docs/plans/approved-plan.md",
+        "execution_report_path": "artifacts/work/execution_report.md",
+    }
+
+
 def test_validate_output_bundle_parses_supported_types(tmp_path: Path):
     """Bundle fields parse enum/int/float/bool/relpath into typed artifacts."""
     (tmp_path / "artifacts" / "work").mkdir(parents=True)

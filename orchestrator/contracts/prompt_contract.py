@@ -84,6 +84,22 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
     if "allowed" in discriminant:
         allowed_values = ", ".join(str(value) for value in discriminant["allowed"])
         lines.append(f"    allowed: {allowed_values}")
+    shared_fields = variant_output.get("shared_fields", [])
+    if shared_fields:
+        lines.append("  shared_fields:")
+        for spec in shared_fields:
+            lines.append(f"    - name: {spec['name']}")
+            lines.append(f"      json_pointer: {spec['json_pointer']}")
+            lines.append(f"      type: {spec['type']}")
+            if "allowed" in spec:
+                allowed_values = ", ".join(str(value) for value in spec["allowed"])
+                lines.append(f"      allowed: {allowed_values}")
+            if "under" in spec:
+                lines.append(f"      under: {spec['under']}")
+            if spec.get("must_exist_target"):
+                lines.append("      must_exist_target: true")
+            if spec.get("required") is False:
+                lines.append("      required: false")
     lines.append("  variants:")
     for variant_name, variant_spec in variant_output.get("variants", {}).items():
         lines.append(f"    {variant_name}:")

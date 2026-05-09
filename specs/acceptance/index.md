@@ -8,6 +8,7 @@
   - IO capture: modes, limits, tee semantics, JSON parse behavior and `allow_parse_error`.
   - Providers: argv vs stdin, placeholder validation, unresolved placeholders, parameter merge.
   - Managed providers (v2.13): version-gated provider-only schema validation, managed route target validation, guarded process-tree execution, watcher classification with pending-policy reconciliation, deterministic job metadata or extractor validation, local and Slurm backend identity state, immutable source/config snapshot or Slurm preflight hash verification, supported `python`/`torchrun` plus `conda run` and `uv run` shim payloads, job audit/recovery after success/failure/timeout, managed outcome routing, resumable outstanding jobs, and resume without provider relaunch.
+  - Materialization and variants (v2.14): version-gated `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant`; contract inheritance/refinement; canonical pointer authority; bounded snapshot-diff evidence; tagged-union validation; atomic bundle commit; and variant-field availability proof.
   - Adjudicated providers (v2.11): version gating, candidate isolation, same-trust-boundary evaluator evidence, selection, promotion, ledger ownership, and stdout suppression.
   - Deterministic artifact contracts: `expected_outputs`/`output_bundle` validation, typed parsing, publish/consume lineage, and contract violation handling.
   - Wait-for: exclusivity, timeout semantics, state metrics.
@@ -199,6 +200,13 @@
 187. v2.13 managed provider schema: `managed_jobs` is rejected on non-provider and adjudicated-provider steps, with provider retries, with ordinary `on`, with unsafe paths, invalid backend, invalid poll budget, missing routes, or unknown route targets
 188. v2.13 managed provider runtime: managed provider steps force provider retry policy to zero, wrap the selected provider invocation, terminate the guarded process tree on timeout, and run recovery after success/failure/timeout
 189. v2.13 managed provider recovery: completed jobs are verified from deterministic job state, failed or invalid jobs route through `managed_jobs.on`, outstanding jobs fail resumably, and resume re-enters recovery without relaunching the provider
+190. v2.14 loader gating: `materialize_artifacts`, `pre_snapshot`, `variant_output`, `select_variant_output`, and `requires_variant` are rejected below `version: "2.14"` and accepted at `version: "2.14"`
+191. v2.14 materialization: `materialize_artifacts` resolves typed values from inputs, refs, literals, and runtime sources; rejects weakened contract refinements; enforces path safety; writes pointers atomically; rejects noncanonical pointer authority for published relpath artifacts; and expands `input_values` into long-form-equivalent materialization entries
+192. v2.14 snapshots: `pre_snapshot` stores durable bounded `sha256` snapshot evidence under `steps.<Step>.snapshots.<name>`, rejects unsafe or oversized candidates, and keeps snapshot refs out of ordinary artifact refs
+193. v2.14 variant output: `variant_output` validates a tagged-union JSON bundle, exposes the discriminant, any declared `shared_fields`, and only the selected variant's fields, rejects duplicate artifact names or JSON pointers across discriminant/shared/variant scopes, rejects forbidden fields, and injects provider prompt contracts while validating command outputs without prompt injection
+194. v2.14 variant selection: `select_variant_output` selects exactly one changed snapshot candidate, validates the selected shape before commit, writes the canonical bundle atomically, and preserves the previous bundle when candidate validation fails
+195. v2.14 variant references: downstream refs to variant-only fields require a matching `match` case or `requires_variant`, and runtime fails before execution with `variant_unavailable` if the asserted variant is not selected
+196. Phase 2 v2.14 NeurIPS ergonomics evidence: the translated four-workflow stack keeps native JSON bundles instead of splitting them into per-field text fanout where the compact contract permits it, and the repo-local LOC comparison evidence must show a net reduction versus the legacy four-file stack
 
 ## DSL Evolution Rollout Crosswalk
 

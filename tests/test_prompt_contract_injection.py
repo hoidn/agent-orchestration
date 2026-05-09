@@ -18,6 +18,9 @@ def _write_workflow(workspace: Path, workflow: dict) -> Path:
 
 
 def _enable_v214_loader(monkeypatch) -> None:
+    version_order = list(WorkflowLoader.VERSION_ORDER)
+    if "2.14" not in version_order:
+        version_order.append("2.14")
     monkeypatch.setattr(
         WorkflowLoader,
         "SUPPORTED_VERSIONS",
@@ -26,7 +29,7 @@ def _enable_v214_loader(monkeypatch) -> None:
     monkeypatch.setattr(
         WorkflowLoader,
         "VERSION_ORDER",
-        [*WorkflowLoader.VERSION_ORDER, "2.14"],
+        version_order,
     )
 
 
@@ -379,6 +382,119 @@ def test_provider_output_bundle_appends_contract_block_with_resolved_path(tmp_pa
     assert "allowed: READY, NONE_READY" in captured["prompt"]
     assert "name: selected_item_path" in captured["prompt"]
     assert "must_exist_target: true" in captured["prompt"]
+
+
+def test_provider_variant_output_shared_fields_render_once(tmp_path: Path) -> None:
+    """variant_output shared_fields should render once outside the variant-specific sections."""
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / "implement.md").write_text("Implement the backlog item.\n", encoding="utf-8")
+    (tmp_path / "docs" / "plans").mkdir(parents=True)
+    (tmp_path / "docs" / "plans" / "approved-plan.md").write_text("# plan\n", encoding="utf-8")
+    (tmp_path / "artifacts" / "work").mkdir(parents=True)
+    (tmp_path / "artifacts" / "work" / "execution_report.md").write_text("# report\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "prompt-contract-variant-shared-fields",
+        "providers": {
+            "mock_provider": {
+                "command": ["bash", "-lc", "cat >/dev/null; echo ok"],
+                "input_mode": "stdin",
+            }
+        },
+        "steps": [{
+            "name": "Implement",
+            "id": "implement",
+            "provider": "mock_provider",
+            "input_file": "prompts/implement.md",
+            "variant_output": {
+                "path": "state/variant_bundle.json",
+                "discriminant": {
+                    "name": "implementation_state",
+                    "json_pointer": "/implementation_state",
+                    "type": "enum",
+                    "allowed": ["COMPLETED", "BLOCKED"],
+                },
+                "shared_fields": [
+                    {
+                        "name": "plan_path",
+                        "json_pointer": "/plan_path",
+                        "type": "relpath",
+                        "under": "docs/plans",
+                        "must_exist_target": True,
+                    }
+                ],
+                "variants": {
+                    "COMPLETED": {
+                        "fields": [
+                            {
+                                "name": "execution_report_path",
+                                "json_pointer": "/execution_report_path",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                            }
+                        ]
+                    },
+                    "BLOCKED": {
+                        "fields": [
+                            {
+                                "name": "progress_report_path",
+                                "json_pointer": "/progress_report_path",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                            }
+                        ]
+                    },
+                },
+            },
+        }],
+    }
+
+    workflow_file = _write_workflow(tmp_path, workflow)
+    loaded = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(workspace=tmp_path, run_id="test-run")
+    state_manager.initialize("workflow.yaml")
+    executor = WorkflowExecutor(loaded, tmp_path, state_manager)
+
+    captured = {"prompt": ""}
+
+    def _prepare_invocation(*args, **kwargs):
+        captured["prompt"] = kwargs.get("prompt_content") or ""
+        return SimpleNamespace(input_mode="stdin", prompt=captured["prompt"]), None
+
+    def _execute(_invocation, **_kwargs):
+        (tmp_path / "state").mkdir(exist_ok=True)
+        (tmp_path / "state" / "variant_bundle.json").write_text(
+            json.dumps(
+                {
+                    "implementation_state": "COMPLETED",
+                    "plan_path": "docs/plans/approved-plan.md",
+                    "execution_report_path": "artifacts/work/execution_report.md",
+                }
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+        )
+
+    executor.provider_executor.prepare_invocation = _prepare_invocation
+    executor.provider_executor.execute = _execute
+
+    state = executor.execute()
+    assert state["steps"]["Implement"]["exit_code"] == 0
+    assert "shared_fields:" in captured["prompt"]
+    assert captured["prompt"].count("name: plan_path") == 1
+    assert "execution_report_path" in captured["prompt"]
 
 
 def test_provider_asset_file_reads_prompt_relative_to_workflow_source(tmp_path: Path):

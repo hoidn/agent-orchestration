@@ -14,6 +14,9 @@ from tests.workflow_bundle_helpers import materialize_projection_body_steps, tha
 
 
 def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
+    version_order = list(WorkflowLoader.VERSION_ORDER)
+    if "2.14" not in version_order:
+        version_order.append("2.14")
     monkeypatch.setattr(
         WorkflowLoader,
         "SUPPORTED_VERSIONS",
@@ -22,7 +25,7 @@ def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         WorkflowLoader,
         "VERSION_ORDER",
-        [*WorkflowLoader.VERSION_ORDER, "2.14"],
+        version_order,
     )
 
 
@@ -275,11 +278,11 @@ class TestLoaderValidation:
         assert surface["version"] == "2.12"
         assert surface["steps"][0]["name"] == "Echo"
 
-    def test_version_2_14_is_rejected(self):
-        """Phase 0 must keep public version 2.14 unavailable on normal loader paths."""
+    def test_version_2_14_is_supported(self):
+        """Public v2.14 workflows load on normal loader paths after release."""
         workflow = {
             "version": "2.14",
-            "name": "future-version-gate",
+            "name": "v214-release-gate",
             "steps": [{
                 "name": "Echo",
                 "command": ["echo", "ok"],
@@ -288,11 +291,11 @@ class TestLoaderValidation:
 
         path = self.write_workflow(workflow)
 
-        with pytest.raises(WorkflowValidationError) as exc_info:
-            self.loader.load(path)
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
 
-        assert exc_info.value.exit_code == 2
-        assert any("Unsupported version '2.14'" in str(err.message) for err in exc_info.value.errors)
+        assert surface["version"] == "2.14"
+        assert surface["steps"][0]["name"] == "Echo"
 
     def test_materialize_artifacts_requires_version_2_14(self):
         """Phase 1 internals must not expose materialize_artifacts on public pre-2.14 workflows."""
@@ -856,6 +859,170 @@ class TestLoaderValidation:
         assert any(
             "select_variant_output.evidence.mode" in str(err.message)
             and "snapshot_diff" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def test_materialize_artifacts_input_values_expand_to_values(
+        self,
+    ):
+        """input_values should expand into the same internal values representation."""
+        workflow = {
+            "version": "2.14",
+            "name": "materialize-input-values",
+            "inputs": {
+                "state_root": {
+                    "type": "relpath",
+                    "under": "state",
+                },
+                "steering_path": {
+                    "type": "relpath",
+                    "under": "docs",
+                    "must_exist_target": True,
+                },
+                "design_path": {
+                    "type": "relpath",
+                    "under": "docs/plans",
+                    "must_exist_target": True,
+                },
+            },
+            "steps": [
+                {
+                    "name": "MaterializeInputs",
+                    "id": "materialize_inputs",
+                    "materialize_artifacts": {
+                        "input_values": [
+                            {
+                                "names": ["steering_path", "design_path"],
+                                "contract": "inherit",
+                                "pointer_template": "${inputs.state_root}/{name}.txt",
+                            }
+                        ]
+                    },
+                }
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
+
+        values = surface["steps"][0]["materialize_artifacts"]["values"]
+        assert values == [
+            {
+                "name": "steering_path",
+                "source": {"input": "steering_path"},
+                "contract": {"inherit": "source"},
+                "pointer": {"path": "${inputs.state_root}/steering_path.txt"},
+            },
+            {
+                "name": "design_path",
+                "source": {"input": "design_path"},
+                "contract": {"inherit": "source"},
+                "pointer": {"path": "${inputs.state_root}/design_path.txt"},
+            },
+        ]
+
+    def test_materialize_artifacts_input_values_requires_pointer_name_placeholder(
+        self,
+    ):
+        """input_values pointer templates must include the {name} placeholder."""
+        workflow = {
+            "version": "2.14",
+            "name": "materialize-input-values-invalid-template",
+            "inputs": {
+                "state_root": {
+                    "type": "relpath",
+                    "under": "state",
+                },
+                "steering_path": {
+                    "type": "relpath",
+                    "under": "docs",
+                    "must_exist_target": True,
+                },
+            },
+            "steps": [
+                {
+                    "name": "MaterializeInputs",
+                    "id": "materialize_inputs",
+                    "materialize_artifacts": {
+                        "input_values": [
+                            {
+                                "names": ["steering_path"],
+                                "contract": "inherit",
+                                "pointer_template": "${inputs.state_root}/pointer.txt",
+                            }
+                        ]
+                    },
+                }
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "pointer_template" in str(err.message) and "{name}" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def test_variant_output_shared_fields_reject_duplicate_field_name(
+        self,
+    ):
+        """shared_fields must not duplicate variant-only field names."""
+        workflow = {
+            "version": "2.14",
+            "name": "variant-shared-fields-duplicate",
+            "steps": [
+                {
+                    "name": "EmitBundle",
+                    "id": "emit_bundle",
+                    "command": ["echo", "ok"],
+                    "variant_output": {
+                        "path": "state/variant_bundle.json",
+                        "discriminant": {
+                            "name": "implementation_state",
+                            "json_pointer": "/implementation_state",
+                            "type": "enum",
+                            "allowed": ["COMPLETED"],
+                        },
+                        "shared_fields": [
+                            {
+                                "name": "report_path",
+                                "json_pointer": "/report_path",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                            }
+                        ],
+                        "variants": {
+                            "COMPLETED": {
+                                "fields": [
+                                    {
+                                        "name": "report_path",
+                                        "json_pointer": "/other_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    }
+                                ]
+                            }
+                        },
+                    },
+                }
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "shared_fields" in str(err.message) and "report_path" in str(err.message)
             for err in exc_info.value.errors
         )
 

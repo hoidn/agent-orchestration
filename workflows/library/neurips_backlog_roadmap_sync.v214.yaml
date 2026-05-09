@@ -107,52 +107,16 @@ steps:
   - name: MaterializeRoadmapSyncInputs
     id: materialize_roadmap_sync_inputs
     materialize_artifacts:
+      input_values:
+        - names:
+            - steering_path
+            - design_path
+            - roadmap_path
+            - selected_item_context_path
+            - progress_ledger_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
       values:
-        - name: steering_path
-          source: { input: steering_path }
-          contract:
-            type: relpath
-            under: docs
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/steering_path.txt
-          ensure_parent: true
-        - name: design_path
-          source: { input: design_path }
-          contract:
-            type: relpath
-            under: docs/plans
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/design_path.txt
-          ensure_parent: true
-        - name: roadmap_path
-          source: { input: roadmap_path }
-          contract:
-            type: relpath
-            under: docs/plans
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/roadmap_path.txt
-          ensure_parent: true
-        - name: selected_item_context_path
-          source: { input: selected_item_context_path }
-          contract:
-            type: relpath
-            under: state
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/selected_item_context_path.txt
-          ensure_parent: true
-        - name: progress_ledger_path
-          source: { input: progress_ledger_path }
-          contract:
-            type: relpath
-            under: state
-            must_exist_target: true
-          pointer:
-            path: ${inputs.state_root}/progress_ledger_path.txt
-          ensure_parent: true
         - name: roadmap_sync_report_path
           source: { input: roadmap_sync_report_target_path }
           contract:

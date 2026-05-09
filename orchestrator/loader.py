@@ -78,7 +78,7 @@ class WorkflowLoader:
 
     SUPPORTED_VERSIONS = {
         "1.1", "1.1.1", "1.2", "1.3", "1.4", "1.5", "1.6", "1.7", "1.8",
-        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13",
+        "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath", "string"}
     STRING_CONTRACT_VERSION = "2.10"
@@ -158,8 +158,6 @@ class WorkflowLoader:
                 return {}
 
             assert isinstance(workflow, dict), "Type narrowing for workflow"
-            surface_source = deepcopy(workflow)
-
             version = workflow.get('version')
             if not version:
                 self._add_error("'version' field is required")
@@ -169,6 +167,18 @@ class WorkflowLoader:
                 version = ""
             elif version not in self.SUPPORTED_VERSIONS:
                 self._add_error(f"Unsupported version '{version}'. Supported: {self.SUPPORTED_VERSIONS}")
+
+            if isinstance(version, str) and version:
+                inputs = workflow.get("inputs")
+                if isinstance(inputs, dict):
+                    self._workflow_input_specs = {
+                        str(name): spec
+                        for name, spec in inputs.items()
+                        if isinstance(name, str) and isinstance(spec, dict)
+                    }
+                self._normalize_v214_ergonomics(workflow, version)
+
+            surface_source = deepcopy(workflow)
 
             if expected_version and isinstance(version, str) and version and version != expected_version:
                 self._add_error(
@@ -204,6 +214,123 @@ class WorkflowLoader:
             self._current_source_root = previous_source_root
             self._current_imports = previous_imports
             self._current_workflow_is_imported = previous_workflow_is_imported
+
+    def _normalize_v214_ergonomics(self, workflow: Dict[str, Any], version: str) -> None:
+        """Expand narrow v2.14 ergonomics shorthands into existing runtime shapes."""
+        if not self._version_at_least(version, "2.14"):
+            return
+
+        def normalize_steps(steps: Any) -> None:
+            if not isinstance(steps, list):
+                return
+            for step in steps:
+                if not isinstance(step, dict):
+                    continue
+                self._expand_materialize_input_values(step)
+                if is_if_statement(step):
+                    for branch_name in ("then", "else"):
+                        branch = normalize_branch_block(step.get(branch_name), branch_name)
+                        if isinstance(branch, dict):
+                            normalize_steps(branch.get("steps"))
+                if is_match_statement(step):
+                    match_node = step.get("match")
+                    cases = match_node.get("cases") if isinstance(match_node, dict) else None
+                    if isinstance(cases, dict):
+                        for case_name, authored_case in cases.items():
+                            case_block = normalize_match_case_block(authored_case, str(case_name))
+                            if isinstance(case_block, dict):
+                                normalize_steps(case_block.get("steps"))
+                repeat_until = normalize_repeat_until_block(step.get("repeat_until"))
+                if isinstance(repeat_until, dict):
+                    normalize_steps(repeat_until.get("steps"))
+                for_each = step.get("for_each")
+                if isinstance(for_each, dict):
+                    normalize_steps(for_each.get("steps"))
+
+        normalize_steps(workflow.get("steps"))
+        finalization = normalize_finally_block(workflow.get("finally"))
+        if isinstance(finalization, dict):
+            normalize_steps(finalization.get("steps"))
+
+    def _expand_materialize_input_values(self, step: Dict[str, Any]) -> None:
+        """Expand materialize_artifacts.input_values into long-form values entries."""
+        materialize_artifacts = step.get("materialize_artifacts")
+        if not isinstance(materialize_artifacts, dict):
+            return
+
+        input_values = materialize_artifacts.get("input_values")
+        if input_values is None:
+            return
+
+        step_name = step.get("name", "<unnamed>")
+        context = f"Step '{step_name}': materialize_artifacts"
+        if not isinstance(input_values, list):
+            self._add_error(f"{context}.input_values must be a list")
+            return
+
+        existing_values = materialize_artifacts.get("values")
+        expanded_values: List[Dict[str, Any]] = []
+        seen_names: Set[str] = set()
+        if isinstance(existing_values, list):
+            for spec in existing_values:
+                if isinstance(spec, dict) and isinstance(spec.get("name"), str) and spec["name"].strip():
+                    seen_names.add(spec["name"])
+
+        for group_index, group in enumerate(input_values):
+            group_context = f"{context}.input_values[{group_index}]"
+            if not isinstance(group, dict):
+                self._add_error(f"{group_context} must be a dictionary")
+                continue
+
+            names = group.get("names")
+            if not isinstance(names, list) or not names:
+                self._add_error(f"{group_context}.names must be a non-empty list")
+                continue
+
+            contract_mode = group.get("contract")
+            if contract_mode != "inherit":
+                self._add_error(f"{group_context}.contract must be the literal 'inherit'")
+                continue
+
+            pointer_template = group.get("pointer_template")
+            if not isinstance(pointer_template, str):
+                self._add_error(f"{group_context}.pointer_template must be a string")
+                continue
+            if "{name}" not in pointer_template:
+                self._add_error(f"{group_context}.pointer_template must contain '{{name}}'")
+                continue
+
+            for raw_name in names:
+                if not isinstance(raw_name, str) or not raw_name.strip():
+                    self._add_error(f"{group_context}.names entries must be non-empty strings")
+                    continue
+                name = raw_name.strip()
+                if not isinstance(self._workflow_input_specs.get(name), dict):
+                    self._add_error(f"{group_context}.names references unknown workflow input '{name}'")
+                    continue
+                if name in seen_names:
+                    self._add_error(f"{group_context} expands duplicate materialized name '{name}'")
+                    continue
+
+                pointer_path = pointer_template.replace("{name}", name)
+                self._validate_path_safety(pointer_path, f"{group_context}.pointer_template")
+
+                expanded_values.append(
+                    {
+                        "name": name,
+                        "source": {"input": name},
+                        "contract": {"inherit": "source"},
+                        "pointer": {"path": pointer_path},
+                    }
+                )
+                seen_names.add(name)
+
+        normalized = dict(materialize_artifacts)
+        normalized_values = list(existing_values) if isinstance(existing_values, list) else []
+        normalized_values.extend(expanded_values)
+        normalized["values"] = normalized_values
+        normalized.pop("input_values", None)
+        step["materialize_artifacts"] = normalized
 
     def _validate_top_level(self, workflow: Dict[str, Any], version: str):
         """Validate top-level workflow fields."""
@@ -981,8 +1108,11 @@ class WorkflowLoader:
                 else:
                     self._validate_output_bundle(step['output_bundle'], name, version)
 
-            if 'variant_output' in step and not self._version_at_least(version, "2.14"):
-                self._add_error(f"Step '{name}': variant_output requires version '2.14'")
+            if 'variant_output' in step:
+                if not self._version_at_least(version, "2.14"):
+                    self._add_error(f"Step '{name}': variant_output requires version '2.14'")
+                else:
+                    self._validate_variant_output(step['variant_output'], name, version)
 
             if 'pre_snapshot' in step and not self._version_at_least(version, "2.14"):
                 self._add_error(f"Step '{name}': pre_snapshot requires version '2.14'")
@@ -2955,6 +3085,107 @@ class WorkflowLoader:
             if 'required' in spec and not isinstance(spec['required'], bool):
                 self._add_error(f"{field_context} 'required' must be a boolean")
 
+    def _validate_variant_output(self, variant_output: Any, step_name: str, version: str) -> None:
+        """Validate tagged-union output contract entries (v2.14)."""
+        context = f"Step '{step_name}': variant_output"
+        if not isinstance(variant_output, dict):
+            self._add_error(f"{context} must be a dictionary")
+            return
+
+        if 'path' not in variant_output:
+            self._add_error(f"{context} missing required 'path'")
+        elif not isinstance(variant_output['path'], str):
+            self._add_error(f"{context} 'path' must be a string")
+        else:
+            self._validate_path_safety(variant_output['path'], f"{context} path")
+
+        discriminant = variant_output.get('discriminant')
+        if not isinstance(discriminant, dict):
+            self._add_error(f"{context}.discriminant must be a dictionary")
+            return
+
+        shared_fields = variant_output.get('shared_fields', [])
+        if shared_fields is None:
+            shared_fields = []
+        if not isinstance(shared_fields, list):
+            self._add_error(f"{context}.shared_fields must be a list")
+            shared_fields = []
+
+        variants = variant_output.get('variants')
+        if not isinstance(variants, dict) or not variants:
+            self._add_error(f"{context}.variants must be a non-empty dictionary")
+            return
+
+        seen_names: Set[str] = set()
+        seen_pointers: Set[str] = set()
+
+        def validate_field_spec(spec: Any, field_context: str) -> None:
+            if not isinstance(spec, dict):
+                self._add_error(f"{field_context} must be a dictionary")
+                return
+
+            name = spec.get('name')
+            if not isinstance(name, str):
+                self._add_error(f"{field_context} 'name' must be a string")
+            elif not name.strip():
+                self._add_error(f"{field_context} 'name' cannot be empty")
+            elif name in seen_names:
+                self._add_error(f"{field_context} duplicate artifact name '{name}' across discriminant/shared_fields/variants")
+            else:
+                seen_names.add(name)
+
+            pointer = spec.get('json_pointer')
+            if not isinstance(pointer, str):
+                self._add_error(f"{field_context} 'json_pointer' must be a string")
+            else:
+                if pointer and not pointer.startswith('/'):
+                    self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax")
+                elif pointer in seen_pointers:
+                    self._add_error(f"{field_context} duplicate json_pointer '{pointer}' across discriminant/shared_fields/variants")
+                else:
+                    seen_pointers.add(pointer)
+
+            output_type = spec.get('type', 'enum')
+            if not isinstance(output_type, str):
+                self._add_error(f"{field_context} 'type' must be a string")
+            elif output_type not in self._supported_output_types(version):
+                self._add_error(f"{field_context} invalid variant_output field type '{output_type}'")
+
+            if 'under' in spec:
+                if not isinstance(spec['under'], str):
+                    self._add_error(f"{field_context} 'under' must be a string")
+                else:
+                    self._validate_path_safety(spec['under'], f"{field_context} under")
+
+            if 'allowed' in spec and not isinstance(spec['allowed'], list):
+                self._add_error(f"{field_context} 'allowed' must be a list")
+
+            if output_type == 'enum' and 'allowed' not in spec:
+                self._add_error(f"{field_context} enum type requires 'allowed'")
+
+            if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
+                self._add_error(f"{field_context} 'must_exist_target' must be a boolean")
+
+            if 'required' in spec and not isinstance(spec['required'], bool):
+                self._add_error(f"{field_context} 'required' must be a boolean")
+
+        validate_field_spec(discriminant, f"{context}.discriminant")
+
+        for index, spec in enumerate(shared_fields):
+            validate_field_spec(spec, f"{context}.shared_fields[{index}]")
+
+        for variant_name, variant_spec in variants.items():
+            variant_context = f"{context}.variants.{variant_name}"
+            if not isinstance(variant_spec, dict):
+                self._add_error(f"{variant_context} must be a dictionary")
+                continue
+            fields = variant_spec.get('fields')
+            if not isinstance(fields, list):
+                self._add_error(f"{variant_context}.fields must be a list")
+                continue
+            for index, spec in enumerate(fields):
+                validate_field_spec(spec, f"{variant_context}.fields[{index}]")
+
     def _extend_variant_proof_context(
         self,
         *,
@@ -3767,6 +3998,21 @@ class WorkflowLoader:
                             'variant_owner_step': name,
                             'variant_role': 'discriminant',
                         }
+                shared_fields = variant_output.get('shared_fields')
+                if isinstance(shared_fields, list):
+                    for spec in shared_fields:
+                        if not isinstance(spec, dict):
+                            continue
+                        artifact_name = spec.get('name')
+                        if isinstance(artifact_name, str):
+                            outputs[artifact_name] = {
+                                **self._normalize_output_contract_artifact_spec(
+                                    spec,
+                                    persisted=step.get('persist_artifacts_in_state', True) is not False,
+                                ),
+                                'variant_owner_step': name,
+                                'variant_role': 'shared',
+                            }
                 variants = variant_output.get('variants')
                 if isinstance(variants, dict):
                     for variant_name, variant_spec in variants.items():
@@ -3834,7 +4080,10 @@ class WorkflowLoader:
                         if not isinstance(spec, dict):
                             continue
                         artifact_name = spec.get('name')
-                        contract = spec.get('contract')
+                        contract = self._resolve_materialize_catalog_contract(
+                            spec,
+                            artifact_map=artifact_map,
+                        )
                         if isinstance(artifact_name, str) and isinstance(contract, dict):
                             outputs[artifact_name] = {
                                 'type': contract.get('type'),
@@ -3883,6 +4132,44 @@ class WorkflowLoader:
             artifact_map[name] = outputs
 
         return artifact_map
+
+    def _resolve_materialize_catalog_contract(
+        self,
+        spec: Dict[str, Any],
+        *,
+        artifact_map: Dict[str, Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Resolve materialize_artifacts contract metadata for authored-shape catalogs."""
+        contract = spec.get("contract")
+        if isinstance(contract, dict) and isinstance(contract.get("type"), str):
+            return contract
+
+        if not (isinstance(contract, dict) and contract.get("inherit") == "source"):
+            return contract if isinstance(contract, dict) else None
+
+        source = spec.get("source")
+        if not isinstance(source, dict):
+            return None
+
+        if "input" in source and isinstance(source.get("input"), str):
+            input_spec = self._workflow_input_specs.get(source["input"])
+            return input_spec if isinstance(input_spec, dict) else None
+
+        if source.get("runtime") == "now_ns":
+            return {"kind": "scalar", "type": "integer"}
+
+        if "ref" in source and isinstance(source.get("ref"), str) and ".artifacts." in source["ref"]:
+            try:
+                target = parse_structured_ref(source["ref"], artifact_map.keys())
+            except ReferenceResolutionError:
+                return None
+            step_artifacts = artifact_map.get(target.step_name)
+            if not isinstance(step_artifacts, dict) or not isinstance(target.member, str):
+                return None
+            resolved = step_artifacts.get(target.member)
+            return resolved if isinstance(resolved, dict) else None
+
+        return None
 
     def _collect_if_statement_outputs(self, step: Dict[str, Any]) -> Dict[str, Dict[str, Any]]:
         """Collect block outputs exposed by a structured if/else statement."""
@@ -4755,6 +5042,16 @@ class WorkflowLoader:
                     "type": discriminant.get('type'),
                     "path": None,
                 }
+            shared_fields = variant_output.get('shared_fields', [])
+            if isinstance(shared_fields, list):
+                for spec in shared_fields:
+                    if not isinstance(spec, dict) or not isinstance(spec.get('name'), str):
+                        continue
+                    out[spec['name']] = {
+                        "source": "variant_output",
+                        "type": spec.get('type'),
+                        "path": None,
+                    }
             variants = variant_output.get('variants', {})
             if isinstance(variants, dict):
                 for variant_spec in variants.values():

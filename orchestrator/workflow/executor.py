@@ -6248,6 +6248,12 @@ class WorkflowExecutor:
         if isinstance(discriminant, dict) and discriminant.get("name") == artifact_name:
             return discriminant
 
+        shared_fields = variant_contract.get("shared_fields", [])
+        if isinstance(shared_fields, list):
+            for spec in shared_fields:
+                if isinstance(spec, dict) and spec.get("name") == artifact_name:
+                    return spec
+
         variants = variant_contract.get("variants", {})
         if isinstance(variants, dict):
             for variant_spec in variants.values():
@@ -6277,6 +6283,11 @@ class WorkflowExecutor:
         )
         if artifact_name == discriminant_name:
             return discriminant_name, None
+        shared_fields = variant_contract.get("shared_fields", [])
+        if isinstance(shared_fields, list):
+            for spec in shared_fields:
+                if isinstance(spec, dict) and spec.get("name") == artifact_name:
+                    return discriminant_name, None
         variants = variant_contract.get("variants", {})
         if isinstance(variants, dict):
             for variant_name, variant_spec in variants.items():

@@ -358,6 +358,80 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
         ])
 
     artifacts: Dict[str, Any] = {discriminant_name: parsed_discriminant}
+    shared_fields = variant_output.get("shared_fields", [])
+    if shared_fields is None:
+        shared_fields = []
+    if not isinstance(shared_fields, list):
+        raise OutputContractError([
+            ContractViolation(
+                type="invalid_variant_bundle",
+                message="variant_output shared_fields must be a list",
+                context={"path": bundle_path},
+            )
+        ])
+
+    for spec in shared_fields:
+        if not isinstance(spec, dict):
+            violations.append(
+                ContractViolation(
+                    type="invalid_variant_bundle",
+                    message="variant_output shared field must be a dictionary",
+                    context={"path": bundle_path},
+                )
+            )
+            continue
+        field_name = spec.get("name")
+        json_pointer = spec.get("json_pointer")
+        if not isinstance(field_name, str) or not field_name:
+            violations.append(
+                ContractViolation(
+                    type="invalid_variant_bundle",
+                    message="variant_output shared field requires a non-empty name",
+                    context={"path": bundle_path},
+                )
+            )
+            continue
+        if not isinstance(json_pointer, str):
+            violations.append(
+                ContractViolation(
+                    type="invalid_json_pointer",
+                    message="variant_output shared field requires a string json_pointer",
+                    context={"path": bundle_path, "name": field_name},
+                )
+            )
+            continue
+
+        found, raw_value = _resolve_json_pointer(document, json_pointer)
+        if not found:
+            violations.append(
+                ContractViolation(
+                    type="variant_required_field_missing",
+                    message="variant_output required shared field is missing",
+                    context={
+                        "path": bundle_path,
+                        "variant": parsed_discriminant,
+                        "name": field_name,
+                        "json_pointer": json_pointer,
+                    },
+                )
+            )
+            continue
+
+        parsed_value, violation = _parse_output_bundle_value(
+            raw_value=raw_value,
+            value_type=spec.get("type"),
+            spec=spec,
+            workspace=resolved_workspace,
+        )
+        if violation is not None:
+            violation.type = "variant_field_type_invalid"
+            violation.context["path"] = bundle_path
+            violation.context["variant"] = parsed_discriminant
+            violation.context["json_pointer"] = json_pointer
+            violations.append(violation)
+            continue
+        artifacts[field_name] = parsed_value
+
     selected_fields = selected_variant.get("fields")
     if not isinstance(selected_fields, list):
         raise OutputContractError([
