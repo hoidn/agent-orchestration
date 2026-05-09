@@ -1,0 +1,58 @@
+{
+  "domain_state_summaries": {},
+  "files": {
+    "artifacts/work/execution_report.md": {
+      "sha256": "89ac13e08a82069e6dc51b7da00da4d3a9ad64f6c2fda87c262701f4cb4cf04c",
+      "size": 19
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "variant_proof_accept"
+      }
+    },
+    "state/oracle/variant_access.json": {
+      "json": {
+        "accessed_path": "artifacts/work/execution_report.md",
+        "requested_field": "execution_report_path",
+        "selected_variant": "COMPLETED"
+      }
+    },
+    "state/oracle/variant_bundle.json": {
+      "json": {
+        "execution_report_path": "artifacts/work/execution_report.md",
+        "implementation_state": "COMPLETED"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "selected_variants": [
+    "COMPLETED"
+  ],
+  "snapshot_candidate_keys": [],
+  "status": "completed",
+  "steps": {
+    "EmitVariantBundle": {
+      "artifacts": {
+        "execution_report_path": "artifacts/work/execution_report.md",
+        "implementation_state": "COMPLETED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "EnforceVariantProof": {
+      "artifacts": {
+        "accessed_path": "artifacts/work/execution_report.md",
+        "selected_variant": "COMPLETED"
+      },
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "selected_variant": "COMPLETED"
+  }
+}

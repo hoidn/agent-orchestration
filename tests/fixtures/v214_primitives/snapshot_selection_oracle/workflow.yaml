@@ -1,0 +1,144 @@
+version: "2.7"
+name: "v214-snapshot-selection-oracle"
+
+outputs:
+  selected_variant:
+    kind: scalar
+    type: enum
+    allowed: ["COMPLETED", "BLOCKED"]
+    from:
+      ref: root.steps.SelectChangedCandidate.artifacts.selected_variant
+
+steps:
+  - name: InitializeCandidateSnapshot
+    command:
+      - python
+      - -c
+      - |
+        import hashlib
+        import json
+        import pathlib
+
+        def sha256(path: pathlib.Path) -> str:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        artifacts_root = pathlib.Path("artifacts/work")
+        artifacts_root.mkdir(parents=True, exist_ok=True)
+        execution_path = artifacts_root / "execution_report.md"
+        progress_path = artifacts_root / "progress_report.md"
+        execution_path.write_text("baseline execution report\n", encoding="utf-8")
+        progress_path.write_text("baseline progress report\n", encoding="utf-8")
+
+        pathlib.Path("state/oracle").mkdir(parents=True, exist_ok=True)
+        pathlib.Path("state/oracle/pre_snapshot.json").write_text(
+            json.dumps(
+                {
+                    "snapshot_candidate_keys": [
+                        "execution_report_path",
+                        "progress_report_path",
+                    ],
+                    "candidates": {
+                        "execution_report_path": {
+                            "path": execution_path.as_posix(),
+                            "sha256": sha256(execution_path),
+                        },
+                        "progress_report_path": {
+                            "path": progress_path.as_posix(),
+                            "sha256": sha256(progress_path),
+                        },
+                    },
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+  - name: MutateCandidateSnapshot
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+
+        scenario = json.loads(pathlib.Path("state/fake_provider_scenario.json").read_text(encoding="utf-8"))
+        mode = scenario["mode"]
+        execution_path = pathlib.Path("artifacts/work/execution_report.md")
+        progress_path = pathlib.Path("artifacts/work/progress_report.md")
+
+        if mode in {"single_changed", "multi_change"}:
+            execution_path.write_text("updated execution report\n", encoding="utf-8")
+        if mode == "multi_change":
+            progress_path.write_text("updated progress report\n", encoding="utf-8")
+
+  - name: SelectChangedCandidate
+    command:
+      - python
+      - -c
+      - |
+        import hashlib
+        import json
+        import pathlib
+
+        def sha256(path: pathlib.Path) -> str:
+            return hashlib.sha256(path.read_bytes()).hexdigest()
+
+        state_root = pathlib.Path("state/oracle")
+        pre_snapshot = json.loads((state_root / "pre_snapshot.json").read_text(encoding="utf-8"))
+        candidates = pre_snapshot["candidates"]
+        changed = []
+        current_hashes = {}
+        for key in sorted(candidates):
+            relpath = candidates[key]["path"]
+            digest = sha256(pathlib.Path(relpath))
+            current_hashes[key] = digest
+            if digest != candidates[key]["sha256"]:
+                changed.append(key)
+
+        if len(changed) != 1:
+            failure_class = "no_changed_candidates" if not changed else "multiple_changed_candidates"
+            (state_root / "snapshot_selection_error.json").write_text(
+                json.dumps(
+                    {
+                        "failure_class": failure_class,
+                        "snapshot_candidate_keys": pre_snapshot["snapshot_candidate_keys"],
+                        "changed_candidate_keys": changed,
+                        "current_hashes": current_hashes,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            raise SystemExit(failure_class)
+
+        selected_key = changed[0]
+        selected_variant = "COMPLETED" if selected_key == "execution_report_path" else "BLOCKED"
+        selected_path = candidates[selected_key]["path"]
+        (state_root / "snapshot_selection.json").write_text(
+            json.dumps(
+                {
+                    "selected_variant": selected_variant,
+                    "selected_path": selected_path,
+                    "snapshot_candidate_keys": pre_snapshot["snapshot_candidate_keys"],
+                    "changed_candidate_keys": changed,
+                    "current_hashes": current_hashes,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    output_bundle:
+      path: state/oracle/snapshot_selection.json
+      fields:
+        - name: selected_variant
+          json_pointer: /selected_variant
+          type: enum
+          allowed: ["COMPLETED", "BLOCKED"]
+        - name: selected_path
+          json_pointer: /selected_path
+          type: relpath
+          under: artifacts/work
+          must_exist_target: true

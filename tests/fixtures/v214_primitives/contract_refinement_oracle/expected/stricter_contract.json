@@ -1,0 +1,72 @@
+{
+  "domain_state_summaries": {},
+  "files": {
+    "state/contract_refinement.json": {
+      "json": {
+        "plan_path": "docs/plans/oracle-refined-plan.md",
+        "proposal": {
+          "allowed": [
+            "plan"
+          ],
+          "must_exist_target": true,
+          "type": "relpath",
+          "under": "docs/plans"
+        },
+        "refinement_status": "ACCEPTED",
+        "source_contract": {
+          "allowed": [
+            "implementation",
+            "plan",
+            "review"
+          ],
+          "must_exist_target": false,
+          "type": "relpath",
+          "under": "docs"
+        }
+      }
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "stricter_contract"
+      }
+    },
+    "state/source_contract.json": {
+      "json": {
+        "allowed": [
+          "implementation",
+          "plan",
+          "review"
+        ],
+        "must_exist_target": false,
+        "type": "relpath",
+        "under": "docs"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [],
+  "status": "completed",
+  "steps": {
+    "SeedSourceContract": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "ValidateContractRefinement": {
+      "artifacts": {
+        "plan_path": "docs/plans/oracle-refined-plan.md",
+        "refinement_status": "ACCEPTED"
+      },
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "refinement_status": "ACCEPTED"
+  }
+}

@@ -18,6 +18,13 @@ NeurIPS-style backlog-drain behavior before v2.14 semantics land.
 | `materialization_ok` | relpath bundle validation | published plan path | contract-validated bundle value | run id |
 | `invalid_bundle` | invalid enum bundle | no published artifact | contract violation surface, invalid candidate file | run id |
 | `missing_target` | missing relpath target | no published artifact | contract violation surface, missing-target reason | run id |
+| `stricter_contract` | source-contract narrowing | accepted refinement | narrowed `under`, stricter `must_exist_target`, narrowed enum set | run id |
+| `weaker_contract` | source-contract weakening rejection | workflow failure | weakening violation class, rejected proposal payload | run id |
+| `single_changed` | single snapshot candidate diff | `selected_variant=COMPLETED` | candidate keys, changed key, selected path, file hashes | run id |
+| `no_change` | zero snapshot candidate diffs | workflow failure | failure class, candidate keys, unchanged hashes | run id |
+| `multi_change` | multiple snapshot candidate diffs | workflow failure | failure class, candidate keys, changed keys, file hashes | run id |
+| `variant_proof_accept` | discriminant-backed field access | `selected_variant=COMPLETED` | selected variant, accessed relpath, bundle fields | run id |
+| `variant_proof_reject` | discriminant mismatch rejection | workflow failure | `variant_unavailable` evidence, required variant, selected variant | run id |
 
 ## Minimal NeurIPS Drain Scenarios
 

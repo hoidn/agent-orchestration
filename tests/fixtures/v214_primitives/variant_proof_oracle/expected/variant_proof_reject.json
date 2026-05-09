@@ -2,15 +2,23 @@
   "domain_state_summaries": {},
   "files": {
     "artifacts/work/progress_report.md": {
-      "sha256": "0ffe928ba163a82d68117faadcb7e0c74d89428fdc84a9c839f1e18c1a809959",
-      "size": 286
+      "sha256": "97a1bfc1ecd79d34881d43afc361251b8e34be17740005b934be5119efa1c9c8",
+      "size": 59
     },
     "state/fake_provider_scenario.json": {
       "json": {
-        "mode": "blocked"
+        "mode": "variant_proof_reject"
       }
     },
-    "state/oracle/implementation_state.json": {
+    "state/oracle/variant_access_error.json": {
+      "json": {
+        "failure_class": "variant_unavailable",
+        "requested_field": "execution_report_path",
+        "required_variant": "COMPLETED",
+        "selected_variant": "BLOCKED"
+      }
+    },
+    "state/oracle/variant_bundle.json": {
       "json": {
         "blocker_class": "missing_resource",
         "implementation_state": "BLOCKED",
@@ -23,23 +31,13 @@
     "done": [],
     "in_progress": []
   },
-  "selected_variants": [],
+  "selected_variants": [
+    "BLOCKED"
+  ],
   "snapshot_candidate_keys": [],
-  "status": "completed",
+  "status": "failed",
   "steps": {
-    "ExecuteImplementation": {
-      "artifacts": {},
-      "error": null,
-      "status": "completed"
-    },
-    "InitializeTargets": {
-      "artifacts": {
-        "phase_started_at_ns": 1
-      },
-      "error": null,
-      "status": "completed"
-    },
-    "MaterializeImplementationState": {
+    "EmitVariantBundle": {
       "artifacts": {
         "blocker_class": "missing_resource",
         "implementation_state": "BLOCKED",
@@ -47,9 +45,12 @@
       },
       "error": null,
       "status": "completed"
+    },
+    "EnforceVariantProof": {
+      "artifacts": {},
+      "error": null,
+      "status": "failed"
     }
   },
-  "workflow_outputs": {
-    "implementation_state": "BLOCKED"
-  }
+  "workflow_outputs": {}
 }

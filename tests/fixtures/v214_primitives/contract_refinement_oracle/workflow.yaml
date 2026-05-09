@@ -1,0 +1,121 @@
+version: "2.7"
+name: "v214-contract-refinement-oracle"
+
+outputs:
+  refinement_status:
+    kind: scalar
+    type: enum
+    allowed: ["ACCEPTED"]
+    from:
+      ref: root.steps.ValidateContractRefinement.artifacts.refinement_status
+
+steps:
+  - name: SeedSourceContract
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+
+        pathlib.Path("state").mkdir(parents=True, exist_ok=True)
+        pathlib.Path("state/source_contract.json").write_text(
+            json.dumps(
+                {
+                    "type": "relpath",
+                    "under": "docs",
+                    "must_exist_target": False,
+                    "allowed": ["plan", "review", "implementation"],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
+  - name: ValidateContractRefinement
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+
+        def under_is_narrower(source_under: str, proposed_under: str) -> bool:
+            return proposed_under == source_under or proposed_under.startswith(source_under + "/")
+
+        state_root = pathlib.Path("state")
+        scenario = json.loads((state_root / "fake_provider_scenario.json").read_text(encoding="utf-8"))
+        source = json.loads((state_root / "source_contract.json").read_text(encoding="utf-8"))
+
+        proposals = {
+            "stricter_contract": {
+                "type": "relpath",
+                "under": "docs/plans",
+                "must_exist_target": True,
+                "allowed": ["plan"],
+            },
+            "weaker_contract": {
+                "type": "relpath",
+                "under": "docs",
+                "must_exist_target": False,
+                "allowed": ["plan", "review", "implementation", "extra"],
+            },
+        }
+
+        proposal = proposals[scenario["mode"]]
+        violations = []
+        if proposal["type"] != source["type"]:
+            violations.append("type changed")
+        if source["must_exist_target"] and not proposal["must_exist_target"]:
+            violations.append("must_exist_target weakened")
+        if not under_is_narrower(source["under"], proposal["under"]):
+            violations.append("under moved outside source scope")
+        if not set(proposal["allowed"]).issubset(set(source["allowed"])):
+            violations.append("allowed set expanded")
+
+        if violations:
+            (state_root / "contract_refinement_error.json").write_text(
+                json.dumps(
+                    {
+                        "result": "REJECTED",
+                        "violation_type": "contract_refinement_weakened",
+                        "violations": violations,
+                        "source_contract": source,
+                        "proposal": proposal,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            raise SystemExit("; ".join(violations))
+
+        plan_path = pathlib.Path("docs/plans/oracle-refined-plan.md")
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Refined Oracle Plan\n", encoding="utf-8")
+        (state_root / "contract_refinement.json").write_text(
+            json.dumps(
+                {
+                    "refinement_status": "ACCEPTED",
+                    "plan_path": plan_path.as_posix(),
+                    "source_contract": source,
+                    "proposal": proposal,
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    output_bundle:
+      path: state/contract_refinement.json
+      fields:
+        - name: refinement_status
+          json_pointer: /refinement_status
+          type: enum
+          allowed: ["ACCEPTED"]
+        - name: plan_path
+          json_pointer: /plan_path
+          type: relpath
+          under: docs/plans
+          must_exist_target: true

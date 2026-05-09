@@ -1,0 +1,73 @@
+{
+  "domain_state_summaries": {},
+  "files": {
+    "state/contract_refinement_error.json": {
+      "json": {
+        "proposal": {
+          "allowed": [
+            "extra",
+            "implementation",
+            "plan",
+            "review"
+          ],
+          "must_exist_target": false,
+          "type": "relpath",
+          "under": "docs"
+        },
+        "result": "REJECTED",
+        "source_contract": {
+          "allowed": [
+            "implementation",
+            "plan",
+            "review"
+          ],
+          "must_exist_target": false,
+          "type": "relpath",
+          "under": "docs"
+        },
+        "violation_type": "contract_refinement_weakened",
+        "violations": [
+          "allowed set expanded"
+        ]
+      }
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "weaker_contract"
+      }
+    },
+    "state/source_contract.json": {
+      "json": {
+        "allowed": [
+          "implementation",
+          "plan",
+          "review"
+        ],
+        "must_exist_target": false,
+        "type": "relpath",
+        "under": "docs"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [],
+  "status": "failed",
+  "steps": {
+    "SeedSourceContract": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "ValidateContractRefinement": {
+      "artifacts": {},
+      "error": null,
+      "status": "failed"
+    }
+  },
+  "workflow_outputs": {}
+}

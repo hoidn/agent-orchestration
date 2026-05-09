@@ -1,4 +1,5 @@
 {
+  "domain_state_summaries": {},
   "files": {
     "state/fake_provider_scenario.json": {
       "json": {
@@ -16,6 +17,8 @@
     "done": [],
     "in_progress": []
   },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [],
   "status": "completed",
   "steps": {
     "EmitMissingTargetBundle": {

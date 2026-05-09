@@ -1,0 +1,84 @@
+{
+  "domain_state_summaries": {},
+  "files": {
+    "artifacts/work/execution_report.md": {
+      "sha256": "911ca6813e84d7c051d711ffefee90c57f270c5e1993639c1ae2458b18e9effa",
+      "size": 25
+    },
+    "artifacts/work/progress_report.md": {
+      "sha256": "04e25a09a46bcc146c2a95167c1145244521d784f2835415359c684723e611e3",
+      "size": 24
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "multi_change"
+      }
+    },
+    "state/oracle/pre_snapshot.json": {
+      "json": {
+        "candidates": {
+          "execution_report_path": {
+            "path": "artifacts/work/execution_report.md",
+            "sha256": "c457e8f433c0f77486f53445500817cd743032fbfaeabe6330c1c421c27fc08d"
+          },
+          "progress_report_path": {
+            "path": "artifacts/work/progress_report.md",
+            "sha256": "e7772fdde01bbe003e2f526f6eea4e8927c095d45196c1e0450a26712b8485b6"
+          }
+        },
+        "snapshot_candidate_keys": [
+          "execution_report_path",
+          "progress_report_path"
+        ]
+      }
+    },
+    "state/oracle/snapshot_selection_error.json": {
+      "json": {
+        "changed_candidate_keys": [
+          "execution_report_path",
+          "progress_report_path"
+        ],
+        "current_hashes": {
+          "execution_report_path": "911ca6813e84d7c051d711ffefee90c57f270c5e1993639c1ae2458b18e9effa",
+          "progress_report_path": "04e25a09a46bcc146c2a95167c1145244521d784f2835415359c684723e611e3"
+        },
+        "failure_class": "multiple_changed_candidates",
+        "snapshot_candidate_keys": [
+          "execution_report_path",
+          "progress_report_path"
+        ]
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [
+    [
+      "execution_report_path",
+      "progress_report_path"
+    ]
+  ],
+  "status": "failed",
+  "steps": {
+    "InitializeCandidateSnapshot": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "MutateCandidateSnapshot": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "SelectChangedCandidate": {
+      "artifacts": {},
+      "error": null,
+      "status": "failed"
+    }
+  },
+  "workflow_outputs": {}
+}

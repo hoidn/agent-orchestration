@@ -1,4 +1,5 @@
 {
+  "domain_state_summaries": {},
   "files": {
     "artifacts/work/execution_report.md": {
       "sha256": "e6d1428dc09f70f19ab4ca45e39dd61aa2f937d618545d4c948f7ed0d63e1d8f",
@@ -19,6 +20,8 @@
     "done": [],
     "in_progress": []
   },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [],
   "status": "failed",
   "steps": {
     "ExecuteImplementation": {

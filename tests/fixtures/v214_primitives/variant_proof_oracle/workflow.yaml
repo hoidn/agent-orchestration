@@ -1,0 +1,132 @@
+version: "2.7"
+name: "v214-variant-proof-oracle"
+
+outputs:
+  selected_variant:
+    kind: scalar
+    type: enum
+    allowed: ["COMPLETED"]
+    from:
+      ref: root.steps.EnforceVariantProof.artifacts.selected_variant
+
+steps:
+  - name: EmitVariantBundle
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+
+        scenario = json.loads(pathlib.Path("state/fake_provider_scenario.json").read_text(encoding="utf-8"))
+        artifacts_root = pathlib.Path("artifacts/work")
+        artifacts_root.mkdir(parents=True, exist_ok=True)
+        state_root = pathlib.Path("state/oracle")
+        state_root.mkdir(parents=True, exist_ok=True)
+
+        if scenario["mode"] == "variant_proof_accept":
+            execution_path = artifacts_root / "execution_report.md"
+            execution_path.write_text("# Execution Report\n", encoding="utf-8")
+            payload = {
+                "implementation_state": "COMPLETED",
+                "execution_report_path": execution_path.as_posix(),
+            }
+        else:
+            progress_path = artifacts_root / "progress_report.md"
+            progress_path.write_text("# Blocked Progress Report\n\nBlocker Class: missing_resource\n", encoding="utf-8")
+            payload = {
+                "implementation_state": "BLOCKED",
+                "progress_report_path": progress_path.as_posix(),
+                "blocker_class": "missing_resource",
+            }
+
+        (state_root / "variant_bundle.json").write_text(
+            json.dumps(payload, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    output_bundle:
+      path: state/oracle/variant_bundle.json
+      fields:
+        - name: implementation_state
+          json_pointer: /implementation_state
+          type: enum
+          allowed: ["COMPLETED", "BLOCKED"]
+        - name: execution_report_path
+          json_pointer: /execution_report_path
+          type: relpath
+          under: artifacts/work
+          must_exist_target: true
+          required: false
+        - name: progress_report_path
+          json_pointer: /progress_report_path
+          type: relpath
+          under: artifacts/work
+          must_exist_target: true
+          required: false
+        - name: blocker_class
+          json_pointer: /blocker_class
+          type: enum
+          allowed:
+            - missing_resource
+            - unavailable_hardware
+            - roadmap_conflict
+            - external_dependency_outside_authority
+            - user_decision_required
+            - unrecoverable_after_fix_attempt
+          required: false
+
+  - name: EnforceVariantProof
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+
+        bundle = json.loads(pathlib.Path("state/oracle/variant_bundle.json").read_text(encoding="utf-8"))
+        selected_variant = bundle["implementation_state"]
+        required_variant = "COMPLETED"
+        requested_field = "execution_report_path"
+
+        if selected_variant != required_variant:
+            pathlib.Path("state/oracle/variant_access_error.json").write_text(
+                json.dumps(
+                    {
+                        "failure_class": "variant_unavailable",
+                        "selected_variant": selected_variant,
+                        "required_variant": required_variant,
+                        "requested_field": requested_field,
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            raise SystemExit(
+                f"variant_unavailable: {requested_field} requires {required_variant}, got {selected_variant}"
+            )
+
+        pathlib.Path("state/oracle/variant_access.json").write_text(
+            json.dumps(
+                {
+                    "selected_variant": selected_variant,
+                    "requested_field": requested_field,
+                    "accessed_path": bundle[requested_field],
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+    output_bundle:
+      path: state/oracle/variant_access.json
+      fields:
+        - name: selected_variant
+          json_pointer: /selected_variant
+          type: enum
+          allowed: ["COMPLETED"]
+        - name: accessed_path
+          json_pointer: /accessed_path
+          type: relpath
+          under: artifacts/work
+          must_exist_target: true

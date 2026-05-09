@@ -1,4 +1,5 @@
 {
+  "domain_state_summaries": {},
   "files": {
     "artifacts/review/implementation_review.md": {
       "sha256": "cc7c484d91246ecb8c67d5db8f1483257bc432aeda2b67cefca1a54869aad937",
@@ -15,6 +16,8 @@
     "done": [],
     "in_progress": []
   },
+  "selected_variants": [],
+  "snapshot_candidate_keys": [],
   "status": "completed",
   "steps": {
     "InitializeReviewTargets": {

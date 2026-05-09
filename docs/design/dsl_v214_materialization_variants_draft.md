@@ -35,17 +35,24 @@ Phase 0 oracle coverage:
 
 - valid relpath materialization under `docs/plans`
 - missing required target failure
+- source-contract narrowing acceptance
+- source-contract weakening rejection
 - invalid enum bundle failure without artifact publication
 
 ### `pre_snapshot`
 
 Current approximation:
 
-- implementation phases capture a phase-start timestamp
-- follow-up materialization inspects report freshness after execution
+- command-owned before/after candidate snapshots record candidate keys and file
+  hashes
+- follow-up selection compares hashes to detect changed candidates without
+  needing public `2.14` loader support
 
 Phase 0 oracle coverage:
 
+- single changed candidate selects the corresponding variant
+- no changed candidates fail with preserved candidate-key evidence
+- multiple changed candidates fail with preserved candidate-key evidence
 - single fresh execution report selects `COMPLETED`
 - single fresh progress report selects `BLOCKED`
 - both fresh reports fail as ambiguous
@@ -64,6 +71,10 @@ Phase 0 oracle coverage:
 - completed-path exposure
 - blocked-path exposure
 - review-approve and review-revise control surfaces
+- variant-proof acceptance when the selected discriminant matches the requested
+  field
+- variant-proof rejection with `variant_unavailable` evidence when the selected
+  discriminant does not match
 
 ### `select_variant_output`
 
@@ -76,6 +87,8 @@ Phase 0 oracle coverage:
 
 - exact one-of-two outcome selection
 - no-change and multi-change failure characterization via report presence
+- snapshot-driven variant selection preserves candidate keys and selected
+  variants in normalized observations
 
 ## Explicit Deferrals
 

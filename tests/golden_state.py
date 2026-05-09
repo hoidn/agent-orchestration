@@ -20,6 +20,30 @@ from orchestrator.workflow.signatures import bind_workflow_inputs
 
 
 ROOT = Path(__file__).resolve().parents[1]
+_DURATION_KEYS = {
+    "active_runtime_ms",
+    "duration_ms",
+    "elapsed_ms",
+    "excluded_suspended_ms",
+    "runtime_ms",
+}
+_LOG_PATH_KEYS = {
+    "log_path",
+    "prompt_audit_path",
+    "scorer_snapshot_path",
+    "stderr_log_path",
+    "stdout_log_path",
+}
+_RUN_ID_KEYS = {"run_id"}
+_UNORDERED_LIST_KEYS = {
+    "allowed",
+    "blocked_tranches",
+    "changed_candidate_keys",
+    "completed_items",
+    "completed_tranches",
+    "snapshot_candidate_keys",
+    "touched_sections",
+}
 
 
 def load_expected_observation(path: Path) -> dict[str, Any]:
@@ -167,6 +191,13 @@ def _build_observation(workspace: Path, state: dict[str, Any]) -> dict[str, Any]
         if (workspace / "docs/backlog/done").is_dir()
         else [],
     }
+    domain_state_summaries = {
+        path: observation["json"]
+        for path, observation in files.items()
+        if isinstance(observation, dict)
+        and isinstance(observation.get("json"), dict)
+        and (path.endswith("summary.json") or path.endswith("run_state.json"))
+    }
 
     return {
         "status": state.get("status"),
@@ -181,6 +212,9 @@ def _build_observation(workspace: Path, state: dict[str, Any]) -> dict[str, Any]
             if _is_interesting_step(name, step)
         },
         "queue": queue,
+        "selected_variants": _collect_values(files, "selected_variant"),
+        "snapshot_candidate_keys": _collect_values(files, "snapshot_candidate_keys"),
+        "domain_state_summaries": domain_state_summaries,
         "files": files,
     }
 
@@ -193,17 +227,26 @@ def _is_interesting_file(relpath: str) -> bool:
     if not relpath.startswith("state/") or not relpath.endswith(".json"):
         return False
     interesting_names = {
+        "contract_refinement.json",
+        "contract_refinement_error.json",
         "fake_provider_scenario.json",
         "implementation_state.json",
+        "pre_snapshot.json",
         "selection.json",
         "selected-item-inputs.json",
         "selected-item-outcome.json",
+        "snapshot_selection.json",
+        "snapshot_selection_error.json",
         "final_plan_gate.json",
         "progress_ledger.json",
         "run_state.json",
         "materialized.json",
         "invalid_selection.json",
         "missing_target.json",
+        "source_contract.json",
+        "variant_access.json",
+        "variant_access_error.json",
+        "variant_bundle.json",
     }
     return Path(relpath).name in interesting_names
 
@@ -240,19 +283,69 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _normalize_value(value: Any, workspace: Path) -> Any:
+def _collect_values(files: dict[str, Any], key_name: str) -> list[Any]:
+    values: list[Any] = []
+    for observation in files.values():
+        if not isinstance(observation, dict):
+            continue
+        values.extend(_collect_values_from_node(observation.get("json"), key_name))
+    deduped: list[Any] = []
+    seen: set[str] = set()
+    for value in values:
+        marker = json.dumps(value, sort_keys=True)
+        if marker in seen:
+            continue
+        seen.add(marker)
+        deduped.append(value)
+    return deduped
+
+
+def _collect_values_from_node(node: Any, key_name: str) -> list[Any]:
+    if isinstance(node, dict):
+        values: list[Any] = []
+        for key, value in sorted(node.items()):
+            if key == key_name:
+                values.append(value)
+            values.extend(_collect_values_from_node(value, key_name))
+        return values
+    if isinstance(node, list):
+        values: list[Any] = []
+        for value in node:
+            values.extend(_collect_values_from_node(value, key_name))
+        return values
+    return []
+
+
+def _normalize_value(value: Any, workspace: Path, field_name: str | None = None) -> Any:
+    if field_name in _DURATION_KEYS:
+        return "<duration>"
+    if field_name in _RUN_ID_KEYS:
+        return "<run-id>"
+    if field_name in _LOG_PATH_KEYS:
+        return "<log-path>"
     if isinstance(value, dict):
-        return {str(key): _normalize_value(item, workspace) for key, item in sorted(value.items())}
+        return {
+            str(key): _normalize_value(item, workspace, str(key))
+            for key, item in sorted(value.items())
+        }
     if isinstance(value, list):
-        return [_normalize_value(item, workspace) for item in value]
+        items = [_normalize_value(item, workspace, field_name) for item in value]
+        if field_name in _UNORDERED_LIST_KEYS:
+            return sorted(items, key=lambda item: json.dumps(item, sort_keys=True))
+        return items
     if isinstance(value, str):
-        return _normalize_text(value, workspace)
+        normalized = _normalize_text(value, workspace)
+        if field_name in _LOG_PATH_KEYS:
+            return "<log-path>"
+        return normalized
     return value
 
 
 def _normalize_text(value: str, workspace: Path) -> str:
     normalized = value.replace(workspace.as_posix(), "<workspace>")
     normalized = normalized.replace("oracle-run", "<run-id>")
+    normalized = re.sub(r"/tmp/pytest-of-[^/\s]+/pytest-\d+[^/\s]*", "<workspace>", normalized)
+    normalized = re.sub(r"state/[^/\s]+/logs/[^/\s]+", "<log-path>", normalized)
     normalized = re.sub(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z", "<timestamp>", normalized)
     normalized = re.sub(r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?\+00:00", "<timestamp>", normalized)
     return normalized
