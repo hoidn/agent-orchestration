@@ -156,6 +156,7 @@ class OutcomeRecorder:
             debug=result.get("debug"),
             truncated=result.get("truncated") if "truncated" in result or result.get("adjudication") else False,
             artifacts=result.get("artifacts"),
+            snapshots=result.get("snapshots"),
             adjudication=result.get("adjudication"),
             managed_jobs=result.get("managed_jobs"),
             skipped=result.get("skipped", False),

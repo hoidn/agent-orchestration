@@ -65,6 +65,7 @@ from .identity import iteration_step_id, runtime_step_id
 from .loaded_bundle import (
     workflow_bundle,
     workflow_context,
+    workflow_input_contracts,
     workflow_output_contracts,
     workflow_provenance,
 )
@@ -81,7 +82,7 @@ from .predicates import (
     is_numeric_predicate_value,
 )
 from .prompting import PromptComposer
-from .references import ReferenceResolutionError, ReferenceResolver
+from .references import ReferenceResolutionError, ReferenceResolver, parse_structured_ref
 from .resume_planner import ResumePlanner, ResumeStateIntegrityError
 from .runtime_context import RuntimeContext
 from .runtime_step import RuntimeStep
@@ -2170,6 +2171,10 @@ class WorkflowExecutor:
             return 'set_scalar'
         if execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             return 'increment_scalar'
+        if execution_kind is ExecutableNodeKind.MATERIALIZE_ARTIFACTS:
+            return 'materialize_artifacts'
+        if execution_kind is ExecutableNodeKind.SELECT_VARIANT_OUTPUT:
+            return 'select_variant_output'
         if execution_kind is ExecutableNodeKind.CALL_BOUNDARY:
             return 'call'
         if execution_kind is ExecutableNodeKind.FOR_EACH:
@@ -2850,6 +2855,20 @@ class WorkflowExecutor:
         """Execute one top-level step and persist its result when applicable."""
         execution_kind = self._execution_kind_for_step(step)
 
+        requires_variant = step.get("requires_variant")
+        if isinstance(requires_variant, dict):
+            guard_error = self._resolve_selected_variant_guard(requires_variant, state)
+            if guard_error is not None:
+                return self._persist_step_result(
+                    state,
+                    step_name,
+                    step,
+                    guard_error,
+                    phase_hint="pre_execution",
+                    class_hint="pre_execution_failed",
+                    retryable_hint=False,
+                )
+
         if execution_kind is ExecutableNodeKind.FOR_EACH:
             self._execute_for_each(step, state, resume=resume_current_step)
             if step_name in state["steps"]:
@@ -2922,6 +2941,22 @@ class WorkflowExecutor:
                 self._execute_increment_scalar(step, state),
             )
 
+        if execution_kind is ExecutableNodeKind.MATERIALIZE_ARTIFACTS:
+            return self._execute_top_level_publish_and_persist(
+                step,
+                step_name,
+                state,
+                self._execute_materialize_artifacts(step, state),
+            )
+
+        if execution_kind is ExecutableNodeKind.SELECT_VARIANT_OUTPUT:
+            return self._execute_top_level_publish_and_persist(
+                step,
+                step_name,
+                state,
+                self._execute_select_variant_output(step, state),
+            )
+
         if execution_kind is ExecutableNodeKind.CALL_BOUNDARY:
             return self._execute_top_level_publish_and_persist(
                 step,
@@ -2984,6 +3019,40 @@ class WorkflowExecutor:
         step_name_override = step.get("name")
         execution_kind = self._execution_kind_for_step(step)
 
+        requires_variant = step.get("requires_variant")
+        if isinstance(requires_variant, dict):
+            guard_error = self._resolve_selected_variant_guard(requires_variant, state)
+            if guard_error is not None:
+                result = guard_error
+                publish_error = self._record_published_artifacts(
+                    step,
+                    nested_name,
+                    result,
+                    state,
+                    runtime_step_id=runtime_step_id,
+                )
+                if publish_error is not None:
+                    result = publish_error
+                result.setdefault("name", nested_name)
+                result.setdefault("step_id", runtime_step_id)
+                result = self._attach_outcome(
+                    step,
+                    result,
+                    phase_hint="pre_execution",
+                    class_hint="pre_execution_failed",
+                    retryable_hint=False,
+                )
+                iteration_state[nested_name] = result
+                if isinstance(loop_name, str):
+                    state.setdefault("steps", {})[f"{resolved_loop_name}[{resolved_iteration_index}].{nested_name}"] = result
+                self.state_manager.update_loop_step(
+                    resolved_loop_name,
+                    resolved_iteration_index,
+                    nested_name,
+                    self._to_step_result(result, nested_name),
+                )
+                return result
+
         if execution_kind is ExecutableNodeKind.COMMAND:
             result = self._execute_command_with_context(step, context, state)
         elif execution_kind is ExecutableNodeKind.PROVIDER:
@@ -3006,6 +3075,10 @@ class WorkflowExecutor:
             result = self._execute_set_scalar(step)
         elif execution_kind is ExecutableNodeKind.INCREMENT_SCALAR:
             result = self._execute_increment_scalar(step, state)
+        elif execution_kind is ExecutableNodeKind.MATERIALIZE_ARTIFACTS:
+            result = self._execute_materialize_artifacts(step, state)
+        elif execution_kind is ExecutableNodeKind.SELECT_VARIANT_OUTPUT:
+            result = self._execute_select_variant_output(step, state)
         elif execution_kind is ExecutableNodeKind.WAIT_FOR:
             result = self._execute_wait_for_result(step)
         elif execution_kind is ExecutableNodeKind.IF_BRANCH_MARKER:
@@ -3316,6 +3389,9 @@ class WorkflowExecutor:
         command = step['command']
         runtime_context = self._runtime_context(context, state)
         variables = runtime_context.build_variables(self.variable_substitutor, state)
+        snapshots, snapshot_error = self._capture_pre_snapshot(step, state)
+        if snapshot_error is not None:
+            return snapshot_error
 
         # Apply variable substitution with error tracking (AT-63)
         try:
@@ -3427,7 +3503,10 @@ class WorkflowExecutor:
                 'error': {'message': 'Command execution failed with no result'}
             }
 
-        return self._apply_expected_outputs_contract(step, result.to_state_dict(), state, context=context)
+        final_result = self._apply_expected_outputs_contract(step, result.to_state_dict(), state, context=context)
+        if snapshots:
+            final_result['snapshots'] = snapshots
+        return final_result
 
     def _execute_provider_with_context(
         self,
@@ -3480,6 +3559,9 @@ class WorkflowExecutor:
                     "context": recovery_summary,
                 }
             return result
+        snapshots, snapshot_error = self._capture_pre_snapshot(step, state)
+        if snapshot_error is not None:
+            return snapshot_error
         runtime_context = self._runtime_context(context, state)
         variables = runtime_context.build_variables(self.variable_substitutor, state)
         resolved_expected_outputs, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
@@ -3848,7 +3930,10 @@ class WorkflowExecutor:
         if debug_info:
             result['debug'] = debug_info
 
-        return self._apply_expected_outputs_contract(step, result, state, context=context)
+        final_result = self._apply_expected_outputs_contract(step, result, state, context=context)
+        if snapshots:
+            final_result['snapshots'] = snapshots
+        return final_result
 
     def _resolve_provider_name_for_step(
         self,
@@ -4023,7 +4108,10 @@ class WorkflowExecutor:
         if resolved_expected_outputs is not None:
             output_contract_step['expected_outputs'] = resolved_expected_outputs
         if resolved_output_bundle is not None:
-            output_contract_step['output_bundle'] = resolved_output_bundle
+            if 'variant_output' in step:
+                output_contract_step['variant_output'] = resolved_output_bundle
+            else:
+                output_contract_step['output_bundle'] = resolved_output_bundle
 
         frame_context = self._adjudication_frame_context()
         run_root = frame_context["run_root"]
@@ -6058,6 +6146,882 @@ class WorkflowExecutor:
         enriched_result = dict(result)
         enriched_result['artifacts'] = artifacts
         return enriched_result
+
+    def _v214_failure_result(
+        self,
+        error_type: str,
+        message: str,
+        *,
+        context: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        return {
+            "status": "failed",
+            "exit_code": 2,
+            "duration_ms": 0,
+            "error": {
+                "type": error_type,
+                "message": message,
+                "context": context or {},
+            },
+        }
+
+    def _atomic_write_text(self, target: Path, content: str) -> None:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = target.parent / f".{target.name}.tmp-{os.getpid()}-{time.time_ns()}"
+        temp_path.write_text(content, encoding="utf-8")
+        os.replace(temp_path, target)
+
+    def _workflow_input_contracts(self) -> Dict[str, Dict[str, Any]]:
+        return dict(workflow_input_contracts(self.loaded_bundle))
+
+    def _runtime_step_by_name(self, step_name: str) -> Optional[RuntimeStep]:
+        if not isinstance(step_name, str) or not step_name:
+            return None
+        index = self._projection_index_by_presentation_name.get(step_name)
+        if not isinstance(index, int) or index >= len(self._step_node_ids):
+            return None
+        node_id = self._step_node_ids[index]
+        if not isinstance(node_id, str):
+            return None
+        return self._runtime_step_for_node_id(node_id, presentation_name=step_name)
+
+    def _variant_contract_for_step(self, step_name: str) -> Optional[Dict[str, Any]]:
+        runtime_step = self._runtime_step_by_name(step_name)
+        if runtime_step is None:
+            return None
+        variant_output = runtime_step.get("variant_output")
+        if isinstance(variant_output, dict) and variant_output:
+            return variant_output
+        select_variant_output = runtime_step.get("select_variant_output")
+        if isinstance(select_variant_output, dict) and select_variant_output:
+            return select_variant_output
+        return None
+
+    def _artifact_contract_for_step(self, step_name: str, artifact_name: str) -> Optional[Dict[str, Any]]:
+        runtime_step = self._runtime_step_by_name(step_name)
+        if runtime_step is None:
+            return None
+
+        expected_outputs = runtime_step.get("expected_outputs")
+        if isinstance(expected_outputs, list):
+            for spec in expected_outputs:
+                if isinstance(spec, dict) and spec.get("name") == artifact_name:
+                    return spec
+
+        output_bundle = runtime_step.get("output_bundle")
+        if isinstance(output_bundle, dict):
+            fields = output_bundle.get("fields", [])
+            if isinstance(fields, list):
+                for spec in fields:
+                    if isinstance(spec, dict) and spec.get("name") == artifact_name:
+                        return spec
+
+        materialize_artifacts = runtime_step.get("materialize_artifacts")
+        if isinstance(materialize_artifacts, dict):
+            values = materialize_artifacts.get("values", [])
+            if isinstance(values, list):
+                for spec in values:
+                    if isinstance(spec, dict) and spec.get("name") == artifact_name:
+                        contract = spec.get("contract")
+                        if isinstance(contract, dict):
+                            return contract
+
+        variant_contract = self._variant_contract_for_step(step_name)
+        if not isinstance(variant_contract, dict):
+            return None
+
+        discriminant = variant_contract.get("discriminant")
+        if isinstance(discriminant, dict) and discriminant.get("name") == artifact_name:
+            return discriminant
+
+        variants = variant_contract.get("variants", {})
+        if isinstance(variants, dict):
+            for variant_spec in variants.values():
+                if not isinstance(variant_spec, dict):
+                    continue
+                fields = variant_spec.get("fields", [])
+                if not isinstance(fields, list):
+                    continue
+                for spec in fields:
+                    if isinstance(spec, dict) and spec.get("name") == artifact_name:
+                        return spec
+        return None
+
+    def _variant_requirement_for_artifact(
+        self,
+        step_name: str,
+        artifact_name: str,
+    ) -> tuple[Optional[str], Optional[str]]:
+        variant_contract = self._variant_contract_for_step(step_name)
+        if not isinstance(variant_contract, dict):
+            return None, None
+        discriminant = variant_contract.get("discriminant")
+        discriminant_name = (
+            discriminant.get("name")
+            if isinstance(discriminant, dict) and isinstance(discriminant.get("name"), str)
+            else None
+        )
+        if artifact_name == discriminant_name:
+            return discriminant_name, None
+        variants = variant_contract.get("variants", {})
+        if isinstance(variants, dict):
+            for variant_name, variant_spec in variants.items():
+                if not isinstance(variant_spec, dict):
+                    continue
+                fields = variant_spec.get("fields", [])
+                if not isinstance(fields, list):
+                    continue
+                for spec in fields:
+                    if isinstance(spec, dict) and spec.get("name") == artifact_name:
+                        return discriminant_name, str(variant_name)
+        return discriminant_name, None
+
+    def _resolve_variant_ref_guard(self, ref: str, state: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        steps = state.get("steps", {})
+        if not isinstance(steps, dict) or ".artifacts." not in ref:
+            return None
+        try:
+            target = parse_structured_ref(ref, steps.keys())
+        except ReferenceResolutionError:
+            return None
+        if target.field != "artifacts" or not isinstance(target.member, str):
+            return None
+        discriminant_name, required_variant = self._variant_requirement_for_artifact(
+            target.step_name,
+            target.member,
+        )
+        if required_variant is None:
+            return None
+        step_result = steps.get(target.step_name)
+        artifacts = step_result.get("artifacts") if isinstance(step_result, dict) else None
+        selected_variant = (
+            artifacts.get(discriminant_name)
+            if isinstance(artifacts, dict) and isinstance(discriminant_name, str)
+            else None
+        )
+        if selected_variant == required_variant:
+            return None
+        return self._v214_failure_result(
+            "variant_unavailable",
+            f"Variant-specific artifact '{target.member}' is unavailable",
+            context={
+                "producer_step": target.step_name,
+                "requested_field": target.member,
+                "required_variant": required_variant,
+                "selected_variant": selected_variant,
+            },
+        )
+
+    def _resolve_ref_value(self, ref: str, state: Dict[str, Any]) -> tuple[Any, Optional[Dict[str, Any]]]:
+        variant_guard_error = self._resolve_variant_ref_guard(ref, state)
+        if variant_guard_error is not None:
+            return None, variant_guard_error
+        try:
+            return self.reference_resolver.resolve(ref, state).value, None
+        except ReferenceResolutionError as exc:
+            return None, self._v214_failure_result(
+                "materialize_ref_unresolved",
+                "Structured ref could not be resolved",
+                context={"ref": ref, "error": str(exc)},
+            )
+
+    def _copy_contract_definition(self, contract: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        if not isinstance(contract, dict):
+            return None
+        return deepcopy(contract)
+
+    def _infer_contract_kind(self, contract: Dict[str, Any]) -> str:
+        kind = contract.get("kind")
+        if isinstance(kind, str) and kind:
+            return kind
+        return "relpath" if contract.get("type") == "relpath" else "scalar"
+
+    def _normalize_under_parts(self, raw_under: Any) -> Optional[tuple[str, ...]]:
+        if not isinstance(raw_under, str) or not raw_under:
+            return None
+        parts = Path(raw_under).parts
+        if any(part in {"..", ""} for part in parts):
+            return None
+        return tuple(parts)
+
+    def _refine_contract(
+        self,
+        base_contract: Dict[str, Any],
+        refine_contract: Dict[str, Any],
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        contract = deepcopy(base_contract)
+        source_type = contract.get("type")
+        source_kind = self._infer_contract_kind(contract)
+        refined = dict(refine_contract)
+        refined.pop("inherit", None)
+        if "refine" in refined and isinstance(refined["refine"], dict):
+            nested_refine = dict(refined.pop("refine"))
+            refined.update(nested_refine)
+
+        if "type" in refined and refined["type"] != source_type:
+            return None, self._v214_failure_result(
+                "contract_refinement_type_conflict",
+                "Materialized contract type conflicts with source contract",
+                context={"source_type": source_type, "refined_type": refined["type"]},
+            )
+        if "kind" in refined and refined["kind"] != source_kind:
+            return None, self._v214_failure_result(
+                "contract_refinement_kind_conflict",
+                "Materialized contract kind conflicts with source contract",
+                context={"source_kind": source_kind, "refined_kind": refined["kind"]},
+            )
+
+        if "must_exist_target" in refined:
+            source_required = bool(contract.get("must_exist_target"))
+            refined_required = bool(refined["must_exist_target"])
+            if source_required and not refined_required:
+                return None, self._v214_failure_result(
+                    "contract_refinement_weakened",
+                    "must_exist_target cannot be weakened",
+                    context={"source": source_required, "refined": refined_required},
+                )
+
+        if "under" in refined:
+            source_under = self._normalize_under_parts(contract.get("under"))
+            refined_under = self._normalize_under_parts(refined.get("under"))
+            if refined_under is None:
+                return None, self._v214_failure_result(
+                    "unsafe_path",
+                    "Refined under root is unsafe",
+                    context={"under": refined.get("under")},
+                )
+            if source_under is not None and refined_under[: len(source_under)] != source_under:
+                return None, self._v214_failure_result(
+                    "contract_refinement_incompatible_under",
+                    "Refined under root is incompatible with source contract",
+                    context={"source_under": contract.get("under"), "refined_under": refined.get("under")},
+                )
+
+        if "allowed" in refined:
+            source_allowed = contract.get("allowed")
+            refined_allowed = refined.get("allowed")
+            if contract.get("type") != "enum":
+                return None, self._v214_failure_result(
+                    "contract_field_invalid_for_type",
+                    "allowed is only valid for enum contracts",
+                    context={"type": contract.get("type")},
+                )
+            if (
+                isinstance(source_allowed, list)
+                and isinstance(refined_allowed, list)
+                and not set(refined_allowed).issubset(set(source_allowed))
+            ):
+                return None, self._v214_failure_result(
+                    "contract_refinement_weakened",
+                    "Enum refinements must be a subset of the source contract",
+                    context={"source_allowed": source_allowed, "refined_allowed": refined_allowed},
+                )
+
+        contract.update(refined)
+        contract.setdefault("kind", source_kind)
+        return contract, None
+
+    def _resolve_materialized_contract(
+        self,
+        source_node: Dict[str, Any],
+        contract_node: Any,
+        state: Dict[str, Any],
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        source_contract: Optional[Dict[str, Any]] = None
+        if "input" in source_node:
+            source_contract = self._workflow_input_contracts().get(str(source_node["input"]))
+        elif "ref" in source_node and isinstance(source_node.get("ref"), str):
+            ref = source_node["ref"]
+            if ".artifacts." in ref:
+                try:
+                    target = parse_structured_ref(ref, state.get("steps", {}).keys())
+                except ReferenceResolutionError:
+                    target = None
+                if target is not None and target.field == "artifacts" and isinstance(target.member, str):
+                    source_contract = self._artifact_contract_for_step(target.step_name, target.member)
+        elif source_node.get("runtime") == "now_ns":
+            source_contract = {"kind": "scalar", "type": "integer"}
+
+        if not isinstance(contract_node, dict):
+            if "literal" in source_node:
+                return None, self._v214_failure_result(
+                    "contract_required_for_literal",
+                    "Literal materialization requires an explicit contract",
+                )
+            if source_contract is None:
+                return None, self._v214_failure_result(
+                    "contract_source_unknown",
+                    "Source contract is unavailable for materialization",
+                )
+            return deepcopy(source_contract), None
+
+        if contract_node.get("inherit") == "source" or source_contract is not None:
+            if source_contract is None:
+                return None, self._v214_failure_result(
+                    "contract_source_unknown",
+                    "Source contract is unavailable for materialization",
+                )
+            return self._refine_contract(source_contract, contract_node)
+
+        return deepcopy(contract_node), None
+
+    def _validate_materialized_value(
+        self,
+        raw_value: Any,
+        contract: Dict[str, Any],
+    ) -> tuple[Any, Optional[Dict[str, Any]]]:
+        try:
+            return validate_contract_value(raw_value, contract, workspace=self.workspace), None
+        except OutputContractError as exc:
+            violation = exc.violations[0] if exc.violations else {}
+            violation_type = violation.get("type")
+            error_type = {
+                "missing_target": "target_missing",
+                "path_escape": "unsafe_path",
+                "outside_under_root": "unsafe_path",
+                "invalid_under_root": "unsafe_path",
+            }.get(violation_type, "contract_violation")
+            return None, self._v214_failure_result(
+                error_type,
+                "Materialized value failed contract validation",
+                context={"violations": exc.violations},
+            )
+
+    def _capture_file_snapshot(
+        self,
+        relpath: str,
+        *,
+        max_bytes_per_candidate: int,
+    ) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        candidate = self._resolve_workspace_path(relpath)
+        if candidate is None:
+            return None, self._v214_failure_result(
+                "snapshot_candidate_unsafe_path",
+                "Snapshot candidate path is unsafe",
+                context={"path": relpath},
+            )
+        if candidate.exists() and candidate.is_dir():
+            return None, self._v214_failure_result(
+                "snapshot_candidate_is_directory",
+                "Snapshot candidate must be a file",
+                context={"path": relpath},
+            )
+        if not candidate.exists():
+            return {
+                "path": relpath,
+                "exists": False,
+                "size": None,
+                "sha256": None,
+                "mtime_ns": None,
+            }, None
+
+        stat_result = candidate.stat()
+        if stat_result.st_size > max_bytes_per_candidate:
+            return None, self._v214_failure_result(
+                "snapshot_candidate_oversize",
+                "Snapshot candidate exceeds the allowed size limit",
+                context={
+                    "path": relpath,
+                    "size": stat_result.st_size,
+                    "max_bytes_per_candidate": max_bytes_per_candidate,
+                },
+            )
+
+        digest = sha256()
+        with candidate.open("rb") as handle:
+            for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                digest.update(chunk)
+        return {
+            "path": relpath,
+            "exists": True,
+            "size": stat_result.st_size,
+            "sha256": digest.hexdigest(),
+            "mtime_ns": stat_result.st_mtime_ns,
+        }, None
+
+    def _step_snapshot_dir(self, step: Dict[str, Any]) -> Path:
+        safe_step_id = "".join(
+            char if char.isalnum() or char in "._-" else "_"
+            for char in self._step_id(step)
+        ).strip("._-") or "step"
+        return self.state_manager.run_root / "snapshots" / safe_step_id
+
+    def _project_snapshot_record(
+        self,
+        step: Dict[str, Any],
+        snapshot_name: str,
+        snapshot_record: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        payload = json.dumps(snapshot_record, sort_keys=True, ensure_ascii=True) + "\n"
+        if len(payload.encode("utf-8")) <= 4096:
+            return snapshot_record
+
+        snapshot_dir = self._step_snapshot_dir(step)
+        sidecar_path = snapshot_dir / f"{snapshot_name}.json"
+        self._atomic_write_text(sidecar_path, payload)
+        sidecar_rel = sidecar_path.relative_to(self.state_manager.run_root).as_posix()
+        return {
+            "schema": snapshot_record["schema"],
+            "digest": snapshot_record["digest"],
+            "captured_at": snapshot_record["captured_at"],
+            "candidate_keys": snapshot_record["candidate_keys"],
+            "sidecar": sidecar_rel,
+            "sha256": sha256(payload.encode("utf-8")).hexdigest(),
+        }
+
+    def _inflate_snapshot_record(self, snapshot_state: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        if "sidecar" not in snapshot_state:
+            return snapshot_state, None
+        sidecar = snapshot_state.get("sidecar")
+        if not isinstance(sidecar, str):
+            return None, self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot state is missing sidecar metadata",
+            )
+        sidecar_path = self.state_manager.run_root / sidecar
+        if not sidecar_path.exists():
+            return None, self._v214_failure_result(
+                "snapshot_sidecar_missing",
+                "Snapshot sidecar is missing",
+                context={"sidecar": sidecar},
+            )
+        payload = sidecar_path.read_text(encoding="utf-8")
+        expected_hash = snapshot_state.get("sha256")
+        actual_hash = sha256(payload.encode("utf-8")).hexdigest()
+        if isinstance(expected_hash, str) and expected_hash != actual_hash:
+            return None, self._v214_failure_result(
+                "snapshot_sidecar_hash_mismatch",
+                "Snapshot sidecar hash does not match recorded state",
+                context={"sidecar": sidecar},
+            )
+        return json.loads(payload), None
+
+    def _capture_pre_snapshot(self, step: Dict[str, Any], state: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        snapshot_config = step.get("pre_snapshot")
+        if not isinstance(snapshot_config, dict) or not snapshot_config:
+            return None, None
+
+        snapshot_name = snapshot_config.get("name")
+        if not isinstance(snapshot_name, str) or not snapshot_name:
+            return None, self._v214_failure_result(
+                "snapshot_state_missing",
+                "pre_snapshot requires a snapshot name",
+            )
+        max_bytes = snapshot_config.get("max_bytes_per_candidate", 16 * 1024 * 1024)
+        if not isinstance(max_bytes, int) or max_bytes <= 0:
+            max_bytes = 16 * 1024 * 1024
+        max_bytes = min(max_bytes, 64 * 1024 * 1024)
+
+        candidates_config = snapshot_config.get("candidates")
+        if not isinstance(candidates_config, dict) or not candidates_config:
+            return None, self._v214_failure_result(
+                "snapshot_state_missing",
+                "pre_snapshot requires candidates",
+            )
+
+        snapshot_record = {
+            "schema": "snapshot_diff/v1",
+            "digest": "sha256",
+            "captured_at": "pre_step",
+            "max_bytes_per_candidate": max_bytes,
+            "candidate_keys": sorted(str(key) for key in candidates_config.keys()),
+            "candidates": {},
+        }
+        for candidate_key in snapshot_record["candidate_keys"]:
+            candidate_spec = candidates_config.get(candidate_key)
+            ref = candidate_spec.get("ref") if isinstance(candidate_spec, dict) else None
+            if not isinstance(ref, str):
+                return None, self._v214_failure_result(
+                    "snapshot_state_missing",
+                    "Snapshot candidates require a structured ref",
+                    context={"candidate": candidate_key},
+                )
+            relpath, resolve_error = self._resolve_ref_value(ref, state)
+            if resolve_error is not None:
+                return None, resolve_error
+            if not isinstance(relpath, str):
+                return None, self._v214_failure_result(
+                    "snapshot_candidate_unsafe_path",
+                    "Snapshot candidate ref must resolve to a relpath string",
+                    context={"candidate": candidate_key, "ref": ref},
+                )
+            snapshot_entry, snapshot_error = self._capture_file_snapshot(
+                relpath,
+                max_bytes_per_candidate=max_bytes,
+            )
+            if snapshot_error is not None:
+                return None, snapshot_error
+            snapshot_record["candidates"][candidate_key] = snapshot_entry
+
+        return {snapshot_name: self._project_snapshot_record(step, snapshot_name, snapshot_record)}, None
+
+    def _resolve_selected_variant_guard(
+        self,
+        requires_variant: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> Optional[Dict[str, Any]]:
+        producer_step = requires_variant.get("step")
+        required_variant = requires_variant.get("value")
+        if not isinstance(producer_step, str) or not isinstance(required_variant, str):
+            return self._v214_failure_result(
+                "unsupported_variant_proof",
+                "requires_variant must declare step and value",
+            )
+        step_result = state.get("steps", {}).get(producer_step)
+        discriminant_name, _ = self._variant_requirement_for_artifact(producer_step, "__unused__")
+        if discriminant_name is None:
+            variant_contract = self._variant_contract_for_step(producer_step)
+            discriminant = variant_contract.get("discriminant") if isinstance(variant_contract, dict) else None
+            discriminant_name = discriminant.get("name") if isinstance(discriminant, dict) else None
+        artifacts = step_result.get("artifacts") if isinstance(step_result, dict) else None
+        selected_variant = (
+            artifacts.get(discriminant_name)
+            if isinstance(artifacts, dict) and isinstance(discriminant_name, str)
+            else None
+        )
+        if selected_variant == required_variant:
+            return None
+        return self._v214_failure_result(
+            "variant_unavailable",
+            "Required variant is unavailable for this step",
+            context={
+                "producer_step": producer_step,
+                "required_variant": required_variant,
+                "selected_variant": selected_variant,
+            },
+        )
+
+    def _execute_materialize_artifacts(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        config = step.get("materialize_artifacts")
+        if not isinstance(config, dict):
+            return self._v214_failure_result(
+                "materialize_source_unknown",
+                "materialize_artifacts config must be a dictionary",
+            )
+        values = config.get("values")
+        if not isinstance(values, list):
+            return self._v214_failure_result(
+                "materialize_source_unknown",
+                "materialize_artifacts requires a values list",
+            )
+
+        artifacts: Dict[str, Any] = {}
+        pointer_map: Dict[str, str] = {}
+        for entry in values:
+            if not isinstance(entry, dict):
+                return self._v214_failure_result(
+                    "materialize_source_unknown",
+                    "materialize_artifacts values must be dictionaries",
+                )
+            name = entry.get("name")
+            source = entry.get("source")
+            if not isinstance(name, str) or not isinstance(source, dict):
+                return self._v214_failure_result(
+                    "materialize_source_unknown",
+                    "materialize_artifacts values require name and source",
+                )
+
+            if "input" in source:
+                input_name = source.get("input")
+                bound_inputs = state.get("bound_inputs", {})
+                if not isinstance(input_name, str) or not isinstance(bound_inputs, dict) or input_name not in bound_inputs:
+                    return self._v214_failure_result(
+                        "materialize_source_unknown",
+                        "Materialization input source is unavailable",
+                        context={"name": name, "input": input_name},
+                    )
+                raw_value = bound_inputs[input_name]
+            elif "ref" in source:
+                ref = source.get("ref")
+                if not isinstance(ref, str):
+                    return self._v214_failure_result(
+                        "materialize_ref_unresolved",
+                        "Materialization ref source must be a structured ref",
+                        context={"name": name},
+                    )
+                raw_value, resolve_error = self._resolve_ref_value(ref, state)
+                if resolve_error is not None:
+                    return resolve_error
+            elif "literal" in source:
+                raw_value = source.get("literal")
+            elif source.get("runtime") == "now_ns":
+                raw_value = time.time_ns()
+            else:
+                return self._v214_failure_result(
+                    "materialize_source_unknown",
+                    "Unsupported materialization source",
+                    context={"name": name, "source": source},
+                )
+
+            contract, contract_error = self._resolve_materialized_contract(source, entry.get("contract"), state)
+            if contract_error is not None or contract is None:
+                return contract_error or self._v214_failure_result(
+                    "contract_source_unknown",
+                    "Failed to resolve materialized contract",
+                    context={"name": name},
+                )
+
+            contract.setdefault("kind", self._infer_contract_kind(contract))
+            value, validation_error = self._validate_materialized_value(raw_value, contract)
+            if validation_error is not None:
+                return validation_error
+
+            if entry.get("ensure_parent") and contract.get("type") == "relpath" and isinstance(value, str):
+                target = self._resolve_workspace_path(value)
+                if target is not None:
+                    target.parent.mkdir(parents=True, exist_ok=True)
+
+            pointer = entry.get("pointer")
+            if pointer:
+                if contract.get("type") != "relpath":
+                    return self._v214_failure_result(
+                        "pointer_not_allowed_for_scalar",
+                        "Pointers are only allowed for relpath materialization",
+                        context={"name": name},
+                    )
+                pointer_path = pointer.get("path") if isinstance(pointer, dict) else None
+                if not isinstance(pointer_path, str):
+                    return self._v214_failure_result(
+                        "unsafe_path",
+                        "Pointer path must be a string",
+                        context={"name": name},
+                    )
+                resolved_pointer = self._resolve_workspace_path(pointer_path)
+                if resolved_pointer is None:
+                    return self._v214_failure_result(
+                        "unsafe_path",
+                        "Pointer path escapes the workspace",
+                        context={"name": name, "path": pointer_path},
+                    )
+                try:
+                    self._atomic_write_text(resolved_pointer, f"{value}\n")
+                except OSError as exc:
+                    return self._v214_failure_result(
+                        "atomic_commit_failed",
+                        "Failed to write materialized pointer",
+                        context={"name": name, "path": pointer_path, "error": str(exc)},
+                    )
+                pointer_map[name] = resolved_pointer.relative_to(self.workspace).as_posix()
+
+            artifacts[name] = value
+
+        result: Dict[str, Any] = {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": artifacts,
+        }
+        if pointer_map:
+            result["debug"] = {"materialize_artifacts": {"pointers": pointer_map}}
+        return result
+
+    def _execute_select_variant_output(
+        self,
+        step: Dict[str, Any],
+        state: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        config = step.get("select_variant_output")
+        if not isinstance(config, dict):
+            return self._v214_failure_result(
+                "invalid_variant_bundle",
+                "select_variant_output config must be a dictionary",
+            )
+        evidence = config.get("evidence")
+        snapshot_ref = (
+            evidence.get("snapshot", {}).get("ref")
+            if isinstance(evidence, dict) and isinstance(evidence.get("snapshot"), dict)
+            else None
+        )
+        if not isinstance(snapshot_ref, str):
+            return self._v214_failure_result(
+                "snapshot_state_missing",
+                "select_variant_output requires evidence.snapshot.ref",
+            )
+        snapshot_state, resolve_error = self._resolve_ref_value(snapshot_ref, state)
+        if resolve_error is not None:
+            return resolve_error
+        if not isinstance(snapshot_state, dict):
+            return self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot ref did not resolve to snapshot state",
+                context={"ref": snapshot_ref},
+            )
+        snapshot_record, snapshot_error = self._inflate_snapshot_record(snapshot_state)
+        if snapshot_error is not None or snapshot_record is None:
+            return snapshot_error or self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot record is unavailable",
+            )
+
+        max_bytes = snapshot_record.get("max_bytes_per_candidate", 16 * 1024 * 1024)
+        if not isinstance(max_bytes, int) or max_bytes <= 0:
+            max_bytes = 16 * 1024 * 1024
+
+        candidates = snapshot_record.get("candidates")
+        if not isinstance(candidates, dict) or not candidates:
+            return self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot record has no candidates",
+            )
+
+        current_candidates: Dict[str, Dict[str, Any]] = {}
+        changed: List[str] = []
+        for candidate_key in sorted(candidates.keys()):
+            candidate_state = candidates.get(candidate_key)
+            if not isinstance(candidate_state, dict):
+                continue
+            current_entry, current_error = self._capture_file_snapshot(
+                str(candidate_state.get("path", "")),
+                max_bytes_per_candidate=max_bytes,
+            )
+            if current_error is not None or current_entry is None:
+                return current_error or self._v214_failure_result(
+                    "snapshot_candidate_invalid",
+                    "Current snapshot candidate could not be captured",
+                    context={"candidate": candidate_key},
+                )
+            current_candidates[candidate_key] = current_entry
+            before_exists = bool(candidate_state.get("exists"))
+            after_exists = bool(current_entry.get("exists"))
+            before_sha = candidate_state.get("sha256")
+            after_sha = current_entry.get("sha256")
+            if (not before_exists and after_exists) or (before_exists and after_exists and before_sha != after_sha):
+                changed.append(candidate_key)
+
+        if not changed:
+            return self._v214_failure_result(
+                "snapshot_candidate_unchanged",
+                "No snapshot candidates changed",
+                context={"candidate_keys": sorted(candidates.keys())},
+            )
+        if len(changed) > 1:
+            return self._v214_failure_result(
+                "snapshot_candidate_ambiguous",
+                "Multiple snapshot candidates changed",
+                context={
+                    "candidate_keys": sorted(candidates.keys()),
+                    "changed_candidate_keys": changed,
+                },
+            )
+
+        selected_variant = changed[0]
+        discriminant = config.get("discriminant")
+        discriminant_name = (
+            discriminant.get("name")
+            if isinstance(discriminant, dict) and isinstance(discriminant.get("name"), str)
+            else None
+        )
+        if discriminant_name is None:
+            return self._v214_failure_result(
+                "variant_discriminant_missing",
+                "select_variant_output requires a discriminant definition",
+            )
+
+        bundle_payload: Dict[str, Any] = {discriminant_name: selected_variant}
+        variants = config.get("variants", {})
+        selected_config = variants.get(selected_variant) if isinstance(variants, dict) else None
+        if not isinstance(selected_config, dict):
+            return self._v214_failure_result(
+                "variant_discriminant_invalid",
+                "Selected variant does not exist in select_variant_output",
+                context={"selected_variant": selected_variant},
+            )
+        fields = selected_config.get("fields", [])
+        candidate_path = current_candidates[selected_variant]["path"]
+        extract_config = config.get("extract")
+        for field_spec in fields if isinstance(fields, list) else []:
+            if not isinstance(field_spec, dict):
+                continue
+            field_name = field_spec.get("name")
+            if not isinstance(field_name, str):
+                continue
+            if field_spec.get("type") == "relpath":
+                bundle_payload[field_name] = candidate_path
+                continue
+            if isinstance(extract_config, dict) and extract_config.get("from") == "candidate_path":
+                prefix = extract_config.get("line_prefix")
+                strip_chars = extract_config.get("strip", [])
+                try:
+                    text = (self.workspace / candidate_path).read_text(encoding="utf-8")
+                except OSError as exc:
+                    return self._v214_failure_result(
+                        "variant_extractor_failed",
+                        "Failed to read candidate file for extraction",
+                        context={"path": candidate_path, "error": str(exc)},
+                    )
+                matched_value = None
+                for line in text.splitlines():
+                    if isinstance(prefix, str) and line.startswith(prefix):
+                        matched_value = line[len(prefix):].strip()
+                        break
+                if matched_value is None:
+                    return self._v214_failure_result(
+                        "variant_extractor_failed",
+                        "Variant extractor did not find the requested line prefix",
+                        context={"path": candidate_path, "line_prefix": prefix},
+                    )
+                if isinstance(strip_chars, list):
+                    for raw_strip in strip_chars:
+                        if isinstance(raw_strip, str):
+                            matched_value = matched_value.replace(raw_strip, "")
+                bundle_payload[field_name] = matched_value.strip()
+
+        bundle_path_raw = config.get("path")
+        if not isinstance(bundle_path_raw, str):
+            return self._v214_failure_result(
+                "invalid_variant_bundle",
+                "select_variant_output requires a bundle path",
+            )
+        bundle_path = self._resolve_workspace_path(bundle_path_raw)
+        if bundle_path is None:
+            return self._v214_failure_result(
+                "unsafe_path",
+                "select_variant_output bundle path escapes the workspace",
+                context={"path": bundle_path_raw},
+            )
+        bundle_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = bundle_path.parent / f".{bundle_path.name}.tmp-{os.getpid()}-{time.time_ns()}"
+        payload = json.dumps(bundle_payload, sort_keys=True, ensure_ascii=True) + "\n"
+        temp_path.write_text(payload, encoding="utf-8")
+
+        validation_contract = deepcopy(config)
+        validation_contract["path"] = temp_path.relative_to(self.workspace).as_posix()
+        try:
+            artifacts = validate_variant_output_bundle(validation_contract, workspace=self.workspace)
+        except OutputContractError as exc:
+            temp_path.unlink(missing_ok=True)
+            return self._v214_failure_result(
+                "bundle_commit_aborted_invalid_candidate",
+                "Selected variant bundle failed validation",
+                context={"violations": exc.violations, "selected_variant": selected_variant},
+            )
+
+        try:
+            os.replace(temp_path, bundle_path)
+        except OSError as exc:
+            temp_path.unlink(missing_ok=True)
+            return self._v214_failure_result(
+                "atomic_commit_failed",
+                "Failed to atomically commit the selected variant bundle",
+                context={"path": bundle_path_raw, "error": str(exc)},
+            )
+
+        return {
+            "status": "completed",
+            "exit_code": 0,
+            "duration_ms": 0,
+            "artifacts": artifacts,
+            "debug": {
+                "select_variant_output": {
+                    "selected_variant": selected_variant,
+                    "changed_candidate_keys": changed,
+                }
+            },
+        }
 
     def _create_loop_context(
         self,

@@ -155,6 +155,13 @@ def _parse_structured_ref_remainder(
                 field="artifacts",
                 member=tail[len("artifacts."):],
             )
+        if tail.startswith("snapshots.") and tail != "snapshots.":
+            return StructuredRefTarget(
+                scope=scope,
+                step_name=step_name,
+                field="snapshots",
+                member=tail[len("snapshots."):],
+            )
         if tail.startswith("outcome.") and tail != "outcome.":
             return StructuredRefTarget(
                 scope=scope,
@@ -174,6 +181,15 @@ def _parse_structured_ref_remainder(
                 scope=scope,
                 step_name=step_name,
                 field="artifacts",
+                member=member,
+            )
+    if ".snapshots." in remainder:
+        step_name, member = remainder.rsplit(".snapshots.", 1)
+        if step_name and member:
+            return StructuredRefTarget(
+                scope=scope,
+                step_name=step_name,
+                field="snapshots",
                 member=member,
             )
     if ".outcome." in remainder:
@@ -251,6 +267,12 @@ class ReferenceResolver:
             if not isinstance(artifacts, dict) or target.member not in artifacts:
                 raise ReferenceResolutionError(f"Structured ref '{ref}' is unavailable")
             return ResolvedReference(artifacts[target.member])
+
+        if target.field == "snapshots":
+            snapshots = step_result.get("snapshots")
+            if not isinstance(snapshots, dict) or target.member not in snapshots:
+                raise ReferenceResolutionError(f"Structured ref '{ref}' is unavailable")
+            return ResolvedReference(snapshots[target.member])
 
         if target.field == "outcome":
             outcome = step_result.get("outcome")

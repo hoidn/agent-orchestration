@@ -2115,11 +2115,14 @@ class WorkflowLoader:
             if forbidden in step:
                 self._add_error(f"Step '{step_name}': {forbidden} is invalid with adjudicated_provider")
 
-        has_expected_outputs = 'expected_outputs' in step
-        has_output_bundle = 'output_bundle' in step
-        if has_expected_outputs == has_output_bundle:
+        declared_contracts = [
+            field_name
+            for field_name in ('expected_outputs', 'output_bundle', 'variant_output')
+            if field_name in step
+        ]
+        if len(declared_contracts) != 1:
             self._add_error(
-                f"{context} must declare exactly one of expected_outputs or output_bundle"
+                f"{context} must declare exactly one of expected_outputs or output_bundle (variant_output also satisfies this requirement in v2.14)"
             )
 
         candidates = node.get('candidates')
@@ -4208,6 +4211,48 @@ class WorkflowLoader:
                         "path": None,
                     }
 
+        variant_output = step.get('variant_output')
+        if isinstance(variant_output, dict):
+            discriminant = variant_output.get('discriminant')
+            if isinstance(discriminant, dict) and isinstance(discriminant.get('name'), str):
+                out[discriminant['name']] = {
+                    "source": "variant_output.discriminant",
+                    "type": discriminant.get('type'),
+                    "path": None,
+                }
+            variants = variant_output.get('variants', {})
+            if isinstance(variants, dict):
+                for variant_spec in variants.values():
+                    if not isinstance(variant_spec, dict):
+                        continue
+                    fields = variant_spec.get('fields', [])
+                    if not isinstance(fields, list):
+                        continue
+                    for spec in fields:
+                        if not isinstance(spec, dict) or not isinstance(spec.get('name'), str):
+                            continue
+                        out[spec['name']] = {
+                            "source": "variant_output",
+                            "type": spec.get('type'),
+                            "path": None,
+                        }
+
+        materialize_artifacts = step.get('materialize_artifacts')
+        if isinstance(materialize_artifacts, dict):
+            values = materialize_artifacts.get('values', [])
+            if isinstance(values, list):
+                for spec in values:
+                    if not isinstance(spec, dict) or not isinstance(spec.get('name'), str):
+                        continue
+                    contract = spec.get('contract')
+                    pointer = spec.get('pointer')
+                    pointer_path = pointer.get('path') if isinstance(pointer, dict) else None
+                    out[spec['name']] = {
+                        "source": "materialize_artifacts",
+                        "type": contract.get('type') if isinstance(contract, dict) else None,
+                        "path": pointer_path,
+                    }
+
         registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
         for field_name in ('set_scalar', 'increment_scalar'):
             node = step.get(field_name)
@@ -4276,7 +4321,10 @@ class WorkflowLoader:
                             )
                             continue
 
-                    if source_spec.get('type') != registry_spec.get('type'):
+                    if (
+                        source_spec.get('type') is not None
+                        and source_spec.get('type') != registry_spec.get('type')
+                    ):
                         self._add_error(
                             f"Step '{step_name}': publishes type mismatch for artifact '{artifact_name}'"
                         )
