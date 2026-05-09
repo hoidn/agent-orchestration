@@ -49,6 +49,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** authoring, prompts, contracts, deterministic-handoff, managed-jobs, gates, git
 **Use this when:** You are writing or refactoring workflow YAML and prompt patterns.
 
+### [Local Workflow Steering](steering.md)
+**Description:** Local steering constraints for the DSL v2.14 materialization and variant-output backlog drain, including the current Phase 0 gate and deferred Phase 1/2 boundaries.
+**Keywords:** steering, backlog-drain, dsl-v214, roadmap-gate
+**Use this when:** Launching or reviewing the local NeurIPS-style workflow for DSL v2.14 materialization and variants.
+
 ### [Prompt Index](../prompts/README.md)
 **Description:** Curated catalog of canonical prompt files, with recent workflow prompt families and superseded near-duplicates called out explicitly.
 **Keywords:** prompts, catalog, canonical, review, plan, implementation
@@ -103,6 +108,11 @@ Minimum rule of thumb: if you have only read `docs/index.md`, you can find the d
 **Description:** Workflow authoring patterns focused on deterministic handoff and high-signal control-flow gates.  
 **Keywords:** drafting, dsl-authoring, output-contracts, loop-patterns  
 **Use this when:** Designing new loops (execute/review/fix), gates, and prompt contracts.
+
+### [Local Workflow Steering](steering.md)
+**Description:** Current local steering for the DSL v2.14 backlog-drain run, including selectable and deferred roadmap phases.  
+**Keywords:** steering, local-run, roadmap-gate, dsl-v214  
+**Use this when:** Running or auditing the local NeurIPS-style backlog workflow.
 
 ## Normative Spec Modules (`specs/`)
 

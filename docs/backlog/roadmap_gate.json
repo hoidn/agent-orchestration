@@ -1,0 +1,14 @@
+{
+  "current_gate_id": "dsl-v214-phase0-oracle",
+  "required_scope_summary": "Only the Phase 0 behavior-freezing oracle tranche is selectable. Phase 1 runtime semantics and Phase 2 workflow translation remain future phases.",
+  "allowed_roadmap_phase_prefixes": [
+    "phase-0-dsl-v214-oracle"
+  ],
+  "disallowed_roadmap_phase_prefixes": [
+    "phase-1-dsl-v214-runtime",
+    "phase-2-dsl-v214-neurips-stack"
+  ],
+  "gap_policy": "block",
+  "gap_item_target_dir": "docs/backlog/active",
+  "gap_plan_target_root": "docs/plans/backlog-gaps"
+}
