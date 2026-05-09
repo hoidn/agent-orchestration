@@ -1012,6 +1012,11 @@ class WorkflowLoader:
                         parent_non_step_results,
                         step_proof_context,
                     )
+                    self._validate_materialize_published_pointer_authority(
+                        step=step,
+                        step_name=name,
+                        artifacts_registry=artifacts_registry,
+                    )
                 if 'pre_snapshot' in step:
                     self._validate_pre_snapshot(
                         step['pre_snapshot'],
@@ -3151,6 +3156,10 @@ class WorkflowLoader:
         digest = pre_snapshot.get('digest')
         if not isinstance(digest, str) or not digest:
             self._add_error(f"{context}.digest must be a non-empty string")
+        elif digest != "sha256":
+            self._add_error(
+                f"{context}.digest must be 'sha256' (snapshot_ref_not_snapshot_diff)"
+            )
 
         candidates = pre_snapshot.get('candidates')
         if not isinstance(candidates, dict) or not candidates:
@@ -3206,6 +3215,13 @@ class WorkflowLoader:
         if not isinstance(evidence, dict):
             self._add_error(f"{context}.evidence must be a dictionary")
             return
+        mode = evidence.get('mode')
+        if not isinstance(mode, str):
+            self._add_error(f"{context}.evidence.mode must be a string")
+        elif mode != "snapshot_diff":
+            self._add_error(
+                f"{context}.evidence.mode must be 'snapshot_diff' (snapshot_ref_not_snapshot_diff)"
+            )
         snapshot = evidence.get('snapshot')
         if not isinstance(snapshot, dict):
             self._add_error(f"{context}.evidence.snapshot must be a dictionary")
@@ -3227,6 +3243,56 @@ class WorkflowLoader:
         )
         if ref_type != 'unknown' and ref_type != 'snapshot':
             self._add_error(f"{context}.evidence.snapshot.ref must resolve to a snapshot ref")
+
+    def _validate_materialize_published_pointer_authority(
+        self,
+        *,
+        step: Dict[str, Any],
+        step_name: str,
+        artifacts_registry: Optional[Dict[str, Any]],
+    ) -> None:
+        """Enforce canonical top-level pointer ownership for published relpath materializations."""
+        materialize_artifacts = step.get('materialize_artifacts')
+        publishes = step.get('publishes')
+        if not isinstance(materialize_artifacts, dict) or not isinstance(publishes, list):
+            return
+
+        values = materialize_artifacts.get('values')
+        if not isinstance(values, list):
+            return
+
+        local_pointers: Dict[str, str] = {}
+        for spec in values:
+            if not isinstance(spec, dict):
+                continue
+            name = spec.get('name')
+            pointer = spec.get('pointer')
+            pointer_path = pointer.get('path') if isinstance(pointer, dict) else None
+            if isinstance(name, str) and isinstance(pointer_path, str) and pointer_path:
+                local_pointers[name] = pointer_path
+
+        registry = artifacts_registry if isinstance(artifacts_registry, dict) else {}
+        for publish in publishes:
+            if not isinstance(publish, dict):
+                continue
+            artifact_name = publish.get('artifact')
+            from_name = publish.get('from')
+            if not isinstance(artifact_name, str) or not isinstance(from_name, str):
+                continue
+            local_pointer = local_pointers.get(from_name)
+            if local_pointer is None:
+                continue
+            artifact_spec = registry.get(artifact_name)
+            if not isinstance(artifact_spec, dict):
+                continue
+            if artifact_spec.get('kind', 'relpath') != 'relpath':
+                continue
+            canonical_pointer = artifact_spec.get('pointer')
+            if isinstance(canonical_pointer, str) and canonical_pointer != local_pointer:
+                self._add_error(
+                    f"Step '{step_name}': pointer_authority_conflict for published artifact "
+                    f"'{artifact_name}' (local pointer '{local_pointer}' != canonical pointer '{canonical_pointer}')"
+                )
 
     def _validate_consume_bundle(self, consume_bundle: Any, step_name: str, consumes: Any):
         """Validate consume_bundle structure and consumes subset constraints (v1.3)."""
@@ -4785,9 +4851,15 @@ class WorkflowLoader:
                     if registry_kind == 'relpath' and isinstance(source_path, str):
                         pointer = registry_spec.get('pointer')
                         if source_path != pointer:
-                            self._add_error(
-                                f"Step '{step_name}': publishes pointer mismatch for artifact '{artifact_name}'"
-                            )
+                            if source_spec.get('source') == 'materialize_artifacts':
+                                self._add_error(
+                                    f"Step '{step_name}': pointer_authority_conflict for published artifact "
+                                    f"'{artifact_name}' (local pointer '{source_path}' != canonical pointer '{pointer}')"
+                                )
+                            else:
+                                self._add_error(
+                                    f"Step '{step_name}': publishes pointer mismatch for artifact '{artifact_name}'"
+                                )
                             continue
 
                     if (

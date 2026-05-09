@@ -105,6 +105,67 @@ class DataflowManager:
 
             value = artifacts[output_name]
             artifact_spec = self.artifact_registry.get(artifact_name, {})
+            artifact_kind = (
+                artifact_spec.get("kind")
+                if isinstance(artifact_spec, dict) and isinstance(artifact_spec.get("kind"), str)
+                else "relpath"
+            )
+            if artifact_kind == "relpath":
+                if not isinstance(value, str):
+                    return self.contract_violation_result(
+                        "Publish contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "invalid_selected_value",
+                            "from": output_name,
+                            "value": value,
+                        },
+                    )
+                pointer = artifact_spec.get("pointer") if isinstance(artifact_spec, dict) else None
+                if not isinstance(pointer, str) or not pointer:
+                    return self.contract_violation_result(
+                        "Publish contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "missing_registry_pointer",
+                        },
+                    )
+                debug_payload = result.get("debug")
+                local_pointer = None
+                if isinstance(debug_payload, dict):
+                    materialize_debug = debug_payload.get("materialize_artifacts")
+                    if isinstance(materialize_debug, dict):
+                        pointers = materialize_debug.get("pointers")
+                        candidate_pointer = pointers.get(output_name) if isinstance(pointers, dict) else None
+                        if isinstance(candidate_pointer, str):
+                            local_pointer = candidate_pointer
+                if local_pointer is not None and local_pointer != pointer:
+                    return self.contract_violation_result(
+                        "Publish contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "pointer_authority_conflict",
+                            "canonical_pointer": pointer,
+                            "local_pointer": local_pointer,
+                        },
+                    )
+                pointer_path = self.resolve_workspace_path(pointer)
+                if pointer_path is None:
+                    return self.contract_violation_result(
+                        "Publish contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "missing_registry_pointer",
+                            "pointer": pointer,
+                        },
+                    )
+                pointer_path.parent.mkdir(parents=True, exist_ok=True)
+                pointer_path.write_text(f"{value}\n", encoding="utf-8")
+
             if isinstance(artifact_spec, dict) and artifact_spec.get("type") == "enum":
                 allowed = artifact_spec.get("allowed")
                 if (

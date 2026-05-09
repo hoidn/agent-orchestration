@@ -651,6 +651,214 @@ class TestLoaderValidation:
             for err in exc_info.value.errors
         )
 
+    def test_materialize_published_relpath_pointer_must_match_canonical_artifact_pointer(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Published relpath materializations must not declare a noncanonical local pointer."""
+        _enable_v214_loader(monkeypatch)
+        workflow = {
+            "version": "2.14",
+            "name": "materialize-pointer-conflict",
+            "inputs": {
+                "design_path": {
+                    "type": "relpath",
+                    "under": "docs/plans",
+                    "must_exist_target": True,
+                }
+            },
+            "artifacts": {
+                "design": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                    "pointer": "state/canonical_design.txt",
+                    "under": "docs/plans",
+                    "must_exist_target": True,
+                }
+            },
+            "steps": [
+                {
+                    "name": "MaterializeDesign",
+                    "id": "materialize_design",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "design_path",
+                                "source": {"input": "design_path"},
+                                "contract": {"inherit": "source"},
+                                "pointer": {"path": "state/noncanonical_design.txt"},
+                            }
+                        ]
+                    },
+                    "publishes": [{"artifact": "design", "from": "design_path"}],
+                }
+            ],
+        }
+
+        temp_dir = Path(self.temp_dir)
+        (temp_dir / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+        (temp_dir / "docs" / "plans" / "approved-plan.md").write_text(
+            "# approved\n",
+            encoding="utf-8",
+        )
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "pointer_authority_conflict" in str(err.message)
+            and "MaterializeDesign" in str(err.message)
+            and "design" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def test_pre_snapshot_digest_must_be_sha256(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """pre_snapshot currently supports only sha256 digests."""
+        _enable_v214_loader(monkeypatch)
+        workflow = {
+            "version": "2.14",
+            "name": "snapshot-digest-invalid",
+            "steps": [
+                {
+                    "name": "MaterializeReportPath",
+                    "id": "materialize_report_path",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "report_path",
+                                "source": {"literal": "artifacts/work/execution_report.md"},
+                                "contract": {
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": False,
+                                },
+                            }
+                        ]
+                    },
+                },
+                {
+                    "name": "CaptureBefore",
+                    "id": "capture_before",
+                    "pre_snapshot": {
+                        "name": "before",
+                        "digest": "md5",
+                        "candidates": {
+                            "COMPLETED": {
+                                "ref": "root.steps.MaterializeReportPath.artifacts.report_path",
+                            }
+                        },
+                    },
+                    "command": ["echo", "ok"],
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "pre_snapshot.digest" in str(err.message)
+            and "sha256" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
+    def test_select_variant_output_evidence_mode_must_be_snapshot_diff(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """select_variant_output currently supports only snapshot_diff evidence."""
+        _enable_v214_loader(monkeypatch)
+        workflow = {
+            "version": "2.14",
+            "name": "selector-mode-invalid",
+            "steps": [
+                {
+                    "name": "MaterializeTargets",
+                    "id": "materialize_targets",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "execution_report_target_path",
+                                "source": {"literal": "artifacts/work/execution_report.md"},
+                                "contract": {
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": False,
+                                },
+                            }
+                        ]
+                    },
+                },
+                {
+                    "name": "CaptureBefore",
+                    "id": "capture_before",
+                    "pre_snapshot": {
+                        "name": "before",
+                        "digest": "sha256",
+                        "candidates": {
+                            "COMPLETED": {
+                                "ref": "root.steps.MaterializeTargets.artifacts.execution_report_target_path",
+                            }
+                        },
+                    },
+                    "command": ["echo", "ok"],
+                },
+                {
+                    "name": "SelectImplementationOutcome",
+                    "id": "select_implementation_outcome",
+                    "select_variant_output": {
+                        "path": "state/implementation_state.json",
+                        "discriminant": {
+                            "name": "implementation_state",
+                            "json_pointer": "/implementation_state",
+                            "type": "enum",
+                            "allowed": ["COMPLETED"],
+                        },
+                        "variants": {
+                            "COMPLETED": {
+                                "fields": [
+                                    {
+                                        "name": "execution_report_path",
+                                        "json_pointer": "/execution_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    }
+                                ]
+                            }
+                        },
+                        "evidence": {
+                            "mode": "not_snapshot_diff",
+                            "snapshot": {
+                                "ref": "root.steps.CaptureBefore.snapshots.before",
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any(
+            "select_variant_output.evidence.mode" in str(err.message)
+            and "snapshot_diff" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""
         workflow = {

@@ -6607,6 +6607,13 @@ class WorkflowExecutor:
                 "snapshot_state_missing",
                 "pre_snapshot requires a snapshot name",
             )
+        digest = snapshot_config.get("digest")
+        if digest != "sha256":
+            return None, self._v214_failure_result(
+                "snapshot_ref_not_snapshot_diff",
+                "pre_snapshot requires digest 'sha256'",
+                context={"snapshot": snapshot_name, "digest": digest},
+            )
         max_bytes = snapshot_config.get("max_bytes_per_candidate", 16 * 1024 * 1024)
         if not isinstance(max_bytes, int) or max_bytes <= 0:
             max_bytes = 16 * 1024 * 1024
@@ -6831,6 +6838,13 @@ class WorkflowExecutor:
                 "select_variant_output config must be a dictionary",
             )
         evidence = config.get("evidence")
+        mode = evidence.get("mode") if isinstance(evidence, dict) else None
+        if mode != "snapshot_diff":
+            return self._v214_failure_result(
+                "snapshot_ref_not_snapshot_diff",
+                "select_variant_output requires evidence.mode 'snapshot_diff'",
+                context={"mode": mode},
+            )
         snapshot_ref = (
             evidence.get("snapshot", {}).get("ref")
             if isinstance(evidence, dict) and isinstance(evidence.get("snapshot"), dict)
@@ -6856,6 +6870,16 @@ class WorkflowExecutor:
                 "snapshot_state_missing",
                 "Snapshot record is unavailable",
             )
+        if snapshot_record.get("schema") != "snapshot_diff/v1" or snapshot_record.get("digest") != "sha256":
+            return self._v214_failure_result(
+                "snapshot_ref_not_snapshot_diff",
+                "Snapshot ref must resolve to snapshot_diff/v1 evidence with sha256 digests",
+                context={
+                    "ref": snapshot_ref,
+                    "schema": snapshot_record.get("schema"),
+                    "digest": snapshot_record.get("digest"),
+                },
+            )
 
         max_bytes = snapshot_record.get("max_bytes_per_candidate", 16 * 1024 * 1024)
         if not isinstance(max_bytes, int) or max_bytes <= 0:
@@ -6866,6 +6890,19 @@ class WorkflowExecutor:
             return self._v214_failure_result(
                 "snapshot_state_missing",
                 "Snapshot record has no candidates",
+            )
+        variants = config.get("variants", {})
+        variant_keys = sorted(str(key) for key in variants.keys()) if isinstance(variants, dict) else []
+        candidate_keys = sorted(str(key) for key in candidates.keys())
+        if variant_keys != candidate_keys:
+            return self._v214_failure_result(
+                "snapshot_ref_candidate_mismatch",
+                "Snapshot candidate keys do not match select_variant_output variants",
+                context={
+                    "ref": snapshot_ref,
+                    "candidate_keys": candidate_keys,
+                    "variant_keys": variant_keys,
+                },
             )
 
         current_candidates: Dict[str, Dict[str, Any]] = {}
@@ -6922,7 +6959,6 @@ class WorkflowExecutor:
             )
 
         bundle_payload: Dict[str, Any] = {discriminant_name: selected_variant}
-        variants = config.get("variants", {})
         selected_config = variants.get(selected_variant) if isinstance(variants, dict) else None
         if not isinstance(selected_config, dict):
             return self._v214_failure_result(

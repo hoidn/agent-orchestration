@@ -109,6 +109,66 @@ def test_materialize_artifacts_writes_pointer_and_publishes_relpath_input(
     assert state["artifact_versions"]["design"][0]["value"] == "docs/plans/approved-plan.md"
 
 
+def test_materialize_artifacts_publish_writes_canonical_top_level_pointer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Publishing a relpath materialization must maintain the canonical top-level pointer file."""
+    _enable_v214_loader(monkeypatch)
+    (tmp_path / "docs" / "plans").mkdir(parents=True)
+    (tmp_path / "docs" / "plans" / "approved-plan.md").write_text("# approved\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "materialize-canonical-pointer",
+        "inputs": {
+            "design_path": {
+                "type": "relpath",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            }
+        },
+        "artifacts": {
+            "design": {
+                "kind": "relpath",
+                "type": "relpath",
+                "pointer": "state/canonical_design.txt",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            }
+        },
+        "steps": [
+            {
+                "name": "MaterializeDesign",
+                "id": "materialize_design",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "design_path",
+                            "source": {"input": "design_path"},
+                            "contract": {"inherit": "source"},
+                        }
+                    ]
+                },
+                "publishes": [{"artifact": "design", "from": "design_path"}],
+            }
+        ],
+    }
+
+    executor = _load_executor(
+        tmp_path,
+        workflow,
+        bound_inputs={"design_path": "docs/plans/approved-plan.md"},
+    )
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "canonical_design.txt").read_text(encoding="utf-8") == (
+        "docs/plans/approved-plan.md\n"
+    )
+    assert state["artifact_versions"]["design"][0]["value"] == "docs/plans/approved-plan.md"
+
+
 def test_pre_snapshot_and_select_variant_output_choose_the_single_changed_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -236,6 +296,113 @@ def test_pre_snapshot_and_select_variant_output_choose_the_single_changed_candid
         "implementation_state": "COMPLETED",
         "execution_report_path": "artifacts/work/execution_report.md",
     }
+
+
+def test_select_variant_output_rejects_runtime_snapshot_metadata_mismatch(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """select_variant_output must reject snapshot state that is not snapshot_diff/sha256."""
+    _enable_v214_loader(monkeypatch)
+
+    workflow = {
+        "version": "2.14",
+        "name": "snapshot-metadata-mismatch",
+        "steps": [
+            {
+                "name": "MaterializeTargets",
+                "id": "materialize_targets",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "placeholder_path",
+                            "source": {"literal": "artifacts/work/execution_report.md"},
+                            "contract": {
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": False,
+                            },
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "CaptureBefore",
+                "id": "capture_before",
+                "pre_snapshot": {
+                    "name": "before",
+                    "digest": "sha256",
+                    "candidates": {
+                        "COMPLETED": {
+                            "ref": "root.steps.MaterializeTargets.artifacts.placeholder_path",
+                        }
+                    },
+                },
+                "command": ["echo", "ok"],
+            },
+            {
+                "name": "SelectImplementationOutcome",
+                "id": "select_implementation_outcome",
+                "select_variant_output": {
+                    "path": "state/implementation_state.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED"],
+                    },
+                    "variants": {
+                        "COMPLETED": {
+                            "fields": [
+                                {
+                                    "name": "execution_report_path",
+                                    "json_pointer": "/execution_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        }
+                    },
+                    "evidence": {
+                        "mode": "snapshot_diff",
+                        "snapshot": {
+                            "ref": "root.steps.CaptureBefore.snapshots.before",
+                        },
+                    },
+                },
+            }
+        ],
+    }
+
+    executor = _load_executor(tmp_path, workflow)
+    state = executor.state_manager.load().to_dict()
+    state["steps"] = {
+        "CaptureBefore": {
+            "snapshots": {
+                "before": {
+                    "schema": "snapshot_diff/v1",
+                    "digest": "md5",
+                    "captured_at": "pre_step",
+                    "candidate_keys": ["COMPLETED"],
+                    "candidates": {
+                        "COMPLETED": {
+                            "path": "artifacts/work/execution_report.md",
+                            "exists": False,
+                            "size": None,
+                            "sha256": None,
+                            "mtime_ns": None,
+                        }
+                    },
+                }
+            }
+        }
+    }
+
+    result = executor._execute_select_variant_output(workflow["steps"][2], state)
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "snapshot_ref_not_snapshot_diff"
 
 
 def test_select_variant_output_rejects_ambiguous_snapshot_and_skips_bundle_commit(

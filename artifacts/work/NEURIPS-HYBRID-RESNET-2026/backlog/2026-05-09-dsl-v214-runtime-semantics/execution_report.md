@@ -1,32 +1,33 @@
 ## Completed In This Pass
 
-- Extended the loader’s Phase 1 artifact catalog so `variant_output`, `select_variant_output`, and `materialize_artifacts` surfaces publish typed authored-step metadata for validation-time ref analysis.
-- Added narrow loader validation for `materialize_artifacts`, `pre_snapshot`, `select_variant_output`, and `requires_variant`, including author-time variant-proof enforcement on variant-only refs and explicit rejection of snapshot refs outside `select_variant_output.evidence.snapshot.ref`.
-- Propagated match-case proof context for discriminant-based variant routing so variant-only refs inside the proven case load successfully without weakening the existing runtime `variant_unavailable` guard.
-- Added normalized report projections for selected variants and snapshot summaries in `orchestrator/observability/report.py`, with markdown rendering that surfaces those summaries directly instead of requiring readers to inspect raw debug payloads.
-- Added focused regression coverage in `tests/test_loader_validation.py` and `tests/test_observability_report.py` for unproved variant refs, match-proved refs, snapshot-ref misuse, and the new report projection.
+- Tightened loader validation so `pre_snapshot.digest` must be `sha256` and `select_variant_output.evidence.mode` must be `snapshot_diff`.
+- Added explicit loader-side pointer-authority enforcement for `materialize_artifacts` publishes so noncanonical local relpath pointers now fail with `pointer_authority_conflict`.
+- Updated publish-time dataflow handling to maintain the canonical top-level relpath pointer file and reject conflicting local materialization pointers before artifact lineage is recorded.
+- Hardened `select_variant_output` runtime validation so selector evidence now rejects non-`snapshot_diff/v1` snapshot records, non-`sha256` digests, and snapshot/variant key mismatches instead of silently coercing them.
+- Added focused regression coverage in `tests/test_loader_validation.py` and `tests/test_v214_runtime_semantics.py` for the review repros and the canonical-pointer happy path.
 
 ## Completed Current-Scope Work
 
-- Review finding 1 is fixed: variant-only structured refs now fail at load time without match or `requires_variant` proof, and match over the same discriminant provides the approved author-time proof path.
-- Review finding 2 is fixed: snapshot refs remain runtime-resolvable for selector evidence, but authored misuse outside `select_variant_output.evidence.snapshot.ref` is now rejected during load.
-- Review finding 3 is fixed: status reports now project selected variants and snapshot summaries directly from step state/debug payloads, satisfying the remaining current-scope observability requirement.
+- Review finding 1 is fixed: published relpath materializations now require canonical pointer ownership at load time, and successful publishes write the canonical top-level pointer file during runtime.
+- Review finding 2 is fixed: unsupported snapshot selector contracts no longer load, and selector runtime execution now rejects mismatched snapshot metadata instead of normalizing it.
+- No approved current-scope work remains open from the consumed implementation review.
 
 ## Follow-Up Work
 
-- Add resume-path corruption and missing-sidecar coverage for persisted snapshot records before wider workflow dependence accumulates around snapshot sidecars.
-- Broaden author-time proof coverage beyond the current Phase 1 materialization/snapshot-selector surfaces if later tranches introduce additional authored ref surfaces that can legally target variant-only fields.
+- Add resume-path corruption coverage for snapshot sidecars, especially invalid JSON sidecars in addition to the existing missing-sidecar and hash-mismatch handling.
+- Add a dedicated regression for runtime pointer-authority rejection on validation-bypassed state if later internal callers can construct executable steps without loader validation.
 
 ## Residual Risks
 
-- Snapshot sidecar integrity handling is implemented, but resume-path corruption and missing-sidecar scenarios were not part of this pass's executed test set.
-- The new author-time proof enforcement is intentionally scoped to the current Phase 1 authored surfaces that can consume typed refs (`materialize_artifacts`, `pre_snapshot`, `select_variant_output`, and match-case routing); any future expansion of variant-only ref surfaces should add the same proof plumbing explicitly.
+- Snapshot sidecar integrity behavior is still only partially covered; this pass did not add invalid-JSON sidecar resume tests.
+- Canonical pointer writes now happen at publish time for relpath artifacts; broader legacy-surface expectations outside the exercised suites still rely on existing coverage rather than a repo-wide publish-pointer audit.
 
 ## Verification
 
-- `pytest tests/test_loader_validation.py -q -k 'variant_specific_materialize_ref_requires_author_time_proof or match_case_proof_allows_variant_specific_materialize_ref or snapshot_refs_are_restricted_to_selector_evidence'`
-- `pytest tests/test_observability_report.py -q -k 'variant_and_snapshot_summaries'`
-- `pytest tests/test_loader_validation.py tests/test_observability_report.py tests/test_v214_runtime_semantics.py -q`
+- `pytest tests/test_loader_validation.py -q -k 'materialize_published_relpath_pointer_must_match_canonical_artifact_pointer or pre_snapshot_digest_must_be_sha256 or select_variant_output_evidence_mode_must_be_snapshot_diff'`
+- `pytest tests/test_v214_runtime_semantics.py -q -k 'materialize_artifacts_publish_writes_canonical_top_level_pointer or select_variant_output_rejects_runtime_snapshot_metadata_mismatch'`
+- `pytest tests/test_loader_validation.py tests/test_v214_runtime_semantics.py -q`
+- `pytest tests/test_artifact_dataflow_integration.py -q -k 'pointer or publish'`
 - `pytest tests/test_v214_primitive_oracle.py tests/test_neurips_v214_equivalence_oracle.py -q`
 - `pytest tests/test_loader_validation.py::TestLoaderValidation::test_version_2_14_is_rejected -q`
 - `python -m json.tool docs/backlog/roadmap_gate.json`
