@@ -21,7 +21,7 @@ Objective: freeze existing behavior before changing DSL semantics.
 
 Backlog authority:
 
-- `docs/backlog/active/2026-05-08-dsl-v214-phase0-oracle.md`
+- `docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md`
 
 Required outcomes:
 
