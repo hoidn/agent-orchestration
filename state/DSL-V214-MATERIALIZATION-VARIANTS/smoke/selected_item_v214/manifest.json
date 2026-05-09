@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "source_manifest_path": "state/DSL-V214-MATERIALIZATION-VARIANTS/smoke/selected_item_v214/manifest.json",
+  "roadmap_gate_status": "ELIGIBLE",
+  "items": [
+    {
+      "item_id": "2026-05-09-dsl-v214-neurips-stack-translation",
+      "title": "DSL v2.14 NeurIPS stack translation",
+      "path": "docs/backlog/in_progress/2026-05-09-dsl-v214-neurips-stack-translation.md",
+      "plan_path": "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-09-dsl-v214-neurips-stack-translation/execution_plan.md",
+      "check_commands": [
+        "pytest tests/test_v214_primitive_oracle.py tests/test_neurips_v214_equivalence_oracle.py -q"
+      ],
+      "summary": "Translate the selected NeurIPS subworkflow stack to public same-version 2.14 YAML."
+    }
+  ]
+}
