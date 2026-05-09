@@ -1,0 +1,50 @@
+{
+  "files": {
+    "artifacts/work/execution_report.md": {
+      "sha256": "e6d1428dc09f70f19ab4ca45e39dd61aa2f937d618545d4c948f7ed0d63e1d8f",
+      "size": 298
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "completed"
+      }
+    },
+    "state/oracle/implementation_state.json": {
+      "json": {
+        "execution_report_path": "artifacts/work/execution_report.md",
+        "implementation_state": "COMPLETED"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "status": "completed",
+  "steps": {
+    "ExecuteImplementation": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "InitializeTargets": {
+      "artifacts": {
+        "phase_started_at_ns": 1
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "MaterializeImplementationState": {
+      "artifacts": {
+        "execution_report_path": "artifacts/work/execution_report.md",
+        "implementation_state": "COMPLETED"
+      },
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "implementation_state": "COMPLETED"
+  }
+}

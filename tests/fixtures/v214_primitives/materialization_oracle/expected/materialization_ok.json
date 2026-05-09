@@ -1,0 +1,32 @@
+{
+  "files": {
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "completed"
+      }
+    },
+    "state/materialized.json": {
+      "json": {
+        "plan_path": "docs/plans/oracle-plan.md"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "status": "completed",
+  "steps": {
+    "MaterializePlan": {
+      "artifacts": {
+        "plan_path": "docs/plans/oracle-plan.md"
+      },
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "plan_path": "docs/plans/oracle-plan.md"
+  }
+}

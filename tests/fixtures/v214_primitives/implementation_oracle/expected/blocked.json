@@ -1,0 +1,52 @@
+{
+  "files": {
+    "artifacts/work/progress_report.md": {
+      "sha256": "0ffe928ba163a82d68117faadcb7e0c74d89428fdc84a9c839f1e18c1a809959",
+      "size": 286
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "blocked"
+      }
+    },
+    "state/oracle/implementation_state.json": {
+      "json": {
+        "blocker_class": "missing_resource",
+        "implementation_state": "BLOCKED",
+        "progress_report_path": "artifacts/work/progress_report.md"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "status": "completed",
+  "steps": {
+    "ExecuteImplementation": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "InitializeTargets": {
+      "artifacts": {
+        "phase_started_at_ns": 1
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "MaterializeImplementationState": {
+      "artifacts": {
+        "blocker_class": "missing_resource",
+        "implementation_state": "BLOCKED",
+        "progress_report_path": "artifacts/work/progress_report.md"
+      },
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "implementation_state": "BLOCKED"
+  }
+}

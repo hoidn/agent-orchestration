@@ -1,0 +1,44 @@
+{
+  "files": {
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "completed"
+      }
+    },
+    "state/missing_target.json": {
+      "json": {
+        "plan_path": "docs/plans/missing-plan.md"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "status": "completed",
+  "steps": {
+    "EmitMissingTargetBundle": {
+      "artifacts": {},
+      "error": {
+        "context": {
+          "violations": [
+            {
+              "context": {
+                "json_pointer": "/plan_path",
+                "path": "state/missing_target.json",
+                "value": "docs/plans/missing-plan.md"
+              },
+              "message": "relpath target does not exist",
+              "type": "missing_target"
+            }
+          ]
+        },
+        "message": "Expected output contract validation failed",
+        "type": "contract_violation"
+      },
+      "status": "failed"
+    }
+  },
+  "workflow_outputs": {}
+}

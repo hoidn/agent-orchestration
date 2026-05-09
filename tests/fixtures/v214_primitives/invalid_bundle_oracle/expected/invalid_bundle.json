@@ -1,0 +1,49 @@
+{
+  "files": {
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "completed"
+      }
+    },
+    "state/invalid_selection.json": {
+      "json": {
+        "selection_status": "MAYBE"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "status": "completed",
+  "steps": {
+    "EmitInvalidBundle": {
+      "artifacts": {},
+      "error": {
+        "context": {
+          "violations": [
+            {
+              "context": {
+                "allowed": [
+                  "SELECTED",
+                  "DONE",
+                  "BLOCKED"
+                ],
+                "json_pointer": "/selection_status",
+                "path": "state/invalid_selection.json",
+                "value": "MAYBE"
+              },
+              "message": "Output value is not in allowed enum set",
+              "type": "invalid_enum_value"
+            }
+          ]
+        },
+        "message": "Expected output contract validation failed",
+        "type": "contract_violation"
+      },
+      "status": "failed"
+    }
+  },
+  "workflow_outputs": {}
+}

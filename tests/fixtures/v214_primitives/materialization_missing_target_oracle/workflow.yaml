@@ -1,0 +1,25 @@
+version: "2.7"
+name: "v214-materialization-missing-target-oracle"
+
+steps:
+  - name: EmitMissingTargetBundle
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+
+        pathlib.Path("state").mkdir(parents=True, exist_ok=True)
+        pathlib.Path("state/missing_target.json").write_text(
+            json.dumps({"plan_path": "docs/plans/missing-plan.md"}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    output_bundle:
+      path: state/missing_target.json
+      fields:
+        - name: plan_path
+          json_pointer: /plan_path
+          type: relpath
+          under: docs/plans
+          must_exist_target: true

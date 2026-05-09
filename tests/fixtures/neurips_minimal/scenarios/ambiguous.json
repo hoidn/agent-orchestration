@@ -1,0 +1,23 @@
+{
+  "provider": {
+    "mode": "both_reports",
+    "selection_mode": "ACTIVE_SELECTION",
+    "selected_item_id": "2026-05-08-dsl-v214-phase0-oracle",
+    "selected_item_path": "docs/backlog/active/2026-05-08-dsl-v214-phase0-oracle.md",
+    "roadmap_sync_status": "NO_CHANGE"
+  },
+  "workflow_inputs": {
+    "steering_path": "docs/steering.md",
+    "design_path": "docs/plans/2026-05-08-dsl-v214-phase0-design.md",
+    "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+    "backlog_root": "docs/backlog/active",
+    "roadmap_gate_path": "docs/backlog/roadmap_gate.json",
+    "progress_ledger_path": "state/NEURIPS-HYBRID-RESNET-2026/progress_ledger.json",
+    "drain_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain",
+    "run_state_target_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json",
+    "drain_summary_target_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json",
+    "implementation_execute_provider": "codex",
+    "implementation_review_provider": "codex",
+    "implementation_fix_provider": "codex"
+  }
+}

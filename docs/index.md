@@ -64,6 +64,16 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** design, template, modularity, contracts, invariants
 **Use this when:** Drafting or reviewing a design artifact that will feed a plan and implementation phase.
 
+### [DSL v2.14 Materialization And Variant Draft](design/dsl_v214_materialization_variants_draft.md)
+**Description:** Non-normative Phase 0 reference that inventories the current materialization and tagged-union patterns being frozen before public v2.14 semantics exist.
+**Keywords:** dsl-v214, phase-0, materialization, variant-output, oracle
+**Use this when:** You need the current-behavior characterization that future v2.14 implementation work is meant to preserve or intentionally replace.
+
+### [Minimal NeurIPS v2.14 Behavior Matrix](design/neurips_v214_behavior_matrix.md)
+**Description:** Scenario matrix for the primitive and minimal-NeurIPS Phase 0 oracle fixtures, including preserved observations and normalized-away volatile fields.
+**Keywords:** neurips, oracle, behavior-matrix, phase-0, fixtures
+**Use this when:** Reviewing what the new oracle suites are expected to lock down.
+
 ### [Workflow Prompt Map](workflow_prompt_map.md)
 **Description:** Exhaustive generated map of workflow provider prompt sources, including `input_file`, `asset_file`, and `asset_depends_on` resolution and missing-file status.  
 **Keywords:** workflows, prompts, input_file, asset_file, prompt-assets  

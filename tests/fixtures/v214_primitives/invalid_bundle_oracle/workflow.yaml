@@ -1,0 +1,24 @@
+version: "2.7"
+name: "v214-invalid-bundle-oracle"
+
+steps:
+  - name: EmitInvalidBundle
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+
+        pathlib.Path("state").mkdir(parents=True, exist_ok=True)
+        pathlib.Path("state/invalid_selection.json").write_text(
+            json.dumps({"selection_status": "MAYBE"}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    output_bundle:
+      path: state/invalid_selection.json
+      fields:
+        - name: selection_status
+          json_pointer: /selection_status
+          type: enum
+          allowed: ["SELECTED", "DONE", "BLOCKED"]

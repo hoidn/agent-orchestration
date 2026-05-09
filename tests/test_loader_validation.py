@@ -262,6 +262,25 @@ class TestLoaderValidation:
         assert surface["version"] == "2.12"
         assert surface["steps"][0]["name"] == "Echo"
 
+    def test_version_2_14_is_rejected(self):
+        """Phase 0 must keep public version 2.14 unavailable on normal loader paths."""
+        workflow = {
+            "version": "2.14",
+            "name": "future-version-gate",
+            "steps": [{
+                "name": "Echo",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("Unsupported version '2.14'" in str(err.message) for err in exc_info.value.errors)
+
     def test_match_requires_version_2_6(self):
         """Structured match statements are gated to v2.6+."""
         workflow = {

@@ -1,0 +1,43 @@
+{
+  "files": {
+    "artifacts/work/execution_report.md": {
+      "sha256": "e6d1428dc09f70f19ab4ca45e39dd61aa2f937d618545d4c948f7ed0d63e1d8f",
+      "size": 298
+    },
+    "artifacts/work/progress_report.md": {
+      "sha256": "04e9a0a02a8c3f7a3c9659951052176ba240244afc64fae2d5ea8fb56124d43e",
+      "size": 99
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "both_reports"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "status": "failed",
+  "steps": {
+    "ExecuteImplementation": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "InitializeTargets": {
+      "artifacts": {
+        "phase_started_at_ns": 1
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "MaterializeImplementationState": {
+      "artifacts": {},
+      "error": null,
+      "status": "failed"
+    }
+  },
+  "workflow_outputs": {}
+}

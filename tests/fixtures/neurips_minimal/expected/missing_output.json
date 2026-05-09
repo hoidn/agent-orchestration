@@ -1,0 +1,229 @@
+{
+  "files": {
+    "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-plan-review.json": {
+      "json": {
+        "decision": "APPROVE",
+        "findings": [],
+        "summary": "Oracle plan is execution-ready.",
+        "unresolved_high_count": 0,
+        "unresolved_medium_count": 0
+      }
+    },
+    "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-roadmap-sync.json": {
+      "json": {
+        "blocking_reason": null,
+        "changed": false,
+        "status": "NO_CHANGE",
+        "summary": "Oracle roadmap sync preserved current roadmap authority.",
+        "touched_sections": []
+      }
+    },
+    "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md": {
+      "sha256": "29ea7da6c670114d69960d59cd1fbd105083f939504d7a84839e8ed5af6c944a",
+      "size": 396
+    },
+    "docs/backlog/in_progress/2026-05-08-dsl-v214-recovered-oracle.md": {
+      "sha256": "115beedcf8006cddbd90ff403948dd7c55f423a5dd117079935395c420188f1c",
+      "size": 399
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-gate/final_plan_gate.json": {
+      "json": {
+        "plan_path": "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/execution_plan.md",
+        "plan_review_decision": "APPROVE",
+        "plan_review_report_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-plan-review.json",
+        "selected_item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+        "source": "FRESH",
+        "status": "APPROVED"
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/selected-item-inputs.json": {
+      "json": {
+        "candidate_plan_path": "docs/plans/legacy-active-plan.md",
+        "check_commands_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/check_commands.json",
+        "check_commands_pointer_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/check_commands_path.txt",
+        "checks_report_target_path": "artifacts/checks/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-checks.json",
+        "execution_report_target_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/execution_report.md",
+        "final_plan_gate_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-gate/final_plan_gate.json",
+        "implementation_phase_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/implementation-phase",
+        "implementation_review_report_target_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-implementation-review.md",
+        "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+        "item_summary_target_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-summary.json",
+        "outcome_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/selected-item-outcome.json",
+        "plan_gate_recovery_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-gate/final_plan_gate.json",
+        "plan_gate_recovery_report_target_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-plan-recovery.md",
+        "plan_gate_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-gate",
+        "plan_phase_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-phase",
+        "plan_review_report_target_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-plan-review.json",
+        "plan_target_path": "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/execution_plan.md",
+        "roadmap_sync_report_target_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-roadmap-sync.json",
+        "roadmap_sync_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/roadmap-sync",
+        "selected_item_active_path": "docs/backlog/active/2026-05-08-dsl-v214-phase0-oracle.md",
+        "selected_item_context_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/selected-item-context.md",
+        "selected_item_in_progress_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+        "selection_mode": "ACTIVE_SELECTION"
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/selector/selection.json": {
+      "json": {
+        "roadmap_sync_hint": "NO_CHANGE",
+        "selected_item_id": "2026-05-08-dsl-v214-phase0-oracle",
+        "selected_item_path": "docs/backlog/active/2026-05-08-dsl-v214-phase0-oracle.md",
+        "selection_mode": "ACTIVE_SELECTION",
+        "selection_rationale": "Deterministic oracle selection.",
+        "selection_status": "SELECTED"
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json": {
+      "json": {
+        "blocked_items": {},
+        "completed_items": [],
+        "current_item": {
+          "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+          "item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+          "plan_path": null,
+          "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+          "selected_at_utc": "<timestamp>"
+        },
+        "current_roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+        "history": [
+          {
+            "event": "select",
+            "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+            "item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+            "plan_path": null,
+            "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+            "selected_at_utc": "<timestamp>"
+          }
+        ],
+        "initialized_at_utc": "<timestamp>",
+        "run_id": "<run-id>",
+        "schema_version": 1
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/progress_ledger.json": {
+      "json": {
+        "blocked_tranches": [],
+        "completed_tranches": [
+          "phase-0-evidence-inventory"
+        ],
+        "design_path": "docs/plans/2026-05-08-dsl-v214-phase0-design.md",
+        "iterations": [],
+        "project_id": "NEURIPS-HYBRID-RESNET-2026",
+        "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md"
+      }
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "neither_report",
+        "roadmap_sync_status": "NO_CHANGE",
+        "selected_item_id": "2026-05-08-dsl-v214-phase0-oracle",
+        "selected_item_path": "docs/backlog/active/2026-05-08-dsl-v214-phase0-oracle.md",
+        "selection_mode": "ACTIVE_SELECTION"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": [
+      "2026-05-08-dsl-v214-phase0-oracle.md",
+      "2026-05-08-dsl-v214-recovered-oracle.md"
+    ]
+  },
+  "status": "failed",
+  "steps": {
+    "DrainBacklogItems": {
+      "artifacts": {},
+      "error": {
+        "context": {
+          "error": {
+            "context": {
+              "call": "selected_item",
+              "call_frame_id": "root.drain_backlog_items#0.drain_backlog_iteration.route_item_selection.selected_item_path.run_selected_item::visit::1",
+              "error": null,
+              "workflow_file": "workflows/library/neurips_selected_backlog_item.yaml"
+            },
+            "message": "Called workflow failed",
+            "type": "call_failed"
+          },
+          "iteration": 0,
+          "step": "RouteItemSelection.SELECTED.RunSelectedItem"
+        },
+        "message": "repeat_until body step failed",
+        "type": "repeat_until_body_step_failed"
+      },
+      "status": "failed"
+    },
+    "DrainBacklogItems[0].ResolveItemSelection": {
+      "artifacts": {
+        "selection_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/selector/selection.json",
+        "selection_status": "SELECTED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.SELECTED": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.SELECTED.RunSelectedItem": {
+      "artifacts": {},
+      "error": {
+        "context": {
+          "call": "selected_item",
+          "call_frame_id": "root.drain_backlog_items#0.drain_backlog_iteration.route_item_selection.selected_item_path.run_selected_item::visit::1",
+          "error": null,
+          "workflow_file": "workflows/library/neurips_selected_backlog_item.yaml"
+        },
+        "message": "Called workflow failed",
+        "type": "call_failed"
+      },
+      "status": "failed"
+    },
+    "DrainBacklogItems[0].SelectNextItem": {
+      "artifacts": {
+        "selection_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/selector/selection.json",
+        "selection_status": "SELECTED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "InitializeBacklogDrain": {
+      "artifacts": {
+        "current_roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+        "design_path": "docs/plans/2026-05-08-dsl-v214-phase0-design.md",
+        "progress_ledger_path": "state/NEURIPS-HYBRID-RESNET-2026/progress_ledger.json",
+        "roadmap_gate_path": "docs/backlog/roadmap_gate.json",
+        "run_state_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json",
+        "steering_path": "docs/steering.md"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "PublishDrainSummary": {
+      "artifacts": {},
+      "error": {
+        "context": {
+          "substituted_command": [
+            "python",
+            "-c",
+            "import json\nimport pathlib\nimport sys\n\nrun_state_path = pathlib.Path(sys.argv[1])\ndrain_status = sys.argv[2]\nsummary_path = pathlib.Path(sys.argv[3])\nstate_root = pathlib.Path(sys.argv[4])\ncurrent_roadmap_pointer_path = pathlib.Path(sys.argv[5])\n\nrun_state = json.loads(run_state_path.read_text(encoding=\"utf-8\"))\ncurrent_roadmap_path = current_roadmap_pointer_path.read_text(encoding=\"utf-8\").strip()\nsummary = {\n  \"drain_status\": drain_status,\n  \"run_state_path\": run_state_path.as_posix(),\n  \"current_roadmap_path\": current_roadmap_path,\n  \"completed_item_count\": len(run_state.get(\"completed_items\", [])),\n  \"completed_items\": run_state.get(\"completed_items\", []),\n  \"blocked_item_ids\": sorted(run_state.get(\"blocked_items\", {}).keys()),\n  \"blocked_items\": run_state.get(\"blocked_items\", {}),\n  \"current_item\": run_state.get(\"current_item\"),\n  \"history_count\": len(run_state.get(\"history\", [])),\n}\nsummary_path.parent.mkdir(parents=True, exist_ok=True)\nsummary_path.write_text(json.dumps(summary, indent=2) + \"\\n\", encoding=\"utf-8\")\n(state_root / \"drain_summary_path.txt\").write_text(summary_path.as_posix() + \"\\n\", encoding=\"utf-8\")\n(state_root / \"final_run_state_path.txt\").write_text(run_state_path.as_posix() + \"\\n\", encoding=\"utf-8\")\n",
+            "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json",
+            "${steps.DrainBacklogItems.artifacts.drain_status}",
+            "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json",
+            "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain",
+            "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/current_roadmap_path.txt"
+          ],
+          "undefined_vars": [
+            "steps.DrainBacklogItems.artifacts.drain_status"
+          ]
+        },
+        "message": "Undefined variables in command: steps.DrainBacklogItems.artifacts.drain_status",
+        "type": "undefined_variables"
+      },
+      "status": "failed"
+    }
+  },
+  "workflow_outputs": {}
+}

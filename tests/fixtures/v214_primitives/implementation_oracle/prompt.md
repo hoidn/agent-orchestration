@@ -1,0 +1,1 @@
+Primitive implementation outcome oracle

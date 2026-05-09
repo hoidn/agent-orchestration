@@ -1,0 +1,375 @@
+{
+  "files": {
+    "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-plan-review.json": {
+      "json": {
+        "decision": "APPROVE",
+        "findings": [],
+        "summary": "Oracle plan is execution-ready.",
+        "unresolved_high_count": 0,
+        "unresolved_medium_count": 0
+      }
+    },
+    "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-roadmap-sync.json": {
+      "json": {
+        "blocking_reason": null,
+        "changed": false,
+        "status": "NO_CHANGE",
+        "summary": "Oracle roadmap sync preserved current roadmap authority.",
+        "touched_sections": []
+      }
+    },
+    "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json": {
+      "json": {
+        "blocked_item_ids": [
+          "2026-05-08-dsl-v214-phase0-oracle"
+        ],
+        "blocked_items": {
+          "2026-05-08-dsl-v214-phase0-oracle": {
+            "blocked_at_utc": "<timestamp>",
+            "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+            "item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+            "plan_path": null,
+            "reason": "Implementation phase reported a semantic blocker. See progress report.",
+            "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+            "stage": "implementation_phase"
+          }
+        },
+        "completed_item_count": 0,
+        "completed_items": [],
+        "current_item": null,
+        "current_roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+        "drain_status": "DONE",
+        "history_count": 2,
+        "run_state_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json"
+      }
+    },
+    "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-summary.json": {
+      "json": {
+        "failed_stage": "implementation_phase",
+        "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+        "item_outcome": "BLOCKED",
+        "item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+        "progress_report_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/progress_report.md",
+        "reason": "Implementation phase reported a semantic blocker. See progress report.",
+        "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md"
+      }
+    },
+    "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/progress_report.md": {
+      "sha256": "0ffe928ba163a82d68117faadcb7e0c74d89428fdc84a9c839f1e18c1a809959",
+      "size": 286
+    },
+    "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md": {
+      "sha256": "29ea7da6c670114d69960d59cd1fbd105083f939504d7a84839e8ed5af6c944a",
+      "size": 396
+    },
+    "docs/backlog/in_progress/2026-05-08-dsl-v214-recovered-oracle.md": {
+      "sha256": "115beedcf8006cddbd90ff403948dd7c55f423a5dd117079935395c420188f1c",
+      "size": 399
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/implementation-phase/implementation_state.json": {
+      "json": {
+        "blocker_class": "missing_resource",
+        "implementation_state": "BLOCKED",
+        "progress_report_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/progress_report.md"
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-gate/final_plan_gate.json": {
+      "json": {
+        "plan_path": "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/execution_plan.md",
+        "plan_review_decision": "APPROVE",
+        "plan_review_report_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-plan-review.json",
+        "selected_item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+        "source": "FRESH",
+        "status": "APPROVED"
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/selected-item-outcome.json": {
+      "json": {
+        "drain_status": "BLOCKED",
+        "item_summary_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-summary.json"
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/selected-item-inputs.json": {
+      "json": {
+        "candidate_plan_path": "docs/plans/legacy-active-plan.md",
+        "check_commands_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/check_commands.json",
+        "check_commands_pointer_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/check_commands_path.txt",
+        "checks_report_target_path": "artifacts/checks/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-checks.json",
+        "execution_report_target_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/execution_report.md",
+        "final_plan_gate_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-gate/final_plan_gate.json",
+        "implementation_phase_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/implementation-phase",
+        "implementation_review_report_target_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-implementation-review.md",
+        "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+        "item_summary_target_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-summary.json",
+        "outcome_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/selected-item-outcome.json",
+        "plan_gate_recovery_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-gate/final_plan_gate.json",
+        "plan_gate_recovery_report_target_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-plan-recovery.md",
+        "plan_gate_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-gate",
+        "plan_phase_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/plan-phase",
+        "plan_review_report_target_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-plan-review.json",
+        "plan_target_path": "docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/execution_plan.md",
+        "roadmap_sync_report_target_path": "artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-roadmap-sync.json",
+        "roadmap_sync_state_root": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/roadmap-sync",
+        "selected_item_active_path": "docs/backlog/active/2026-05-08-dsl-v214-phase0-oracle.md",
+        "selected_item_context_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/items/2026-05-08-dsl-v214-phase0-oracle/selected-item-context.md",
+        "selected_item_in_progress_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+        "selection_mode": "ACTIVE_SELECTION"
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/selector/selection.json": {
+      "json": {
+        "roadmap_sync_hint": "NO_CHANGE",
+        "selected_item_id": "2026-05-08-dsl-v214-phase0-oracle",
+        "selected_item_path": "docs/backlog/active/2026-05-08-dsl-v214-phase0-oracle.md",
+        "selection_mode": "ACTIVE_SELECTION",
+        "selection_rationale": "Deterministic oracle selection.",
+        "selection_status": "SELECTED"
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json": {
+      "json": {
+        "blocked_items": {
+          "2026-05-08-dsl-v214-phase0-oracle": {
+            "blocked_at_utc": "<timestamp>",
+            "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+            "item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+            "plan_path": null,
+            "reason": "Implementation phase reported a semantic blocker. See progress report.",
+            "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+            "stage": "implementation_phase"
+          }
+        },
+        "completed_items": [],
+        "current_item": null,
+        "current_roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+        "history": [
+          {
+            "event": "select",
+            "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+            "item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+            "plan_path": null,
+            "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+            "selected_at_utc": "<timestamp>"
+          },
+          {
+            "blocked_at_utc": "<timestamp>",
+            "event": "block",
+            "item_id": "2026-05-08-dsl-v214-phase0-oracle",
+            "item_path": "docs/backlog/in_progress/2026-05-08-dsl-v214-phase0-oracle.md",
+            "plan_path": null,
+            "reason": "Implementation phase reported a semantic blocker. See progress report.",
+            "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+            "stage": "implementation_phase"
+          }
+        ],
+        "initialized_at_utc": "<timestamp>",
+        "run_id": "<run-id>",
+        "schema_version": 1
+      }
+    },
+    "state/NEURIPS-HYBRID-RESNET-2026/progress_ledger.json": {
+      "json": {
+        "blocked_tranches": [],
+        "completed_tranches": [
+          "phase-0-evidence-inventory"
+        ],
+        "design_path": "docs/plans/2026-05-08-dsl-v214-phase0-design.md",
+        "iterations": [],
+        "project_id": "NEURIPS-HYBRID-RESNET-2026",
+        "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md"
+      }
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "blocked",
+        "roadmap_sync_status": "NO_CHANGE",
+        "selected_item_id": "2026-05-08-dsl-v214-phase0-oracle",
+        "selected_item_path": "docs/backlog/active/2026-05-08-dsl-v214-phase0-oracle.md",
+        "selection_mode": "ACTIVE_SELECTION"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": [
+      "2026-05-08-dsl-v214-phase0-oracle.md",
+      "2026-05-08-dsl-v214-recovered-oracle.md"
+    ]
+  },
+  "status": "completed",
+  "steps": {
+    "DrainBacklogItems": {
+      "artifacts": {
+        "drain_status": "DONE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[0].ResolveItemSelection": {
+      "artifacts": {
+        "selection_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/selector/selection.json",
+        "selection_status": "SELECTED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[0].RouteItemSelection": {
+      "artifacts": {
+        "drain_status": "CONTINUE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.BACKLOG_DRAFTED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.BACKLOG_DRAFTED.WriteDrainContinue": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.BLOCKED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.BLOCKED.WriteDrainBlocked": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.DONE": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.DONE.WriteDrainDone": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.SELECTED": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.SELECTED.RunSelectedItem": {
+      "artifacts": {
+        "drain_status": "BLOCKED",
+        "item_summary_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle-summary.json"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[0].RouteItemSelection.SELECTED.WriteSelectedItemContinue": {
+      "artifacts": {
+        "drain_status": "CONTINUE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[0].SelectNextItem": {
+      "artifacts": {
+        "selection_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/0/selector/selection.json",
+        "selection_status": "SELECTED"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[1].ResolveItemSelection": {
+      "artifacts": {
+        "selection_bundle_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/iterations/1/gap_request.json",
+        "selection_status": "DONE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[1].RouteItemSelection": {
+      "artifacts": {
+        "drain_status": "DONE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.BACKLOG_DRAFTED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.BACKLOG_DRAFTED.WriteDrainContinue": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.BLOCKED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.BLOCKED.WriteDrainBlocked": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.DONE": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.DONE.WriteDrainDone": {
+      "artifacts": {
+        "drain_status": "DONE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.SELECTED": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.SELECTED.RunSelectedItem": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[1].RouteItemSelection.SELECTED.WriteSelectedItemContinue": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "DrainBacklogItems[1].SelectNextItem": {
+      "artifacts": {},
+      "error": null,
+      "status": "skipped"
+    },
+    "InitializeBacklogDrain": {
+      "artifacts": {
+        "current_roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+        "design_path": "docs/plans/2026-05-08-dsl-v214-phase0-design.md",
+        "progress_ledger_path": "state/NEURIPS-HYBRID-RESNET-2026/progress_ledger.json",
+        "roadmap_gate_path": "docs/backlog/roadmap_gate.json",
+        "run_state_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json",
+        "steering_path": "docs/steering.md"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "PublishDrainSummary": {
+      "artifacts": {
+        "drain_summary_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json",
+        "run_state_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json"
+      },
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "drain_status": "DONE",
+    "drain_summary_path": "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json",
+    "run_state_path": "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json"
+  }
+}

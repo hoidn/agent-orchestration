@@ -1,0 +1,10 @@
+{
+  "project_id": "NEURIPS-HYBRID-RESNET-2026",
+  "design_path": "docs/plans/2026-05-08-dsl-v214-phase0-design.md",
+  "roadmap_path": "docs/plans/2026-05-08-dsl-v214-phase0-roadmap.md",
+  "completed_tranches": [
+    "phase-0-evidence-inventory"
+  ],
+  "blocked_tranches": [],
+  "iterations": []
+}

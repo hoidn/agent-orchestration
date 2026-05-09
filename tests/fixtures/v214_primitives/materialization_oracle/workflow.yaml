@@ -1,0 +1,36 @@
+version: "2.7"
+name: "v214-materialization-oracle"
+
+outputs:
+  plan_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    from:
+      ref: root.steps.MaterializePlan.artifacts.plan_path
+
+steps:
+  - name: MaterializePlan
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+
+        plan_path = pathlib.Path("docs/plans/oracle-plan.md")
+        plan_path.parent.mkdir(parents=True, exist_ok=True)
+        plan_path.write_text("# Oracle Plan\n", encoding="utf-8")
+        pathlib.Path("state").mkdir(parents=True, exist_ok=True)
+        pathlib.Path("state/materialized.json").write_text(
+            json.dumps({"plan_path": plan_path.as_posix()}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+    output_bundle:
+      path: state/materialized.json
+      fields:
+        - name: plan_path
+          json_pointer: /plan_path
+          type: relpath
+          under: docs/plans
+          must_exist_target: true

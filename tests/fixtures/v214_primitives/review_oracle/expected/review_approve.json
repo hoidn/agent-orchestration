@@ -1,0 +1,41 @@
+{
+  "files": {
+    "artifacts/review/implementation_review.md": {
+      "sha256": "cc7c484d91246ecb8c67d5db8f1483257bc432aeda2b67cefca1a54869aad937",
+      "size": 70
+    },
+    "state/fake_provider_scenario.json": {
+      "json": {
+        "mode": "review_approve"
+      }
+    }
+  },
+  "queue": {
+    "active": [],
+    "done": [],
+    "in_progress": []
+  },
+  "status": "completed",
+  "steps": {
+    "InitializeReviewTargets": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    },
+    "PublishReviewDecision": {
+      "artifacts": {
+        "review_decision": "APPROVE"
+      },
+      "error": null,
+      "status": "completed"
+    },
+    "ReviewImplementation": {
+      "artifacts": {},
+      "error": null,
+      "status": "completed"
+    }
+  },
+  "workflow_outputs": {
+    "review_decision": "APPROVE"
+  }
+}
