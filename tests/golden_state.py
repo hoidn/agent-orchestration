@@ -109,7 +109,7 @@ def run_neurips_v214_workspace_workflow(
     with _codex_shim_on_path(workspace):
         state = _execute_workflow(
             workspace=workspace,
-            workflow_relpath="workflows/library/neurips_selected_backlog_item.v214.yaml",
+            workflow_relpath="workflows/examples/neurips_selected_backlog_drain_wrapper.v214.yaml",
             inputs=inputs,
         )
     return _build_observation(workspace, state)
@@ -250,6 +250,7 @@ def _prepare_neurips_v214_selected_item_inputs(workspace: Path, scenario: dict[s
 
     return {
         "state_root": iteration_root.as_posix(),
+        "drain_state_root": drain_state_root.as_posix(),
         "current_roadmap_path": str(workflow_inputs["roadmap_path"]),
         "current_roadmap_pointer_path": current_roadmap_pointer_path.as_posix(),
         "selector_state_root": selector_state_root.as_posix(),
@@ -258,6 +259,7 @@ def _prepare_neurips_v214_selected_item_inputs(workspace: Path, scenario: dict[s
         "design_path": str(workflow_inputs["design_path"]),
         "progress_ledger_path": str(workflow_inputs["progress_ledger_path"]),
         "run_state_path": run_state_path.as_posix(),
+        "drain_summary_target_path": str(workflow_inputs["drain_summary_target_path"]),
         "implementation_execute_provider": str(workflow_inputs["implementation_execute_provider"]),
         "implementation_review_provider": str(workflow_inputs["implementation_review_provider"]),
         "implementation_fix_provider": str(workflow_inputs["implementation_fix_provider"]),
@@ -388,10 +390,19 @@ def _build_neurips_equivalence_observation(observation: dict[str, Any]) -> dict[
         for path, value in observation["files"].items()
         if _is_neurips_equivalence_file(path)
     }
+    domain_state_summaries = {
+        path: value
+        for path, value in observation["domain_state_summaries"].items()
+        if _is_neurips_equivalence_file(path)
+    }
     return {
+        "status": observation["status"],
+        "workflow_outputs": observation["workflow_outputs"],
         "queue": observation["queue"],
         "selected_variants": observation["selected_variants"],
         "snapshot_candidate_keys": observation["snapshot_candidate_keys"],
+        "domain_state_summaries": domain_state_summaries,
+        "failure_classes": _extract_neurips_failure_classes(observation),
         "files": files,
     }
 
@@ -405,7 +416,7 @@ def _is_neurips_equivalence_file(relpath: str) -> bool:
         or relpath.endswith("-plan-recovery.md")
     ):
         return True
-    if relpath.startswith("artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/") and not relpath.endswith("-summary.json"):
+    if relpath.startswith("artifacts/work/NEURIPS-HYBRID-RESNET-2026/"):
         return True
     if relpath.startswith("docs/backlog/") and relpath.endswith(".md"):
         return True
@@ -422,6 +433,32 @@ def _is_neurips_equivalence_file(relpath: str) -> bool:
     if relpath.endswith("/plan-gate/final_plan_gate.json"):
         return True
     return False
+
+
+def _extract_neurips_failure_classes(observation: dict[str, Any]) -> list[str]:
+    classes: list[str] = []
+    if observation["status"] != "completed":
+        classes.append(str(observation["status"]))
+
+    for summary in observation["domain_state_summaries"].values():
+        if not isinstance(summary, dict):
+            continue
+        item_outcome = summary.get("item_outcome")
+        if isinstance(item_outcome, str):
+            classes.append(f"item_outcome:{item_outcome}")
+        failed_stage = summary.get("failed_stage")
+        if isinstance(failed_stage, str):
+            classes.append(f"failed_stage:{failed_stage}")
+
+    for step in observation["steps"].values():
+        error = step.get("error")
+        if not isinstance(error, dict):
+            continue
+        error_type = error.get("type")
+        if error_type == "undefined_variables":
+            classes.append(str(error_type))
+
+    return sorted(set(classes))
 
 
 def _is_interesting_file(relpath: str) -> bool:
