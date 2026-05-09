@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 import stat
+import subprocess
 import sys
 from dataclasses import is_dataclass
 from pathlib import Path
@@ -92,6 +93,54 @@ def run_neurips_workspace_workflow(
     return _build_observation(workspace, state)
 
 
+def run_neurips_v214_workspace_workflow(
+    *,
+    fixture_root: Path,
+    workspace: Path,
+    scenario_name: str,
+) -> dict[str, Any]:
+    shutil.copytree(fixture_root, workspace, dirs_exist_ok=True)
+    _copy_neurips_runtime_files(workspace)
+
+    scenario = json.loads((fixture_root / "scenarios" / f"{scenario_name}.json").read_text(encoding="utf-8"))
+    _write_provider_scenario(workspace, scenario["provider"])
+    inputs = _prepare_neurips_v214_selected_item_inputs(workspace, scenario)
+
+    with _codex_shim_on_path(workspace):
+        state = _execute_workflow(
+            workspace=workspace,
+            workflow_relpath="workflows/library/neurips_selected_backlog_item.v214.yaml",
+            inputs=inputs,
+        )
+    return _build_observation(workspace, state)
+
+
+def run_neurips_equivalence_observation(
+    *,
+    fixture_root: Path,
+    workspace: Path,
+    scenario_name: str,
+    stack: str,
+) -> dict[str, Any]:
+    if stack == "legacy":
+        observation = run_neurips_workspace_workflow(
+            fixture_root=fixture_root,
+            workspace=workspace,
+            workflow_relpath="workflows/examples/neurips_steered_backlog_drain.yaml",
+            scenario_name=scenario_name,
+        )
+    elif stack == "v214":
+        observation = run_neurips_v214_workspace_workflow(
+            fixture_root=fixture_root,
+            workspace=workspace,
+            scenario_name=scenario_name,
+        )
+    else:
+        raise ValueError(f"Unsupported NeurIPS stack: {stack}")
+
+    return _build_neurips_equivalence_observation(observation)
+
+
 def _write_provider_scenario(workspace: Path, scenario: dict[str, Any]) -> None:
     target = workspace / "state/fake_provider_scenario.json"
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -107,7 +156,12 @@ def _copy_neurips_runtime_files(workspace: Path) -> None:
         "workflows/library/neurips_backlog_seeded_plan_phase.yaml",
         "workflows/library/neurips_backlog_implementation_phase.yaml",
         "workflows/library/neurips_selected_backlog_item.yaml",
+        "workflows/library/neurips_backlog_roadmap_sync.v214.yaml",
+        "workflows/library/neurips_backlog_seeded_plan_phase.v214.yaml",
+        "workflows/library/neurips_backlog_implementation_phase.v214.yaml",
+        "workflows/library/neurips_selected_backlog_item.v214.yaml",
         "workflows/library/scripts/build_neurips_backlog_manifest.py",
+        "workflows/library/scripts/materialize_neurips_implementation_state.py",
         "workflows/library/scripts/materialize_neurips_selected_item_inputs.py",
         "workflows/library/scripts/move_neurips_backlog_item.py",
         "workflows/library/scripts/recover_neurips_plan_gate_outputs.py",
@@ -125,6 +179,115 @@ def _copy_neurips_runtime_files(workspace: Path) -> None:
         dest = workspace / relpath
         dest.parent.mkdir(parents=True, exist_ok=True)
         dest.write_text(src.read_text(encoding="utf-8"), encoding="utf-8")
+
+
+def _prepare_neurips_v214_selected_item_inputs(workspace: Path, scenario: dict[str, Any]) -> dict[str, Any]:
+    workflow_inputs = scenario["workflow_inputs"]
+    provider = scenario["provider"]
+
+    drain_state_root = Path(str(workflow_inputs["drain_state_root"]))
+    iteration_root = drain_state_root / "iterations" / "0"
+    selector_state_root = iteration_root / "selector"
+    current_roadmap_pointer_path = drain_state_root / "current_roadmap_path.txt"
+    manifest_path = iteration_root / "manifest.json"
+    eligible_manifest_path = iteration_root / "eligible_manifest.json"
+    roadmap_gate_output_path = iteration_root / "roadmap-gate.json"
+    run_state_path = Path(str(workflow_inputs["run_state_target_path"]))
+
+    current_roadmap_pointer = workspace / current_roadmap_pointer_path
+    current_roadmap_pointer.parent.mkdir(parents=True, exist_ok=True)
+    current_roadmap_pointer.write_text(str(workflow_inputs["roadmap_path"]) + "\n", encoding="utf-8")
+
+    _run_workspace_command(
+        workspace,
+        [
+            "python",
+            "workflows/library/scripts/update_neurips_backlog_run_state.py",
+            "--state-path",
+            run_state_path.as_posix(),
+            "init",
+            "--run-id",
+            "oracle-run",
+            "--roadmap-path",
+            str(workflow_inputs["roadmap_path"]),
+        ],
+    )
+    _run_workspace_command(
+        workspace,
+        [
+            "python",
+            "workflows/library/scripts/build_neurips_backlog_manifest.py",
+            "--backlog-root",
+            str(workflow_inputs["backlog_root"]),
+            "--output",
+            manifest_path.as_posix(),
+        ],
+    )
+    _run_workspace_command(
+        workspace,
+        [
+            "python",
+            "workflows/library/scripts/reconcile_neurips_backlog_roadmap_gate.py",
+            "--manifest-path",
+            manifest_path.as_posix(),
+            "--gate-policy-path",
+            str(workflow_inputs["roadmap_gate_path"]),
+            "--progress-ledger-path",
+            str(workflow_inputs["progress_ledger_path"]),
+            "--run-state-path",
+            run_state_path.as_posix(),
+            "--output",
+            roadmap_gate_output_path.as_posix(),
+        ],
+    )
+
+    selection_path = workspace / selector_state_root / "selection.json"
+    selection_path.parent.mkdir(parents=True, exist_ok=True)
+    selection_path.write_text(
+        json.dumps(_selection_payload_for_neurips_v214(provider), indent=2) + "\n",
+        encoding="utf-8",
+    )
+
+    return {
+        "state_root": iteration_root.as_posix(),
+        "current_roadmap_path": str(workflow_inputs["roadmap_path"]),
+        "current_roadmap_pointer_path": current_roadmap_pointer_path.as_posix(),
+        "selector_state_root": selector_state_root.as_posix(),
+        "manifest_path": eligible_manifest_path.as_posix(),
+        "steering_path": str(workflow_inputs["steering_path"]),
+        "design_path": str(workflow_inputs["design_path"]),
+        "progress_ledger_path": str(workflow_inputs["progress_ledger_path"]),
+        "run_state_path": run_state_path.as_posix(),
+        "implementation_execute_provider": str(workflow_inputs["implementation_execute_provider"]),
+        "implementation_review_provider": str(workflow_inputs["implementation_review_provider"]),
+        "implementation_fix_provider": str(workflow_inputs["implementation_fix_provider"]),
+    }
+
+
+def _selection_payload_for_neurips_v214(provider: dict[str, Any]) -> dict[str, Any]:
+    payload = provider
+    sequence = provider.get("selection_sequence")
+    if isinstance(sequence, list):
+        for entry in sequence:
+            if isinstance(entry, dict) and entry.get("selection_status") == "SELECTED":
+                payload = {**provider, **entry}
+                break
+
+    return {
+        "selection_status": "SELECTED",
+        "selection_mode": str(payload.get("selection_mode") or "ACTIVE_SELECTION"),
+        "selected_item_id": str(payload["selected_item_id"]),
+        "selected_item_path": str(payload["selected_item_path"]),
+        "selection_rationale": str(
+            payload.get("selection_rationale")
+            or "Deterministic oracle selection."
+        ),
+        "roadmap_sync_hint": str(payload.get("roadmap_sync_status") or payload.get("roadmap_sync_hint") or "NO_CHANGE"),
+    }
+
+
+def _run_workspace_command(workspace: Path, argv: list[str]) -> None:
+    subprocess.run(argv, cwd=workspace, check=True)
 
 
 @contextlib.contextmanager
@@ -217,6 +380,48 @@ def _build_observation(workspace: Path, state: dict[str, Any]) -> dict[str, Any]
         "domain_state_summaries": domain_state_summaries,
         "files": files,
     }
+
+
+def _build_neurips_equivalence_observation(observation: dict[str, Any]) -> dict[str, Any]:
+    files = {
+        path: value
+        for path, value in observation["files"].items()
+        if _is_neurips_equivalence_file(path)
+    }
+    return {
+        "queue": observation["queue"],
+        "selected_variants": observation["selected_variants"],
+        "snapshot_candidate_keys": observation["snapshot_candidate_keys"],
+        "files": files,
+    }
+
+
+def _is_neurips_equivalence_file(relpath: str) -> bool:
+    if relpath.startswith("artifacts/checks/NEURIPS-HYBRID-RESNET-2026/backlog/"):
+        return True
+    if relpath.startswith("artifacts/review/NEURIPS-HYBRID-RESNET-2026/backlog/") and (
+        relpath.endswith("-roadmap-sync.json")
+        or relpath.endswith("-plan-review.json")
+        or relpath.endswith("-plan-recovery.md")
+    ):
+        return True
+    if relpath.startswith("artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog/") and not relpath.endswith("-summary.json"):
+        return True
+    if relpath.startswith("docs/backlog/") and relpath.endswith(".md"):
+        return True
+    if relpath == "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json":
+        return True
+    if relpath == "state/NEURIPS-HYBRID-RESNET-2026/progress_ledger.json":
+        return True
+    if relpath.endswith("/iterations/0/selector/selection.json"):
+        return True
+    if relpath.endswith("/iterations/0/selected-item-inputs.json"):
+        return True
+    if relpath.endswith("/implementation-phase/implementation_state.json"):
+        return True
+    if relpath.endswith("/plan-gate/final_plan_gate.json"):
+        return True
+    return False
 
 
 def _is_interesting_file(relpath: str) -> bool:

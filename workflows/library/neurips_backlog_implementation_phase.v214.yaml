@@ -209,23 +209,23 @@ steps:
           pointer:
             path: ${inputs.state_root}/progress_report_target_path.txt
           ensure_parent: true
-        - name: checks_report_target_path
+        - name: checks_report_path
           source: { input: checks_report_target_path }
           contract:
             type: relpath
             under: artifacts/checks
             must_exist_target: false
           pointer:
-            path: ${inputs.state_root}/checks_report_target_path.txt
+            path: ${inputs.state_root}/checks_report_path.txt
           ensure_parent: true
-        - name: implementation_review_report_target_path
+        - name: implementation_review_report_path
           source: { input: implementation_review_report_target_path }
           contract:
             type: relpath
             under: artifacts/review
             must_exist_target: false
           pointer:
-            path: ${inputs.state_root}/implementation_review_report_target_path.txt
+            path: ${inputs.state_root}/implementation_review_report_path.txt
           ensure_parent: true
     publishes:
       - artifact: design
@@ -317,17 +317,23 @@ steps:
                 - external_dependency_outside_authority
                 - user_decision_required
                 - unrecoverable_after_fix_attempt
-              extract:
-                from: candidate_path
-                line_prefix: "Blocker Class:"
-                strip: ["`", "-", "#"]
       evidence:
         mode: snapshot_diff
         snapshot:
           ref: root.steps.ExecuteImplementation.snapshots.implementation_outcome_before
+      extract:
+        from: candidate_path
+        line_prefix: "Blocker Class:"
+        strip: ["`", "-", "#"]
 
   - name: PublishCompletedExecutionReport
     id: publish_completed_execution_report
+    when:
+      compare:
+        left:
+          ref: self.steps.SelectImplementationOutcome.artifacts.implementation_state
+        op: eq
+        right: COMPLETED
     requires_variant:
       step: SelectImplementationOutcome
       value: COMPLETED
@@ -358,6 +364,12 @@ steps:
 
   - name: PublishBlockedProgressReport
     id: publish_blocked_progress_report
+    when:
+      compare:
+        left:
+          ref: self.steps.SelectImplementationOutcome.artifacts.implementation_state
+        op: eq
+        right: BLOCKED
     requires_variant:
       step: SelectImplementationOutcome
       value: BLOCKED

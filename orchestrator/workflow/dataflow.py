@@ -142,6 +142,24 @@ class DataflowManager:
                         if isinstance(candidate_pointer, str):
                             local_pointer = candidate_pointer
                 if local_pointer is not None and local_pointer != pointer:
+                    substituted_pointer, pointer_error = self.substitute_path_template(
+                        pointer,
+                        state,
+                        step_name=step_name,
+                        field_name=f"artifacts.{artifact_name}.pointer",
+                    )
+                    if pointer_error is not None or substituted_pointer is None:
+                        return pointer_error or self.contract_violation_result(
+                            "Publish contract failed",
+                            {
+                                "step": step_name,
+                                "artifact": artifact_name,
+                                "reason": "missing_registry_pointer",
+                                "pointer": pointer,
+                            },
+                        )
+                    pointer = substituted_pointer
+                if local_pointer is not None and local_pointer != pointer:
                     return self.contract_violation_result(
                         "Publish contract failed",
                         {
@@ -152,7 +170,23 @@ class DataflowManager:
                             "local_pointer": local_pointer,
                         },
                     )
-                pointer_path = self.resolve_workspace_path(pointer)
+                substituted_pointer, pointer_error = self.substitute_path_template(
+                    pointer,
+                    state,
+                    step_name=step_name,
+                    field_name=f"artifacts.{artifact_name}.pointer",
+                )
+                if pointer_error is not None or substituted_pointer is None:
+                    return pointer_error or self.contract_violation_result(
+                        "Publish contract failed",
+                        {
+                            "step": step_name,
+                            "artifact": artifact_name,
+                            "reason": "missing_registry_pointer",
+                            "pointer": pointer,
+                        },
+                    )
+                pointer_path = self.resolve_workspace_path(substituted_pointer)
                 if pointer_path is None:
                     return self.contract_violation_result(
                         "Publish contract failed",
@@ -160,7 +194,7 @@ class DataflowManager:
                             "step": step_name,
                             "artifact": artifact_name,
                             "reason": "missing_registry_pointer",
-                            "pointer": pointer,
+                            "pointer": substituted_pointer,
                         },
                     )
                 pointer_path.parent.mkdir(parents=True, exist_ok=True)

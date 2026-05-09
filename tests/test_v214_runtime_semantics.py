@@ -16,6 +16,9 @@ from orchestrator.workflow.executor import WorkflowExecutor
 
 
 def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
+    version_order = list(WorkflowLoader.VERSION_ORDER)
+    if "2.14" not in version_order:
+        version_order.append("2.14")
     monkeypatch.setattr(
         WorkflowLoader,
         "SUPPORTED_VERSIONS",
@@ -24,7 +27,7 @@ def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
         WorkflowLoader,
         "VERSION_ORDER",
-        [*WorkflowLoader.VERSION_ORDER, "2.14"],
+        version_order,
     )
 
 
@@ -170,6 +173,133 @@ def test_materialize_artifacts_publish_writes_canonical_top_level_pointer(
     assert state["artifact_versions"]["design"][0]["value"] == "docs/plans/approved-plan.md"
 
 
+def test_materialize_artifacts_substitutes_pointer_path_templates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """materialize_artifacts pointer paths should resolve runtime templates before writing."""
+    _enable_v214_loader(monkeypatch)
+    (tmp_path / "docs" / "plans").mkdir(parents=True)
+    (tmp_path / "docs" / "plans" / "approved-plan.md").write_text("# approved\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "materialize-template-pointer",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+            },
+            "design_path": {
+                "type": "relpath",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            },
+        },
+        "steps": [
+            {
+                "name": "MaterializeDesign",
+                "id": "materialize_design",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "design_path",
+                            "source": {"input": "design_path"},
+                            "contract": {"inherit": "source"},
+                            "pointer": {"path": "${inputs.state_root}/design_path.txt"},
+                        }
+                    ]
+                },
+            }
+        ],
+    }
+
+    executor = _load_executor(
+        tmp_path,
+        workflow,
+        bound_inputs={
+            "state_root": "state/oracle",
+            "design_path": "docs/plans/approved-plan.md",
+        },
+    )
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "oracle" / "design_path.txt").read_text(encoding="utf-8") == (
+        "docs/plans/approved-plan.md\n"
+    )
+    assert not (tmp_path / "${inputs.state_root}").exists()
+
+
+def test_materialize_artifacts_publish_substitutes_registry_pointer_templates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Publishing a materialized relpath should substitute artifact registry pointer templates too."""
+    _enable_v214_loader(monkeypatch)
+    (tmp_path / "docs" / "plans").mkdir(parents=True)
+    (tmp_path / "docs" / "plans" / "approved-plan.md").write_text("# approved\n", encoding="utf-8")
+
+    workflow = {
+        "version": "2.14",
+        "name": "materialize-template-publish-pointer",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+            },
+            "design_path": {
+                "type": "relpath",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            },
+        },
+        "artifacts": {
+            "design": {
+                "kind": "relpath",
+                "type": "relpath",
+                "pointer": "${inputs.state_root}/design_path.txt",
+                "under": "docs/plans",
+                "must_exist_target": True,
+            }
+        },
+        "steps": [
+            {
+                "name": "MaterializeDesign",
+                "id": "materialize_design",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "design_path",
+                            "source": {"input": "design_path"},
+                            "contract": {"inherit": "source"},
+                            "pointer": {"path": "${inputs.state_root}/design_path.txt"},
+                        }
+                    ]
+                },
+                "publishes": [{"artifact": "design", "from": "design_path"}],
+            }
+        ],
+    }
+
+    executor = _load_executor(
+        tmp_path,
+        workflow,
+        bound_inputs={
+            "state_root": "state/oracle",
+            "design_path": "docs/plans/approved-plan.md",
+        },
+    )
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "oracle" / "design_path.txt").read_text(encoding="utf-8") == (
+        "docs/plans/approved-plan.md\n"
+    )
+    assert state["artifact_versions"]["design"][0]["value"] == "docs/plans/approved-plan.md"
+    assert not (tmp_path / "${inputs.state_root}").exists()
+
+
 def test_pre_snapshot_and_select_variant_output_choose_the_single_changed_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -297,6 +427,133 @@ def test_pre_snapshot_and_select_variant_output_choose_the_single_changed_candid
         "implementation_state": "COMPLETED",
         "execution_report_path": "artifacts/work/execution_report.md",
     }
+
+
+def test_select_variant_output_substitutes_bundle_path_templates(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """select_variant_output should resolve its bundle path template before committing output."""
+    _enable_v214_loader(monkeypatch)
+
+    workflow = {
+        "version": "2.14",
+        "name": "snapshot-select-template-path",
+        "inputs": {
+            "state_root": {
+                "type": "relpath",
+                "under": "state",
+            }
+        },
+        "steps": [
+            {
+                "name": "MaterializeTargets",
+                "id": "materialize_targets",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "execution_report_target_path",
+                            "source": {"literal": "artifacts/work/execution_report.md"},
+                            "contract": {
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": False,
+                            },
+                        },
+                        {
+                            "name": "progress_report_target_path",
+                            "source": {"literal": "artifacts/work/progress_report.md"},
+                            "contract": {
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": False,
+                            },
+                        },
+                    ]
+                },
+            },
+            {
+                "name": "ExecuteImplementation",
+                "id": "execute_implementation",
+                "pre_snapshot": {
+                    "name": "implementation_outcome_before",
+                    "digest": "sha256",
+                    "candidates": {
+                        "COMPLETED": {
+                            "ref": "root.steps.MaterializeTargets.artifacts.execution_report_target_path",
+                        },
+                        "BLOCKED": {
+                            "ref": "root.steps.MaterializeTargets.artifacts.progress_report_target_path",
+                        },
+                    },
+                },
+                "command": [
+                    "python",
+                    "-c",
+                    (
+                        "from pathlib import Path\n"
+                        "path = Path('artifacts/work/execution_report.md')\n"
+                        "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                        "path.write_text('# Execution Report\\n', encoding='utf-8')\n"
+                    ),
+                ],
+            },
+            {
+                "name": "SelectImplementationOutcome",
+                "id": "select_implementation_outcome",
+                "select_variant_output": {
+                    "path": "${inputs.state_root}/implementation_state.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED", "BLOCKED"],
+                    },
+                    "variants": {
+                        "COMPLETED": {
+                            "fields": [
+                                {
+                                    "name": "execution_report_path",
+                                    "json_pointer": "/execution_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                        "BLOCKED": {
+                            "fields": [
+                                {
+                                    "name": "progress_report_path",
+                                    "json_pointer": "/progress_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                    },
+                    "evidence": {
+                        "mode": "snapshot_diff",
+                        "snapshot": {
+                            "ref": "root.steps.ExecuteImplementation.snapshots.implementation_outcome_before",
+                        },
+                    },
+                },
+            },
+        ],
+    }
+
+    executor = _load_executor(
+        tmp_path,
+        workflow,
+        bound_inputs={"state_root": "state/oracle"},
+    )
+    state = executor.execute()
+
+    assert state["status"] == "completed"
+    assert (tmp_path / "state" / "oracle" / "implementation_state.json").is_file()
+    assert not (tmp_path / "${inputs.state_root}").exists()
 
 
 def test_select_variant_output_rejects_runtime_snapshot_metadata_mismatch(

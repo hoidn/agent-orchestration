@@ -6843,12 +6843,24 @@ class WorkflowExecutor:
                         "Pointer path must be a string",
                         context={"name": name},
                     )
-                resolved_pointer = self._resolve_workspace_path(pointer_path)
+                substituted_pointer_path, pointer_error = self._substitute_path_template(
+                    pointer_path,
+                    state,
+                    step_name=step.get("name", "<unnamed>"),
+                    field_name=f"materialize_artifacts.values[{name}].pointer.path",
+                )
+                if pointer_error is not None or substituted_pointer_path is None:
+                    return pointer_error or self._v214_failure_result(
+                        "unsafe_path",
+                        "Pointer path substitution failed",
+                        context={"name": name, "path": pointer_path},
+                    )
+                resolved_pointer = self._resolve_workspace_path(substituted_pointer_path)
                 if resolved_pointer is None:
                     return self._v214_failure_result(
                         "unsafe_path",
                         "Pointer path escapes the workspace",
-                        context={"name": name, "path": pointer_path},
+                        context={"name": name, "path": substituted_pointer_path},
                     )
                 try:
                     self._atomic_write_text(resolved_pointer, f"{value}\n")
@@ -6856,7 +6868,7 @@ class WorkflowExecutor:
                     return self._v214_failure_result(
                         "atomic_commit_failed",
                         "Failed to write materialized pointer",
-                        context={"name": name, "path": pointer_path, "error": str(exc)},
+                        context={"name": name, "path": substituted_pointer_path, "error": str(exc)},
                     )
                 pointer_map[name] = resolved_pointer.relative_to(self.workspace).as_posix()
 
@@ -7058,12 +7070,24 @@ class WorkflowExecutor:
                 "invalid_variant_bundle",
                 "select_variant_output requires a bundle path",
             )
-        bundle_path = self._resolve_workspace_path(bundle_path_raw)
+        substituted_bundle_path, bundle_path_error = self._substitute_path_template(
+            bundle_path_raw,
+            state,
+            step_name=step.get("name", "<unnamed>"),
+            field_name="select_variant_output.path",
+        )
+        if bundle_path_error is not None or substituted_bundle_path is None:
+            return bundle_path_error or self._v214_failure_result(
+                "unsafe_path",
+                "select_variant_output bundle path substitution failed",
+                context={"path": bundle_path_raw},
+            )
+        bundle_path = self._resolve_workspace_path(substituted_bundle_path)
         if bundle_path is None:
             return self._v214_failure_result(
                 "unsafe_path",
                 "select_variant_output bundle path escapes the workspace",
-                context={"path": bundle_path_raw},
+                context={"path": substituted_bundle_path},
             )
         bundle_path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = bundle_path.parent / f".{bundle_path.name}.tmp-{os.getpid()}-{time.time_ns()}"

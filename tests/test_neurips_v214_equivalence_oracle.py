@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from tests.golden_state import load_expected_observation, run_fixture_workflow, run_neurips_workspace_workflow
+from tests.golden_state import run_neurips_equivalence_observation
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -24,11 +24,17 @@ FIXTURE_ROOT = ROOT / "tests/fixtures/neurips_minimal"
 def test_neurips_plan_gate_and_queue_oracles(
     tmp_path: Path, scenario_name: str, expected_name: str
 ) -> None:
-    observation = run_neurips_workspace_workflow(
+    legacy_observation = run_neurips_equivalence_observation(
         fixture_root=FIXTURE_ROOT,
-        workspace=tmp_path / scenario_name,
-        workflow_relpath="workflows/examples/neurips_steered_backlog_drain.yaml",
+        workspace=tmp_path / f"{scenario_name}-legacy",
         scenario_name=scenario_name,
+        stack="legacy",
+    )
+    v214_observation = run_neurips_equivalence_observation(
+        fixture_root=FIXTURE_ROOT,
+        workspace=tmp_path / f"{scenario_name}-v214",
+        scenario_name=scenario_name,
+        stack="v214",
     )
 
-    assert observation == load_expected_observation(FIXTURE_ROOT / "expected" / expected_name)
+    assert legacy_observation == v214_observation
