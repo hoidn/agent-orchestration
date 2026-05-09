@@ -6587,14 +6587,27 @@ class WorkflowExecutor:
             )
         payload = sidecar_path.read_text(encoding="utf-8")
         expected_hash = snapshot_state.get("sha256")
+        if not isinstance(expected_hash, str) or not expected_hash:
+            return None, self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot sidecar state is missing the recorded sha256 hash",
+                context={"sidecar": sidecar},
+            )
         actual_hash = sha256(payload.encode("utf-8")).hexdigest()
-        if isinstance(expected_hash, str) and expected_hash != actual_hash:
+        if expected_hash != actual_hash:
             return None, self._v214_failure_result(
                 "snapshot_sidecar_hash_mismatch",
                 "Snapshot sidecar hash does not match recorded state",
                 context={"sidecar": sidecar},
             )
-        return json.loads(payload), None
+        try:
+            return json.loads(payload), None
+        except json.JSONDecodeError:
+            return None, self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot sidecar payload is not valid JSON",
+                context={"sidecar": sidecar},
+            )
 
     def _capture_pre_snapshot(self, step: Dict[str, Any], state: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         snapshot_config = step.get("pre_snapshot")
