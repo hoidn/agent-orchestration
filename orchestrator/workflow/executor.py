@@ -6605,7 +6605,6 @@ class WorkflowExecutor:
                 "Snapshot sidecar is missing",
                 context={"sidecar": sidecar},
             )
-        payload = sidecar_path.read_text(encoding="utf-8")
         expected_hash = snapshot_state.get("sha256")
         if not isinstance(expected_hash, str) or not expected_hash:
             return None, self._v214_failure_result(
@@ -6613,6 +6612,13 @@ class WorkflowExecutor:
                 "Snapshot sidecar state is missing the recorded sha256 hash",
                 context={"sidecar": sidecar},
             )
+        if not sidecar_path.is_file():
+            return None, self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot sidecar must be a file",
+                context={"sidecar": sidecar},
+            )
+        payload = sidecar_path.read_text(encoding="utf-8")
         actual_hash = sha256(payload.encode("utf-8")).hexdigest()
         if expected_hash != actual_hash:
             return None, self._v214_failure_result(
@@ -6621,13 +6627,20 @@ class WorkflowExecutor:
                 context={"sidecar": sidecar},
             )
         try:
-            return json.loads(payload), None
+            snapshot_record = json.loads(payload)
         except json.JSONDecodeError:
             return None, self._v214_failure_result(
                 "snapshot_state_missing",
                 "Snapshot sidecar payload is not valid JSON",
                 context={"sidecar": sidecar},
             )
+        if not isinstance(snapshot_record, Mapping):
+            return None, self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot sidecar payload must decode to an object",
+                context={"sidecar": sidecar},
+            )
+        return dict(snapshot_record), None
 
     def _capture_pre_snapshot(self, step: Dict[str, Any], state: Dict[str, Any]) -> tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
         snapshot_config = step.get("pre_snapshot")
