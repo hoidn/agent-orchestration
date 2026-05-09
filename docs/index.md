@@ -74,6 +74,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** dsl-v214, phase-0, materialization, variant-output, oracle
 **Use this when:** You need the current-behavior characterization that future v2.14 implementation work is meant to preserve or intentionally replace.
 
+### [DSL v2.14 Pointer Authority](design/dsl_v214_pointer_authority.md)
+**Description:** Phase 1 design note that inventories current pointer surfaces and fixes one authority rule for published relpath artifacts versus compatibility-only pointer shims.
+**Keywords:** dsl-v214, pointer-authority, relpath, publishes, compatibility
+**Use this when:** You need the authoritative pointer model before Phase 1 runtime implementation or workflow migration decisions.
+
 ### [Minimal NeurIPS v2.14 Behavior Matrix](design/neurips_v214_behavior_matrix.md)
 **Description:** Scenario matrix for the primitive and minimal-NeurIPS Phase 0 oracle fixtures, including preserved observations and normalized-away volatile fields.
 **Keywords:** neurips, oracle, behavior-matrix, phase-0, fixtures

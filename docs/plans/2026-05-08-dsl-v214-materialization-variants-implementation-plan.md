@@ -142,6 +142,11 @@ pointer must be omitted or exactly equal the top-level artifact pointer.
 Noncanonical sidecar pointers for published relpath artifacts are rejected in
 Phase 1.
 
+Unpublished local pointers remain allowed as compatibility-only
+materializations for prompt/script handoff, but they do not create additional
+published lineage surfaces. Queue or frontmatter mirrors such as backlog
+`plan_path` remain recovery metadata rather than published artifact authority.
+
 ### Source Contracts Are Inherited
 
 `materialize_artifacts` must not re-declare or weaken source contracts.
@@ -246,6 +251,10 @@ Responsibilities:
 - publish canonical artifact values, not pointer paths;
 - enforce canonical pointer authority;
 - validate relpath top-level artifact pointer consistency.
+
+Compatibility-only local pointer materializations may still exist for
+unpublished step plumbing, but Phase 1 does not authorize additional published
+sidecar pointers for the same relpath artifact.
 
 The current DSL dataflow contract remains authoritative: `publishes.from` names
 a same-step local output, while workflow `outputs.from` uses structured
@@ -1140,7 +1149,8 @@ If a local relpath artifact is published to a top-level relpath artifact:
   pointer;
 - otherwise: `pointer_authority_conflict`.
 
-This avoids noncanonical sidecars in the first tranche.
+This avoids noncanonical published sidecars in the first tranche while leaving
+unpublished local compatibility materializations unchanged.
 
 ### Primitive: `pre_snapshot`
 
