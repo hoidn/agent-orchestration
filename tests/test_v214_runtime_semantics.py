@@ -638,6 +638,131 @@ def test_select_variant_output_rejects_malformed_sidecar_snapshot_payload(
     assert "json" in result["error"]["message"].lower()
 
 
+def test_select_variant_output_rejects_sidecar_snapshot_path_outside_run_root(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Resume-time snapshot sidecars must stay under the orchestrator-managed run root."""
+    _enable_v214_loader(monkeypatch)
+
+    workflow = {
+        "version": "2.14",
+        "name": "snapshot-sidecar-escapes-run-root",
+        "steps": [
+            {
+                "name": "MaterializeTargets",
+                "id": "materialize_targets",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "placeholder_path",
+                            "source": {"literal": "artifacts/work/execution_report.md"},
+                            "contract": {
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": False,
+                            },
+                        }
+                    ]
+                },
+            },
+            {
+                "name": "CaptureBefore",
+                "id": "capture_before",
+                "pre_snapshot": {
+                    "name": "before",
+                    "digest": "sha256",
+                    "candidates": {
+                        "COMPLETED": {
+                            "ref": "root.steps.MaterializeTargets.artifacts.placeholder_path",
+                        }
+                    },
+                },
+                "command": ["echo", "ok"],
+            },
+            {
+                "name": "SelectImplementationOutcome",
+                "id": "select_implementation_outcome",
+                "select_variant_output": {
+                    "path": "state/implementation_state.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED"],
+                    },
+                    "variants": {
+                        "COMPLETED": {
+                            "fields": [
+                                {
+                                    "name": "execution_report_path",
+                                    "json_pointer": "/execution_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        }
+                    },
+                    "evidence": {
+                        "mode": "snapshot_diff",
+                        "snapshot": {
+                            "ref": "root.steps.CaptureBefore.snapshots.before",
+                        },
+                    },
+                },
+            }
+        ],
+    }
+
+    executor = _load_executor(tmp_path, workflow)
+    escaped_sidecar = "../../../outside.json"
+    external_sidecar = tmp_path / "outside.json"
+    payload = (
+        json.dumps(
+            {
+                "schema": "snapshot_diff/v1",
+                "digest": "sha256",
+                "captured_at": "pre_step",
+                "candidate_keys": ["COMPLETED"],
+                "candidates": {
+                    "COMPLETED": {
+                        "path": "artifacts/work/execution_report.md",
+                        "exists": False,
+                        "size": None,
+                        "sha256": None,
+                        "mtime_ns": None,
+                    }
+                },
+            }
+        )
+        + "\n"
+    )
+    external_sidecar.write_text(payload, encoding="utf-8")
+
+    state = executor.state_manager.load().to_dict()
+    state["steps"] = {
+        "CaptureBefore": {
+            "snapshots": {
+                "before": {
+                    "schema": "snapshot_diff/v1",
+                    "digest": "sha256",
+                    "captured_at": "pre_step",
+                    "candidate_keys": ["COMPLETED"],
+                    "sidecar": escaped_sidecar,
+                    "sha256": hashlib.sha256(payload.encode("utf-8")).hexdigest(),
+                }
+            }
+        }
+    }
+
+    result = executor._execute_select_variant_output(workflow["steps"][2], state)
+
+    assert result["status"] == "failed"
+    assert result["error"]["type"] == "snapshot_state_missing"
+    assert "unsafe" in result["error"]["message"].lower()
+
+
 def test_select_variant_output_rejects_ambiguous_snapshot_and_skips_bundle_commit(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

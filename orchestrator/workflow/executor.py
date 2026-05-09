@@ -2640,6 +2640,20 @@ class WorkflowExecutor:
             return None
         return candidate
 
+    def _resolve_run_root_path(self, relative_path: str) -> Optional[Path]:
+        """Resolve a run-root-relative path and reject escapes outside the run root."""
+        path = Path(relative_path)
+        if path.is_absolute() or ".." in path.parts:
+            return None
+
+        candidate = (self.state_manager.run_root / path).resolve()
+        run_root = self.state_manager.run_root.resolve()
+        try:
+            candidate.relative_to(run_root)
+        except ValueError:
+            return None
+        return candidate
+
     def _prepare_output_file_path(self, output_file_value: str) -> Optional[Path]:
         """Resolve a workspace-relative output file path and ensure its parent exists."""
         output_file = self._resolve_workspace_path(output_file_value)
@@ -6578,7 +6592,13 @@ class WorkflowExecutor:
                 "snapshot_state_missing",
                 "Snapshot state is missing sidecar metadata",
             )
-        sidecar_path = self.state_manager.run_root / sidecar
+        sidecar_path = self._resolve_run_root_path(sidecar)
+        if sidecar_path is None:
+            return None, self._v214_failure_result(
+                "snapshot_state_missing",
+                "Snapshot sidecar path is unsafe",
+                context={"sidecar": sidecar},
+            )
         if not sidecar_path.exists():
             return None, self._v214_failure_result(
                 "snapshot_sidecar_missing",
