@@ -7,8 +7,8 @@ DSL v2.14 materialization and variant-output work.
 
 - Advance the v2.14 semantics only through the ordered roadmap in
   `docs/plans/2026-05-08-dsl-v214-materialization-variants-roadmap.md`.
-- Start with Phase 0: freeze current behavior with deterministic fixtures,
-  fake providers, golden observations, and regression tests.
+- Use the completed Phase 0 oracle as the safety net for Phase 1 runtime
+  implementation.
 - Keep public DSL support capped at the existing supported versions until the
   runtime, loader, docs, and tests for v2.14 land together.
 - Treat the implementation plan in
@@ -17,8 +17,9 @@ DSL v2.14 materialization and variant-output work.
 
 ## Constraints
 
-- Do not expose runnable public `version: "2.14"` workflows during Phase 0.
-- Do not implement Phase 1 runtime surfaces before the Phase 0 oracle exists.
+- Do not expose runnable public `version: "2.14"` workflows until the runtime,
+  loader, docs, and tests for Phase 1 land together.
+- Do not translate public v2.14 workflow stacks before Phase 1 is complete.
 - Do not start Phase 2 workflow translation until the public v2.14 release gate
   has landed.
 - Keep tests network-free by default and use fake providers for workflow
@@ -28,10 +29,10 @@ DSL v2.14 materialization and variant-output work.
 
 ## Selection Guidance
 
-- Select the Phase 0 oracle backlog item while the roadmap gate allows
-  `phase-0-dsl-v214-oracle`.
-- Treat Phase 1 and Phase 2 work as future roadmap phases, not current
-  selectable backlog scope.
+- Select the Phase 1 runtime-semantics backlog item while the roadmap gate
+  allows `phase-1-dsl-v214-runtime`.
+- Treat Phase 2 work as future roadmap scope until Phase 1 is complete and the
+  gate advances.
 - If the selected item reveals a real mismatch between the roadmap, backlog
   item, and implementation plan, update the roadmap narrowly rather than
   broadening the backlog item.

@@ -6,14 +6,13 @@ materialization and variant-output work. The detailed design authority is
 
 ## Current Gate
 
-- Gate id: `dsl-v214-phase0-oracle`
-- Selectable phase prefix: `phase-0-dsl-v214-oracle`
+- Gate id: `dsl-v214-phase1-runtime`
+- Selectable phase prefix: `phase-1-dsl-v214-runtime`
 - Blocked future prefixes:
-  - `phase-1-dsl-v214-runtime`
   - `phase-2-dsl-v214-neurips-stack`
 
-The current gate intentionally allows only Phase 0. Later phases must not be
-selected until the preceding phase has produced its durable evidence.
+The current gate advances to Phase 1 after the Phase 0 oracle item has produced
+reviewed implementation evidence. Phase 2 remains blocked until Phase 1 lands.
 
 ## Phase 0: phase-0-dsl-v214-oracle
 
@@ -49,6 +48,13 @@ Exit criteria:
 
 Objective: implement the narrow v2.14 semantic tranche after Phase 0 is stable.
 
+Backlog authority:
+
+- `docs/backlog/active/2026-05-09-output-bundle-variant-surface-review.md`
+- `docs/backlog/active/2026-05-09-dsl-v214-pointer-authority-clarification.md`
+- `docs/backlog/active/2026-05-09-roadmap-gate-empty-active-gap.md`
+- `docs/backlog/in_progress/2026-05-09-dsl-v214-runtime-semantics.md`
+
 Scope:
 
 - `materialize_artifacts`
@@ -73,6 +79,10 @@ Gate:
 
 Objective: translate the NeurIPS-style backlog workflows to same-version v2.14
 YAML and prove behavioral equivalence against the Phase 0 oracle.
+
+Backlog authority:
+
+- `docs/backlog/active/2026-05-09-dsl-v214-neurips-stack-translation.md`
 
 Scope:
 

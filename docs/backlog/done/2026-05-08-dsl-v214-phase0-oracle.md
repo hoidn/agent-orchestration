@@ -1,6 +1,6 @@
 ---
 priority: 1
-plan_path: docs/plans/2026-05-08-dsl-v214-materialization-variants-implementation-plan.md
+plan_path: docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-08-dsl-v214-phase0-oracle/execution_plan.md
 check_commands:
   - python -m json.tool docs/backlog/roadmap_gate.json
   - >-
