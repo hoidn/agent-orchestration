@@ -18,6 +18,7 @@ These are the highest-impact terminology and contract confusions.
 | Docs vs specs precedence | "Any docs page is authoritative." | `specs/` are normative. `docs/` are explanatory. | [Master Spec](../specs/index.md) |
 | Workflow authoring surfaces | "Workflow inputs, prompt files, dependencies, and artifacts are all the same kind of input." | Keep four surfaces separate: workflow boundary (`inputs`/`outputs`), runtime dependencies (`depends_on`/`consumes`), provider prompt sources (`input_file`/`asset_file`/`asset_depends_on`), and artifact storage or lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`). | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
 | Semantic authority | "Reports, pointer files, debug YAML, and typed state can all decide workflow meaning." | Structured state, artifact values, contracts, snapshots, and semantic IR are authority. Reports, pointer files, rendered plans, and debug YAML are views or representations unless a specific contract says otherwise. | [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
+| Inline command glue | "Python and shell commands should either be banned entirely or accepted as normal workflow authoring." | Command steps are allowed for external tools and certified adapters. Hidden workflow semantics in inline Python/shell, ad hoc JSON rewrites, pointer-as-state, or report parsing are migration debt and need typed procedures, certified command adapters, or runtime-native effects. | [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
 | Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | `managed_jobs` is a v2.13 provider-step modifier. Workflow YAML declares policy, watch roots, backend, poll budget, and managed outcome routes; runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md), [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml) |
 
@@ -69,6 +70,11 @@ These are the highest-impact terminology and contract confusions.
 **Description:** Cross-frontend design principles for semantic authority, typed transitions, report/pointer boundaries, validation-before-commit, variant proof, effects, source maps, and future frontend requirements.
 **Keywords:** workflow-language, semantics, authority, typed-transitions, frontend, lisp, ir
 **Use this when:** Deciding whether a DSL feature, Lisp frontend form, macro, or workflow abstraction strengthens core semantics or merely shortens brittle authoring syntax.
+
+### [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
+**Description:** Design guidance for separating legitimate command steps and certified command adapters from hidden semantic inline Python/shell glue.
+**Keywords:** command-adapter, inline-glue, workflow-language, semantic-authority, adapters, lints
+**Use this when:** Auditing workflow command steps, extracting inline Python or shell, deciding whether a script should be a certified adapter, or planning runtime-native promotion.
 
 ### [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
 **Description:** Draft specification for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text.
@@ -137,6 +143,11 @@ For new DSL surfaces, macro systems, frontend languages, or reusable workflow
 families, also read [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 before drafting the feature. It defines the semantic authority model that keeps
 new authoring surfaces from becoming shorter versions of brittle YAML.
+
+If the workflow uses inline Python/shell or helper scripts for state, routing,
+resource movement, provider-output normalization, or report parsing, also read
+[Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
+before adding or preserving the command boundary.
 
 ## Informative Guides (`docs/`)
 

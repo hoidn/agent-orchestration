@@ -30,8 +30,10 @@ Use these labels:
 - Frontends lower to core AST and shared semantic IR, not YAML text.
 - Macros cannot hide effects.
 - Procedures compose workflow behavior.
+- Command steps are allowed; hidden semantic inline glue is not.
 - State paths are derived from contexts, not hand-managed.
 - Legacy parsing and pointer conventions are quarantined.
+- Provider decisions produce structured state; reports remain views.
 - Every generated semantic node is source-mapped.
 
 ## 1. Semantics Precede Syntax
@@ -264,7 +266,31 @@ Effects include:
 
 No macro, procedure, or frontend form may hide effects from the semantic IR.
 
-## 16. Pure Helpers Must Remain Pure
+## 16. Command Adapters Are Explicit Boundaries
+
+Status: `frontend requirement`
+
+Command steps are not inherently brittle. They are valid when they invoke an
+external tool or a certified command adapter with typed inputs, typed outputs,
+declared effects, fixtures, and source maps.
+
+What is not acceptable in new high-level workflow code is hidden semantic glue:
+inline Python or shell that rewrites state, parses reports, moves resources,
+updates ledgers, checks status strings, or decides workflow outcomes without a
+typed contract.
+
+Procedural behavior must be represented as one of:
+
+- a typed workflow procedure;
+- a typed workflow call;
+- a certified command adapter;
+- a runtime-native effect.
+
+See [Workflow Command Adapter Contract](workflow_command_adapter_contract.md)
+for lint severity, allowlist metadata, migration sequence, and promotion
+criteria.
+
+## 17. Pure Helpers Must Remain Pure
 
 Status: `frontend requirement`
 
@@ -282,7 +308,7 @@ Pure functions must not:
 - perform network access
 - mutate workflow state
 
-## 17. State Paths Should Be Derived, Not Hand-Managed
+## 18. State Paths Should Be Derived, Not Hand-Managed
 
 Status: `future direction`
 
@@ -298,7 +324,7 @@ These should be derived from typed contexts such as:
 
 Manual state path construction in high-level code is a lintable smell.
 
-## 18. Resource Movement Is A Transition
+## 19. Resource Movement Is A Transition
 
 Status: `future direction`
 
@@ -308,7 +334,20 @@ should be one typed transition.
 A resource transition must either commit coherently or fail before exposing new
 semantic outputs.
 
-## 19. Higher-Order Workflow Composition Is Allowed, But Checked
+## 20. Provider Decisions Produce Structured State
+
+Status: `frontend requirement`
+
+When a provider decides a workflow outcome, the provider protocol should produce
+structured state: a typed bundle, tagged union, or validated command/provider
+result. Markdown reports may accompany that state, but they remain views.
+
+Provider-result and command-result forms should lower to output contracts,
+variant contracts, prompt-contract injection where applicable, validation
+before commit, and source-mapped artifact exposure. Prose-only provider results
+belong behind legacy adapters during migration.
+
+## 21. Higher-Order Workflow Composition Is Allowed, But Checked
 
 Status: `future direction`
 
@@ -320,7 +359,7 @@ signature-checked, version-checked, and effect-checked.
 
 They must not become arbitrary runtime code loading.
 
-## 20. Debug Projections Are Non-Authoritative
+## 22. Debug Projections Are Non-Authoritative
 
 Status: `current invariant`
 
@@ -332,7 +371,7 @@ They may aid inspection, review, testing, and migration.
 They must not override typed state, artifact values, contracts, snapshots, or
 semantic IR.
 
-## 21. Legacy Adapters Are Quarantine Zones
+## 23. Legacy Adapters Are Quarantine Zones
 
 Status: `frontend requirement`
 
@@ -348,7 +387,10 @@ They must be:
 - preferably deprecated
 - kept out of new high-level workflow abstractions
 
-## 22. Source Maps Are Semantic Infrastructure
+Legacy adapters are a subset of the broader certified-command-adapter boundary:
+they are allowed only because they quarantine compatibility debt.
+
+## 24. Source Maps Are Semantic Infrastructure
 
 Status: `frontend requirement`
 
@@ -366,7 +408,7 @@ Diagnostics should report:
 
 No abstraction is acceptable if it makes workflow failures harder to explain.
 
-## 23. Lints Should Detect Semantic Smells
+## 25. Lints Should Detect Semantic Smells
 
 Status: `frontend requirement`
 
@@ -384,8 +426,10 @@ including:
 - recovery gates instead of `resume_or_start`
 - string status gates instead of typed unions
 - hidden macro effects
+- hidden semantic inline Python or shell
+- command adapters without typed contracts
 
-## 24. High-Level Constructs Must Reduce Brittleness
+## 26. High-Level Constructs Must Reduce Brittleness
 
 Status: `frontend requirement`
 
@@ -404,7 +448,12 @@ correctness burden:
 
 A construct that only reduces punctuation or indentation is not sufficient.
 
-## 25. Preserve The Deterministic Runtime Model
+Do not promote every script into a runtime primitive. Promotion is justified
+when the behavior needs runtime-level atomicity, resumability, source-map
+fidelity, path-safety enforcement, or semantic IR visibility that a certified
+command adapter cannot provide.
+
+## 27. Preserve The Deterministic Runtime Model
 
 Status: `frontend requirement`
 

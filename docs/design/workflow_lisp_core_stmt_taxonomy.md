@@ -1,7 +1,8 @@
 # Workflow Lisp Core Statement Taxonomy
 
 Status: draft internal design  
-Depends on: `docs/design/workflow_lisp_core_workflow_ast.md`
+Depends on: `docs/design/workflow_lisp_core_workflow_ast.md`,
+`docs/design/workflow_command_adapter_contract.md`
 
 ## Purpose
 
@@ -70,6 +71,9 @@ The taxonomy must define:
 
 - Frontend forms may elaborate into Core statements, but may not bypass the
   taxonomy.
+- `CoreCommandStep` is valid for external tools and certified command
+  adapters. It is not a license to hide workflow semantics in inline command
+  text.
 - New statement families require explicit validation, lowering, runtime, and
   observability rules.
 - A statement that cannot be source-mapped is invalid.

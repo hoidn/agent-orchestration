@@ -6,6 +6,8 @@ This guide is about DSL authoring choices, not runtime operations.
 Companion docs:
 - Concept model and terminology: `docs/orchestration_start_here.md`
 - Runtime sequencing and step lifecycle: `docs/runtime_execution_lifecycle.md`
+- Inline glue and command-adapter boundary:
+  `docs/design/workflow_command_adapter_contract.md`
 
 Goal: help you author workflows that are reliable when prompts, deterministic artifacts, and control flow all interact.
 
@@ -66,6 +68,43 @@ ordinary workflow authoring, keep these rules in view:
 These rules are about semantic authority, not style. A shorter workflow that
 hides state, parsing, or effect ownership is worse than a longer workflow that
 keeps those contracts explicit and validated.
+
+### Inline Glue Policy
+
+Command steps are allowed. Hidden workflow semantics in inline command text are
+migration debt.
+
+Use command steps for external tools or named adapters with explicit contracts.
+Do not use `python -c`, `python -`, `bash -c`, heredocs, nested
+`subprocess.run`, or inline JSON/pointer/report parsing to decide workflow
+state in new high-level workflows.
+
+Procedural behavior should be one of:
+
+- a typed workflow procedure;
+- a typed workflow call;
+- a certified command adapter with declared inputs, outputs, effects, fixtures,
+  and source maps;
+- a runtime-native effect.
+
+Classify existing glue by behavior before implementation form:
+
+- pointer/materialization glue should move to `materialize_artifacts` or
+  runtime-owned pointer materialization;
+- fixed structured state should use `output_bundle` or future
+  `command-result`;
+- true tagged outcomes should use `variant_output`, `select_variant_output`,
+  or future `provider-result`;
+- plan-gate reuse should become `resume-or-start` only after canonical
+  reusable-state validation is specified;
+- queue movement and ledger updates should become `resource-transition`, first
+  as a certified adapter if the runtime does not yet provide atomic semantics;
+- completed/blocked fan-in should become a typed outcome router such as
+  `finalize-selected-item`;
+- provider decisions should produce structured bundles, with reports as views.
+
+See `docs/design/workflow_command_adapter_contract.md` for lint severity,
+allowlist metadata, migration sequence, and runtime-native promotion criteria.
 
 ## 3) Provider Prompt Composition (What The Agent Actually Sees)
 

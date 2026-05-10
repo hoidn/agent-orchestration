@@ -1,7 +1,8 @@
 # Workflow Lisp Effect Graph
 
 Status: draft internal design  
-Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`
+Depends on: `docs/design/workflow_lisp_semantic_workflow_ir.md`,
+`docs/design/workflow_command_adapter_contract.md`
 
 ## Purpose
 
@@ -68,12 +69,17 @@ Effect validation checks:
 - workflow summaries include nested procedure effects
 - resource transitions have required capabilities
 - command and provider effects have output validation
+- semantic command behavior is either a typed procedure, a typed call, a
+  certified command adapter, or a runtime-native effect
 
 ## Required Invariants
 
 - Effects are semantic IR data, not comments.
 - Runtime execution must be explainable from the effect graph and source map.
 - Effect checking must not weaken existing YAML validation.
+- Inline command glue that mutates semantic state must not disappear into a
+  generic `uses_command` entry; it needs adapter metadata or a stronger typed
+  construct.
 
 ## Open Questions
 

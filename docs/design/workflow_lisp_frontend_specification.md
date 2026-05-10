@@ -160,7 +160,12 @@ The following component docs define the missing implementation contracts:
     Rules for quarantined markdown parsing, old scripts, pointer conventions,
     and command adapters.
 
-12. [Debug YAML Renderer](workflow_lisp_debug_yaml_renderer.md)  
+12. [Command Adapter Contract](workflow_command_adapter_contract.md)
+    Certified command-adapter boundary for procedural behavior implemented by
+    scripts or external commands, including inline-glue lint policy, adapter
+    fixtures, source maps, and runtime-native promotion criteria.
+
+13. [Debug YAML Renderer](workflow_lisp_debug_yaml_renderer.md)
     Optional, explicitly non-authoritative projection from Core AST or Semantic
     IR.
 

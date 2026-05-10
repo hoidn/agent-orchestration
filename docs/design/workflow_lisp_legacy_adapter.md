@@ -1,7 +1,8 @@
 # Workflow Lisp Legacy Adapter
 
 Status: draft internal design  
-Depends on: `docs/design/workflow_language_design_principles.md`
+Depends on: `docs/design/workflow_language_design_principles.md`,
+`docs/design/workflow_command_adapter_contract.md`
 
 ## Purpose
 
@@ -12,6 +13,11 @@ fields that cannot be removed immediately.
 Legacy adapters exist to preserve migration paths without letting compatibility
 debt become new language semantics.
 
+A legacy adapter is a specialized certified command adapter: it has the same
+typed input, typed output, declared effect, fixture, and source-map obligations
+as any command adapter, plus an explicit compatibility-debt label and
+replacement path.
+
 ## Allowed Uses
 
 Legacy adapters may bridge:
@@ -21,6 +27,9 @@ Legacy adapters may bridge:
 - command scripts that emit legacy JSON
 - queue movement scripts pending a resource-transition backend
 - historical workflow state layouts
+
+They should not be used for ordinary external tool execution. A non-legacy
+command belongs behind the broader certified-command-adapter contract instead.
 
 ## Required Metadata
 
@@ -36,6 +45,8 @@ fixtures
 deprecation status
 replacement path
 source-map behavior
+adapter command path
+error taxonomy
 ```
 
 ## Validation Responsibilities
@@ -47,6 +58,8 @@ Adapter validation checks:
 - extracted fields have typed contracts
 - adapter outputs validate before publication
 - adapter effects are recorded in the effect graph
+- adapter command is a stable script or executable, not inline `python -c`,
+  `python -`, `bash -c`, or a heredoc
 - adapter cannot be imported by new standard-library modules unless explicitly
   allowed
 
@@ -57,6 +70,9 @@ Adapter validation checks:
 - A legacy adapter that extracts semantic fields from prose must be fixture
   tested.
 - Adapter output, not source prose, becomes the structured semantic value.
+- Pointer files handled by an adapter are representations. They are not
+  semantic authority unless the output contract explicitly says the artifact
+  value is the pointer path.
 
 ## Open Questions
 
