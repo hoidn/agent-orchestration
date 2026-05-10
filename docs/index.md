@@ -17,6 +17,7 @@ These are the highest-impact terminology and contract confusions.
 | Rollback/checkpoint workflow safety | "Every workflow needs the same live-checkout git rules." | Only workflows with DSL-level git rollback/checkpoint behavior need special coexistence rules; author them explicitly, prefer recorded refs over ancestry shortcuts like `HEAD^`, and consider a dedicated run checkout. | [Orchestration Start Here](orchestration_start_here.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Docs vs specs precedence | "Any docs page is authoritative." | `specs/` are normative. `docs/` are explanatory. | [Master Spec](../specs/index.md) |
 | Workflow authoring surfaces | "Workflow inputs, prompt files, dependencies, and artifacts are all the same kind of input." | Keep four surfaces separate: workflow boundary (`inputs`/`outputs`), runtime dependencies (`depends_on`/`consumes`), provider prompt sources (`input_file`/`asset_file`/`asset_depends_on`), and artifact storage or lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`). | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
+| Semantic authority | "Reports, pointer files, debug YAML, and typed state can all decide workflow meaning." | Structured state, artifact values, contracts, snapshots, and semantic IR are authority. Reports, pointer files, rendered plans, and debug YAML are views or representations unless a specific contract says otherwise. | [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
 | Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | `managed_jobs` is a v2.13 provider-step modifier. Workflow YAML declares policy, watch roots, backend, poll budget, and managed outcome routes; runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md), [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml) |
 
@@ -50,7 +51,7 @@ These are the highest-impact terminology and contract confusions.
 **Use this when:** You are writing or refactoring workflow YAML and prompt patterns.
 
 ### [Local Workflow Steering](steering.md)
-**Description:** Local steering constraints for the DSL v2.14 materialization and variant-output backlog drain, including the current Phase 0 gate and deferred Phase 1/2 boundaries.
+**Description:** Local steering constraints for the DSL v2.14 materialization and variant-output backlog drain, including the released v2.14 runtime surface and current Phase 2 workflow-translation gate.
 **Keywords:** steering, backlog-drain, dsl-v214, roadmap-gate
 **Use this when:** Launching or reviewing the local NeurIPS-style workflow for DSL v2.14 materialization and variants.
 
@@ -64,13 +65,28 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** design, template, modularity, contracts, invariants
 **Use this when:** Drafting or reviewing a design artifact that will feed a plan and implementation phase.
 
+### [Workflow Language Design Principles](design/workflow_language_design_principles.md)
+**Description:** Cross-frontend design principles for semantic authority, typed transitions, report/pointer boundaries, validation-before-commit, variant proof, effects, source maps, and future frontend requirements.
+**Keywords:** workflow-language, semantics, authority, typed-transitions, frontend, lisp, ir
+**Use this when:** Deciding whether a DSL feature, Lisp frontend form, macro, or workflow abstraction strengthens core semantics or merely shortens brittle authoring syntax.
+
+### [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
+**Description:** Draft specification for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text.
+**Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, macros, defworkflow
+**Use this when:** Reviewing or planning a non-YAML workflow authoring frontend.
+
+### [Workflow Lisp Frontend MVP Specification](design/workflow_lisp_frontend_mvp_specification.md)
+**Description:** Narrow MVP tranche for proving the Lisp frontend with typed records/unions, `provider-result`, `command-result`, `match`, source-span diagnostics, and one real v2.14 phase translation before adding user macros or the full procedural library.
+**Keywords:** lisp-frontend, mvp, workflow-language, core-ast, typed-unions, match
+**Use this when:** Planning the first implementable Lisp frontend tranche or deciding which parts of the full frontend specification are intentionally deferred.
+
 ### [DSL v2.14 Variant Surface Decision](design/dsl_v214_variant_surface_decision.md)
 **Description:** Durable Phase 1 design note selecting `variant_output` over an `output_bundle.variants` extension for tagged-union output validation while keeping `select_variant_output` separate.
 **Keywords:** dsl-v214, variant-output, output-bundle, tagged-union, decision
 **Use this when:** You need the authoritative contract-surface decision before Phase 1 runtime implementation or doc alignment.
 
 ### [DSL v2.14 Materialization And Variant Draft](design/dsl_v214_materialization_variants_draft.md)
-**Description:** Non-normative Phase 0 reference that inventories the current materialization and tagged-union patterns being frozen before public v2.14 semantics exist.
+**Description:** Phase 0 reference that inventories the legacy materialization and tagged-union patterns frozen before the public v2.14 runtime release.
 **Keywords:** dsl-v214, phase-0, materialization, variant-output, oracle
 **Use this when:** You need the current-behavior characterization that future v2.14 implementation work is meant to preserve or intentionally replace.
 
@@ -78,6 +94,11 @@ These are the highest-impact terminology and contract confusions.
 **Description:** Phase 1 design note that inventories current pointer surfaces and fixes one authority rule for published relpath artifacts versus compatibility-only pointer shims.
 **Keywords:** dsl-v214, pointer-authority, relpath, publishes, compatibility
 **Use this when:** You need the authoritative pointer model before Phase 1 runtime implementation or workflow migration decisions.
+
+### [DSL v2.14 YAML Ergonomics And LOC Reduction](design/dsl_v214_yaml_ergonomics.md)
+**Description:** Phase 2 follow-up design note for making v2.14 workflows shorter than the legacy stack by keeping JSON bundles native, adding shared variant fields, adding batch materialization, and enforcing LOC regression checks.
+**Keywords:** dsl-v214, yaml-ergonomics, loc, variant-output, materialize-artifacts
+**Use this when:** Reviewing why the first v2.14 workflow translation increased YAML size or planning the compact v2.14 authoring correction.
 
 ### [Minimal NeurIPS v2.14 Behavior Matrix](design/neurips_v214_behavior_matrix.md)
 **Description:** Scenario matrix for the primitive and minimal-NeurIPS Phase 0 oracle fixtures, including preserved observations and normalized-away volatile fields.
@@ -111,6 +132,11 @@ If your immediate goal is to write or revise a workflow, use this read order:
    Why: use the prompt catalog, exhaustive prompt map, and workflow examples to copy the current house style for review prompts, loop contracts, gates, artifact contracts, and prompt layout instead of inventing patterns from scratch.
 
 Minimum rule of thumb: if you have only read `docs/index.md`, you can find the docs; if you have read the four items above, you can usually write an effective workflow without extra repo archaeology.
+
+For new DSL surfaces, macro systems, frontend languages, or reusable workflow
+families, also read [Workflow Language Design Principles](design/workflow_language_design_principles.md)
+before drafting the feature. It defines the semantic authority model that keeps
+new authoring surfaces from becoming shorter versions of brittle YAML.
 
 ## Informative Guides (`docs/`)
 

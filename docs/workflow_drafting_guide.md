@@ -18,19 +18,56 @@ Keep these authoring surfaces separate. Confusing them is the fastest way to wri
 | Workflow boundary | Typed values crossing the workflow interface. | Top-level `inputs`, `outputs`. |
 | Runtime dependencies | Files or published artifacts that must resolve before a step runs. | `depends_on`, `consumes`. |
 | Provider prompt sources | The authored material used to compose provider prompt text. | `input_file`, `asset_file`, `asset_depends_on`. |
-| Artifact storage / lineage | Deterministic validation and publication surfaces. | Top-level `artifacts`, step `expected_outputs`, `output_bundle`, `publishes`. |
+| Artifact storage / lineage | Deterministic validation and publication surfaces. | Top-level `artifacts`, step `expected_outputs`, `output_bundle`, `variant_output`, `select_variant_output`, `publishes`. |
+| Runtime-owned materialization / evidence | Deterministic setup or observation performed by the runtime rather than by prompts or shell glue. | `materialize_artifacts`, `pre_snapshot`, `consume_bundle`. |
 
 Inside one provider step, you still have separate prompt, runtime, and flow contracts:
 
 | Contract | What it is | Where it lives |
 | --- | --- | --- |
 | Prompt contract | The instructions the provider receives. | Prompt sources plus injected dependency/dataflow blocks. |
-| Runtime contract | What the orchestrator validates after execution. | `expected_outputs` or `output_bundle`. |
+| Runtime contract | What the orchestrator validates after execution. | `expected_outputs`, `output_bundle`, or `variant_output`; `select_variant_output` validates before atomic commit. |
 | Flow contract | What determines routing, looping, and termination. | `on.*.goto`, gates, and cycle caps. |
 
 The key rule: satisfying the runtime contract does not imply the prompt contract was followed, and neither implies the flow contract routes the way you intended.
 
-## 2) Provider Prompt Composition (What The Agent Actually Sees)
+## 2) Semantic Authority Rules
+
+Use the full design note in `docs/design/workflow_language_design_principles.md`
+when designing a new frontend, macro layer, or reusable workflow family. For
+ordinary workflow authoring, keep these rules in view:
+
+- Structured bundles and typed artifacts are authority. Reports, rendered
+  plans, debug YAML, pointer files, and summaries are views or materialized
+  representations.
+- Do not parse markdown reports to recover semantic fields such as blocker
+  class, review decision, selected item path, phase status, or drain status in
+  new high-level workflows. Text extraction belongs only in explicitly marked
+  legacy adapters or compatibility surfaces with fixtures.
+- Artifact values are authoritative. A pointer file contains or represents an
+  artifact value; it is not itself the semantic value unless the contract says
+  the artifact value is that pointer path.
+- mtime-only freshness is not semantic evidence. Use `pre_snapshot` plus
+  `select_variant_output` or another durable evidence source when freshness
+  affects routing.
+- Validate before committing canonical state. Runtime-owned selectors and
+  bundle writers should validate contracts and variant rules before atomic
+  rename and artifact exposure.
+- Contract refinements may only narrow a source contract. Do not weaken a
+  workflow input, artifact, or reference contract in a later handoff.
+- Variant-specific values require proof. Use `match` or `requires_variant`;
+  do not treat an ad hoc string predicate as proof unless the DSL explicitly
+  supports that proof form.
+- High-level workflow code should avoid hand-managed state paths, snapshot
+  names, candidate paths, pointer paths, and report parsers. Those are signs
+  that the workflow needs a stronger deterministic primitive or a confined
+  legacy adapter.
+
+These rules are about semantic authority, not style. A shorter workflow that
+hides state, parsing, or effect ownership is worse than a longer workflow that
+keeps those contracts explicit and validated.
+
+## 3) Provider Prompt Composition (What The Agent Actually Sees)
 
 Provider prompt text is composed deterministically:
 
@@ -40,7 +77,7 @@ Provider prompt text is composed deterministically:
 | 2 | Prepend `asset_depends_on` blocks (v2.5+) if enabled. | Workflow-source-relative assets are injected in declared order before the base prompt. |
 | 3 | Apply `depends_on.inject` (v1.1.1+) if enabled. | Injects resolved workspace dependencies in-memory around the already-expanded prompt. |
 | 4 | Inject `## Consumed Artifacts` (v1.2+) if the step has `consumes`. | `inject_consumes`, `consumes_injection_position`, `prompt_consumes`. Uses resolved consume values from preflight. |
-| 5 | Append `## Output Contract` if the step has `expected_outputs` or `output_bundle`. | `inject_output_contract` controls suffix injection. `expected_outputs.path` and `output_bundle.path` entries are rendered after runtime path substitution. This is validation, not execution. |
+| 5 | Append `## Output Contract` if the provider/adjudicated-provider step has `expected_outputs`, `output_bundle`, or `variant_output`. | `inject_output_contract` controls suffix injection. Paths and field contracts are rendered after runtime path substitution. Command steps validate the same contracts without prompt injection. This is validation, not execution. |
 
 Practical implications: if you need dynamic prompt content, generate a file in a prior step and reference it; `consumes`/`publishes` handle lineage and preflight checks, not scope; and the `Output Contract` does not write files for the agent.
 
@@ -132,11 +169,11 @@ Conventions:
 
 Pointer ownership note (v1.4): consume preflight for relpath artifacts is read-only and does not rewrite registry pointer files. If a command step needs deterministic consumed values, prefer `consume_bundle` JSON and read values from that bundle instead of relying on consume-time pointer mutation.
 
-`expected_outputs` also supports optional guidance fields (`description`, `format_hint`, `example`) that are injected into the `Output Contract` block. Use them to reduce ambiguity for agent-written artifacts. They are prompt guidance only and do not change runtime validation rules.
+`expected_outputs`, `output_bundle`, and `variant_output` participate in output-contract prompt injection for provider and adjudicated-provider steps. `expected_outputs` also supports optional guidance fields (`description`, `format_hint`, `example`) that are injected into the `Output Contract` block. Use them to reduce ambiguity for agent-written artifacts. They are prompt guidance only and do not change runtime validation rules.
 
 `consumes` supports the same optional guidance fields (`description`, `format_hint`, `example`). When present, they are injected under each consumed artifact line in `## Consumed Artifacts` (subject to `prompt_consumes` filtering). They are prompt guidance only and do not change runtime consume preflight behavior.
 
-## 3) Deterministic Handoff Patterns
+## 4) Deterministic Handoff Patterns
 
 ### A) `expected_outputs` (v1.1+, file-per-artifact)
 
@@ -154,7 +191,64 @@ Use when a step emits many scalar artifacts.
 
 For provider steps, the prompt suffix includes the concrete JSON bundle path and field-level JSON pointer contract after runtime path substitution. Do not duplicate that path in the prompt unless the step is unusually high-risk.
 
-### C) Derived manifests after deterministic gates
+### C) `variant_output` (v2.14+, tagged-union JSON)
+
+Use when a step writes one JSON bundle whose valid shape depends on an enum
+discriminant. This is the right surface for "completed versus blocked" style
+outputs where each variant has different required and forbidden fields.
+
+Do not emulate tagged unions with a flat `output_bundle` full of optional
+fields in new v2.14 workflows. That pattern hides which fields are actually
+available and pushes variant reasoning into downstream shell or prompt prose.
+
+Provider and adjudicated-provider steps receive an injected variant contract.
+Command steps are validated after successful execution without prompt
+injection. In both cases, only the discriminant and the selected variant's
+fields become step artifacts.
+
+Variant-only fields need proof before downstream use. Use a `match` over the
+same discriminant artifact when branching structurally, or `requires_variant`
+when a single step is valid only for one selected variant. Do not rely on a
+general `when` predicate as proof in the current v2.14 tranche.
+
+### D) `pre_snapshot` + `select_variant_output` (v2.14+, deterministic variant selection)
+
+Use when the workflow needs to decide which candidate output changed during a
+producer step, then commit a validated tagged-union bundle atomically. This
+replaces mtime-only "freshness" gates and custom Python/Bash selectors for
+small report/control files.
+
+Author the snapshot on the producer step, immediately before it executes. The
+selector step should then consume the snapshot through
+`select_variant_output.evidence.snapshot.ref`; snapshot refs are not artifacts,
+are not publishable, and are not valid `materialize_artifacts.source.ref`
+values.
+
+The selector should fail if no candidate changed, more than one candidate
+changed, a candidate escapes the workspace, or the selected bundle cannot be
+validated. Do not ask the provider prompt to decide which variant "counts";
+the runtime owns that selection.
+
+### E) `materialize_artifacts` (v2.14+, deterministic setup)
+
+Use when a workflow needs to resolve typed input/ref/literal/runtime values,
+write pointer files, create target parent directories, and optionally publish
+materialized artifacts without shell glue.
+
+Good uses:
+- binding workflow inputs into local path-pointer files for legacy prompts or
+  helper scripts;
+- creating parent directories for target report paths;
+- publishing a typed relpath artifact whose value is the actual target path,
+  not the pointer-file path.
+
+Keep pointer authority explicit. For a published relpath artifact, the
+published artifact value is authoritative. A pointer file is only a
+materialized representation of that value. Do not create extra sidecar pointer
+files for the same published value unless the workflow has a deliberate
+compatibility reason.
+
+### F) Derived manifests after deterministic gates
 
 When a workflow builds a broad manifest and then applies a deterministic gate, treat the gate output as a new derived manifest with its own authority. The pre-gate manifest is provenance and gate input; the post-gate manifest is the downstream selection and execution authority.
 
@@ -168,8 +262,11 @@ Summary:
 | --- | --- | --- |
 | `expected_outputs` | A few values that naturally map to files (relpaths, enums, counts). | Simple and human-auditable; can create many small pointer files if overused. |
 | `output_bundle` | Many scalar values at once. | Fewer files; stricter JSON discipline. |
+| `variant_output` | Tagged-union JSON emitted by a provider, adjudicated provider, or command. | Makes variant availability explicit; requires proof before using variant-only fields. |
+| `pre_snapshot` + `select_variant_output` | Selecting exactly one changed candidate report/control file. | Stronger than mtime gates; scoped to small bounded files. |
+| `materialize_artifacts` | Runtime-owned pointer setup, parent directory setup, and artifact value publication. | Removes shell glue; pointer authority must stay explicit. |
 
-## 4) Avoid Weak Gates
+## 5) Avoid Weak Gates
 
 Common anti-pattern: a step "succeeds" because it wrote the required output files, even though the underlying work is incomplete.
 
@@ -193,9 +290,10 @@ Two practical upgrades now exist:
 - v2.8: prefer the `score` predicate helper for evaluator thresholds and score bands instead of repeating numeric `compare` / `all_of` chains around one score artifact.
 - v2.9 tooling: use `orchestrate run ... --dry-run` or `orchestrate report` to surface advisory migration warnings for shell gates, stringly `when.equals`, raw `goto` diamonds, and imported/exported output-name collisions before those patterns spread.
 - v2.11: use `adjudicated_provider` when a high-value artifact-producing provider step should compare multiple providers or prompt variants before downstream publication.
+- v2.14: use `materialize_artifacts` for deterministic input/target materialization, `pre_snapshot` plus `select_variant_output` for content-based outcome selection, `variant_output` for provider/command tagged-union bundles, and `requires_variant` or `match` to prove variant-only references.
 - Reusable-call boundary: if a workflow is intended for `call` reuse, keep bundled prompts/rubrics/schemas on the workflow-source-relative asset surface (`asset_file`, `asset_depends_on`) and keep workspace-owned or runtime-generated prompt material on `input_file`.
 
-## 5) Prompt Authoring Guidance
+## 6) Prompt Authoring Guidance
 
 Keep prompts focused on decision-quality instructions, not DSL plumbing.
 
@@ -305,7 +403,7 @@ consumes:
     example: artifacts/work/latest-execution-session-log.md
 ```
 
-## 6) Recommended Loop Pattern
+## 7) Recommended Loop Pattern
 
 For execute/review/fix loops, separate "doing" from "deciding":
 
@@ -399,7 +497,7 @@ Why this matters:
 
 For this pattern, `RunChecks` should usually consume `check_plan` from execution/fix producers, not from plan-drafting producers. Malformed or stale check definitions should normally become structured `check_results` evidence for review/fix, rather than terminating the workflow immediately.
 
-## 7) Drafting Checklist
+## 8) Drafting Checklist
 
 Before running a new workflow, confirm the basics:
 
@@ -413,7 +511,7 @@ Before running a new workflow, confirm the basics:
 | New DSL surface combinations | If a workflow combines structured loops, calls, or matches with deterministic output contracts or dynamic paths, copy an exact current working example or run a minimal runtime smoke for that exact contract shape. `--dry-run` validates schema and dependencies, not post-execution contract substitution. |
 | First run | Use `--debug` so you can inspect composed prompts. |
 
-## 8) Debugging Where Things Go Wrong
+## 9) Debugging Where Things Go Wrong
 
 Use run artifacts under `.orchestrate/runs/<run_id>/`:
 
@@ -425,7 +523,7 @@ Use run artifacts under `.orchestrate/runs/<run_id>/`:
 
 If behavior differs from prompt file content, inspect the composed `.prompt.txt` first.
 
-## 9) Runtime Observability (No DSL Clutter)
+## 10) Runtime Observability (No DSL Clutter)
 
 Observability controls are intentionally runtime flags, not workflow syntax.
 
