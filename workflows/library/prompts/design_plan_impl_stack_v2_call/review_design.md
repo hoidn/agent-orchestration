@@ -55,6 +55,10 @@ Also write:
 - the unresolved high count integer to the `unresolved_high_count` path specified in the Output Contract
 - the unresolved medium count integer to the `unresolved_medium_count` path specified in the Output Contract
 
+If you approve the design, stage and commit only the changes that belong to
+this approved design before writing `APPROVE`. Leave unrelated pre-existing
+changes unstaged, and record the commit hash in the review report.
+
 Use `REVISE`, not `BLOCK`, when the design can be made acceptable by editing the design document itself, even if the required change is major.
 Use `BLOCK` only when progress requires work outside the design artifact, such as an upstream refactor, missing or contradictory task authority, unavailable prerequisites, or a human scope decision.
 Approve only if there are no unresolved high findings and the design is ready for planning.
