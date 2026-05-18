@@ -52,6 +52,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/lisp_frontend_work_item.v214.yaml",
         "workflows/library/lisp_frontend_plan_phase.v214.yaml",
         "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
+        "workflows/library/scripts/build_lisp_frontend_architecture_index.py",
         "workflows/library/scripts/build_lisp_frontend_backlog_manifest.py",
         "workflows/library/scripts/build_neurips_backlog_manifest.py",
         "workflows/library/scripts/prepare_lisp_frontend_iteration_paths.py",
@@ -196,6 +197,39 @@ def test_architecture_validator_accepts_valid_design_gap(tmp_path):
     assert payload["work_item_source"] == "DESIGN_GAP"
     assert payload["work_item_id"] == "parser-syntax"
     assert payload["work_item_bundle_path"] == output_path.relative_to(workspace).as_posix()
+
+
+def test_architecture_index_lists_prior_docs_and_excludes_current_target(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    prior_path = workspace / "docs/plans/custom-design-gaps/prior-slice/implementation_architecture.md"
+    current_path = workspace / "docs/plans/custom-design-gaps/current-slice/implementation_architecture.md"
+    output_path = workspace / "state/index.md"
+    bundle_path = workspace / "state/index.json"
+    prior_path.parent.mkdir(parents=True, exist_ok=True)
+    current_path.parent.mkdir(parents=True, exist_ok=True)
+    prior_path.write_text("# Prior Slice Architecture\n", encoding="utf-8")
+    current_path.write_text("# Current Slice Architecture\n", encoding="utf-8")
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/build_lisp_frontend_architecture_index.py"),
+        "--root",
+        "docs/plans/custom-design-gaps",
+        "--exclude",
+        current_path.relative_to(workspace).as_posix(),
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+        "--bundle",
+        bundle_path.relative_to(workspace).as_posix(),
+    )
+
+    index_text = output_path.read_text(encoding="utf-8")
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    assert "prior-slice/implementation_architecture.md" in index_text
+    assert "current-slice/implementation_architecture.md" not in index_text
+    assert bundle["existing_architecture_count"] == 1
+    assert bundle["architecture_index_path"] == output_path.relative_to(workspace).as_posix()
 
 
 def test_lisp_frontend_workflows_load(tmp_path):

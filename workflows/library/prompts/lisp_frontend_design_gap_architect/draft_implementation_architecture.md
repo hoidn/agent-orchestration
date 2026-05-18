@@ -1,8 +1,34 @@
-Read the injected steering, full design, MVP design, progress ledger, and
-selector bundle before acting.
+Read the injected steering, full design, MVP design, progress ledger, selector
+bundle, architecture target contract, and existing implementation architecture
+index before acting.
 
-Draft exactly one implementation architecture for the selected Lisp frontend
-design gap. Keep the scope bounded to the selected gap.
+Draft a single implementation-architecture document for exactly the selected
+Lisp frontend design gap. This is an implementation architecture, not a
+replacement product design/spec. Keep the scope bounded to the selected gap.
+Do not draft multiple alternative architectures, do not cover multiple design
+gaps, and do not broaden the scope beyond the selected gap.
+
+Preserve coherence with prior implementation architecture documents listed in
+the injected architecture index:
+
+- review the listed architecture documents before drafting;
+- reuse established package/module names, data types, and ownership boundaries
+  unless there is a stated reason not to;
+- do not redefine shared concepts such as spans, diagnostics, Core Workflow
+  AST, Semantic Workflow IR, TypeCatalog, SourceMap, pointer authority, or
+  variant proof;
+- declare the files/components owned by this slice and the shared components it
+  intentionally does not own;
+- if this slice must revise a prior decision, state the conflict and the reason
+  explicitly.
+
+Include a section named `Relationship To Existing Implementation Architectures`
+with:
+
+- existing slices reviewed;
+- decisions reused;
+- new decisions in this slice;
+- conflicts or revisions.
 
 Write:
 

@@ -46,6 +46,10 @@ inputs:
     type: relpath
     under: artifacts/work
     default: artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json
+  architecture_index_root:
+    type: relpath
+    under: docs/plans
+    default: docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps
   implementation_execute_provider:
     kind: scalar
     type: enum
@@ -257,6 +261,8 @@ steps:
                         ref: inputs.progress_ledger_path
                       selection_bundle_path:
                         ref: parent.steps.SelectNextWork.artifacts.selection_bundle_path
+                      architecture_index_root:
+                        ref: inputs.architecture_index_root
                   - name: RunDesignGapWorkItem
                     id: run_design_gap_work_item
                     call: work_item

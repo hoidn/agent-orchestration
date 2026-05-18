@@ -29,6 +29,10 @@ inputs:
     type: relpath
     under: state
     must_exist_target: true
+  architecture_index_root:
+    type: relpath
+    under: docs/plans
+    default: docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps
 
 outputs:
   architecture_validation_status:
@@ -106,6 +110,31 @@ steps:
           type: relpath
           under: docs/plans
 
+  - name: BuildExistingArchitectureIndex
+    id: build_existing_architecture_index
+    command:
+      - python
+      - workflows/library/scripts/build_lisp_frontend_architecture_index.py
+      - --root
+      - ${inputs.architecture_index_root}
+      - --exclude
+      - ${steps.PrepareArchitectureTargets.artifacts.architecture_path}
+      - --output
+      - ${inputs.state_root}/existing-architecture-index.md
+      - --bundle
+      - ${inputs.state_root}/existing-architecture-index.json
+    output_bundle:
+      path: ${inputs.state_root}/existing-architecture-index.json
+      fields:
+        - name: architecture_index_path
+          json_pointer: /architecture_index_path
+          type: relpath
+          under: state
+          must_exist_target: true
+        - name: existing_architecture_count
+          json_pointer: /existing_architecture_count
+          type: integer
+
   - name: DraftDesignGapArchitecture
     id: draft_design_gap_architecture
     provider: codex
@@ -119,6 +148,7 @@ steps:
         - ${inputs.progress_ledger_path}
         - ${inputs.selection_bundle_path}
         - ${inputs.state_root}/architecture-targets.json
+        - ${inputs.state_root}/existing-architecture-index.md
       inject:
         mode: content
         position: prepend
