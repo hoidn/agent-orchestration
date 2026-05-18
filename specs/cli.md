@@ -26,7 +26,8 @@
 
 - Debugging and recovery flags
   - `--debug`, `--stream-output`, `--progress` (post-MVP), `--trace` (post-MVP), `--dry-run`
-  - Runtime observability: `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`
+  - Runtime observability: `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`, `--summary-profile basic|phase-performance`
+    - `--summary-profile phase-performance` enables advisory provider-step and phase-boundary summaries with performance judgments. It implies step summaries if `--step-summaries` was not otherwise provided.
   - `--force-restart`, `--repair`, `--backup-state`, `--state-dir <path>`
   - Error handling: `--on-error stop|continue|interactive` (interactive optional/post-MVP)
   - Retries: `--max-retries <n>`, `--retry-delay <ms>`
@@ -89,6 +90,7 @@ orchestrate watch workflows/demo.yaml
 --summary-provider <name>
 --summary-timeout-sec <n>
 --summary-max-input-chars <n>
+--summary-profile basic|phase-performance
 
 # State management
 --force-restart         # Ignore existing state

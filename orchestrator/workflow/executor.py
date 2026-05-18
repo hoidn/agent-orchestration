@@ -2254,6 +2254,11 @@ class WorkflowExecutor:
             max_input_chars = 12000
 
         best_effort = bool(summaries_cfg.get('best_effort', True))
+        profile = str(summaries_cfg.get('profile', 'basic'))
+        root_manager = self.state_manager
+        while hasattr(root_manager, "parent_manager"):
+            root_manager = getattr(root_manager, "parent_manager")
+        aggregate_run_root = Path(getattr(root_manager, "run_root", self.state_manager.run_root))
         return SummaryObserver(
             run_root=self.state_manager.run_root,
             provider_executor=self.provider_executor,
@@ -2262,31 +2267,78 @@ class WorkflowExecutor:
             timeout_sec=timeout_sec,
             best_effort=best_effort,
             max_input_chars=max_input_chars,
+            profile=profile,
+            invocation_context={"context": dict(self.workflow_context_defaults)},
+            aggregate_run_root=aggregate_run_root,
         )
 
     def _emit_step_summary(self, step_name: str, step: Dict[str, Any], result: Dict[str, Any]) -> None:
         """Emit observability summary for a completed step."""
         if self.summary_observer is None:
             return
-        snapshot = self._build_step_summary_snapshot(step_name, step, result)
+        summary_kind = self._summary_kind_for_step(step)
+        if summary_kind is None:
+            return
+        snapshot = self._build_step_summary_snapshot(step_name, step, result, summary_kind=summary_kind)
         try:
-            self.summary_observer.emit(step_name, snapshot)
+            self.summary_observer.emit(step_name, snapshot, summary_kind=summary_kind)
         except Exception as exc:
             logger.warning("Summary emission failed for %s: %s", step_name, exc)
 
-    def _build_step_summary_snapshot(self, step_name: str, step: Dict[str, Any], result: Dict[str, Any]) -> Dict[str, Any]:
+    def _summary_profile(self) -> str:
+        if not isinstance(self.observability, dict):
+            return "basic"
+        summaries_cfg = self.observability.get('step_summaries')
+        if not isinstance(summaries_cfg, dict):
+            return "basic"
+        profile = str(summaries_cfg.get('profile', 'basic'))
+        return profile if profile in {'basic', 'phase-performance'} else 'basic'
+
+    def _summary_kind_for_step(self, step: Dict[str, Any]) -> Optional[str]:
+        profile = self._summary_profile()
+        if profile == 'basic':
+            return 'step'
+        if 'provider' in step or 'adjudicated_provider' in step:
+            return 'provider'
+        if 'call' in step or 'repeat_until' in step:
+            return 'phase'
+        return None
+
+    def _build_step_summary_snapshot(
+        self,
+        step_name: str,
+        step: Dict[str, Any],
+        result: Dict[str, Any],
+        *,
+        summary_kind: str = "step",
+    ) -> Dict[str, Any]:
         """Build a compact, deterministic snapshot for summary generation."""
         input_payload: Dict[str, Any] = {}
         if 'command' in step:
             input_payload['command'] = step.get('command')
-        if 'provider' in step:
-            input_payload['provider'] = step.get('provider')
+        if 'provider' in step or 'adjudicated_provider' in step:
+            input_payload['provider'] = step.get('provider') or step.get('adjudicated_provider')
+            input_payload['timeout_sec'] = step.get('timeout_sec')
+            input_payload['has_variant_output'] = 'variant_output' in step
+            input_payload['has_output_bundle'] = 'output_bundle' in step
+            input_payload['has_expected_outputs'] = 'expected_outputs' in step
+            input_payload['prompt_sources'] = {
+                'input_file': step.get('input_file'),
+                'asset_file': step.get('asset_file'),
+                'prompt_consumes': step.get('prompt_consumes'),
+            }
             prompt_file = self.state_manager.logs_dir / f"{step_name}.prompt.txt"
             if prompt_file.exists():
                 try:
                     input_payload['prompt'] = prompt_file.read_text(encoding='utf-8')
                 except OSError:
                     pass
+        if summary_kind == 'phase':
+            input_payload['phase_boundary'] = {
+                'call': step.get('call'),
+                'repeat_until': 'repeat_until' in step,
+                'step_id': step.get('id'),
+            }
 
         output_payload: Dict[str, Any] = {}
         if isinstance(result, dict):
@@ -2294,19 +2346,31 @@ class WorkflowExecutor:
                 'status': result.get('status'),
                 'exit_code': result.get('exit_code'),
                 'duration_ms': result.get('duration_ms'),
+                'outcome': result.get('outcome'),
                 'output': result.get('output') or result.get('text'),
                 'lines': result.get('lines'),
                 'json': result.get('json'),
                 'error': result.get('error'),
                 'artifacts': result.get('artifacts'),
+                'debug': result.get('debug'),
             }
 
         return {
             'run_id': self.state_manager.run_id,
             'workflow': self.workflow_name,
+            'summary': {
+                'schema': 'orchestrator_step_summary_snapshot/v2',
+                'kind': summary_kind,
+                'profile': self._summary_profile(),
+                'advisory_only': True,
+            },
             'step': {
                 'name': step_name,
-                'type': 'provider' if 'provider' in step else 'command' if 'command' in step else 'other',
+                'type': 'provider'
+                if ('provider' in step or 'adjudicated_provider' in step)
+                else 'command'
+                if 'command' in step
+                else 'other',
                 'input': input_payload,
                 'output': output_payload,
             },

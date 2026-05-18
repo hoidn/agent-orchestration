@@ -20,6 +20,13 @@
   - State includes timing metrics: step duration, provider time, wait duration, file I/O counts where applicable.
   - Active runtime may be derived from run-level executor sessions in `state.runtime_observability`. Active runtime is the sum of closed executor-session durations plus the age of a currently live executor session whose process identity can be confirmed. It excludes time between a stopped, interrupted, or abandoned executor process and a later resume process.
   - Active runtime is observability-only. It must not drive `when`, `assert`, `goto`, retry, provider timeout, or workflow deadline behavior unless a future control-flow spec explicitly defines such behavior.
+  - Advisory agent summaries:
+    - `--step-summaries` may emit deterministic summary snapshots and agent-drafted Markdown under the execution root that produced them. Top-level steps write under `RUN_ROOT/summaries/`; reusable-call steps may write detailed records under `RUN_ROOT/call_frames/<frame>/summaries/`.
+    - `--summary-profile basic` preserves the legacy factual per-step summary behavior.
+    - `--summary-profile phase-performance` emits summaries for provider-like steps and phase boundaries, including advisory performance judgments.
+    - `RUN_ROOT/summaries/` is the user-facing summary hub for the whole run. It contains an aggregate `index.json`, plus generated `README.md` and `run-summary.md` navigation files that link to detailed summaries across call frames.
+    - Summary files, summary indexes, `README.md`, and `run-summary.md` are observability artifacts only. They are not workflow artifacts, are not published through artifact lineage, and must not drive routing, retries, assertions, or status reconciliation.
+    - Phase boundaries are currently reusable `call` steps and `repeat_until` frames.
 
 - Trace context
   - Steps may include trace IDs in commands using variable substitution.

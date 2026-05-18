@@ -43,6 +43,8 @@ def _merge_observability_overrides(base: Optional[Dict[str, Any]], **overrides: 
         step_cfg["mode"] = overrides["summary_mode"]
     if overrides.get("summary_provider") is not None:
         step_cfg["provider"] = overrides["summary_provider"]
+    if overrides.get("summary_profile") is not None:
+        step_cfg["profile"] = overrides["summary_profile"]
     if overrides.get("summary_timeout_sec") is not None:
         timeout_sec = int(overrides["summary_timeout_sec"])
         if timeout_sec <= 0:
@@ -74,6 +76,7 @@ def resume_workflow(
     summary_provider: Optional[str] = None,
     summary_timeout_sec: Optional[int] = None,
     summary_max_input_chars: Optional[int] = None,
+    summary_profile: Optional[str] = None,
     **kwargs
 ) -> int:
     """Resume an interrupted workflow run.
@@ -93,6 +96,7 @@ def resume_workflow(
         summary_provider: Optional summary provider override
         summary_timeout_sec: Optional summary timeout override
         summary_max_input_chars: Optional summary max input chars override
+        summary_profile: Optional summary prompt/snapshot profile override
         **kwargs: Additional options (ignored)
 
     Returns:
@@ -195,6 +199,7 @@ def resume_workflow(
         summary_provider=summary_provider,
         summary_timeout_sec=summary_timeout_sec,
         summary_max_input_chars=summary_max_input_chars,
+        summary_profile=summary_profile,
     )
     if observability is not None:
         # Persist runtime override so future resumes are deterministic.

@@ -37,6 +37,7 @@ def _base_run_args(workflow_path: Path) -> Namespace:
         summary_provider='claude_sonnet_summary',
         summary_timeout_sec=120,
         summary_max_input_chars=12000,
+        summary_profile=None,
     )
 
 
@@ -55,6 +56,8 @@ def test_parser_accepts_summary_flags():
             '45',
             '--summary-max-input-chars',
             '2048',
+            '--summary-profile',
+            'phase-performance',
         ]
     )
 
@@ -63,6 +66,7 @@ def test_parser_accepts_summary_flags():
     assert args.summary_provider == 'claude_custom'
     assert args.summary_timeout_sec == 45
     assert args.summary_max_input_chars == 2048
+    assert args.summary_profile == 'phase-performance'
 
 
 def test_parser_accepts_stream_output_on_run_and_resume():
@@ -165,6 +169,17 @@ def test_build_observability_config_mode_enables_summaries():
     assert config['step_summaries']['mode'] == 'sync'
 
 
+def test_build_observability_config_profile_enables_summaries():
+    args = _base_run_args(Path('workflow.yaml'))
+    args.summary_profile = 'phase-performance'
+
+    config = build_observability_config(args)
+
+    assert config is not None
+    assert config['step_summaries']['enabled'] is True
+    assert config['step_summaries']['profile'] == 'phase-performance'
+
+
 @patch('orchestrator.cli.commands.run.WorkflowExecutor')
 @patch('orchestrator.cli.commands.run.StateManager')
 @patch('orchestrator.cli.commands.run.WorkflowLoader')
@@ -194,6 +209,7 @@ def test_run_workflow_persists_observability_runtime_config(mock_loader, mock_st
     init_kwargs = state_inst.initialize.call_args.kwargs
     assert init_kwargs['observability']['step_summaries']['mode'] == 'async'
     assert init_kwargs['observability']['step_summaries']['provider'] == 'claude_sonnet_summary'
+    assert init_kwargs['observability']['step_summaries']['profile'] == 'basic'
 
     exec_kwargs = mock_executor.call_args.kwargs
     assert exec_kwargs['observability']['step_summaries']['mode'] == 'async'
@@ -231,6 +247,7 @@ def test_resume_uses_persisted_observability_and_applies_override(mock_loader, m
                 'timeout_sec': 120,
                 'max_input_chars': 12000,
                 'best_effort': True,
+                'profile': 'basic',
             }
         },
     }
@@ -250,14 +267,17 @@ def test_resume_uses_persisted_observability_and_applies_override(mock_loader, m
     result = resume_workflow(
         run_id=run_id,
         summary_mode='sync',
+        summary_profile='phase-performance',
     )
 
     assert result == 0
     exec_kwargs = mock_executor.call_args.kwargs
     assert exec_kwargs['observability']['step_summaries']['mode'] == 'sync'
+    assert exec_kwargs['observability']['step_summaries']['profile'] == 'phase-performance'
 
     persisted = json.loads((run_dir / 'state.json').read_text())
     assert persisted['observability']['step_summaries']['mode'] == 'sync'
+    assert persisted['observability']['step_summaries']['profile'] == 'phase-performance'
 
 
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')

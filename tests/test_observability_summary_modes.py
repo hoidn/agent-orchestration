@@ -23,8 +23,10 @@ class _FakeProviderExecutor:
     def __init__(self, delay_sec=0.0, result=None):
         self.delay_sec = delay_sec
         self.result = result or _FakeProviderResult()
+        self.prepare_contexts = []
 
     def prepare_invocation(self, *args, **kwargs):
+        self.prepare_contexts.append(kwargs.get("context"))
         return object(), None
 
     def execute(self, invocation):
@@ -141,6 +143,157 @@ def test_summary_observer_timeout_writes_error_for_both_modes(tmp_path: Path):
     )
     sync_observer.emit("StepA", {"step": "StepA", "status": "completed"})
     assert (run_root_sync / "summaries" / "StepA.error.json").exists()
+
+
+def test_phase_performance_provider_summary_uses_kind_specific_files(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-profile"
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=_FakeProviderExecutor(result=_FakeProviderResult(stdout=b"profile summary")),
+        provider_name="summary_provider",
+        mode="sync",
+        timeout_sec=30,
+        best_effort=True,
+        max_input_chars=12000,
+        profile="phase-performance",
+    )
+
+    observer.emit(
+        "ExecuteImplementation",
+        {"step": {"name": "ExecuteImplementation", "summary_kind": "provider", "output": {"status": "completed"}}},
+        summary_kind="provider",
+    )
+
+    assert (run_root / "summaries" / "ExecuteImplementation.provider.snapshot.json").exists()
+    assert (run_root / "summaries" / "ExecuteImplementation.provider.summary.md").read_text() == "profile summary\n"
+
+
+def test_summary_observer_writes_index_entries(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-index"
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=_FakeProviderExecutor(),
+        provider_name="summary_provider",
+        mode="sync",
+        timeout_sec=30,
+        best_effort=True,
+        max_input_chars=12000,
+        profile="phase-performance",
+    )
+
+    observer.emit(
+        "PlanPhase",
+        {"step": {"name": "PlanPhase", "summary_kind": "phase", "output": {"status": "completed"}}},
+        summary_kind="phase",
+    )
+
+    index = json.loads((run_root / "summaries" / "index.json").read_text())
+    assert index["schema"] == "orchestrator_summary_index/v1"
+    assert index["entries"][0]["step_name"] == "PlanPhase"
+    assert index["entries"][0]["kind"] == "phase"
+    assert index["entries"][0]["profile"] == "phase-performance"
+    assert index["entries"][0]["summary_path"] == "summaries/PlanPhase.phase.summary.md"
+
+
+def test_summary_observer_updates_root_hub_for_call_frame_summary(tmp_path: Path):
+    aggregate_root = tmp_path / ".orchestrate" / "runs" / "run-hub"
+    frame_root = aggregate_root / "call_frames" / "root.some_call__visit__1"
+    observer = SummaryObserver(
+        run_root=frame_root,
+        aggregate_run_root=aggregate_root,
+        provider_executor=_FakeProviderExecutor(result=_FakeProviderResult(stdout=b"nested summary")),
+        provider_name="summary_provider",
+        mode="sync",
+        timeout_sec=30,
+        best_effort=True,
+        max_input_chars=12000,
+        profile="phase-performance",
+    )
+
+    observer.emit(
+        "NestedProvider",
+        {"step": {"name": "NestedProvider", "summary_kind": "provider", "output": {"status": "completed"}}},
+        summary_kind="provider",
+    )
+
+    root_index = json.loads((aggregate_root / "summaries" / "index.json").read_text())
+    assert root_index["schema"] == "orchestrator_summary_index/v1"
+    assert root_index["run_root"] == str(aggregate_root)
+    assert root_index["entries"][0]["step_name"] == "NestedProvider"
+    assert root_index["entries"][0]["frame_root"] == "call_frames/root.some_call__visit__1"
+    assert (
+        root_index["entries"][0]["summary_path"]
+        == "call_frames/root.some_call__visit__1/summaries/NestedProvider.provider.summary.md"
+    )
+
+    readme = (aggregate_root / "summaries" / "README.md").read_text()
+    assert "NestedProvider" in readme
+    assert "../call_frames/root.some_call__visit__1/summaries/NestedProvider.provider.summary.md" in readme
+
+    run_summary = (aggregate_root / "summaries" / "run-summary.md").read_text()
+    assert "NestedProvider" in run_summary
+    assert "provider" in run_summary
+
+    local_index = json.loads((frame_root / "summaries" / "index.json").read_text())
+    assert local_index["entries"][0]["summary_path"] == "summaries/NestedProvider.provider.summary.md"
+
+
+def test_root_hub_links_summary_error_when_generation_fails(tmp_path: Path):
+    aggregate_root = tmp_path / ".orchestrate" / "runs" / "run-hub-error"
+    frame_root = aggregate_root / "call_frames" / "frame"
+    failed = _FakeProviderResult(
+        exit_code=9,
+        stdout=b"",
+        stderr=b"summary failed",
+        error={"type": "execution_error", "message": "summary failed"},
+    )
+    observer = SummaryObserver(
+        run_root=frame_root,
+        aggregate_run_root=aggregate_root,
+        provider_executor=_FakeProviderExecutor(result=failed),
+        provider_name="summary_provider",
+        mode="sync",
+        timeout_sec=30,
+        best_effort=True,
+        max_input_chars=12000,
+        profile="phase-performance",
+    )
+
+    observer.emit(
+        "NestedProvider",
+        {"step": {"name": "NestedProvider", "summary_kind": "provider", "output": {"status": "completed"}}},
+        summary_kind="provider",
+    )
+
+    root_index = json.loads((aggregate_root / "summaries" / "index.json").read_text())
+    assert root_index["entries"][0]["summary_path"] is None
+    assert (
+        root_index["entries"][0]["error_path"]
+        == "call_frames/frame/summaries/NestedProvider.provider.error.json"
+    )
+    readme = (aggregate_root / "summaries" / "README.md").read_text()
+    assert "[summary error](../call_frames/frame/summaries/NestedProvider.provider.error.json)" in readme
+
+
+def test_summary_observer_passes_invocation_context_to_provider(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-context"
+    provider_executor = _FakeProviderExecutor()
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=provider_executor,
+        provider_name="summary_provider",
+        mode="sync",
+        timeout_sec=30,
+        best_effort=True,
+        max_input_chars=12000,
+        invocation_context={"context": {"workflow_model": "gpt-5.2", "workflow_effort": "high"}},
+    )
+
+    observer.emit("StepA", {"step": {"name": "StepA", "output": {"status": "completed"}}})
+
+    assert provider_executor.prepare_contexts == [
+        {"context": {"workflow_model": "gpt-5.2", "workflow_effort": "high"}}
+    ]
 
 
 def test_summary_failures_do_not_change_step_result_and_dataflow_state(tmp_path: Path):

@@ -568,4 +568,6 @@ Observability controls are intentionally runtime flags, not workflow syntax.
 
 `--step-summaries` enables advisory per-step summaries. `--summary-mode async|sync` selects behavior (`async` is default and non-blocking; `sync` blocks step completion until summary output/error is written). `--summary-provider <provider>` selects the summarizer template.
 
-Summary artifacts live under `.orchestrate/runs/<run_id>/summaries/`. They are not part of artifact contracts and must never gate workflow control flow.
+Use `--summary-profile phase-performance` when a long workflow needs human-readable phase and provider-step judgments. Do not encode prompt instructions that ask the summarizer to decide routing or write workflow state; summaries are post-step observability.
+
+Use `.orchestrate/runs/<run_id>/summaries/` as the user-facing entrypoint for a run's summaries. Detailed records may live beside nested call-frame state under `call_frames/<frame>/summaries/`, but the root summary hub contains the aggregate `index.json`, `README.md`, and `run-summary.md` links. These files are not part of artifact contracts and must never gate workflow control flow.

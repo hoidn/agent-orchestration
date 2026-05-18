@@ -35,8 +35,9 @@ def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
     """
     step_summaries_enabled = bool(getattr(args, 'step_summaries', False))
     summary_mode = getattr(args, 'summary_mode', None)
+    summary_profile = getattr(args, 'summary_profile', None)
 
-    if summary_mode and not step_summaries_enabled:
+    if (summary_mode or summary_profile) and not step_summaries_enabled:
         # Explicit mode should implicitly enable summaries.
         step_summaries_enabled = True
 
@@ -58,6 +59,7 @@ def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
             "timeout_sec": summary_timeout_sec,
             "max_input_chars": summary_max_input_chars,
             "best_effort": True,
+            "profile": summary_profile or "basic",
         }
     }
 

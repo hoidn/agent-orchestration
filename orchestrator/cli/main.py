@@ -143,6 +143,11 @@ def create_parser() -> argparse.ArgumentParser:
         default=12000,
         help='Maximum snapshot chars passed to summarizer'
     )
+    run_parser.add_argument(
+        '--summary-profile',
+        choices=['basic', 'phase-performance'],
+        help='Summary prompt/snapshot profile'
+    )
 
     # Resume command (minimal for now)
     resume_parser = subparsers.add_parser('resume', help='Resume a workflow run')
@@ -212,6 +217,11 @@ def create_parser() -> argparse.ArgumentParser:
         '--summary-max-input-chars',
         type=int,
         help='Override summary max input chars for this resume run'
+    )
+    resume_parser.add_argument(
+        '--summary-profile',
+        choices=['basic', 'phase-performance'],
+        help='Override summary prompt/snapshot profile for this resume run'
     )
 
     report_parser = subparsers.add_parser('report', help='Render workflow run status')
