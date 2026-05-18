@@ -46,6 +46,7 @@ def _copy_repo_file_to_workspace(workspace: Path, repo_relpath: str) -> None:
 def _copy_runtime_files(workspace: Path) -> Path:
     shutil.copytree(FIXTURE_ROOT, workspace, dirs_exist_ok=True)
     files = [
+        "docs/design/workflow_command_adapter_contract.md",
         "workflows/examples/lisp_frontend_autonomous_drain.yaml",
         "workflows/library/lisp_frontend_selector.v214.yaml",
         "workflows/library/lisp_frontend_design_gap_architect.v214.yaml",
@@ -58,6 +59,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/scripts/prepare_lisp_frontend_iteration_paths.py",
         "workflows/library/scripts/publish_lisp_frontend_selection_bundle.py",
         "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py",
+        "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
         "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py",
         "workflows/library/scripts/update_lisp_frontend_run_state.py",
         "workflows/library/scripts/finalize_lisp_frontend_drain_summary.py",
@@ -337,20 +339,47 @@ def _write_plan(workspace: Path) -> None:
     raise AssertionError("No pending plan pointer found")
 
 
-def _write_plan_review(workspace: Path) -> None:
+def _plan_target(workspace: Path) -> Path:
+    for pointer in sorted(workspace.glob("state/**/plan-phase/plan_path.txt")):
+        return workspace / pointer.read_text(encoding="utf-8").strip()
+    raise AssertionError("No plan pointer found")
+
+
+def _pending_plan_review_root(workspace: Path) -> Path:
     for root in sorted(workspace.glob("state/**/plan-phase")):
-        decision = root / "plan_review_decision.txt"
-        if decision.exists():
-            continue
-        pointer = root / "plan_review_report_path.txt"
-        if not pointer.exists():
-            continue
-        target = workspace / pointer.read_text(encoding="utf-8").strip()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text(json.dumps({"decision": "APPROVE", "findings": []}) + "\n", encoding="utf-8")
-        decision.write_text("APPROVE\n", encoding="utf-8")
-        return
+        if (root / "plan_review_report_path.txt").exists():
+            return root
     raise AssertionError("No pending plan review root found")
+
+
+def _write_plan_review(workspace: Path) -> None:
+    root = _pending_plan_review_root(workspace)
+    decision = root / "plan_review_decision.txt"
+    pointer = root / "plan_review_report_path.txt"
+    target = workspace / pointer.read_text(encoding="utf-8").strip()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"decision": "APPROVE", "findings": []}) + "\n", encoding="utf-8")
+    decision.write_text("APPROVE\n", encoding="utf-8")
+
+
+def _write_plan_review_revise(workspace: Path) -> None:
+    root = _pending_plan_review_root(workspace)
+    decision = root / "plan_review_decision.txt"
+    pointer = root / "plan_review_report_path.txt"
+    target = workspace / pointer.read_text(encoding="utf-8").strip()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps({"decision": "REVISE", "findings": [{"id": "P1"}]}) + "\n", encoding="utf-8")
+    decision.write_text("REVISE\n", encoding="utf-8")
+
+
+def _revise_plan(workspace: Path) -> None:
+    target = _plan_target(workspace)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(
+        "# Lisp Work Plan\n\nRevised after review.\n\n## Verification\n- `python -c \"print('gap-check')\"`\n",
+        encoding="utf-8",
+    )
+
 
 
 def _write_execution_state(workspace: Path) -> None:
@@ -377,20 +406,53 @@ def _write_execution_state(workspace: Path) -> None:
     raise AssertionError("No pending implementation phase root found")
 
 
-def _write_implementation_review(workspace: Path) -> None:
+def _implementation_execution_report_target(workspace: Path) -> Path:
+    for pointer in sorted(workspace.glob("state/**/implementation-phase/execution_report_target_path.txt")):
+        return workspace / pointer.read_text(encoding="utf-8").strip()
+    raise AssertionError("No execution report target pointer found")
+
+
+def _pending_implementation_review_root(workspace: Path) -> Path:
     for root in sorted(workspace.glob("state/**/implementation-phase")):
-        decision = root / "implementation_review_decision.txt"
-        if decision.exists():
-            continue
-        pointer = root / "implementation_review_report_path.txt"
-        if not pointer.exists():
-            continue
-        target = workspace / pointer.read_text(encoding="utf-8").strip()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_text("# Implementation Review\n\nApproved.\n", encoding="utf-8")
-        decision.write_text("APPROVE\n", encoding="utf-8")
-        return
+        if (root / "implementation_review_report_path.txt").exists():
+            return root
     raise AssertionError("No pending implementation review root found")
+
+
+def _write_implementation_review(workspace: Path) -> None:
+    root = _pending_implementation_review_root(workspace)
+    decision = root / "implementation_review_decision.txt"
+    pointer = root / "implementation_review_report_path.txt"
+    target = workspace / pointer.read_text(encoding="utf-8").strip()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# Implementation Review\n\nApproved.\n", encoding="utf-8")
+    decision.write_text("APPROVE\n", encoding="utf-8")
+
+
+def _write_implementation_review_revise(workspace: Path) -> None:
+    root = _pending_implementation_review_root(workspace)
+    decision = root / "implementation_review_decision.txt"
+    pointer = root / "implementation_review_report_path.txt"
+    target = workspace / pointer.read_text(encoding="utf-8").strip()
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# Implementation Review\n\nRevise required.\n", encoding="utf-8")
+    decision.write_text("REVISE\n", encoding="utf-8")
+
+
+def _fix_implementation(workspace: Path) -> None:
+    target = _implementation_execution_report_target(workspace)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# Execution Report\n\nFixed after review.\n", encoding="utf-8")
+
+
+def _provider_step_matches(actual: str | None, expected: str) -> bool:
+    if actual is None:
+        return True
+    return actual == expected or actual.endswith(f".{expected}")
+
+
+def _provider_step_called(state: dict, expected: str) -> bool:
+    return any(_provider_step_matches(actual, expected) for actual in state.get("__provider_step_names", []))
 
 
 def _run_workflow_with_providers(workspace: Path, workflow_path: Path, provider_sequence):
@@ -405,15 +467,17 @@ def _run_workflow_with_providers(workspace: Path, workflow_path: Path, provider_
     )
     executor = WorkflowExecutor(workflow, workspace, state_manager)
     call_index = {"value": 0}
+    provider_step_names: list[str | None] = []
 
     def _prepare_invocation(_self, *args, **kwargs):
         return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
 
     def _execute(_self, _invocation, **kwargs):
+        assert call_index["value"] < len(provider_sequence)
         expected_step, writer = provider_sequence[call_index["value"]]
         actual_step = kwargs.get("step_name")
-        if actual_step is not None:
-            assert actual_step == expected_step
+        assert _provider_step_matches(actual_step, expected_step)
+        provider_step_names.append(actual_step)
         call_index["value"] += 1
         writer(workspace)
         return SimpleNamespace(
@@ -433,7 +497,9 @@ def _run_workflow_with_providers(workspace: Path, workflow_path: Path, provider_
         ProviderExecutor, "execute", _execute
     ):
         state = executor.execute()
+    assert call_index["value"] == len(provider_sequence)
     state["__provider_calls"] = call_index["value"]
+    state["__provider_step_names"] = provider_step_names
     return state
 
 
@@ -467,6 +533,128 @@ def test_lisp_frontend_drain_design_gap_runtime_smoke(tmp_path):
         workspace
         / "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md"
     ).is_file()
+
+
+def test_lisp_frontend_plan_review_revise_then_approve(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review_revise),
+            ("RevisePlan", _revise_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_execution_state),
+            ("ReviewImplementation", _write_implementation_review),
+            ("SelectNextWork", _write_selector_done),
+        ],
+    )
+
+    assert _provider_step_called(state, "RevisePlan")
+    summary = json.loads(
+        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["drain_status"] == "DONE"
+    assert summary["completed_design_gaps"] == ["parser-syntax"]
+    assert "Revised after review" in _plan_target(workspace).read_text(encoding="utf-8")
+
+
+def test_lisp_frontend_implementation_review_revise_then_approve(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_execution_state),
+            ("ReviewImplementation", _write_implementation_review_revise),
+            ("FixImplementation", _fix_implementation),
+            ("ReviewImplementation", _write_implementation_review),
+            ("SelectNextWork", _write_selector_done),
+        ],
+    )
+
+    assert _provider_step_called(state, "FixImplementation")
+    summary = json.loads(
+        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["drain_status"] == "DONE"
+    assert summary["completed_design_gaps"] == ["parser-syntax"]
+    assert "Fixed after review" in _implementation_execution_report_target(workspace).read_text(encoding="utf-8")
+
+
+def test_lisp_frontend_plan_review_exhaustion_records_blocked(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            *[item for _ in range(12) for item in [
+                ("ReviewPlan", _write_plan_review_revise),
+                ("RevisePlan", _revise_plan),
+            ]],
+        ],
+    )
+
+    assert _provider_step_called(state, "RevisePlan")
+    summary = json.loads(
+        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["drain_status"] == "BLOCKED"
+    assert summary["completed_design_gaps"] == []
+    assert summary["blocked_design_gaps"]["parser-syntax"]["reason"] == "plan_review_exhausted"
+
+
+def test_lisp_frontend_implementation_review_exhaustion_records_blocked(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_execution_state),
+            *[item for _ in range(40) for item in [
+                ("ReviewImplementation", _write_implementation_review_revise),
+                ("FixImplementation", _fix_implementation),
+            ]],
+        ],
+    )
+
+    assert _provider_step_called(state, "FixImplementation")
+    summary = json.loads(
+        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["drain_status"] == "BLOCKED"
+    assert summary["completed_design_gaps"] == []
+    assert summary["blocked_design_gaps"]["parser-syntax"]["reason"] == "implementation_review_exhausted"
 
 
 def test_lisp_frontend_drain_done_runtime_smoke(tmp_path):

@@ -58,13 +58,13 @@ outputs:
     type: enum
     allowed: ["CONTINUE", "BLOCKED"]
     from:
-      ref: root.steps.RecordCompletedWorkItem.artifacts.drain_status
+      ref: root.steps.RouteWorkItemTerminal.artifacts.drain_status
   item_summary_path:
     type: relpath
     under: artifacts/work
     must_exist_target: true
     from:
-      ref: root.steps.RecordCompletedWorkItem.artifacts.item_summary_path
+      ref: root.steps.RouteWorkItemTerminal.artifacts.item_summary_path
 
 steps:
   - name: ResolveWorkItemInputs
@@ -162,6 +162,12 @@ steps:
 
   - name: RunImplementationPhase
     id: run_implementation_phase
+    when:
+      compare:
+        left:
+          ref: root.steps.RunPlanPhase.artifacts.plan_review_decision
+        op: eq
+        right: APPROVE
     call: implementation_phase
     with:
       state_root:
@@ -187,31 +193,188 @@ steps:
       implementation_review_provider:
         ref: inputs.implementation_review_provider
 
-  - name: RecordCompletedWorkItem
-    id: record_completed_work_item
+  - name: ClassifyWorkItemTerminal
+    id: classify_work_item_terminal
     command:
       - python
-      - workflows/library/scripts/update_lisp_frontend_run_state.py
-      - --state-path
-      - ${inputs.run_state_path}
-      - complete
-      - --item-id
-      - ${steps.ResolveWorkItemInputs.artifacts.work_item_id}
-      - --source
-      - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
-      - --summary-path
-      - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
-      - --summary-pointer-path
-      - ${inputs.state_root}/item_summary_path.txt
-      - --drain-status-path
-      - ${inputs.state_root}/drain_status.txt
-    expected_outputs:
-      - name: drain_status
-        path: ${inputs.state_root}/drain_status.txt
-        type: enum
-        allowed: ["CONTINUE", "BLOCKED"]
-      - name: item_summary_path
-        path: ${inputs.state_root}/item_summary_path.txt
-        type: relpath
-        under: artifacts/work
-        must_exist_target: true
+      - workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py
+      - --plan-review-decision
+      - ${steps.RunPlanPhase.artifacts.plan_review_decision}
+      - --implementation-state-path
+      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_state.txt
+      - --implementation-review-decision-path
+      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_review_decision.txt
+      - --output
+      - ${inputs.state_root}/terminal-route.json
+    output_bundle:
+      path: ${inputs.state_root}/terminal-route.json
+      fields:
+        - name: terminal_route
+          json_pointer: /terminal_route
+          type: enum
+          allowed: ["COMPLETE", "PLAN_REVIEW_EXHAUSTED", "IMPLEMENTATION_BLOCKED", "IMPLEMENTATION_REVIEW_EXHAUSTED"]
+        - name: block_reason
+          json_pointer: /block_reason
+          type: enum
+          allowed: ["none", "plan_review_exhausted", "implementation_blocked", "implementation_review_exhausted"]
+
+  - name: RouteWorkItemTerminal
+    id: route_work_item_terminal
+    match:
+      ref: root.steps.ClassifyWorkItemTerminal.artifacts.terminal_route
+      cases:
+        COMPLETE:
+          id: complete_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "BLOCKED"]
+              from:
+                ref: self.steps.RecordCompletedWorkItem.artifacts.drain_status
+            item_summary_path:
+              type: relpath
+              under: artifacts/work
+              must_exist_target: true
+              from:
+                ref: self.steps.RecordCompletedWorkItem.artifacts.item_summary_path
+          steps:
+            - name: RecordCompletedWorkItem
+              id: record_completed_work_item
+              command: &record_completed_command
+                - python
+                - workflows/library/scripts/update_lisp_frontend_run_state.py
+                - --state-path
+                - ${inputs.run_state_path}
+                - complete
+                - --item-id
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_id}
+                - --source
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
+                - --summary-path
+                - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
+                - --summary-pointer-path
+                - ${inputs.state_root}/item_summary_path.txt
+                - --drain-status-path
+                - ${inputs.state_root}/drain_status.txt
+              expected_outputs: &terminal_outputs
+                - name: drain_status
+                  path: ${inputs.state_root}/drain_status.txt
+                  type: enum
+                  allowed: ["CONTINUE", "BLOCKED"]
+                - name: item_summary_path
+                  path: ${inputs.state_root}/item_summary_path.txt
+                  type: relpath
+                  under: artifacts/work
+                  must_exist_target: true
+        PLAN_REVIEW_EXHAUSTED:
+          id: plan_review_exhausted_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "BLOCKED"]
+              from:
+                ref: self.steps.RecordPlanReviewExhausted.artifacts.drain_status
+            item_summary_path:
+              type: relpath
+              under: artifacts/work
+              must_exist_target: true
+              from:
+                ref: self.steps.RecordPlanReviewExhausted.artifacts.item_summary_path
+          steps:
+            - name: RecordPlanReviewExhausted
+              id: record_plan_review_exhausted
+              command:
+                - python
+                - workflows/library/scripts/update_lisp_frontend_run_state.py
+                - --state-path
+                - ${inputs.run_state_path}
+                - blocked
+                - --item-id
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_id}
+                - --source
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
+                - --reason
+                - plan_review_exhausted
+                - --summary-path
+                - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
+                - --summary-pointer-path
+                - ${inputs.state_root}/item_summary_path.txt
+                - --drain-status-path
+                - ${inputs.state_root}/drain_status.txt
+              expected_outputs: *terminal_outputs
+        IMPLEMENTATION_BLOCKED:
+          id: implementation_blocked_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "BLOCKED"]
+              from:
+                ref: self.steps.RecordImplementationBlocked.artifacts.drain_status
+            item_summary_path:
+              type: relpath
+              under: artifacts/work
+              must_exist_target: true
+              from:
+                ref: self.steps.RecordImplementationBlocked.artifacts.item_summary_path
+          steps:
+            - name: RecordImplementationBlocked
+              id: record_implementation_blocked
+              command:
+                - python
+                - workflows/library/scripts/update_lisp_frontend_run_state.py
+                - --state-path
+                - ${inputs.run_state_path}
+                - blocked
+                - --item-id
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_id}
+                - --source
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
+                - --reason
+                - implementation_blocked
+                - --summary-path
+                - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
+                - --summary-pointer-path
+                - ${inputs.state_root}/item_summary_path.txt
+                - --drain-status-path
+                - ${inputs.state_root}/drain_status.txt
+              expected_outputs: *terminal_outputs
+        IMPLEMENTATION_REVIEW_EXHAUSTED:
+          id: implementation_review_exhausted_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "BLOCKED"]
+              from:
+                ref: self.steps.RecordImplementationReviewExhausted.artifacts.drain_status
+            item_summary_path:
+              type: relpath
+              under: artifacts/work
+              must_exist_target: true
+              from:
+                ref: self.steps.RecordImplementationReviewExhausted.artifacts.item_summary_path
+          steps:
+            - name: RecordImplementationReviewExhausted
+              id: record_implementation_review_exhausted
+              command:
+                - python
+                - workflows/library/scripts/update_lisp_frontend_run_state.py
+                - --state-path
+                - ${inputs.run_state_path}
+                - blocked
+                - --item-id
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_id}
+                - --source
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
+                - --reason
+                - implementation_review_exhausted
+                - --summary-path
+                - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
+                - --summary-pointer-path
+                - ${inputs.state_root}/item_summary_path.txt
+                - --drain-status-path
+                - ${inputs.state_root}/drain_status.txt
+              expected_outputs: *terminal_outputs

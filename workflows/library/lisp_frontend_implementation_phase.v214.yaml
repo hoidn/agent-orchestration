@@ -54,13 +54,13 @@ outputs:
     type: enum
     allowed: ["COMPLETED", "BLOCKED"]
     from:
-      ref: root.steps.ExecuteImplementation.artifacts.implementation_state
+      ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_state
   implementation_review_decision:
     kind: scalar
     type: enum
     allowed: ["APPROVE", "REVISE", "NOT_APPLICABLE"]
     from:
-      ref: root.steps.ReviewImplementation.artifacts.implementation_review_decision
+      ref: root.steps.FinalizeImplementationPhaseOutputs.artifacts.implementation_review_decision
 
 providers:
   codex:
@@ -101,6 +101,38 @@ artifacts:
     pointer: ${inputs.state_root}/check_commands_path.txt
     under: state
     must_exist_target: true
+  execution_report:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/execution_report_path.txt
+    under: artifacts/work
+    must_exist_target: true
+  progress_report:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/progress_report_path.txt
+    under: artifacts/work
+    must_exist_target: true
+  checks_report:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/checks_report_path.txt
+    under: artifacts/checks
+    must_exist_target: true
+  implementation_review_report:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/implementation_review_report_path.txt
+    under: artifacts/review
+    must_exist_target: true
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
 
 steps:
   - name: MaterializeImplementationInputs
@@ -213,48 +245,366 @@ steps:
                 - user_decision_required
                 - unrecoverable_after_fix_attempt
 
-  - name: RunChecks
-    id: run_checks
+  - name: PublishCompletedExecutionReport
+    id: publish_completed_execution_report
+    when:
+      compare:
+        left:
+          ref: self.steps.ExecuteImplementation.artifacts.implementation_state
+        op: eq
+        right: COMPLETED
+    requires_variant:
+      step: ExecuteImplementation
+      value: COMPLETED
     command:
       - python
-      - workflows/library/scripts/run_neurips_backlog_checks.py
-      - --checks-path
-      - ${inputs.check_commands_path}
-      - --report-path
-      - ${inputs.checks_report_target_path}
-      - --cwd
-      - .
-    output_bundle:
-      path: ${inputs.checks_report_target_path}
-      fields:
-        - name: checks_status
-          json_pointer: /status
-          type: enum
-          allowed: ["PASS", "FAIL"]
+      - -c
+      - |
+        import pathlib
+        import sys
 
-  - name: ReviewImplementation
-    id: review_implementation
-    provider: ${inputs.implementation_review_provider}
-    asset_file: prompts/lisp_frontend_implementation_phase/review_implementation.md
-    timeout_sec: 1800
-    consumes:
-      - artifact: full_design
-        policy: latest_successful
-        freshness: any
-      - artifact: mvp_design
-        policy: latest_successful
-        freshness: any
-      - artifact: plan
-        policy: latest_successful
-        freshness: any
-    prompt_consumes: ["full_design", "mvp_design", "plan"]
+        target = pathlib.Path(sys.argv[1])
+        pointer = pathlib.Path(sys.argv[2])
+        if not target.is_file():
+            raise SystemExit(f"Execution report target does not exist: {target}")
+        pointer.parent.mkdir(parents=True, exist_ok=True)
+        pointer.write_text(target.as_posix() + "\n", encoding="utf-8")
+      - ${steps.ExecuteImplementation.artifacts.execution_report_path}
+      - ${inputs.state_root}/execution_report_path.txt
     expected_outputs:
+      - name: execution_report_path
+        path: ${inputs.state_root}/execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: execution_report
+        from: execution_report_path
+
+  - name: PublishBlockedProgressReport
+    id: publish_blocked_progress_report
+    when:
+      compare:
+        left:
+          ref: self.steps.ExecuteImplementation.artifacts.implementation_state
+        op: eq
+        right: BLOCKED
+    requires_variant:
+      step: ExecuteImplementation
+      value: BLOCKED
+    command:
+      - python
+      - -c
+      - |
+        import pathlib
+        import sys
+
+        target = pathlib.Path(sys.argv[1])
+        pointer = pathlib.Path(sys.argv[2])
+        if not target.is_file():
+            raise SystemExit(f"Blocked progress report target does not exist: {target}")
+        pointer.parent.mkdir(parents=True, exist_ok=True)
+        pointer.write_text(target.as_posix() + "\n", encoding="utf-8")
+      - ${steps.ExecuteImplementation.artifacts.progress_report_path}
+      - ${inputs.state_root}/progress_report_path.txt
+    expected_outputs:
+      - name: progress_report_path
+        path: ${inputs.state_root}/progress_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+    publishes:
+      - artifact: progress_report
+        from: progress_report_path
+
+  - name: ImplementationReviewLoop
+    id: implementation_review_loop
+    repeat_until:
+      id: implementation_review_iteration
+      max_iterations: 40
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: ["APPROVE", "REVISE"]
+          from:
+            ref: self.steps.RouteIterationWork.artifacts.review_decision
+      condition:
+        compare:
+          left:
+            ref: self.outputs.review_decision
+          op: eq
+          right: APPROVE
+      on_exhausted:
+        outputs:
+          review_decision: REVISE
+      steps:
+        - name: RouteIterationWork
+          id: route_iteration_work
+          match:
+            ref: parent.steps.ExecuteImplementation.artifacts.implementation_state
+            cases:
+              COMPLETED:
+                id: completed_iteration_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE"]
+                    from:
+                      ref: self.steps.WriteLoopReviewDecision.artifacts.review_decision
+                steps:
+                  - name: RunChecks
+                    id: run_checks
+                    command:
+                      - python
+                      - workflows/library/scripts/run_neurips_backlog_checks.py
+                      - --checks-path
+                      - ${inputs.check_commands_path}
+                      - --report-path
+                      - ${inputs.checks_report_target_path}
+                      - --cwd
+                      - .
+                    expected_outputs:
+                      - name: checks_report_path
+                        path: ${inputs.state_root}/checks_report_path.txt
+                        type: relpath
+                        under: artifacts/checks
+                        must_exist_target: true
+                    publishes:
+                      - artifact: checks_report
+                        from: checks_report_path
+
+                  - name: ReviewImplementation
+                    id: review_implementation
+                    provider: ${inputs.implementation_review_provider}
+                    asset_file: prompts/lisp_frontend_implementation_phase/review_implementation.md
+                    timeout_sec: 1800
+                    consumes:
+                      - artifact: full_design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: mvp_design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: plan
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: execution_report
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: checks_report
+                        policy: latest_successful
+                        freshness: since_last_consume
+                    prompt_consumes: ["full_design", "mvp_design", "plan", "execution_report", "checks_report"]
+                    expected_outputs:
+                      - name: implementation_review_report_path
+                        path: ${inputs.state_root}/implementation_review_report_path.txt
+                        type: relpath
+                        under: artifacts/review
+                        must_exist_target: true
+                      - name: implementation_review_decision
+                        path: ${inputs.state_root}/implementation_review_decision.txt
+                        type: enum
+                        allowed: ["APPROVE", "REVISE"]
+                    publishes:
+                      - artifact: implementation_review_report
+                        from: implementation_review_report_path
+                      - artifact: implementation_review_decision
+                        from: implementation_review_decision
+
+                  - name: FixImplementation
+                    id: fix_implementation
+                    when:
+                      compare:
+                        left:
+                          ref: self.steps.ReviewImplementation.artifacts.implementation_review_decision
+                        op: eq
+                        right: REVISE
+                    provider: ${inputs.implementation_execute_provider}
+                    asset_file: prompts/lisp_frontend_implementation_phase/fix_implementation.md
+                    timeout_sec: 7200
+                    consumes:
+                      - artifact: full_design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: mvp_design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: plan
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: execution_report
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: checks_report
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: implementation_review_report
+                        policy: latest_successful
+                        freshness: since_last_consume
+                    prompt_consumes: ["full_design", "mvp_design", "plan", "execution_report", "checks_report", "implementation_review_report"]
+
+                  - name: PublishUpdatedExecutionReport
+                    id: publish_updated_execution_report
+                    when:
+                      compare:
+                        left:
+                          ref: self.steps.ReviewImplementation.artifacts.implementation_review_decision
+                        op: eq
+                        right: REVISE
+                    command:
+                      - python
+                      - -c
+                      - |
+                        import pathlib
+                        import sys
+
+                        target = pathlib.Path(sys.argv[1])
+                        pointer = pathlib.Path(sys.argv[2])
+                        if not target.is_file():
+                            raise SystemExit(f"Execution report target does not exist: {target}")
+                        pointer.parent.mkdir(parents=True, exist_ok=True)
+                        pointer.write_text(target.as_posix() + "\n", encoding="utf-8")
+                      - ${inputs.execution_report_target_path}
+                      - ${inputs.state_root}/execution_report_path.txt
+                    expected_outputs:
+                      - name: execution_report_path
+                        path: ${inputs.state_root}/execution_report_path.txt
+                        type: relpath
+                        under: artifacts/work
+                        must_exist_target: true
+                    publishes:
+                      - artifact: execution_report
+                        from: execution_report_path
+
+                  - name: WriteLoopReviewDecision
+                    id: write_loop_review_decision
+                    command:
+                      - python
+                      - -c
+                      - |
+                        import pathlib
+                        import sys
+
+                        decision_path = pathlib.Path(sys.argv[1])
+                        output_path = pathlib.Path(sys.argv[2])
+                        decision = decision_path.read_text(encoding="utf-8").strip()
+                        if decision not in {"APPROVE", "REVISE"}:
+                            raise SystemExit(f"Unexpected implementation review decision: {decision}")
+                        output_path.parent.mkdir(parents=True, exist_ok=True)
+                        output_path.write_text(decision + "\n", encoding="utf-8")
+                      - ${inputs.state_root}/implementation_review_decision.txt
+                      - ${inputs.state_root}/loop_review_decision.txt
+                    expected_outputs:
+                      - name: review_decision
+                        path: ${inputs.state_root}/loop_review_decision.txt
+                        type: enum
+                        allowed: ["APPROVE", "REVISE"]
+              BLOCKED:
+                id: blocked_iteration_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE"]
+                    from:
+                      ref: self.steps.WriteSkippedReviewDecision.artifacts.review_decision
+                steps:
+                  - name: WriteSkippedReviewDecision
+                    id: write_skipped_review_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: APPROVE
+
+  - name: FinalizeImplementationPhaseOutputs
+    id: finalize_implementation_phase_outputs
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+        import sys
+
+        state_root = pathlib.Path(sys.argv[1])
+
+        def read_text(name):
+            path = state_root / name
+            value = path.read_text(encoding="utf-8").strip()
+            if not value:
+                raise SystemExit(f"{name} is empty")
+            return value
+
+        def read_pointer(name):
+            value = read_text(name)
+            if not pathlib.Path(value).is_file():
+                raise SystemExit(f"Target for {name} does not exist: {value}")
+            return value
+
+        bundle = state_root / "implementation_state.json"
+        if not bundle.is_file():
+            raise SystemExit("implementation_state.json missing")
+        payload = json.loads(bundle.read_text(encoding="utf-8"))
+        implementation_state = payload.get("implementation_state")
+        if implementation_state not in {"COMPLETED", "BLOCKED"}:
+            raise SystemExit(f"Unexpected implementation state: {implementation_state}")
+        (state_root / "final_implementation_state.txt").write_text(implementation_state + "\n", encoding="utf-8")
+
+        if implementation_state == "COMPLETED":
+            execution_report_path = read_pointer("execution_report_path.txt")
+            checks_report_path = read_pointer("checks_report_path.txt")
+            implementation_review_report_path = read_pointer("implementation_review_report_path.txt")
+            implementation_review_decision = read_text("implementation_review_decision.txt")
+            if implementation_review_decision not in {"APPROVE", "REVISE"}:
+                raise SystemExit(
+                    f"Unexpected implementation review decision: {implementation_review_decision}"
+                )
+            (state_root / "final_execution_report_path.txt").write_text(execution_report_path + "\n", encoding="utf-8")
+            (state_root / "final_checks_report_path.txt").write_text(checks_report_path + "\n", encoding="utf-8")
+            (state_root / "final_implementation_review_report_path.txt").write_text(
+                implementation_review_report_path + "\n", encoding="utf-8"
+            )
+            (state_root / "final_implementation_review_decision.txt").write_text(
+                implementation_review_decision + "\n", encoding="utf-8"
+            )
+        else:
+            progress_report_path = read_pointer("progress_report_path.txt")
+            (state_root / "final_progress_report_path.txt").write_text(progress_report_path + "\n", encoding="utf-8")
+            (state_root / "final_implementation_review_decision.txt").write_text(
+                "NOT_APPLICABLE\n", encoding="utf-8"
+            )
+      - ${inputs.state_root}
+    expected_outputs:
+      - name: implementation_state
+        path: ${inputs.state_root}/final_implementation_state.txt
+        type: enum
+        allowed: ["COMPLETED", "BLOCKED"]
+      - name: progress_report_path
+        path: ${inputs.state_root}/final_progress_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+        required: false
+      - name: execution_report_path
+        path: ${inputs.state_root}/final_execution_report_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+        required: false
+      - name: checks_report_path
+        path: ${inputs.state_root}/final_checks_report_path.txt
+        type: relpath
+        under: artifacts/checks
+        must_exist_target: true
+        required: false
       - name: implementation_review_report_path
-        path: ${inputs.state_root}/implementation_review_report_path.txt
+        path: ${inputs.state_root}/final_implementation_review_report_path.txt
         type: relpath
         under: artifacts/review
         must_exist_target: true
+        required: false
       - name: implementation_review_decision
-        path: ${inputs.state_root}/implementation_review_decision.txt
+        path: ${inputs.state_root}/final_implementation_review_decision.txt
         type: enum
         allowed: ["APPROVE", "REVISE", "NOT_APPLICABLE"]
