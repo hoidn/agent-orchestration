@@ -148,6 +148,34 @@ def create_parser() -> argparse.ArgumentParser:
         choices=['basic', 'phase-performance'],
         help='Summary prompt/snapshot profile'
     )
+    run_parser.add_argument(
+        '--live-agent-notes',
+        action='store_true',
+        help='Generate live current-step notes from provider transport tails'
+    )
+    run_parser.add_argument(
+        '--live-agent-note-provider',
+        type=str,
+        help='Provider template name for live current-step notes'
+    )
+    run_parser.add_argument(
+        '--live-agent-note-interval-sec',
+        type=float,
+        default=15.0,
+        help='Minimum interval between live note refreshes'
+    )
+    run_parser.add_argument(
+        '--live-agent-note-timeout-sec',
+        type=int,
+        default=30,
+        help='Timeout for a single live note request'
+    )
+    run_parser.add_argument(
+        '--live-agent-note-max-tail-chars',
+        type=int,
+        default=6000,
+        help='Maximum provider transport tail chars passed to live note provider'
+    )
 
     # Resume command (minimal for now)
     resume_parser = subparsers.add_parser('resume', help='Resume a workflow run')
@@ -222,6 +250,32 @@ def create_parser() -> argparse.ArgumentParser:
         '--summary-profile',
         choices=['basic', 'phase-performance'],
         help='Override summary prompt/snapshot profile for this resume run'
+    )
+    resume_parser.add_argument(
+        '--live-agent-notes',
+        action='store_true',
+        default=None,
+        help='Enable live current-step notes for this resume run'
+    )
+    resume_parser.add_argument(
+        '--live-agent-note-provider',
+        type=str,
+        help='Override provider template name for live current-step notes'
+    )
+    resume_parser.add_argument(
+        '--live-agent-note-interval-sec',
+        type=float,
+        help='Override minimum interval between live note refreshes'
+    )
+    resume_parser.add_argument(
+        '--live-agent-note-timeout-sec',
+        type=int,
+        help='Override timeout for a single live note request'
+    )
+    resume_parser.add_argument(
+        '--live-agent-note-max-tail-chars',
+        type=int,
+        help='Override maximum provider transport tail chars passed to live note provider'
     )
 
     report_parser = subparsers.add_parser('report', help='Render workflow run status')

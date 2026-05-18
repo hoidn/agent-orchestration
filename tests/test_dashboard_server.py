@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 
 import yaml
@@ -321,6 +322,250 @@ def test_run_detail_links_run_local_observability_files(tmp_path: Path):
     )
     assert "State Backups" in body
     assert 'href="/runs/w0/run1/files/run/state.json.step_Step.bak"' in body
+
+
+def test_run_detail_links_summary_hub_when_index_exists(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "index.json").write_text(
+        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps({"run_id": "run1", "status": "completed"}),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "Summary Hub" in body
+    assert 'href="/runs/w0/run1/summaries"' in body
+    assert 'href="/runs/w0/run1/files/run/summaries/index.json"' in body
+
+
+def test_summary_hub_route_renders_entries_and_escaped_rollup(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    frame_summaries = run_root / "call_frames" / "frame1" / "summaries"
+    summaries.mkdir(parents=True)
+    frame_summaries.mkdir(parents=True)
+    (frame_summaries / "SelectNextWork.provider.summary.md").write_text(
+        "# Summary\n<script>bad</script>\n",
+        encoding="utf-8",
+    )
+    (frame_summaries / "SelectNextWork.provider.snapshot.json").write_text(
+        '{"step":{"name":"SelectNextWork"}}',
+        encoding="utf-8",
+    )
+    (summaries / "run-summary.md").write_text(
+        "# Rollup\n<script>rollup</script>\n",
+        encoding="utf-8",
+    )
+    (summaries / "index.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "entries": [
+                    {
+                        "step_name": "SelectNextWork",
+                        "kind": "provider",
+                        "profile": "phase-performance",
+                        "status": "completed",
+                        "duration_ms": 1234,
+                        "frame_root": "call_frames/frame1",
+                        "summary_path": "call_frames/frame1/summaries/SelectNextWork.provider.summary.md",
+                        "snapshot_path": "call_frames/frame1/summaries/SelectNextWork.provider.snapshot.json",
+                        "error_path": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps({"run_id": "run1", "status": "completed"}),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert response.headers["X-Content-Type-Options"] == "nosniff"
+    assert "Summary Hub" in body
+    assert "SelectNextWork" in body
+    assert "provider" in body
+    assert "phase-performance" in body
+    assert "completed" in body
+    assert "1234 ms" in body
+    assert 'href="/runs/w0/run1/files/run/call_frames/frame1/summaries/SelectNextWork.provider.summary.md"' in body
+    assert 'href="/runs/w0/run1/files/run/call_frames/frame1/summaries/SelectNextWork.provider.snapshot.json"' in body
+    assert "&lt;script&gt;rollup&lt;/script&gt;" in body
+    assert "<script>rollup</script>" not in body
+    assert str(run_root) not in body
+
+
+def test_summary_live_endpoint_returns_current_step_and_latest_summary(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "ExecuteImplementation.provider.summary.md").write_text("summary", encoding="utf-8")
+    (summaries / "live-current-step.md").write_text("The agent is editing the implementation.\n", encoding="utf-8")
+    (summaries / "live-current-step.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_live_agent_note/v1",
+                "step_name": "ExecuteImplementation",
+                "step_id": "root.execute",
+                "visit_count": 1,
+                "provider": "cheap_summary",
+                "generated_at": "2026-04-13T12:03:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (summaries / "index.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "entries": [
+                    {
+                        "step_name": "ExecuteImplementation",
+                        "kind": "provider",
+                        "profile": "phase-performance",
+                        "status": "completed",
+                        "duration_ms": 1234,
+                        "summary_path": "summaries/ExecuteImplementation.provider.summary.md",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "running",
+                "current_step": {
+                    "name": "ExecuteImplementation",
+                    "step_id": "root.execute",
+                    "started_at": "2026-04-13T12:01:00+00:00",
+                    "last_heartbeat_at": "2026-04-13T12:02:00+00:00",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+    app = DashboardApp(RunScanner([tmp_path]), now="2026-04-13T12:03:30+00:00")
+
+    response = app.handle("GET", "/runs/w0/run1/summaries/live.json")
+
+    payload = json.loads(response.body.decode("utf-8"))
+    assert response.status == 200
+    assert response.headers["Content-Type"] == "application/json; charset=utf-8"
+    assert payload["schema"] == "dashboard_summary_live/v1"
+    assert payload["run"]["display_status"] == "running"
+    assert payload["current_step"]["name"] == "ExecuteImplementation"
+    assert payload["current_step"]["step_id"] == "root.execute"
+    assert payload["current_step"]["age_text"] == "2m 30s"
+    assert payload["current_step"]["heartbeat_age_text"] == "1m 30s"
+    assert payload["summaries"]["total"] == 1
+    assert payload["summaries"]["counts"] == {"provider": 1}
+    assert payload["summaries"]["current_step_latest"]["summary_href"] == (
+        "/runs/w0/run1/files/run/summaries/ExecuteImplementation.provider.summary.md"
+    )
+    assert payload["live_note"]["text"] == "The agent is editing the implementation.\n"
+    assert payload["live_note"]["summary_href"] == "/runs/w0/run1/files/run/summaries/live-current-step.md"
+    assert payload["live_note"]["metadata_href"] == "/runs/w0/run1/files/run/summaries/live-current-step.json"
+    assert payload["live_note"]["provider"] == "cheap_summary"
+    assert str(run_root) not in json.dumps(payload)
+
+
+def test_summary_hub_page_contains_live_panel_and_nonce_script(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "index.json").write_text(
+        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps({"run_id": "run1", "status": "running", "current_step": {"name": "StepA"}}),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+
+    body = response.body.decode("utf-8")
+    nonce_match = re.search(r"<script nonce=\"([^\"]+)\"", body)
+    assert response.status == 200
+    assert 'id="live-current-step"' in body
+    assert 'data-live-url="/runs/w0/run1/summaries/live.json"' in body
+    assert nonce_match is not None
+    assert f"script-src 'nonce-{nonce_match.group(1)}'" in response.headers["Content-Security-Policy"]
+
+
+def test_summary_hub_missing_or_invalid_index_is_safe(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    run_root.mkdir(parents=True)
+    (run_root / "state.json").write_text(
+        json.dumps({"run_id": "run1", "status": "completed"}),
+        encoding="utf-8",
+    )
+
+    missing = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+    assert missing.status == 200
+    assert "No summary hub is available" in missing.body.decode("utf-8")
+
+    summaries = run_root / "summaries"
+    summaries.mkdir()
+    (summaries / "index.json").write_text("{invalid", encoding="utf-8")
+    invalid = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+    body = invalid.body.decode("utf-8")
+    assert invalid.status == 200
+    assert "Summary index is invalid" in body
+    assert 'href="/runs/w0/run1/files/run/summaries/index.json"' in body
+
+
+def test_summary_hub_does_not_link_unsafe_index_paths(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "index.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "entries": [
+                    {
+                        "step_name": "UnsafeStep",
+                        "kind": "provider",
+                        "status": "completed",
+                        "summary_path": "../outside.md",
+                        "snapshot_path": "summaries/safe.json",
+                        "error_path": None,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps({"run_id": "run1", "status": "completed"}),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "UnsafeStep" in body
+    assert "unsafe path" in body
+    assert "../outside.md" not in body
+    assert "/files/run/../outside.md" not in body
 
 
 def test_step_detail_route_resolves_by_name_and_escapes_payloads(tmp_path: Path):

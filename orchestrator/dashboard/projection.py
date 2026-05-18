@@ -519,6 +519,7 @@ class RunProjector:
             "provider_sessions": ("provider_sessions/*.json", "provider-session metadata"),
             "provider_transport": ("provider_sessions/*.transport.log", "provider transport log"),
             "state_backups": ("state.json.*.bak", "state backup"),
+            "summaries": ("summaries/*", "summary hub file"),
         }
         projected: dict[str, list[FileReference]] = {}
         for group, (pattern, label) in groups.items():

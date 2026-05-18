@@ -38,6 +38,11 @@ def _base_run_args(workflow_path: Path) -> Namespace:
         summary_timeout_sec=120,
         summary_max_input_chars=12000,
         summary_profile=None,
+        live_agent_notes=False,
+        live_agent_note_provider=None,
+        live_agent_note_interval_sec=15.0,
+        live_agent_note_timeout_sec=30,
+        live_agent_note_max_tail_chars=6000,
     )
 
 
@@ -58,6 +63,15 @@ def test_parser_accepts_summary_flags():
             '2048',
             '--summary-profile',
             'phase-performance',
+            '--live-agent-notes',
+            '--live-agent-note-provider',
+            'claude_haiku_summary',
+            '--live-agent-note-interval-sec',
+            '7.5',
+            '--live-agent-note-timeout-sec',
+            '20',
+            '--live-agent-note-max-tail-chars',
+            '4096',
         ]
     )
 
@@ -67,6 +81,11 @@ def test_parser_accepts_summary_flags():
     assert args.summary_timeout_sec == 45
     assert args.summary_max_input_chars == 2048
     assert args.summary_profile == 'phase-performance'
+    assert args.live_agent_notes is True
+    assert args.live_agent_note_provider == 'claude_haiku_summary'
+    assert args.live_agent_note_interval_sec == 7.5
+    assert args.live_agent_note_timeout_sec == 20
+    assert args.live_agent_note_max_tail_chars == 4096
 
 
 def test_parser_accepts_stream_output_on_run_and_resume():
@@ -180,6 +199,28 @@ def test_build_observability_config_profile_enables_summaries():
     assert config['step_summaries']['profile'] == 'phase-performance'
 
 
+def test_build_observability_config_includes_live_agent_notes():
+    args = _base_run_args(Path('workflow.yaml'))
+    args.live_agent_notes = True
+    args.summary_provider = 'general_summary'
+    args.live_agent_note_provider = 'cheap_summary'
+    args.live_agent_note_interval_sec = 5.0
+    args.live_agent_note_timeout_sec = 9
+    args.live_agent_note_max_tail_chars = 1234
+
+    config = build_observability_config(args)
+
+    assert config is not None
+    live_cfg = config['step_summaries']['live_agent_notes']
+    assert live_cfg == {
+        'enabled': True,
+        'provider': 'cheap_summary',
+        'interval_sec': 5.0,
+        'timeout_sec': 9,
+        'max_tail_chars': 1234,
+    }
+
+
 @patch('orchestrator.cli.commands.run.WorkflowExecutor')
 @patch('orchestrator.cli.commands.run.StateManager')
 @patch('orchestrator.cli.commands.run.WorkflowLoader')
@@ -268,16 +309,29 @@ def test_resume_uses_persisted_observability_and_applies_override(mock_loader, m
         run_id=run_id,
         summary_mode='sync',
         summary_profile='phase-performance',
+        live_agent_notes=True,
+        live_agent_note_provider='cheap_summary',
+        live_agent_note_interval_sec=4.0,
+        live_agent_note_timeout_sec=8,
+        live_agent_note_max_tail_chars=2048,
     )
 
     assert result == 0
     exec_kwargs = mock_executor.call_args.kwargs
     assert exec_kwargs['observability']['step_summaries']['mode'] == 'sync'
     assert exec_kwargs['observability']['step_summaries']['profile'] == 'phase-performance'
+    assert exec_kwargs['observability']['step_summaries']['live_agent_notes']['provider'] == 'cheap_summary'
 
     persisted = json.loads((run_dir / 'state.json').read_text())
     assert persisted['observability']['step_summaries']['mode'] == 'sync'
     assert persisted['observability']['step_summaries']['profile'] == 'phase-performance'
+    assert persisted['observability']['step_summaries']['live_agent_notes'] == {
+        'enabled': True,
+        'provider': 'cheap_summary',
+        'interval_sec': 4.0,
+        'timeout_sec': 8,
+        'max_tail_chars': 2048,
+    }
 
 
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')

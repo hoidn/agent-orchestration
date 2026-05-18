@@ -13,7 +13,7 @@
     - Serves a local, read-only dashboard for explicit workspace roots.
     - The dashboard scans `<workspace>/.orchestrate/runs/*/state.json` at request time and keys runs by `(resolved workspace root, run directory name)`.
     - The default bind host is `127.0.0.1`; binding to another host is an explicit operator choice.
-    - Routes include `/runs`, `/runs/<workspace_id>/<run_dir>`, step detail, state preview, and route-scoped workspace/run file previews.
+    - Routes include `/runs`, `/runs/<workspace_id>/<run_dir>`, `/runs/<workspace_id>/<run_dir>/summaries`, `/runs/<workspace_id>/<run_dir>/summaries/live.json`, step detail, state preview, and route-scoped workspace/run file previews.
     - Dashboard routes must not execute `resume`, `report`, tmux, provider CLIs, shell commands, or child processes. Copyable commands are rendered as inert text only.
   - `orchestrator monitor --config <path> [--once] [--dry-run] [--dry-run-mark-sent] [--ledger <path>]`
     - Monitors explicit workspace roots from the config file and sends email notifications for completed, failed, crashed, or stalled workflow runs.
@@ -26,8 +26,9 @@
 
 - Debugging and recovery flags
   - `--debug`, `--stream-output`, `--progress` (post-MVP), `--trace` (post-MVP), `--dry-run`
-  - Runtime observability: `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`, `--summary-profile basic|phase-performance`
+  - Runtime observability: `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`, `--summary-profile basic|phase-performance`, `--live-agent-notes`, `--live-agent-note-provider <name>`, `--live-agent-note-interval-sec <n>`, `--live-agent-note-timeout-sec <n>`, `--live-agent-note-max-tail-chars <n>`
     - `--summary-profile phase-performance` enables advisory provider-step and phase-boundary summaries with performance judgments. It implies step summaries if `--step-summaries` was not otherwise provided.
+    - `--live-agent-notes` enables advisory live notes from bounded session-provider transport tails. It implies step summaries if `--step-summaries` was not otherwise provided.
   - `--force-restart`, `--repair`, `--backup-state`, `--state-dir <path>`
   - Error handling: `--on-error stop|continue|interactive` (interactive optional/post-MVP)
   - Retries: `--max-retries <n>`, `--retry-delay <ms>`

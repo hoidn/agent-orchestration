@@ -1,6 +1,7 @@
 """Runtime smoke coverage for phase-performance summaries."""
 
 import json
+import textwrap
 from pathlib import Path
 
 from orchestrator.loader import WorkflowLoader
@@ -118,3 +119,85 @@ steps:
     assert [entry["step_name"] for entry in index["entries"]] == ["ProviderWork", "PhaseWork"]
     assert (summaries_dir / "README.md").exists()
     assert (summaries_dir / "run-summary.md").exists()
+
+
+def test_live_agent_notes_summarize_session_transport_during_provider_step(tmp_path: Path):
+    workflow_file = tmp_path / "workflow.yaml"
+    session_script = textwrap.dedent(
+        """
+        import json, sys, time
+        print(json.dumps({"type": "session.started", "session_id": "sess-live"}), flush=True)
+        print(json.dumps({"type": "assistant.message", "role": "assistant", "text": "working live"}), flush=True)
+        time.sleep(0.25)
+        print(json.dumps({"type": "response.completed", "session_id": "sess-live"}), flush=True)
+        """
+    ).strip()
+    workflow_file.write_text(
+        f"""
+version: "2.10"
+name: live-note-runtime
+providers:
+  session_provider:
+    command: ["python", "-c", {json.dumps(session_script)}]
+    input_mode: "stdin"
+    session_support:
+      metadata_mode: codex_exec_jsonl_stdout
+      fresh_command: ["python", "-c", {json.dumps(session_script)}]
+      resume_command: ["python", "-c", {json.dumps(session_script + " # ${SESSION_ID}")}]
+  live_summary:
+    command: ["bash", "-lc", "cat >/dev/null; printf 'live note from tail\\n'"]
+    input_mode: "stdin"
+steps:
+  - name: ProviderWork
+    id: provider_work
+    provider: session_provider
+    provider_session:
+      mode: fresh
+      publish_artifact: implementation_session_id
+artifacts:
+  implementation_session_id:
+    kind: scalar
+    type: string
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    workflow = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(tmp_path, run_id="run-live-note-runtime")
+    state_manager.initialize("workflow.yaml", {})
+
+    executor = WorkflowExecutor(
+        workflow=workflow,
+        workspace=tmp_path,
+        state_manager=state_manager,
+        debug=True,
+        observability={
+            "step_summaries": {
+                "enabled": True,
+                "mode": "sync",
+                "provider": "live_summary",
+                "timeout_sec": 30,
+                "best_effort": True,
+                "max_input_chars": 12000,
+                "profile": "phase-performance",
+                "live_agent_notes": {
+                    "enabled": True,
+                    "provider": "live_summary",
+                    "interval_sec": 0.05,
+                    "timeout_sec": 10,
+                    "max_tail_chars": 2000,
+                },
+            }
+        },
+    )
+
+    final_state = executor.execute(on_error="stop")
+
+    summaries_dir = state_manager.run_root / "summaries"
+    metadata = json.loads((summaries_dir / "live-current-step.json").read_text(encoding="utf-8"))
+    assert final_state["status"] == "completed"
+    assert (summaries_dir / "live-current-step.md").read_text(encoding="utf-8") == "live note from tail\n"
+    assert metadata["schema"] == "orchestrator_live_agent_note/v1"
+    assert metadata["step_name"] == "ProviderWork"
+    assert metadata["provider"] == "live_summary"

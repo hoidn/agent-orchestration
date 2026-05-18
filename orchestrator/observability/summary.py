@@ -147,26 +147,16 @@ class SummaryObserver:
             body = body[: self.max_input_chars]
         if self.profile == "phase-performance" and summary_kind == "provider":
             return (
-                "Summarize this provider step in concise, factual markdown. "
-                "Include what the provider was asked to do, whether it completed, failed, or was skipped, "
-                "key artifacts or outputs, and an advisory performance judgment covering duration, "
-                "timeout pressure, retry/fix risk, and evidence sufficiency. "
-                "This summary is observability-only; do not suggest workflow control-flow decisions as if "
-                "they have already happened.\n\n"
+                "Analyze the agent's performacne in this provider step. Summarize what it did; which issues it encountered; how it recovered from any such issues. Analyze any potential process / workflow-level issues that you see, especially any related to project-level conventions (agents.md), project specifications (specs), design / plan process and documentation, documentation discoverability, and workflow design\n\n"
                 f"{body}"
             )
         if self.profile == "phase-performance" and summary_kind == "phase":
             return (
-                "Summarize this workflow phase boundary in concise, factual markdown. "
-                "Include phase outcome, notable child outputs if present, work that advanced, blocking or "
-                "follow-up signals, and an advisory performance judgment covering elapsed time, "
-                "retries/failures, and whether evidence is sufficient for a human reviewer. "
-                "This summary is observability-only and must not be treated as workflow state.\n\n"
+                "Analyze the agent's performacne in this provider step. Summarize what it did; which issues it encountered; how it recovered from any such issues. Analyze any potential process / workflow-level issues that you see, especially any related to project-level conventions (agents.md), project specifications (specs), design / plan process and documentation, documentation discoverability, and workflow design\n\n"
                 f"{body}"
             )
         return (
-            "Summarize the following workflow step in concise, factual markdown. "
-            "Include what was attempted, key outputs, and current status.\n\n"
+                "Analyze the agent's performacne in this provider step. Summarize what it did; which issues it encountered; how it recovered from any such issues. Analyze any potential process / workflow-level issues that you see, especially any related to project-level conventions (agents.md), project specifications (specs), design / plan process and documentation, documentation discoverability, and workflow design\n\n"
             f"{body}"
         )
 

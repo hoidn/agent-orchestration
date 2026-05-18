@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import html
 import json
+import secrets
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -59,6 +60,10 @@ class DashboardApp:
                 return self._response(404, "Run not found")
             if len(segments) == 3:
                 return self._run_detail(detail, refresh=self._refresh_seconds(parse_qs(parsed.query)))
+            if len(segments) == 5 and segments[3] == "summaries" and segments[4] == "live.json":
+                return self._summary_live_json(detail)
+            if len(segments) == 4 and segments[3] == "summaries":
+                return self._summary_hub(detail)
             if len(segments) == 4 and segments[3] == "state":
                 return self._state_preview(detail)
             if len(segments) >= 5 and segments[3] == "steps":
@@ -195,6 +200,14 @@ class DashboardApp:
                 )
             lines.append("</ul></section>")
 
+        lines.extend(["<section><h2>Summary Hub</h2>"])
+        summary_href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/summaries"
+        if (row.run_root / "summaries" / "index.json").exists():
+            lines.append(f"<p><a href=\"{summary_href}\">Open Summary Hub</a></p>")
+        else:
+            lines.append("<p>No summary hub is available for this run.</p>")
+        lines.append("</section>")
+
         lines.extend(["<section><h2>Step Timeline</h2><ul>"])
         for step in detail.steps:
             href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/steps/{quote(step.ref)}"
@@ -240,6 +253,12 @@ class DashboardApp:
             "State Backups",
             detail.observability_files.get("state_backups", []),
         )
+        self._append_file_group(
+            lines,
+            row,
+            "Summary Hub Files",
+            detail.observability_files.get("summaries", []),
+        )
         lines.append("</section>")
 
         lines.extend(["<section><h2>Common Artifacts</h2>"])
@@ -274,6 +293,339 @@ class DashboardApp:
         lines.append(f"<p><a href=\"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/state\">State JSON</a></p>")
         lines.extend(["</main></body></html>"])
         return self._html_response("\n".join(lines))
+
+    def _summary_hub(self, detail) -> DashboardResponse:
+        row = detail.row
+        resolver = FileReferenceResolver(row.workspace_root, row.run_root)
+        back_href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}"
+        live_href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/summaries/live.json"
+        script_nonce = secrets.token_urlsafe(16)
+        index_path = row.run_root / "summaries" / "index.json"
+        lines = [
+            "<!doctype html>",
+            "<html><head><meta charset=\"utf-8\"><title>Summary Hub</title>",
+            "<style>body{font-family:sans-serif;margin:2rem}section{margin-block:1.5rem}table{border-collapse:collapse;width:100%}td,th{border:1px solid #bbb;padding:.35rem;text-align:left;vertical-align:top}pre{background:#f5f5f5;padding:.75rem;overflow:auto}code{white-space:pre-wrap}.muted{color:#555}.live-panel{border:1px solid #bbb;border-radius:6px;padding:1rem;background:#fafafa}.live-grid{display:grid;grid-template-columns:max-content 1fr;gap:.35rem .75rem}.live-grid dt{font-weight:600}.live-grid dd{margin:0}</style>",
+            "</head><body><main>",
+            f"<h1>Summary Hub: {self._e(row.run_dir_id)}</h1>",
+            f"<p><a href=\"{back_href}\">Back to run</a></p>",
+            f"<section id=\"live-current-step\" class=\"live-panel\" data-live-url=\"{live_href}\">",
+            "<h2>Current Step</h2>",
+            "<dl class=\"live-grid\">",
+            "<dt>Run</dt><dd><span data-live-field=\"run-status\">Loading...</span></dd>",
+            "<dt>Step</dt><dd><span data-live-field=\"step-name\">Loading...</span></dd>",
+            "<dt>Started</dt><dd><span data-live-field=\"step-started\"></span></dd>",
+            "<dt>Age</dt><dd><span data-live-field=\"step-age\"></span></dd>",
+            "<dt>Heartbeat</dt><dd><span data-live-field=\"heartbeat\"></span></dd>",
+            "<dt>Summaries</dt><dd><span data-live-field=\"summary-counts\"></span></dd>",
+            "<dt>Latest current-step summary</dt><dd><a data-live-link=\"latest-summary\" hidden>Open summary</a><span data-live-field=\"latest-summary-empty\">None yet.</span></dd>",
+            "<dt>Live agent note</dt><dd><pre data-live-field=\"live-note\">No live note yet.</pre><a data-live-link=\"live-note\" hidden>Open live note</a></dd>",
+            "</dl>",
+            "<p class=\"muted\">Updates every few seconds from run state and summary artifacts.</p>",
+            "</section>",
+        ]
+        if not index_path.exists():
+            lines.extend(
+                [
+                    "<section><h2>No Summary Hub</h2>",
+                    "<p>No summary hub is available for this run.</p>",
+                    "</section></main></body></html>",
+                ]
+            )
+            return self._html_response("\n".join(lines), script_nonce=script_nonce)
+
+        try:
+            index_payload = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            index_ref = resolver.run_ref("summaries/index.json", label="summary index")
+            lines.extend(
+                [
+                    "<section><h2>Summary index is invalid</h2>",
+                    f"<p>{self._e(exc)}</p>",
+                    f"<p><a href=\"{self._file_href(row, index_ref)}\">View index file</a></p>",
+                    "</section></main></body></html>",
+                ]
+            )
+            return self._html_response("\n".join(lines), script_nonce=script_nonce)
+
+        entries = index_payload.get("entries") if isinstance(index_payload, Mapping) else None
+        if not isinstance(entries, list):
+            entries = []
+            warning = "Summary index is invalid: entries must be a list."
+        else:
+            warning = ""
+        counts: dict[str, int] = {}
+        for entry in entries:
+            if isinstance(entry, Mapping):
+                kind = str(entry.get("kind") or "step")
+                counts[kind] = counts.get(kind, 0) + 1
+        counts_text = ", ".join(f"{kind}={count}" for kind, count in sorted(counts.items())) or "none"
+        lines.extend(
+            [
+                "<section><h2>Overview</h2>",
+                f"<p>Total summaries: {self._e(len(entries))}; {self._e(counts_text)}</p>",
+            ]
+        )
+        if warning:
+            lines.append(f"<p>{self._e(warning)}</p>")
+        lines.append("</section>")
+
+        lines.extend(
+            [
+                "<section><h2>Summary Entries</h2>",
+                "<table>",
+                "<thead><tr><th>Step</th><th>Kind</th><th>Profile</th><th>Status</th><th>Duration</th><th>Frame</th><th>Files</th></tr></thead>",
+                "<tbody>",
+            ]
+        )
+        if not entries:
+            lines.append("<tr><td colspan=\"7\">No summary entries.</td></tr>")
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            duration = entry.get("duration_ms")
+            duration_text = f"{duration} ms" if duration is not None else ""
+            file_links = self._summary_entry_links(row, resolver, entry)
+            lines.append(
+                "<tr>"
+                f"<td>{self._e(entry.get('step_name') or '')}</td>"
+                f"<td>{self._e(entry.get('kind') or '')}</td>"
+                f"<td>{self._e(entry.get('profile') or '')}</td>"
+                f"<td>{self._e(entry.get('status') or '')}</td>"
+                f"<td>{self._e(duration_text)}</td>"
+                f"<td>{self._e(entry.get('frame_root') or '')}</td>"
+                f"<td>{file_links}</td>"
+                "</tr>"
+            )
+        lines.extend(["</tbody></table>", "</section>"])
+
+        lines.extend(["<section><h2>Run Summary Preview</h2>"])
+        try:
+            summary_ref = resolver.run_ref("summaries/run-summary.md", label="run summary")
+        except UnsafePathError:
+            summary_ref = None
+        if summary_ref is not None and summary_ref.status == "ok":
+            preview = PreviewRenderer().preview(summary_ref.absolute_path)
+            if preview.status == "ok":
+                if preview.truncated:
+                    size = preview.size_bytes if preview.size_bytes is not None else ""
+                    lines.append(
+                        f"<p>Preview truncated at dashboard cap; file size {self._e(size)} bytes.</p>"
+                    )
+                lines.append(f"<pre>{preview.display_text}</pre>")
+            else:
+                lines.append(f"<p>{self._e(preview.status)}</p>")
+            lines.append(f"<p><a href=\"{self._file_href(row, summary_ref)}\">Open run-summary.md</a></p>")
+        else:
+            lines.append("<p>No run-summary.md file is available.</p>")
+        lines.extend([
+            "</section>",
+            self._summary_live_script(script_nonce),
+            "</main></body></html>",
+        ])
+        return self._html_response("\n".join(lines), script_nonce=script_nonce)
+
+    def _summary_live_json(self, detail) -> DashboardResponse:
+        return self._json_response(self._summary_live_payload(detail))
+
+    def _summary_live_payload(self, detail) -> dict[str, object]:
+        row = detail.row
+        resolver = FileReferenceResolver(row.workspace_root, row.run_root)
+        state = detail.state if isinstance(detail.state, Mapping) else {}
+        current_step = state.get("current_step") if isinstance(state.get("current_step"), Mapping) else {}
+        current_name = self._str_or_none(current_step.get("name"))
+        current_step_id = self._str_or_none(current_step.get("step_id"))
+        entries = self._summary_index_entries(row.run_root)
+        counts: dict[str, int] = {}
+        for entry in entries:
+            kind = str(entry.get("kind") or "step")
+            counts[kind] = counts.get(kind, 0) + 1
+
+        latest = None
+        if current_name:
+            for entry in reversed(entries):
+                if str(entry.get("step_name") or "") == current_name:
+                    latest = self._summary_entry_payload(row, resolver, entry)
+                    break
+
+        step_href = None
+        if current_name or current_step_id:
+            for step in detail.steps:
+                if current_name in {step.name, step.ref} or current_step_id in {step.step_id, step.ref}:
+                    step_href = f"/runs/{quote(row.workspace_id)}/{quote(row.run_dir_id)}/steps/{quote(step.ref)}"
+                    break
+
+        return {
+            "schema": "dashboard_summary_live/v1",
+            "run": {
+                "run_dir_id": row.run_dir_id,
+                "state_run_id": row.state_run_id,
+                "persisted_status": row.persisted_status,
+                "display_status": row.display_status,
+                "display_status_reason": row.display_status_reason,
+                "cursor_summary": row.cursor_summary,
+                "read_time": row.read_time,
+            },
+            "current_step": {
+                "name": current_name,
+                "step_id": current_step_id,
+                "started_at": self._str_or_none(current_step.get("started_at")),
+                "age_seconds": row.current_step_age_seconds,
+                "age_text": (
+                    self._format_duration(row.current_step_age_seconds)
+                    if row.current_step_age_seconds is not None
+                    else ""
+                ),
+                "heartbeat_at": row.heartbeat_at,
+                "heartbeat_age_seconds": row.heartbeat_age_seconds,
+                "heartbeat_age_text": (
+                    self._format_duration(row.heartbeat_age_seconds)
+                    if row.heartbeat_age_seconds is not None
+                    else ""
+                ),
+                "step_href": step_href,
+            },
+            "summaries": {
+                "total": len(entries),
+                "counts": counts,
+                "current_step_latest": latest,
+            },
+            "live_note": self._live_agent_note_payload(row, resolver, current_name, current_step_id),
+        }
+
+    def _live_agent_note_payload(
+        self,
+        row,
+        resolver: FileReferenceResolver,
+        current_name: Optional[str],
+        current_step_id: Optional[str],
+    ) -> dict[str, object] | None:
+        try:
+            metadata_ref = resolver.run_ref("summaries/live-current-step.json", label="live note metadata")
+            note_ref = resolver.run_ref("summaries/live-current-step.md", label="live note")
+        except UnsafePathError:
+            return None
+        if metadata_ref.status != "ok" or note_ref.status != "ok":
+            return None
+        try:
+            metadata = json.loads(metadata_ref.absolute_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return None
+        if not isinstance(metadata, Mapping):
+            return None
+        note_step_name = self._str_or_none(metadata.get("step_name"))
+        note_step_id = self._str_or_none(metadata.get("step_id"))
+        if current_name and note_step_name and note_step_name != current_name:
+            return None
+        if current_step_id and note_step_id and note_step_id != current_step_id:
+            return None
+        try:
+            text = note_ref.absolute_path.read_text(encoding="utf-8")[:4000]
+        except OSError:
+            text = ""
+        return {
+            "text": text,
+            "step_name": note_step_name,
+            "step_id": note_step_id,
+            "visit_count": metadata.get("visit_count"),
+            "provider": self._str_or_none(metadata.get("provider")),
+            "generated_at": self._str_or_none(metadata.get("generated_at")),
+            "summary_href": self._file_href(row, note_ref),
+            "metadata_href": self._file_href(row, metadata_ref),
+        }
+
+    def _summary_index_entries(self, run_root) -> list[Mapping[str, object]]:
+        index_path = run_root / "summaries" / "index.json"
+        try:
+            payload = json.loads(index_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            return []
+        entries = payload.get("entries") if isinstance(payload, Mapping) else None
+        if not isinstance(entries, list):
+            return []
+        return [entry for entry in entries if isinstance(entry, Mapping)]
+
+    def _summary_entry_payload(self, row, resolver: FileReferenceResolver, entry: Mapping[str, object]) -> dict[str, object]:
+        payload: dict[str, object] = {
+            "step_name": str(entry.get("step_name") or ""),
+            "kind": str(entry.get("kind") or ""),
+            "profile": str(entry.get("profile") or ""),
+            "status": str(entry.get("status") or ""),
+            "duration_ms": entry.get("duration_ms"),
+            "frame_root": str(entry.get("frame_root") or ""),
+        }
+        for key, output_key in (
+            ("summary_path", "summary_href"),
+            ("snapshot_path", "snapshot_href"),
+            ("error_path", "error_href"),
+        ):
+            value = entry.get(key)
+            if not isinstance(value, str) or not value:
+                payload[output_key] = None
+                continue
+            try:
+                file_ref = resolver.run_ref(value)
+            except UnsafePathError:
+                payload[output_key] = None
+                continue
+            payload[output_key] = self._file_href(row, file_ref)
+        return payload
+
+    def _summary_live_script(self, nonce: str) -> str:
+        return (
+            f"<script nonce=\"{self._e(nonce)}\">\n"
+            "(() => {\n"
+            "  const root = document.getElementById('live-current-step');\n"
+            "  if (!root || !root.dataset.liveUrl) return;\n"
+            "  const text = (name, value) => {\n"
+            "    const el = root.querySelector(`[data-live-field=\"${name}\"]`);\n"
+            "    if (el) el.textContent = value || '';\n"
+            "  };\n"
+            "  const refresh = async () => {\n"
+            "    let data;\n"
+            "    try {\n"
+            "      const response = await fetch(root.dataset.liveUrl, {cache: 'no-store'});\n"
+            "      if (!response.ok) return;\n"
+            "      data = await response.json();\n"
+            "    } catch (_error) { return; }\n"
+            "    const run = data.run || {};\n"
+            "    const step = data.current_step || {};\n"
+            "    const summaries = data.summaries || {};\n"
+            "    text('run-status', [run.display_status, run.display_status_reason].filter(Boolean).join(' '));\n"
+            "    text('step-name', step.name || 'No current step');\n"
+            "    text('step-started', step.started_at || '');\n"
+            "    text('step-age', step.age_text || '');\n"
+            "    text('heartbeat', [step.heartbeat_at, step.heartbeat_age_text].filter(Boolean).join(' '));\n"
+            "    const counts = summaries.counts || {};\n"
+            "    const countText = Object.keys(counts).sort().map((key) => `${key}=${counts[key]}`).join(', ');\n"
+            "    text('summary-counts', `${summaries.total || 0}${countText ? ` (${countText})` : ''}`);\n"
+            "    const latest = summaries.current_step_latest || {};\n"
+            "    const liveNote = data.live_note || {};\n"
+            "    const link = root.querySelector('[data-live-link=\"latest-summary\"]');\n"
+            "    const empty = root.querySelector('[data-live-field=\"latest-summary-empty\"]');\n"
+            "    if (link && latest.summary_href) {\n"
+            "      link.href = latest.summary_href;\n"
+            "      link.textContent = [latest.kind, latest.status].filter(Boolean).join(' ') || 'Open summary';\n"
+            "      link.hidden = false;\n"
+            "      if (empty) empty.hidden = true;\n"
+            "    } else {\n"
+            "      if (link) link.hidden = true;\n"
+            "      if (empty) empty.hidden = false;\n"
+            "    }\n"
+            "    text('live-note', liveNote.text || 'No live note yet.');\n"
+            "    const liveLink = root.querySelector('[data-live-link=\"live-note\"]');\n"
+            "    if (liveLink && liveNote.summary_href) {\n"
+            "      liveLink.href = liveNote.summary_href;\n"
+            "      liveLink.textContent = liveNote.generated_at ? `Open live note (${liveNote.generated_at})` : 'Open live note';\n"
+            "      liveLink.hidden = false;\n"
+            "    } else if (liveLink) {\n"
+            "      liveLink.hidden = true;\n"
+            "    }\n"
+            "  };\n"
+            "  refresh();\n"
+            "  setInterval(refresh, 3000);\n"
+            "})();\n"
+            "</script>"
+        )
 
     def _step_detail(self, detail, step_ref: str) -> DashboardResponse:
         row = detail.row
@@ -430,6 +782,24 @@ class DashboardApp:
             f"/files/{quote(file_ref.scope)}/{quote(file_ref.route_path)}"
         )
 
+    def _summary_entry_links(self, row, resolver: FileReferenceResolver, entry: Mapping[str, object]) -> str:
+        links: list[str] = []
+        for key, label in (
+            ("summary_path", "summary"),
+            ("snapshot_path", "snapshot"),
+            ("error_path", "error"),
+        ):
+            value = entry.get(key)
+            if not isinstance(value, str) or not value:
+                continue
+            try:
+                file_ref = resolver.run_ref(value, label=label)
+            except UnsafePathError:
+                links.append(f"{self._e(label)}: <span class=\"muted\">unsafe path</span>")
+                continue
+            links.append(f"<a href=\"{self._file_href(row, file_ref)}\">{self._e(label)}</a>")
+        return " ".join(links) if links else ""
+
     def _append_file_group(self, lines: list[str], row, title: str, refs) -> None:
         lines.append(f"<h3>{self._e(title)}</h3>")
         if not refs:
@@ -516,11 +886,28 @@ class DashboardApp:
             return started_at.timestamp()
         return float("-inf")
 
-    def _html_response(self, body: str, *, status: int = 200) -> DashboardResponse:
+    def _html_response(
+        self,
+        body: str,
+        *,
+        status: int = 200,
+        script_nonce: Optional[str] = None,
+    ) -> DashboardResponse:
         return DashboardResponse(
             status=status,
             body=body.encode("utf-8"),
-            headers=self._html_headers(),
+            headers=self._html_headers(script_nonce=script_nonce),
+        )
+
+    def _json_response(self, payload: Mapping[str, object], *, status: int = 200) -> DashboardResponse:
+        return DashboardResponse(
+            status=status,
+            body=(json.dumps(payload, indent=2, sort_keys=True) + "\n").encode("utf-8"),
+            headers={
+                "Content-Type": "application/json; charset=utf-8",
+                "X-Content-Type-Options": "nosniff",
+                "Content-Security-Policy": DASHBOARD_CSP,
+            },
         )
 
     def _response(self, status: int, text: str) -> DashboardResponse:
@@ -529,11 +916,18 @@ class DashboardApp:
             status=status,
         )
 
-    def _html_headers(self) -> dict[str, str]:
+    def _html_headers(self, *, script_nonce: Optional[str] = None) -> dict[str, str]:
+        csp = DASHBOARD_CSP
+        if script_nonce:
+            csp = (
+                "default-src 'none'; base-uri 'none'; object-src 'none'; "
+                f"frame-ancestors 'none'; script-src 'nonce-{script_nonce}'; "
+                "connect-src 'self'; style-src 'unsafe-inline'; img-src 'self' data:"
+            )
         return {
             "Content-Type": "text/html; charset=utf-8",
             "X-Content-Type-Options": "nosniff",
-            "Content-Security-Policy": DASHBOARD_CSP,
+            "Content-Security-Policy": csp,
         }
 
     def _now(self) -> datetime:
@@ -600,6 +994,9 @@ class DashboardApp:
         if not values:
             return None
         return unquote(values[0])
+
+    def _str_or_none(self, value: object) -> Optional[str]:
+        return value if isinstance(value, str) else None
 
     def _e(self, value: object) -> str:
         return html.escape(str(value), quote=True)

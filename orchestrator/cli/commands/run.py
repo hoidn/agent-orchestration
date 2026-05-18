@@ -36,8 +36,9 @@ def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
     step_summaries_enabled = bool(getattr(args, 'step_summaries', False))
     summary_mode = getattr(args, 'summary_mode', None)
     summary_profile = getattr(args, 'summary_profile', None)
+    live_agent_notes_enabled = bool(getattr(args, 'live_agent_notes', False))
 
-    if (summary_mode or summary_profile) and not step_summaries_enabled:
+    if (summary_mode or summary_profile or live_agent_notes_enabled) and not step_summaries_enabled:
         # Explicit mode should implicitly enable summaries.
         step_summaries_enabled = True
 
@@ -51,15 +52,38 @@ def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
     if summary_max_input_chars <= 0:
         raise ValueError("--summary-max-input-chars must be > 0")
 
+    step_summaries = {
+        "enabled": True,
+        "mode": summary_mode or "async",
+        "provider": getattr(args, 'summary_provider', 'claude_sonnet_summary'),
+        "timeout_sec": summary_timeout_sec,
+        "max_input_chars": summary_max_input_chars,
+        "best_effort": True,
+        "profile": summary_profile or "basic",
+    }
+
+    if live_agent_notes_enabled:
+        interval_sec = float(getattr(args, 'live_agent_note_interval_sec', 15.0))
+        live_timeout_sec = int(getattr(args, 'live_agent_note_timeout_sec', 30))
+        max_tail_chars = int(getattr(args, 'live_agent_note_max_tail_chars', 6000))
+        if interval_sec <= 0:
+            raise ValueError("--live-agent-note-interval-sec must be > 0")
+        if live_timeout_sec <= 0:
+            raise ValueError("--live-agent-note-timeout-sec must be > 0")
+        if max_tail_chars <= 0:
+            raise ValueError("--live-agent-note-max-tail-chars must be > 0")
+        step_summaries["live_agent_notes"] = {
+            "enabled": True,
+            "provider": getattr(args, 'live_agent_note_provider', None)
+            or step_summaries["provider"],
+            "interval_sec": interval_sec,
+            "timeout_sec": live_timeout_sec,
+            "max_tail_chars": max_tail_chars,
+        }
+
     return {
         "step_summaries": {
-            "enabled": True,
-            "mode": summary_mode or "async",
-            "provider": getattr(args, 'summary_provider', 'claude_sonnet_summary'),
-            "timeout_sec": summary_timeout_sec,
-            "max_input_chars": summary_max_input_chars,
-            "best_effort": True,
-            "profile": summary_profile or "basic",
+            **step_summaries,
         }
     }
 

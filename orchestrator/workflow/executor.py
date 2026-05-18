@@ -39,6 +39,7 @@ from .conditions import EqualsConditionNode, ExistsConditionNode, NotExistsCondi
 from ..security.secrets import SecretsManager
 from ..variables.substitution import VariableSubstitutor
 from ..observability.summary import SummaryObserver
+from ..observability.live_notes import LiveAgentNoteObserver
 from .assets import WorkflowAssetResolver
 from .calls import CallExecutor
 from .dataflow import DataflowManager
@@ -481,6 +482,7 @@ class WorkflowExecutor:
         self.variable_substitutor = VariableSubstitutor()
         self.reference_resolver = ReferenceResolver()
         self.summary_observer = self._create_summary_observer()
+        self.live_agent_note_observer = self._create_live_agent_note_observer()
         provenance = workflow_provenance(workflow)
         workflow_path = provenance.workflow_path if provenance is not None else None
         self.asset_resolver = (
@@ -2272,6 +2274,63 @@ class WorkflowExecutor:
             aggregate_run_root=aggregate_run_root,
         )
 
+    def _create_live_agent_note_observer(self) -> Optional[LiveAgentNoteObserver]:
+        """Create optional live-note observer from summary observability config."""
+        if not isinstance(self.observability, dict):
+            return None
+        summaries_cfg = self.observability.get('step_summaries')
+        if not isinstance(summaries_cfg, dict) or not summaries_cfg.get('enabled', False):
+            return None
+        live_cfg = summaries_cfg.get('live_agent_notes')
+        if not isinstance(live_cfg, dict) or not live_cfg.get('enabled', False):
+            return None
+        provider_name = str(live_cfg.get('provider') or summaries_cfg.get('provider') or 'claude_sonnet_summary')
+        try:
+            interval_sec = float(live_cfg.get('interval_sec', 15.0))
+        except (TypeError, ValueError):
+            interval_sec = 15.0
+        try:
+            timeout_sec = int(live_cfg.get('timeout_sec', 30))
+        except (TypeError, ValueError):
+            timeout_sec = 30
+        try:
+            max_tail_chars = int(live_cfg.get('max_tail_chars', 6000))
+        except (TypeError, ValueError):
+            max_tail_chars = 6000
+        root_manager = self.state_manager
+        while hasattr(root_manager, "parent_manager"):
+            root_manager = getattr(root_manager, "parent_manager")
+        aggregate_run_root = Path(getattr(root_manager, "run_root", self.state_manager.run_root))
+        return LiveAgentNoteObserver(
+            aggregate_run_root=aggregate_run_root,
+            provider_executor=self.provider_executor,
+            provider_name=provider_name,
+            interval_sec=interval_sec,
+            timeout_sec=timeout_sec,
+            max_tail_chars=max_tail_chars,
+            invocation_context={"context": dict(self.workflow_context_defaults)},
+        )
+
+    @contextmanager
+    def _live_agent_note_watch(self, step_name: str, session_runtime: Optional[Dict[str, Any]]):
+        """Best-effort live-note watch for one active provider session."""
+        if self.live_agent_note_observer is None or not isinstance(session_runtime, dict):
+            yield
+            return
+        transport_spool_path = session_runtime.get("transport_spool_path")
+        step_id = session_runtime.get("step_id")
+        visit_count = session_runtime.get("visit_count")
+        if not isinstance(transport_spool_path, str) or not isinstance(step_id, str) or not isinstance(visit_count, int):
+            yield
+            return
+        with self.live_agent_note_observer.watch(
+            step_name=step_name,
+            step_id=step_id,
+            visit_count=visit_count,
+            transport_spool_path=Path(transport_spool_path),
+        ):
+            yield
+
     def _emit_step_summary(self, step_name: str, step: Dict[str, Any], result: Dict[str, Any]) -> None:
         """Emit observability summary for a completed step."""
         if self.summary_observer is None:
@@ -3857,10 +3916,11 @@ class WorkflowExecutor:
                 )
 
             # Execute the prepared invocation
-            exec_result = self._execute_provider_invocation(
-                invocation,
-                session_runtime=session_runtime,
-            )
+            with self._live_agent_note_watch(step_name, session_runtime):
+                exec_result = self._execute_provider_invocation(
+                    invocation,
+                    session_runtime=session_runtime,
+                )
 
             # Capture output according to specified mode
             capture_mode = step.get('output_capture', 'text')

@@ -86,6 +86,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** lisp-frontend, mvp, workflow-language, core-ast, typed-unions, match
 **Use this when:** Planning the first implementable Lisp frontend tranche or deciding which parts of the full frontend specification are intentionally deferred.
 
+### [Dashboard Observability Summary GUI](design/dashboard_observability_summary_gui.md)
+**Description:** Design note for the dashboard summary-hub page that renders provider/phase summaries from `RUN_ROOT/summaries/index.json` and links detailed call-frame summaries through safe run-file routes.
+**Keywords:** dashboard, observability, summaries, gui, summary-hub
+**Use this when:** Reviewing or extending the read-only GUI for generated workflow summaries.
+
 ### [DSL v2.14 Variant Surface Decision](design/dsl_v214_variant_surface_decision.md)
 **Description:** Durable Phase 1 design note selecting `variant_output` over an `output_bundle.variants` extension for tagged-union output validation while keeping `select_variant_output` separate.
 **Keywords:** dsl-v214, variant-output, output-bundle, tagged-union, decision

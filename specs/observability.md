@@ -24,8 +24,9 @@
     - `--step-summaries` may emit deterministic summary snapshots and agent-drafted Markdown under the execution root that produced them. Top-level steps write under `RUN_ROOT/summaries/`; reusable-call steps may write detailed records under `RUN_ROOT/call_frames/<frame>/summaries/`.
     - `--summary-profile basic` preserves the legacy factual per-step summary behavior.
     - `--summary-profile phase-performance` emits summaries for provider-like steps and phase boundaries, including advisory performance judgments.
+    - `--live-agent-notes` may enable a runtime-side observer that reads a bounded tail of the current session provider transport spool, calls a configured note provider at a throttled interval, and writes `RUN_ROOT/summaries/live-current-step.md` plus `RUN_ROOT/summaries/live-current-step.json`.
     - `RUN_ROOT/summaries/` is the user-facing summary hub for the whole run. It contains an aggregate `index.json`, plus generated `README.md` and `run-summary.md` navigation files that link to detailed summaries across call frames.
-    - Summary files, summary indexes, `README.md`, and `run-summary.md` are observability artifacts only. They are not workflow artifacts, are not published through artifact lineage, and must not drive routing, retries, assertions, or status reconciliation.
+    - Summary files, live-note files, summary indexes, `README.md`, and `run-summary.md` are observability artifacts only. They are not workflow artifacts, are not published through artifact lineage, and must not drive routing, retries, assertions, or status reconciliation.
     - Phase boundaries are currently reusable `call` steps and `repeat_until` frames.
 
 - Trace context
@@ -44,6 +45,8 @@ Orchestrator interaction: The orchestrator does not consume or act on status JSO
   - Dashboard run identity is the resolved workspace root plus the scanned run directory name. `state.run_id` is display metadata and mismatch context only.
   - Dashboard index and detail pages may support an optional `refresh=<seconds>` query parameter using page-level meta refresh. Invalid or out-of-range values are ignored, and refresh support must not add background workers or route-triggered state changes.
   - Dashboard file previews are observability views over existing artifacts and logs only; missing prompt audits, stdout/stderr spill files, provider-session files, and backups are display states rather than run failures.
+  - Dashboard summary pages are read-only GUI views over `RUN_ROOT/summaries/index.json`, `RUN_ROOT/summaries/run-summary.md`, and request-time run state. They may link to detailed summary, snapshot, error, provider-session, and transport files through existing run-scoped file routes, but they must not parse summary prose as workflow state or execute recovery/control actions.
+  - The dashboard summary live endpoint (`/runs/<workspace_id>/<run_dir>/summaries/live.json`) reports current-step metadata, summary index facts, and generated live-note artifacts when present. It may expose links to generated observability artifacts, but provider calls for live narration belong in runtime-side observers or sidecars, not dashboard page requests.
   - Step snapshots may include normalized `output.outcome` fields when present in `state.json`.
   - The normalized outcome surface is intended for human-readable reports and typed routing; it does not replace the underlying `status`, `exit_code`, or `error` fields.
   - v1.7 scalar bookkeeping steps report distinct kinds (`set_scalar`, `increment_scalar`) and expose their local produced values through the normal `output.artifacts` surface.

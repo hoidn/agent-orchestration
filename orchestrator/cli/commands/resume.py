@@ -56,6 +56,41 @@ def _merge_observability_overrides(base: Optional[Dict[str, Any]], **overrides: 
             raise ValueError("--summary-max-input-chars must be > 0")
         step_cfg["max_input_chars"] = max_chars
 
+    live_override_keys = {
+        "live_agent_notes",
+        "live_agent_note_provider",
+        "live_agent_note_interval_sec",
+        "live_agent_note_timeout_sec",
+        "live_agent_note_max_tail_chars",
+    }
+    if any(overrides.get(key) is not None for key in live_override_keys):
+        live_cfg: Dict[str, Any] = dict(step_cfg.get("live_agent_notes", {}))
+        if overrides.get("live_agent_notes") is not None:
+            live_cfg["enabled"] = bool(overrides["live_agent_notes"])
+        if overrides.get("live_agent_note_provider") is not None:
+            live_cfg["provider"] = overrides["live_agent_note_provider"]
+        if overrides.get("live_agent_note_interval_sec") is not None:
+            interval_sec = float(overrides["live_agent_note_interval_sec"])
+            if interval_sec <= 0:
+                raise ValueError("--live-agent-note-interval-sec must be > 0")
+            live_cfg["interval_sec"] = interval_sec
+        if overrides.get("live_agent_note_timeout_sec") is not None:
+            live_timeout_sec = int(overrides["live_agent_note_timeout_sec"])
+            if live_timeout_sec <= 0:
+                raise ValueError("--live-agent-note-timeout-sec must be > 0")
+            live_cfg["timeout_sec"] = live_timeout_sec
+        if overrides.get("live_agent_note_max_tail_chars") is not None:
+            max_tail_chars = int(overrides["live_agent_note_max_tail_chars"])
+            if max_tail_chars <= 0:
+                raise ValueError("--live-agent-note-max-tail-chars must be > 0")
+            live_cfg["max_tail_chars"] = max_tail_chars
+        live_cfg.setdefault("enabled", True)
+        live_cfg.setdefault("provider", step_cfg.get("provider", "claude_sonnet_summary"))
+        live_cfg.setdefault("interval_sec", 15.0)
+        live_cfg.setdefault("timeout_sec", 30)
+        live_cfg.setdefault("max_tail_chars", 6000)
+        step_cfg["live_agent_notes"] = live_cfg
+
     step_cfg["enabled"] = True
     config["step_summaries"] = step_cfg
     return config
@@ -77,6 +112,11 @@ def resume_workflow(
     summary_timeout_sec: Optional[int] = None,
     summary_max_input_chars: Optional[int] = None,
     summary_profile: Optional[str] = None,
+    live_agent_notes: Optional[bool] = None,
+    live_agent_note_provider: Optional[str] = None,
+    live_agent_note_interval_sec: Optional[float] = None,
+    live_agent_note_timeout_sec: Optional[int] = None,
+    live_agent_note_max_tail_chars: Optional[int] = None,
     **kwargs
 ) -> int:
     """Resume an interrupted workflow run.
@@ -97,6 +137,11 @@ def resume_workflow(
         summary_timeout_sec: Optional summary timeout override
         summary_max_input_chars: Optional summary max input chars override
         summary_profile: Optional summary prompt/snapshot profile override
+        live_agent_notes: Optional live note enable override
+        live_agent_note_provider: Optional live note provider override
+        live_agent_note_interval_sec: Optional live note interval override
+        live_agent_note_timeout_sec: Optional live note timeout override
+        live_agent_note_max_tail_chars: Optional live note tail size override
         **kwargs: Additional options (ignored)
 
     Returns:
@@ -200,6 +245,11 @@ def resume_workflow(
         summary_timeout_sec=summary_timeout_sec,
         summary_max_input_chars=summary_max_input_chars,
         summary_profile=summary_profile,
+        live_agent_notes=live_agent_notes,
+        live_agent_note_provider=live_agent_note_provider,
+        live_agent_note_interval_sec=live_agent_note_interval_sec,
+        live_agent_note_timeout_sec=live_agent_note_timeout_sec,
+        live_agent_note_max_tail_chars=live_agent_note_max_tail_chars,
     )
     if observability is not None:
         # Persist runtime override so future resumes are deterministic.
