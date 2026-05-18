@@ -326,6 +326,35 @@ variant_ref_unproved at workflows/foo.orc:42:9
 
 Full expansion stacks and macro hygiene frames are deferred.
 
+### 9.1 Linter And LSP Compatibility
+
+The MVP does not implement a language server or a full lint CLI.
+
+It must, however, shape its parser, compiler, and diagnostics so those tools can
+be added without rewriting the frontend core:
+
+- diagnostics are structured records with stable codes, not prose-only strings;
+- every diagnostic has a source span when the failure is tied to authored
+  source;
+- parse, syntax, definition, type, variant-proof, provider-result, and
+  command-result failures use the same diagnostic channel;
+- typed definitions, variants, fields, and path contracts remain discoverable
+  after compilation;
+- generated Core AST nodes preserve enough origin metadata to support future
+  source-map and hover/go-to-definition behavior.
+
+Deferred tooling includes:
+
+- `orchestrate lint workflow.orc`;
+- LSP diagnostics-on-save;
+- hover for type, contract, effect, and proof information;
+- go-to-definition and completion;
+- formatting and code actions.
+
+The first tranche should test the structured diagnostics API directly. It
+should not add editor integration before the `.orc` to Core Workflow AST path is
+proven on one real phase.
+
 ## 10. Validation
 
 The MVP compiler must validate:

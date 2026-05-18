@@ -80,7 +80,50 @@ class MatchExpr:
     form_path: tuple[str, ...]
 
 
-ExprNode = NameExpr | LiteralExpr | FieldAccessExpr | RecordExpr | LetStarExpr | MatchExpr
+@dataclass(frozen=True)
+class CallExpr:
+    """One same-file workflow call."""
+
+    callee_name: str
+    bindings: tuple[tuple[str, "ExprNode"], ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ProviderResultExpr:
+    """One provider result with a typed structured return contract."""
+
+    provider: "ExprNode"
+    prompt: "ExprNode"
+    inputs: tuple["ExprNode", ...]
+    returns_type_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CommandResultExpr:
+    """One command result with a typed structured return contract."""
+
+    step_name: str
+    argv: tuple["ExprNode", ...]
+    returns_type_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+
+
+ExprNode = (
+    NameExpr
+    | LiteralExpr
+    | FieldAccessExpr
+    | RecordExpr
+    | LetStarExpr
+    | MatchExpr
+    | CallExpr
+    | ProviderResultExpr
+    | CommandResultExpr
+)
 
 
 def elaborate_expression(node: SyntaxNode, *, bound_names: frozenset[str]) -> ExprNode:
@@ -159,6 +202,12 @@ def _elaborate_list(
         return _elaborate_letstar(datum, form_path=form_path, bound_names=bound_names)
     if head.value == "match":
         return _elaborate_match(datum, form_path=form_path, bound_names=bound_names)
+    if head.value == "call":
+        return _elaborate_call(datum, form_path=form_path, bound_names=bound_names)
+    if head.value == "provider-result":
+        return _elaborate_provider_result(datum, form_path=form_path, bound_names=bound_names)
+    if head.value == "command-result":
+        return _elaborate_command_result(datum, form_path=form_path, bound_names=bound_names)
     _raise_error(
         f"unsupported expression form `{head.value}`",
         code="expression_form_unknown",
@@ -280,6 +329,134 @@ def _elaborate_match(
             )
         )
     return MatchExpr(subject=subject, arms=tuple(arms), span=datum.span, form_path=form_path)
+
+
+def _elaborate_call(
+    datum: ListExpr,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+) -> CallExpr:
+    if len(datum.items) < 2:
+        _raise_error("`call` requires a callee name", span=datum.span, form_path=form_path)
+    callee_node = datum.items[1]
+    if not isinstance(callee_node, SymbolAtom):
+        _raise_error("`call` callee name must be a symbol", span=callee_node.span, form_path=form_path)
+    raw_bindings = datum.items[2:]
+    if len(raw_bindings) % 2 != 0:
+        _raise_error("`call` requires keyword/value binding pairs", span=datum.span, form_path=form_path)
+    bindings: list[tuple[str, ExprNode]] = []
+    for index in range(0, len(raw_bindings), 2):
+        keyword_node = raw_bindings[index]
+        value_node = raw_bindings[index + 1]
+        if not isinstance(keyword_node, KeywordAtom):
+            _raise_error("`call` bindings must start with keywords", span=keyword_node.span, form_path=form_path)
+        bindings.append(
+            (
+                keyword_node.value[1:],
+                _elaborate(value_node, form_path=form_path, bound_names=bound_names),
+            )
+        )
+    return CallExpr(
+        callee_name=callee_node.value,
+        bindings=tuple(bindings),
+        span=datum.span,
+        form_path=form_path,
+    )
+
+
+def _elaborate_provider_result(
+    datum: ListExpr,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+) -> ProviderResultExpr:
+    if len(datum.items) < 6:
+        _raise_error(
+            "`provider-result` requires provider, :prompt, :inputs, and :returns",
+            span=datum.span,
+            form_path=form_path,
+        )
+    provider = _elaborate(datum.items[1], form_path=form_path, bound_names=bound_names)
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`provider-result`")
+    prompt_node = sections.get(":prompt")
+    inputs_node = sections.get(":inputs")
+    returns_node = sections.get(":returns")
+    if prompt_node is None or inputs_node is None or returns_node is None:
+        _raise_error(
+            "`provider-result` requires :prompt, :inputs, and :returns",
+            span=datum.span,
+            form_path=form_path,
+        )
+    if not isinstance(inputs_node, ListExpr):
+        _raise_error("`provider-result :inputs` must be a list", span=inputs_node.span, form_path=form_path)
+    if not isinstance(returns_node, SymbolAtom):
+        _raise_error("`provider-result :returns` must be a symbol", span=returns_node.span, form_path=form_path)
+    return ProviderResultExpr(
+        provider=provider,
+        prompt=_elaborate(prompt_node, form_path=form_path, bound_names=bound_names),
+        inputs=tuple(
+            _elaborate(item, form_path=form_path, bound_names=bound_names) for item in inputs_node.items
+        ),
+        returns_type_name=returns_node.value,
+        span=datum.span,
+        form_path=form_path,
+    )
+
+
+def _elaborate_command_result(
+    datum: ListExpr,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+) -> CommandResultExpr:
+    if len(datum.items) < 5:
+        _raise_error(
+            "`command-result` requires a step name plus :argv and :returns",
+            span=datum.span,
+            form_path=form_path,
+        )
+    step_name_node = datum.items[1]
+    if not isinstance(step_name_node, SymbolAtom):
+        _raise_error("`command-result` step name must be a symbol", span=step_name_node.span, form_path=form_path)
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`command-result`")
+    argv_node = sections.get(":argv")
+    returns_node = sections.get(":returns")
+    if argv_node is None or returns_node is None:
+        _raise_error("`command-result` requires :argv and :returns", span=datum.span, form_path=form_path)
+    if not isinstance(argv_node, ListExpr):
+        _raise_error("`command-result :argv` must be a list", span=argv_node.span, form_path=form_path)
+    if not isinstance(returns_node, SymbolAtom):
+        _raise_error("`command-result :returns` must be a symbol", span=returns_node.span, form_path=form_path)
+    return CommandResultExpr(
+        step_name=step_name_node.value,
+        argv=tuple(
+            _elaborate(item, form_path=form_path, bound_names=bound_names) for item in argv_node.items
+        ),
+        returns_type_name=returns_node.value,
+        span=datum.span,
+        form_path=form_path,
+    )
+
+
+def _keyword_sections(
+    items: list[object],
+    *,
+    form_path: tuple[str, ...],
+    label: str,
+) -> dict[str, object]:
+    if len(items) % 2 != 0:
+        _raise_error(f"{label} requires keyword/value pairs", span=items[-1].span, form_path=form_path)
+    sections: dict[str, object] = {}
+    for index in range(0, len(items), 2):
+        keyword_node = items[index]
+        value_node = items[index + 1]
+        if not isinstance(keyword_node, KeywordAtom):
+            _raise_error(f"{label} entries must start with keywords", span=keyword_node.span, form_path=form_path)
+        if keyword_node.value in sections:
+            _raise_error(f"{label} duplicated keyword `{keyword_node.value}`", span=keyword_node.span, form_path=form_path)
+        sections[keyword_node.value] = value_node
+    return sections
 
 
 def _raise_error(

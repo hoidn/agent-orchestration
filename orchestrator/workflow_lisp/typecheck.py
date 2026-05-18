@@ -4,9 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .expressions import ExprNode, FieldAccessExpr, LetStarExpr, LiteralExpr, MatchExpr, NameExpr, RecordExpr
+from .expressions import (
+    CallExpr,
+    CommandResultExpr,
+    ExprNode,
+    FieldAccessExpr,
+    LetStarExpr,
+    LiteralExpr,
+    MatchExpr,
+    NameExpr,
+    ProviderResultExpr,
+    RecordExpr,
+)
 from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
@@ -16,6 +28,9 @@ from .type_env import (
     UnionTypeRef,
     VariantCaseTypeRef,
 )
+
+if TYPE_CHECKING:
+    from .workflows import WorkflowCatalog
 
 
 @dataclass(frozen=True)
@@ -53,11 +68,18 @@ def typecheck_expression(
     type_env: FrontendTypeEnvironment,
     value_env: ValueEnvironment,
     proof_scope: ProofScope | None = None,
+    workflow_catalog: "WorkflowCatalog | None" = None,
 ) -> TypedExpr:
     """Typecheck one bounded Stage 2 expression."""
 
     active_proof = proof_scope or ProofScope(facts={})
-    return _typecheck(expr, type_env=type_env, value_env=dict(value_env), proof_scope=active_proof)
+    return _typecheck(
+        expr,
+        type_env=type_env,
+        value_env=dict(value_env),
+        proof_scope=active_proof,
+        workflow_catalog=workflow_catalog,
+    )
 
 
 def _typecheck(
@@ -66,6 +88,7 @@ def _typecheck(
     type_env: FrontendTypeEnvironment,
     value_env: dict[str, TypeRef],
     proof_scope: ProofScope,
+    workflow_catalog: "WorkflowCatalog | None",
 ) -> TypedExpr:
     if isinstance(expr, LiteralExpr):
         return TypedExpr(
@@ -86,7 +109,13 @@ def _typecheck(
             )
         return TypedExpr(expr=expr, type_ref=type_ref, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, FieldAccessExpr):
-        typed_base = _typecheck(expr.base, type_env=type_env, value_env=value_env, proof_scope=proof_scope)
+        typed_base = _typecheck(
+            expr.base,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+        )
         current_type = typed_base.type_ref
         for field_name in expr.fields:
             current_type = _resolve_field_access(
@@ -132,6 +161,7 @@ def _typecheck(
                 type_env=type_env,
                 value_env=value_env,
                 proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
             )
             expected_type = type_env.resolve_type(
                 expected_field.type_name,
@@ -171,6 +201,7 @@ def _typecheck(
                 type_env=type_env,
                 value_env=local_env,
                 proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
             )
             seen_names.add(name)
             local_env[name] = typed_binding.type_ref
@@ -179,10 +210,17 @@ def _typecheck(
             type_env=type_env,
             value_env=local_env,
             proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
         )
         return TypedExpr(expr=expr, type_ref=typed_body.type_ref, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, MatchExpr):
-        typed_subject = _typecheck(expr.subject, type_env=type_env, value_env=value_env, proof_scope=proof_scope)
+        typed_subject = _typecheck(
+            expr.subject,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+        )
         if not isinstance(typed_subject.type_ref, UnionTypeRef):
             _raise_error(
                 "match subject must have a union type",
@@ -223,6 +261,7 @@ def _typecheck(
                 type_env=type_env,
                 value_env=arm_env,
                 proof_scope=ProofScope(facts=arm_facts),
+                workflow_catalog=workflow_catalog,
             )
             if arm_result_type is None:
                 arm_result_type = typed_body.type_ref
@@ -250,6 +289,133 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         return TypedExpr(expr=expr, type_ref=arm_result_type, span=expr.span, form_path=expr.form_path)
+    if isinstance(expr, CallExpr):
+        if workflow_catalog is None:
+            raise TypeError("workflow_catalog is required for CallExpr typechecking")
+        signature = workflow_catalog.signatures_by_name.get(expr.callee_name)
+        if signature is None:
+            _raise_error(
+                f"unknown workflow callee `{expr.callee_name}`",
+                code="workflow_call_unknown",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        expected_bindings = dict(signature.params)
+        seen_bindings: set[str] = set()
+        for binding_name, binding_expr in expr.bindings:
+            if binding_name in seen_bindings:
+                _raise_error(
+                    f"duplicate call binding `{binding_name}`",
+                    code="workflow_signature_mismatch",
+                    span=binding_expr.span,
+                    form_path=binding_expr.form_path,
+                )
+            seen_bindings.add(binding_name)
+            expected_type = expected_bindings.get(binding_name)
+            if expected_type is None:
+                _raise_error(
+                    f"call binding `{binding_name}` does not match the callee signature",
+                    code="workflow_signature_mismatch",
+                    span=binding_expr.span,
+                    form_path=binding_expr.form_path,
+                )
+            typed_binding = _typecheck(
+                binding_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+            )
+            if typed_binding.type_ref != expected_type:
+                _raise_error(
+                    f"call binding `{binding_name}` expected `{_type_label(expected_type)}`"
+                    f" but got `{_type_label(typed_binding.type_ref)}`",
+                    code="type_mismatch",
+                    span=binding_expr.span,
+                    form_path=binding_expr.form_path,
+                )
+        missing_bindings = [name for name, _ in signature.params if name not in seen_bindings]
+        if missing_bindings:
+            _raise_error(
+                f"call is missing required binding `{missing_bindings[0]}`",
+                code="workflow_signature_mismatch",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        return TypedExpr(expr=expr, type_ref=signature.return_type_ref, span=expr.span, form_path=expr.form_path)
+    if isinstance(expr, ProviderResultExpr):
+        typed_provider = _typecheck(
+            expr.provider,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+        )
+        typed_prompt = _typecheck(
+            expr.prompt,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+        )
+        if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
+            _raise_error(
+                "`provider-result` provider operand must resolve to `Provider`",
+                code="type_mismatch",
+                span=expr.provider.span,
+                form_path=expr.provider.form_path,
+            )
+        if typed_prompt.type_ref != PrimitiveTypeRef(name="Prompt"):
+            _raise_error(
+                "`provider-result` prompt operand must resolve to `Prompt`",
+                code="type_mismatch",
+                span=expr.prompt.span,
+                form_path=expr.prompt.form_path,
+            )
+        for input_expr in expr.inputs:
+            _typecheck(
+                input_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+            )
+        return_type = type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
+            _raise_error(
+                f"`provider-result` must return a record or union type, got `{expr.returns_type_name}`",
+                code="provider_result_return_type_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        return TypedExpr(expr=expr, type_ref=return_type, span=expr.span, form_path=expr.form_path)
+    if isinstance(expr, CommandResultExpr):
+        for arg_expr in expr.argv:
+            _typecheck(
+                arg_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+            )
+        _validate_command_argv(expr)
+        return_type = type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
+            _raise_error(
+                f"`command-result` must return a record or union type, got `{expr.returns_type_name}`",
+                code="command_result_return_type_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        return TypedExpr(expr=expr, type_ref=return_type, span=expr.span, form_path=expr.form_path)
     raise TypeError(f"unsupported expression node: {type(expr)!r}")
 
 
@@ -339,6 +505,42 @@ def _type_label(type_ref: TypeRef) -> str:
     if isinstance(type_ref, VariantCaseTypeRef):
         return f"{type_ref.union_name}.{type_ref.variant_name}"
     return type_ref.name
+
+
+def _validate_command_argv(expr: CommandResultExpr) -> None:
+    argv = list(expr.argv)
+    if len(argv) >= 2:
+        first = _literal_string(argv[0])
+        second = _literal_string(argv[1])
+        if first and first.startswith("python") and second in {"-c", "-"}:
+            _raise_error(
+                "inline Python command glue is not allowed in `command-result`",
+                code="inline_python_command_in_workflow",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        if first in {"bash", "sh"} and second == "-c":
+            _raise_error(
+                "inline shell command glue is not allowed in `command-result`",
+                code="inline_shell_command_in_workflow",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+    if len(argv) == 1:
+        only = _literal_string(argv[0])
+        if only and (" " in only or ";" in only or "|" in only):
+            _raise_error(
+                "one-string shell wrappers are not allowed in `command-result`",
+                code="command_result_argv_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+
+
+def _literal_string(expr: ExprNode) -> str | None:
+    if isinstance(expr, LiteralExpr) and expr.literal_kind == "string" and isinstance(expr.value, str):
+        return expr.value
+    return None
 
 
 def _variant_has_field(variant_type: VariantCaseTypeRef, field_name: str) -> bool:

@@ -41,6 +41,52 @@ But even after that extraction, the inner iteration workflow still has to flatte
 
 This backlog item should result in a principled design review of whether the DSL should support cleaner branch-local composition and optional branch outputs, or whether current constraints are intentional and the authoring guidance should explicitly steer users toward a different pattern.
 
+## Fresh Trigger: Lisp Frontend Review/Fix Workflow
+
+The same limitation reappeared while adding review/fix loops to the local Lisp
+frontend autonomous drain workflow. The natural authored shape was:
+
+```text
+plan review decision
+  APPROVE -> run implementation
+    implementation state
+      COMPLETED -> implementation review decision
+        APPROVE -> record complete
+        REVISE  -> record implementation-review exhaustion
+      BLOCKED -> record implementation blocked
+  REVISE -> record plan-review exhaustion
+```
+
+That shape maps directly to nested `match` statements, but the current YAML DSL
+rejects it because structured `match` is limited to top-level steps. The
+immediate workaround is a deterministic classifier command that reads the
+already-materialized terminal phase outputs, writes a single enum route, and
+lets one top-level `match` record the outcome.
+
+That workaround is acceptable as migration debt, but it is exactly the kind of
+glue this backlog item should evaluate. It preserves runtime behavior, but it
+forces a semantic routing decision into a helper script because the authored
+DSL cannot express branch-local composition cleanly.
+
+The Lisp frontend design partially addresses this at a future authoring layer
+through typed `match`, `CoreMatch`, and proof contexts. It does not by itself
+solve the current YAML DSL/runtime limitation. This item should therefore stay
+active even if the Lisp frontend eventually lowers nested typed matches into a
+valid core AST or classifier-style normalization step.
+
+Follow-on design questions:
+
+- Should the YAML DSL support nested structured `match` inside branch-local
+  steps directly?
+- If not, should the typed AST/IR lower nested branch intent into safe
+  top-level executable nodes automatically?
+- How should branch-local proof contexts, output normalization, and resume state
+  be represented so nested branch composition does not weaken current
+  anti-ambiguity guarantees?
+- What authoring guidance should recommend for current workflows: classifier
+  command, subworkflow extraction, top-level flattening, or another explicit
+  pattern?
+
 ## Non-Goals
 - Do not introduce arbitrary nested control flow without a clear state/resume model.
 - Do not weaken `repeat_until` or multi-visit ref safety boundaries just to make authoring shorter.

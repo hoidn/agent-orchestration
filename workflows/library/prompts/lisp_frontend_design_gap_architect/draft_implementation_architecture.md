@@ -1,6 +1,6 @@
-Read the injected steering, full design, MVP design, progress ledger, selector
-bundle, architecture target contract, and existing implementation architecture
-index before acting.
+Read the injected steering, full design, MVP design, command-adapter contract,
+progress ledger, selector bundle, architecture target contract, and existing
+implementation architecture index before acting.
 
 Draft a single implementation-architecture document for exactly the selected
 Lisp frontend design gap. This is an implementation architecture, not a
@@ -21,6 +21,14 @@ the injected architecture index:
   intentionally does not own;
 - if this slice must revise a prior decision, state the conflict and the reason
   explicitly.
+
+Treat `workflow_command_adapter_contract.md` as authoritative whenever the
+architecture proposes scripts, command steps, legacy adapters, or
+runtime-native promotion.
+
+List `docs/design/workflow_command_adapter_contract.md` in the generated
+work-item context's authoritative inputs when the slice may touch scripts,
+command steps, adapters, or runtime-native effects.
 
 Include a section named `Relationship To Existing Implementation Architectures`
 with:

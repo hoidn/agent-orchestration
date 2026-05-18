@@ -21,6 +21,11 @@ inputs:
     type: relpath
     under: docs/design
     must_exist_target: true
+  command_adapter_contract_path:
+    type: relpath
+    under: docs/design
+    default: docs/design/workflow_command_adapter_contract.md
+    must_exist_target: true
   progress_ledger_path:
     type: relpath
     under: state
@@ -145,6 +150,7 @@ steps:
         - ${inputs.steering_path}
         - ${inputs.full_design_path}
         - ${inputs.mvp_design_path}
+        - ${inputs.command_adapter_contract_path}
         - ${inputs.progress_ledger_path}
         - ${inputs.selection_bundle_path}
         - ${inputs.state_root}/architecture-targets.json

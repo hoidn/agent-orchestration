@@ -15,6 +15,7 @@ class PrimitiveTypeRef:
     """One prelude or enum type reference."""
 
     name: str
+    allowed_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -31,6 +32,7 @@ class RecordTypeRef:
 
     name: str
     definition: RecordDef
+    field_types: dict[str, "TypeRef"]
 
 
 @dataclass(frozen=True)
@@ -39,6 +41,7 @@ class UnionTypeRef:
 
     name: str
     definition: UnionDef
+    variant_field_types: dict[str, dict[str, "TypeRef"]]
 
 
 @dataclass(frozen=True)
@@ -66,13 +69,48 @@ class FrontendTypeEnvironment:
         }
         for definition in module.definitions:
             if isinstance(definition, EnumDef):
-                type_refs[definition.name] = PrimitiveTypeRef(name=definition.name)
+                type_refs[definition.name] = PrimitiveTypeRef(
+                    name=definition.name,
+                    allowed_values=tuple(value.name for value in definition.values),
+                )
             elif isinstance(definition, PathDef):
                 type_refs[definition.name] = PathTypeRef(name=definition.name, definition=definition)
             elif isinstance(definition, RecordDef):
-                type_refs[definition.name] = RecordTypeRef(name=definition.name, definition=definition)
+                type_refs[definition.name] = RecordTypeRef(
+                    name=definition.name,
+                    definition=definition,
+                    field_types={},
+                )
             elif isinstance(definition, UnionDef):
-                type_refs[definition.name] = UnionTypeRef(name=definition.name, definition=definition)
+                type_refs[definition.name] = UnionTypeRef(
+                    name=definition.name,
+                    definition=definition,
+                    variant_field_types={},
+                )
+        for definition in module.definitions:
+            if isinstance(definition, RecordDef):
+                record_ref = type_refs.get(definition.name)
+                if isinstance(record_ref, RecordTypeRef):
+                    record_ref.field_types.update(
+                        {
+                            field.name: type_refs[field.type_name]
+                            for field in definition.fields
+                            if field.type_name in type_refs
+                        }
+                    )
+            elif isinstance(definition, UnionDef):
+                union_ref = type_refs.get(definition.name)
+                if isinstance(union_ref, UnionTypeRef):
+                    union_ref.variant_field_types.update(
+                        {
+                            variant.name: {
+                                field.name: type_refs[field.type_name]
+                                for field in variant.fields
+                                if field.type_name in type_refs
+                            }
+                            for variant in definition.variants
+                        }
+                    )
         return cls(type_refs)
 
     def resolve_type(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> TypeRef:
@@ -101,6 +139,17 @@ class FrontendTypeEnvironment:
         )
         for field in fields:
             if field.name == field_name:
+                if isinstance(record_type, RecordTypeRef):
+                    resolved = record_type.field_types.get(field_name)
+                else:
+                    union_type = self._type_refs.get(record_type.union_name)
+                    resolved = (
+                        union_type.variant_field_types.get(record_type.variant_name, {}).get(field_name)
+                        if isinstance(union_type, UnionTypeRef)
+                        else None
+                    )
+                if resolved is not None:
+                    return resolved
                 return self.resolve_type(field.type_name, span=span, form_path=form_path)
         _raise_error(
             f"unknown field `{field_name}`",

@@ -2524,6 +2524,43 @@ Recommended compile artifacts:
 .orchestrate/build/<hash>/expanded.debug.yaml   # optional
 ```
 
+## 76.1 Editor And Lint Tooling Compatibility
+
+The compiler should expose diagnostics and source metadata in a
+machine-readable form suitable for future CLI linting and Language Server
+Protocol integration.
+
+This is a compatibility requirement on compiler artifacts, not a requirement
+to build editor tooling in the first frontend tranche.
+
+Compiler outputs should support:
+
+- stable diagnostic codes;
+- source spans for parse, syntax, type, effect, proof, and lowering failures;
+- symbol locations for definitions, fields, variants, workflow names, and
+  module exports;
+- type, contract, availability, and effect metadata for hover-style
+  explanations;
+- source-map links from frontend forms to generated Core AST, Semantic IR, and
+  executable steps;
+- lint classifications for brittle authoring patterns such as hidden command
+  effects, report parsing, pointer-as-authority, manual state paths, unproved
+  variant references, and command adapters without typed contracts.
+
+Deferred tooling may include:
+
+- `orchestrate lint workflow.orc`;
+- diagnostics-on-save through LSP;
+- hover information for types, contracts, effects, and proof contexts;
+- go-to-definition for local definitions and module exports;
+- completion for local names, variants, fields, and standard-library forms;
+- document symbols;
+- formatting and simple code actions.
+
+These tools must consume the same compiler diagnostics, source maps, catalogs,
+and validation results used by normal compilation. They must not implement a
+parallel parser, type checker, linter, or workflow validator.
+
 ## Part XIII. CLI
 
 ## 77. Compile
