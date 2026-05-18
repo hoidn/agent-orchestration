@@ -272,6 +272,11 @@ before adding or preserving the command boundary.
 **Keywords:** workflows, catalog, index, examples, runbooks, managed-jobs
 **Use this when:** You need to find the right workflow file before reading or running it.
 
+### [Generic Run Watchdog](../workflows/examples/generic_run_watchdog.yaml)
+**Description:** v2.14 reusable watchdog that probes any orchestrator run by `run_id`, emits generic evidence for running/completed/failed/stalled states, and invokes a repair provider only when recovery is needed.
+**Keywords:** workflows, watchdog, run-monitoring, repair, resume, v2.14
+**Use this when:** You need a scheduled check that can diagnose a crashed, failed, or stalled workflow run and drive a principled repair plus resume/relaunch action.
+
 ### [Lisp Frontend Autonomous Drain](../workflows/examples/lisp_frontend_autonomous_drain.yaml)
 **Description:** v2.14 local drain for Lisp frontend MVP/full-design work. The selector can choose an active backlog item or identify an unimplemented design gap, draft an implementation architecture, and route the normalized work item through the plan/implementation stack without roadmap phase gating.
 **Keywords:** workflows, lisp-frontend, autonomous-drain, design-gap, backlog, v2.14

@@ -1,0 +1,190 @@
+version: "2.14"
+name: "generic-run-watchdog-v214"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  target_run_id:
+    kind: scalar
+    type: string
+  state_root:
+    type: relpath
+    under: state
+    default: state/GENERIC-RUN-WATCHDOG
+  evidence_root:
+    type: relpath
+    under: artifacts/work
+    default: artifacts/work/generic-run-watchdog
+  repair_result_target_path:
+    type: relpath
+    under: artifacts/work
+    default: artifacts/work/generic-run-watchdog/repair-result.json
+  max_stale_minutes:
+    kind: scalar
+    type: integer
+    default: 60
+  repair_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+
+outputs:
+  watch_status:
+    kind: scalar
+    type: enum
+    allowed: ["RUNNING_OK", "COMPLETED", "FAILED", "CRASHED", "STALLED", "UNKNOWN"]
+    from:
+      ref: root.steps.PublishWatchdogResult.artifacts.watch_status
+  repair_status:
+    kind: scalar
+    type: enum
+    allowed: ["NO_ACTION", "FIXED_AND_RESUMED", "FIXED_AND_RELAUNCHED", "PLAN_WRITTEN", "BLOCKED"]
+    from:
+      ref: root.steps.PublishWatchdogResult.artifacts.repair_status
+  recovery_action:
+    kind: scalar
+    type: enum
+    allowed: ["NONE", "RESUME", "RELAUNCH", "RESTART", "DECLINED"]
+    from:
+      ref: root.steps.PublishWatchdogResult.artifacts.recovery_action
+  watchdog_result_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishWatchdogResult.artifacts.watchdog_result_path
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+  claude_opus:
+    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "argv"
+    defaults:
+      model: "opus"
+      effort: "high"
+
+steps:
+  - name: ProbeRunState
+    id: probe_run_state
+    command:
+      - python
+      - workflows/library/scripts/probe_orchestrator_run.py
+      - --run-id
+      - ${inputs.target_run_id}
+      - --output
+      - ${inputs.state_root}/watch.json
+      - --evidence-root
+      - ${inputs.evidence_root}
+      - --repair-result-target-path
+      - ${inputs.repair_result_target_path}
+      - --max-stale-minutes
+      - ${inputs.max_stale_minutes}
+    output_bundle:
+      path: ${inputs.state_root}/watch.json
+      fields:
+        - name: watch_status
+          json_pointer: /watch_status
+          type: enum
+          allowed: ["RUNNING_OK", "COMPLETED", "FAILED", "CRASHED", "STALLED", "UNKNOWN"]
+        - name: repair_required
+          json_pointer: /repair_required
+          type: enum
+          allowed: ["YES", "NO"]
+        - name: recommended_recovery
+          json_pointer: /recommended_recovery
+          type: enum
+          allowed: ["NONE", "RESUME", "RELAUNCH", "INVESTIGATE"]
+        - name: evidence_bundle_path
+          json_pointer: /evidence_bundle_path
+          type: relpath
+          under: artifacts/work
+          must_exist_target: true
+        - name: repair_result_target_path
+          json_pointer: /repair_result_target_path
+          type: relpath
+          under: artifacts/work
+
+  - name: RepairRunFailure
+    id: repair_run_failure
+    when:
+      compare:
+        left:
+          ref: root.steps.ProbeRunState.artifacts.repair_required
+        op: eq
+        right: "YES"
+    provider: "${inputs.repair_provider}"
+    input_file: workflows/library/prompts/generic_run_watchdog/repair_run_failure.md
+    timeout_sec: 7200
+    depends_on:
+      required:
+        - ${inputs.state_root}/watch.json
+      inject:
+        mode: content
+        position: prepend
+        instruction: "Use this watch bundle as authoritative evidence:"
+    output_bundle:
+      path: ${inputs.repair_result_target_path}
+      fields:
+        - name: repair_status
+          json_pointer: /repair_status
+          type: enum
+          allowed: ["FIXED_AND_RESUMED", "FIXED_AND_RELAUNCHED", "PLAN_WRITTEN", "BLOCKED"]
+        - name: fix_complexity
+          json_pointer: /fix_complexity
+          type: enum
+          allowed: ["TRIVIAL", "NONTRIVIAL"]
+        - name: recovery_action
+          json_pointer: /recovery_action
+          type: enum
+          allowed: ["RESUME", "RELAUNCH", "RESTART", "DECLINED"]
+        - name: repair_report_path
+          json_pointer: /repair_report_path
+          type: relpath
+          under: artifacts/work
+          must_exist_target: true
+        - name: plan_path
+          json_pointer: /plan_path
+          type: string
+        - name: new_run_id
+          json_pointer: /new_run_id
+          type: string
+
+  - name: PublishWatchdogResult
+    id: publish_watchdog_result
+    command:
+      - python
+      - workflows/library/scripts/publish_run_watchdog_result.py
+      - --watch-bundle-path
+      - ${inputs.state_root}/watch.json
+      - --repair-result-path
+      - ${inputs.repair_result_target_path}
+      - --output
+      - ${inputs.state_root}/watchdog-result.json
+    output_bundle:
+      path: ${inputs.state_root}/watchdog-result.json
+      fields:
+        - name: watchdog_result_path
+          json_pointer: /watchdog_result_path
+          type: relpath
+          under: state
+          must_exist_target: true
+        - name: watch_status
+          json_pointer: /watch_status
+          type: enum
+          allowed: ["RUNNING_OK", "COMPLETED", "FAILED", "CRASHED", "STALLED", "UNKNOWN"]
+        - name: repair_status
+          json_pointer: /repair_status
+          type: enum
+          allowed: ["NO_ACTION", "FIXED_AND_RESUMED", "FIXED_AND_RELAUNCHED", "PLAN_WRITTEN", "BLOCKED"]
+        - name: recovery_action
+          json_pointer: /recovery_action
+          type: enum
+          allowed: ["NONE", "RESUME", "RELAUNCH", "RESTART", "DECLINED"]
