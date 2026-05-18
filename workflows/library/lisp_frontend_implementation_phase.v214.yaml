@@ -1,0 +1,260 @@
+version: "2.14"
+name: "lisp-frontend-implementation-phase-v214"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  full_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  mvp_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  plan_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+  check_commands_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  execution_report_target_path:
+    type: relpath
+    under: artifacts/work
+  progress_report_target_path:
+    type: relpath
+    under: artifacts/work
+  checks_report_target_path:
+    type: relpath
+    under: artifacts/checks
+  implementation_review_report_target_path:
+    type: relpath
+    under: artifacts/review
+  implementation_execute_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+  implementation_review_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+
+outputs:
+  implementation_state:
+    kind: scalar
+    type: enum
+    allowed: ["COMPLETED", "BLOCKED"]
+    from:
+      ref: root.steps.ExecuteImplementation.artifacts.implementation_state
+  implementation_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "NOT_APPLICABLE"]
+    from:
+      ref: root.steps.ReviewImplementation.artifacts.implementation_review_decision
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+  claude_opus:
+    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "argv"
+    defaults:
+      model: "opus"
+      effort: "high"
+
+artifacts:
+  full_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/full_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  mvp_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/mvp_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  plan:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/plan_path.txt
+    under: docs/plans
+    must_exist_target: true
+  check_commands:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/check_commands_path.txt
+    under: state
+    must_exist_target: true
+
+steps:
+  - name: MaterializeImplementationInputs
+    id: materialize_implementation_inputs
+    materialize_artifacts:
+      input_values:
+        - names:
+            - full_design_path
+            - mvp_design_path
+            - plan_path
+            - check_commands_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
+      values:
+        - name: execution_report_target_path
+          source: { input: execution_report_target_path }
+          contract:
+            type: relpath
+            under: artifacts/work
+            must_exist_target: false
+          pointer:
+            path: ${inputs.state_root}/execution_report_target_path.txt
+          ensure_parent: true
+        - name: progress_report_target_path
+          source: { input: progress_report_target_path }
+          contract:
+            type: relpath
+            under: artifacts/work
+            must_exist_target: false
+          pointer:
+            path: ${inputs.state_root}/progress_report_target_path.txt
+          ensure_parent: true
+        - name: checks_report_path
+          source: { input: checks_report_target_path }
+          contract:
+            type: relpath
+            under: artifacts/checks
+            must_exist_target: false
+          pointer:
+            path: ${inputs.state_root}/checks_report_path.txt
+          ensure_parent: true
+        - name: implementation_review_report_path
+          source: { input: implementation_review_report_target_path }
+          contract:
+            type: relpath
+            under: artifacts/review
+            must_exist_target: false
+          pointer:
+            path: ${inputs.state_root}/implementation_review_report_path.txt
+          ensure_parent: true
+    publishes:
+      - artifact: full_design
+        from: full_design_path
+      - artifact: mvp_design
+        from: mvp_design_path
+      - artifact: plan
+        from: plan_path
+      - artifact: check_commands
+        from: check_commands_path
+
+  - name: ExecuteImplementation
+    id: execute_implementation
+    provider: ${inputs.implementation_execute_provider}
+    asset_file: prompts/lisp_frontend_implementation_phase/implement_plan.md
+    timeout_sec: 7200
+    consumes:
+      - artifact: full_design
+        policy: latest_successful
+        freshness: any
+      - artifact: mvp_design
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        policy: latest_successful
+        freshness: any
+      - artifact: check_commands
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["full_design", "mvp_design", "plan", "check_commands"]
+    variant_output:
+      path: ${inputs.state_root}/implementation_state.json
+      discriminant:
+        name: implementation_state
+        json_pointer: /implementation_state
+        type: enum
+        allowed: ["COMPLETED", "BLOCKED"]
+      variants:
+        COMPLETED:
+          fields:
+            - name: execution_report_path
+              json_pointer: /execution_report_path
+              type: relpath
+              under: artifacts/work
+              must_exist_target: true
+        BLOCKED:
+          fields:
+            - name: progress_report_path
+              json_pointer: /progress_report_path
+              type: relpath
+              under: artifacts/work
+              must_exist_target: true
+            - name: blocker_class
+              json_pointer: /blocker_class
+              type: enum
+              allowed:
+                - missing_resource
+                - unavailable_hardware
+                - roadmap_conflict
+                - external_dependency_outside_authority
+                - user_decision_required
+                - unrecoverable_after_fix_attempt
+
+  - name: RunChecks
+    id: run_checks
+    command:
+      - python
+      - workflows/library/scripts/run_neurips_backlog_checks.py
+      - --checks-path
+      - ${inputs.check_commands_path}
+      - --report-path
+      - ${inputs.checks_report_target_path}
+      - --cwd
+      - .
+    output_bundle:
+      path: ${inputs.checks_report_target_path}
+      fields:
+        - name: checks_status
+          json_pointer: /status
+          type: enum
+          allowed: ["PASS", "FAIL"]
+
+  - name: ReviewImplementation
+    id: review_implementation
+    provider: ${inputs.implementation_review_provider}
+    asset_file: prompts/lisp_frontend_implementation_phase/review_implementation.md
+    timeout_sec: 1800
+    consumes:
+      - artifact: full_design
+        policy: latest_successful
+        freshness: any
+      - artifact: mvp_design
+        policy: latest_successful
+        freshness: any
+      - artifact: plan
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["full_design", "mvp_design", "plan"]
+    expected_outputs:
+      - name: implementation_review_report_path
+        path: ${inputs.state_root}/implementation_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: implementation_review_decision
+        path: ${inputs.state_root}/implementation_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE", "NOT_APPLICABLE"]

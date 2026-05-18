@@ -272,6 +272,11 @@ before adding or preserving the command boundary.
 **Keywords:** workflows, catalog, index, examples, runbooks, managed-jobs
 **Use this when:** You need to find the right workflow file before reading or running it.
 
+### [Lisp Frontend Autonomous Drain](../workflows/examples/lisp_frontend_autonomous_drain.yaml)
+**Description:** v2.14 local drain for Lisp frontend MVP/full-design work. The selector can choose an active backlog item or identify an unimplemented design gap, draft an implementation architecture, and route the normalized work item through the plan/implementation stack without roadmap phase gating.
+**Keywords:** workflows, lisp-frontend, autonomous-drain, design-gap, backlog, v2.14
+**Use this when:** Running Lisp frontend implementation work from either explicit backlog items or design gaps discovered from the frontend specifications.
+
 ### [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml)
 **Description:** Minimal v2.13 workflow showing `managed_jobs` on a provider step, a local managed training launch, runtime-owned audit/recovery state, and managed outcome routing to review/fix steps.
 **Keywords:** managed-jobs, provider, v2.13, audit, recovery, shim

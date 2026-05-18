@@ -1,0 +1,342 @@
+version: "2.14"
+name: "lisp-frontend-autonomous-drain-v214"
+
+imports:
+  selector: ../library/lisp_frontend_selector.v214.yaml
+  design_gap_architect: ../library/lisp_frontend_design_gap_architect.v214.yaml
+  work_item: ../library/lisp_frontend_work_item.v214.yaml
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  steering_path:
+    type: relpath
+    under: docs
+    must_exist_target: true
+  full_design_path:
+    type: relpath
+    under: docs/design
+    default: docs/design/workflow_lisp_frontend_specification.md
+    must_exist_target: true
+  mvp_design_path:
+    type: relpath
+    under: docs/design
+    default: docs/design/workflow_lisp_frontend_mvp_specification.md
+    must_exist_target: true
+  backlog_root:
+    type: relpath
+    under: docs/backlog
+    default: docs/backlog/active
+  progress_ledger_path:
+    type: relpath
+    under: state
+    default: state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json
+    must_exist_target: true
+  drain_state_root:
+    type: relpath
+    under: state
+    default: state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain
+  run_state_target_path:
+    type: relpath
+    under: state
+    default: state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json
+  drain_summary_target_path:
+    type: relpath
+    under: artifacts/work
+    default: artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json
+  implementation_execute_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+  implementation_review_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+
+outputs:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+    from:
+      ref: root.steps.DrainLispFrontendWork.artifacts.drain_status
+  run_state_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishDrainSummary.artifacts.run_state_path
+  drain_summary_path:
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishDrainSummary.artifacts.drain_summary_path
+
+artifacts:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+
+steps:
+  - name: InitializeDrainState
+    id: initialize_drain_state
+    command:
+      - python
+      - workflows/library/scripts/update_lisp_frontend_run_state.py
+      - --state-path
+      - ${inputs.run_state_target_path}
+      - init
+      - --run-id
+      - ${run.id}
+
+  - name: DrainLispFrontendWork
+    id: drain_lisp_frontend_work
+    repeat_until:
+      id: lisp_frontend_drain_iteration
+      max_iterations: 60
+      outputs:
+        drain_status:
+          kind: scalar
+          type: enum
+          allowed: ["CONTINUE", "DONE", "BLOCKED"]
+          from:
+            ref: self.steps.RouteSelection.artifacts.drain_status
+      condition:
+        any_of:
+          - compare:
+              left:
+                ref: self.outputs.drain_status
+              op: eq
+              right: DONE
+          - compare:
+              left:
+                ref: self.outputs.drain_status
+              op: eq
+              right: BLOCKED
+      steps:
+        - name: BuildBacklogManifest
+          id: build_backlog_manifest
+          command:
+            - python
+            - workflows/library/scripts/build_lisp_frontend_backlog_manifest.py
+            - --backlog-root
+            - ${inputs.backlog_root}
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/manifest.json
+          output_bundle:
+            path: ${inputs.drain_state_root}/iterations/${loop.index}/manifest.json
+            fields:
+              - name: manifest_path
+                json_pointer: /manifest_path
+                type: relpath
+                under: state
+                must_exist_target: true
+              - name: active_count
+                json_pointer: /active_count
+                type: integer
+
+        - name: PrepareIterationPaths
+          id: prepare_iteration_paths
+          command:
+            - python
+            - workflows/library/scripts/prepare_lisp_frontend_iteration_paths.py
+            - --drain-state-root
+            - ${inputs.drain_state_root}
+            - --iteration
+            - ${loop.index}
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/iteration-paths.json
+          output_bundle:
+            path: ${inputs.drain_state_root}/iterations/${loop.index}/iteration-paths.json
+            fields:
+              - name: selector_state_root
+                json_pointer: /selector_state_root
+                type: relpath
+                under: state
+              - name: design_gap_architect_state_root
+                json_pointer: /design_gap_architect_state_root
+                type: relpath
+                under: state
+              - name: backlog_work_item_state_root
+                json_pointer: /backlog_work_item_state_root
+                type: relpath
+                under: state
+              - name: design_gap_work_item_state_root
+                json_pointer: /design_gap_work_item_state_root
+                type: relpath
+                under: state
+
+        - name: SelectNextWork
+          id: select_next_work
+          call: selector
+          with:
+            state_root:
+              ref: self.steps.PrepareIterationPaths.artifacts.selector_state_root
+            steering_path:
+              ref: inputs.steering_path
+            full_design_path:
+              ref: inputs.full_design_path
+            mvp_design_path:
+              ref: inputs.mvp_design_path
+            manifest_path:
+              ref: self.steps.BuildBacklogManifest.artifacts.manifest_path
+            progress_ledger_path:
+              ref: inputs.progress_ledger_path
+            run_state_path:
+              ref: inputs.run_state_target_path
+
+        - name: RouteSelection
+          id: route_selection
+          match:
+            ref: self.steps.SelectNextWork.artifacts.selection_status
+            cases:
+              SELECT_BACKLOG_ITEM:
+                id: backlog_item_path
+                outputs:
+                  drain_status:
+                    kind: scalar
+                    type: enum
+                    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+                    from:
+                      ref: self.steps.RunSelectedBacklogItem.artifacts.drain_status
+                steps:
+                  - name: RunSelectedBacklogItem
+                    id: run_selected_backlog_item
+                    call: work_item
+                    with:
+                      state_root:
+                        ref: parent.steps.PrepareIterationPaths.artifacts.backlog_work_item_state_root
+                      selection_bundle_path:
+                        ref: parent.steps.SelectNextWork.artifacts.selection_bundle_path
+                      manifest_path:
+                        ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
+                      steering_path:
+                        ref: inputs.steering_path
+                      full_design_path:
+                        ref: inputs.full_design_path
+                      mvp_design_path:
+                        ref: inputs.mvp_design_path
+                      progress_ledger_path:
+                        ref: inputs.progress_ledger_path
+                      run_state_path:
+                        ref: inputs.run_state_target_path
+                      implementation_execute_provider:
+                        ref: inputs.implementation_execute_provider
+                      implementation_review_provider:
+                        ref: inputs.implementation_review_provider
+
+              DRAFT_DESIGN_GAP:
+                id: design_gap_path
+                outputs:
+                  drain_status:
+                    kind: scalar
+                    type: enum
+                    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+                    from:
+                      ref: self.steps.RunDesignGapWorkItem.artifacts.drain_status
+                steps:
+                  - name: DraftDesignGapArchitecture
+                    id: draft_design_gap_architecture
+                    call: design_gap_architect
+                    with:
+                      state_root:
+                        ref: parent.steps.PrepareIterationPaths.artifacts.design_gap_architect_state_root
+                      steering_path:
+                        ref: inputs.steering_path
+                      full_design_path:
+                        ref: inputs.full_design_path
+                      mvp_design_path:
+                        ref: inputs.mvp_design_path
+                      progress_ledger_path:
+                        ref: inputs.progress_ledger_path
+                      selection_bundle_path:
+                        ref: parent.steps.SelectNextWork.artifacts.selection_bundle_path
+                  - name: RunDesignGapWorkItem
+                    id: run_design_gap_work_item
+                    call: work_item
+                    with:
+                      state_root:
+                        ref: parent.steps.PrepareIterationPaths.artifacts.design_gap_work_item_state_root
+                      selection_bundle_path:
+                        ref: parent.steps.SelectNextWork.artifacts.selection_bundle_path
+                      manifest_path:
+                        ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
+                      architecture_bundle_path:
+                        ref: self.steps.DraftDesignGapArchitecture.artifacts.work_item_bundle_path
+                      steering_path:
+                        ref: inputs.steering_path
+                      full_design_path:
+                        ref: inputs.full_design_path
+                      mvp_design_path:
+                        ref: inputs.mvp_design_path
+                      progress_ledger_path:
+                        ref: inputs.progress_ledger_path
+                      run_state_path:
+                        ref: inputs.run_state_target_path
+                      implementation_execute_provider:
+                        ref: inputs.implementation_execute_provider
+                      implementation_review_provider:
+                        ref: inputs.implementation_review_provider
+
+              DONE:
+                id: done_path
+                outputs:
+                  drain_status:
+                    kind: scalar
+                    type: enum
+                    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+                    from:
+                      ref: self.steps.WriteDone.artifacts.drain_status
+                steps:
+                  - name: WriteDone
+                    id: write_done
+                    set_scalar:
+                      artifact: drain_status
+                      value: DONE
+
+              BLOCKED:
+                id: blocked_path
+                outputs:
+                  drain_status:
+                    kind: scalar
+                    type: enum
+                    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+                    from:
+                      ref: self.steps.WriteBlocked.artifacts.drain_status
+                steps:
+                  - name: WriteBlocked
+                    id: write_blocked
+                    set_scalar:
+                      artifact: drain_status
+                      value: BLOCKED
+
+  - name: PublishDrainSummary
+    id: publish_drain_summary
+    command:
+      - python
+      - workflows/library/scripts/finalize_lisp_frontend_drain_summary.py
+      - --run-state-path
+      - ${inputs.run_state_target_path}
+      - --drain-status
+      - ${steps.DrainLispFrontendWork.artifacts.drain_status}
+      - --summary-path
+      - ${inputs.drain_summary_target_path}
+      - --state-root
+      - ${inputs.drain_state_root}
+    expected_outputs:
+      - name: drain_summary_path
+        path: ${inputs.drain_state_root}/drain_summary_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true
+      - name: run_state_path
+        path: ${inputs.drain_state_root}/final_run_state_path.txt
+        type: relpath
+        under: state
+        must_exist_target: true

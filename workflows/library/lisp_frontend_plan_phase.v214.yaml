@@ -1,0 +1,197 @@
+version: "2.14"
+name: "lisp-frontend-plan-phase-v214"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  steering_path:
+    type: relpath
+    under: docs
+    must_exist_target: true
+  full_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  mvp_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  work_item_context_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  progress_ledger_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  plan_target_path:
+    type: relpath
+    under: docs/plans
+  plan_review_report_target_path:
+    type: relpath
+    under: artifacts/review
+
+outputs:
+  plan_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    from:
+      ref: root.steps.DraftPlan.artifacts.plan_path
+  plan_review_report_path:
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.ReviewPlan.artifacts.plan_review_report_path
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.ReviewPlan.artifacts.plan_review_decision
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+
+artifacts:
+  steering:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/steering_path.txt
+    under: docs
+    must_exist_target: true
+  full_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/full_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  mvp_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/mvp_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  work_item_context:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/work_item_context_path.txt
+    under: state
+    must_exist_target: true
+  progress_ledger:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/progress_ledger_path.txt
+    under: state
+    must_exist_target: true
+
+steps:
+  - name: MaterializePlanInputs
+    id: materialize_plan_inputs
+    materialize_artifacts:
+      input_values:
+        - names:
+            - steering_path
+            - full_design_path
+            - mvp_design_path
+            - work_item_context_path
+            - progress_ledger_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
+      values:
+        - name: plan_path
+          source: { input: plan_target_path }
+          contract:
+            type: relpath
+            under: docs/plans
+            must_exist_target: false
+          pointer:
+            path: ${inputs.state_root}/plan_path.txt
+          ensure_parent: true
+        - name: plan_review_report_path
+          source: { input: plan_review_report_target_path }
+          contract:
+            type: relpath
+            under: artifacts/review
+            must_exist_target: false
+          pointer:
+            path: ${inputs.state_root}/plan_review_report_path.txt
+          ensure_parent: true
+    publishes:
+      - artifact: steering
+        from: steering_path
+      - artifact: full_design
+        from: full_design_path
+      - artifact: mvp_design
+        from: mvp_design_path
+      - artifact: work_item_context
+        from: work_item_context_path
+      - artifact: progress_ledger
+        from: progress_ledger_path
+
+  - name: DraftPlan
+    id: draft_plan
+    provider: codex
+    asset_file: prompts/lisp_frontend_plan_phase/draft_plan.md
+    timeout_sec: 3600
+    consumes:
+      - artifact: steering
+        policy: latest_successful
+        freshness: any
+      - artifact: full_design
+        policy: latest_successful
+        freshness: any
+      - artifact: mvp_design
+        policy: latest_successful
+        freshness: any
+      - artifact: work_item_context
+        policy: latest_successful
+        freshness: any
+      - artifact: progress_ledger
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["steering", "full_design", "mvp_design", "work_item_context", "progress_ledger"]
+    expected_outputs:
+      - name: plan_path
+        path: ${inputs.state_root}/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+
+  - name: ReviewPlan
+    id: review_plan
+    provider: codex
+    asset_file: prompts/lisp_frontend_plan_phase/review_plan.md
+    timeout_sec: 1800
+    consumes:
+      - artifact: full_design
+        policy: latest_successful
+        freshness: any
+      - artifact: mvp_design
+        policy: latest_successful
+        freshness: any
+      - artifact: work_item_context
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["full_design", "mvp_design", "work_item_context"]
+    expected_outputs:
+      - name: plan_review_report_path
+        path: ${inputs.state_root}/plan_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: plan_review_decision
+        path: ${inputs.state_root}/plan_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]

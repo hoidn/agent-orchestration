@@ -1,0 +1,217 @@
+version: "2.14"
+name: "lisp-frontend-work-item-v214"
+
+imports:
+  plan_phase: ./lisp_frontend_plan_phase.v214.yaml
+  implementation_phase: ./lisp_frontend_implementation_phase.v214.yaml
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  selection_bundle_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  manifest_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  architecture_bundle_path:
+    type: relpath
+    under: state
+    required: false
+  steering_path:
+    type: relpath
+    under: docs
+    must_exist_target: true
+  full_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  mvp_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  progress_ledger_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  run_state_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  implementation_execute_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+  implementation_review_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+
+outputs:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "BLOCKED"]
+    from:
+      ref: root.steps.RecordCompletedWorkItem.artifacts.drain_status
+  item_summary_path:
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.RecordCompletedWorkItem.artifacts.item_summary_path
+
+steps:
+  - name: ResolveWorkItemInputs
+    id: resolve_work_item_inputs
+    command:
+      - python
+      - workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py
+      - --selection-path
+      - ${inputs.selection_bundle_path}
+      - --manifest-path
+      - ${inputs.manifest_path}
+      - --state-root
+      - ${inputs.state_root}
+      - --architecture-bundle-path
+      - ${inputs.architecture_bundle_path}
+      - --output
+      - ${inputs.state_root}/work-item-inputs.json
+    output_bundle:
+      path: ${inputs.state_root}/work-item-inputs.json
+      fields:
+        - name: work_item_source
+          json_pointer: /work_item_source
+          type: enum
+          allowed: ["BACKLOG_ITEM", "DESIGN_GAP"]
+        - name: work_item_id
+          json_pointer: /work_item_id
+          type: string
+        - name: work_item_context_path
+          json_pointer: /work_item_context_path
+          type: relpath
+          under: state
+          must_exist_target: true
+        - name: check_commands_path
+          json_pointer: /check_commands_path
+          type: relpath
+          under: state
+          must_exist_target: true
+        - name: plan_target_path
+          json_pointer: /plan_target_path
+          type: relpath
+          under: docs/plans
+        - name: execution_report_target_path
+          json_pointer: /execution_report_target_path
+          type: relpath
+          under: artifacts/work
+        - name: checks_report_target_path
+          json_pointer: /checks_report_target_path
+          type: relpath
+          under: artifacts/checks
+        - name: implementation_review_report_target_path
+          json_pointer: /implementation_review_report_target_path
+          type: relpath
+          under: artifacts/review
+        - name: item_summary_target_path
+          json_pointer: /item_summary_target_path
+          type: relpath
+          under: artifacts/work
+        - name: plan_phase_state_root
+          json_pointer: /plan_phase_state_root
+          type: relpath
+          under: state
+        - name: implementation_phase_state_root
+          json_pointer: /implementation_phase_state_root
+          type: relpath
+          under: state
+        - name: plan_review_report_target_path
+          json_pointer: /plan_review_report_target_path
+          type: relpath
+          under: artifacts/review
+        - name: progress_report_target_path
+          json_pointer: /progress_report_target_path
+          type: relpath
+          under: artifacts/work
+
+  - name: RunPlanPhase
+    id: run_plan_phase
+    call: plan_phase
+    with:
+      state_root:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.plan_phase_state_root
+      steering_path:
+        ref: inputs.steering_path
+      full_design_path:
+        ref: inputs.full_design_path
+      mvp_design_path:
+        ref: inputs.mvp_design_path
+      work_item_context_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.work_item_context_path
+      progress_ledger_path:
+        ref: inputs.progress_ledger_path
+      plan_target_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.plan_target_path
+      plan_review_report_target_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.plan_review_report_target_path
+
+  - name: RunImplementationPhase
+    id: run_implementation_phase
+    call: implementation_phase
+    with:
+      state_root:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root
+      full_design_path:
+        ref: inputs.full_design_path
+      mvp_design_path:
+        ref: inputs.mvp_design_path
+      plan_path:
+        ref: root.steps.RunPlanPhase.artifacts.plan_path
+      check_commands_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.check_commands_path
+      execution_report_target_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.execution_report_target_path
+      progress_report_target_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.progress_report_target_path
+      checks_report_target_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.checks_report_target_path
+      implementation_review_report_target_path:
+        ref: root.steps.ResolveWorkItemInputs.artifacts.implementation_review_report_target_path
+      implementation_execute_provider:
+        ref: inputs.implementation_execute_provider
+      implementation_review_provider:
+        ref: inputs.implementation_review_provider
+
+  - name: RecordCompletedWorkItem
+    id: record_completed_work_item
+    command:
+      - python
+      - workflows/library/scripts/update_lisp_frontend_run_state.py
+      - --state-path
+      - ${inputs.run_state_path}
+      - complete
+      - --item-id
+      - ${steps.ResolveWorkItemInputs.artifacts.work_item_id}
+      - --source
+      - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
+      - --summary-path
+      - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
+      - --summary-pointer-path
+      - ${inputs.state_root}/item_summary_path.txt
+      - --drain-status-path
+      - ${inputs.state_root}/drain_status.txt
+    expected_outputs:
+      - name: drain_status
+        path: ${inputs.state_root}/drain_status.txt
+        type: enum
+        allowed: ["CONTINUE", "BLOCKED"]
+      - name: item_summary_path
+        path: ${inputs.state_root}/item_summary_path.txt
+        type: relpath
+        under: artifacts/work
+        must_exist_target: true

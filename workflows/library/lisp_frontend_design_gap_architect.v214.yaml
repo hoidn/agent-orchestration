@@ -1,0 +1,155 @@
+version: "2.14"
+name: "lisp-frontend-design-gap-architect-v214"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  steering_path:
+    type: relpath
+    under: docs
+    must_exist_target: true
+  full_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  mvp_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  progress_ledger_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  selection_bundle_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+
+outputs:
+  architecture_validation_status:
+    kind: scalar
+    type: enum
+    allowed: ["VALID", "BLOCKED", "INVALID"]
+    from:
+      ref: root.steps.ValidateDesignGapArchitecture.artifacts.architecture_validation_status
+  work_item_bundle_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.ValidateDesignGapArchitecture.artifacts.work_item_bundle_path
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+
+steps:
+  - name: PrepareArchitectureTargets
+    id: prepare_architecture_targets
+    command:
+      - python
+      - -c
+      - |
+        import json
+        import pathlib
+        import re
+        import sys
+
+        state_root = pathlib.Path(sys.argv[1])
+        selection = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
+        gap_id = str(selection.get("design_gap_id") or "design-gap").strip()
+        gap_id = re.sub(r"[^a-z0-9-]+", "-", gap_id.lower()).strip("-") or "design-gap"
+        base = pathlib.Path("docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps") / gap_id
+        payload = {
+            "design_gap_id": gap_id,
+            "architecture_path": (base / "implementation_architecture.md").as_posix(),
+            "work_item_context_path": (state_root / "work_item_context.md").as_posix(),
+            "check_commands_path": (state_root / "check_commands.json").as_posix(),
+            "plan_target_path": (base / "execution_plan.md").as_posix(),
+        }
+        state_root.mkdir(parents=True, exist_ok=True)
+        pathlib.Path(payload["architecture_path"]).parent.mkdir(parents=True, exist_ok=True)
+        pathlib.Path(payload["work_item_context_path"]).parent.mkdir(parents=True, exist_ok=True)
+        pathlib.Path(sys.argv[3]).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+      - ${inputs.state_root}
+      - ${inputs.selection_bundle_path}
+      - ${inputs.state_root}/architecture-targets.json
+    output_bundle:
+      path: ${inputs.state_root}/architecture-targets.json
+      fields:
+        - name: design_gap_id
+          json_pointer: /design_gap_id
+          type: string
+        - name: architecture_path
+          json_pointer: /architecture_path
+          type: relpath
+          under: docs/plans
+        - name: work_item_context_path
+          json_pointer: /work_item_context_path
+          type: relpath
+          under: state
+        - name: check_commands_path
+          json_pointer: /check_commands_path
+          type: relpath
+          under: state
+        - name: plan_target_path
+          json_pointer: /plan_target_path
+          type: relpath
+          under: docs/plans
+
+  - name: DraftDesignGapArchitecture
+    id: draft_design_gap_architecture
+    provider: codex
+    asset_file: prompts/lisp_frontend_design_gap_architect/draft_implementation_architecture.md
+    timeout_sec: 1800
+    depends_on:
+      required:
+        - ${inputs.steering_path}
+        - ${inputs.full_design_path}
+        - ${inputs.mvp_design_path}
+        - ${inputs.progress_ledger_path}
+        - ${inputs.selection_bundle_path}
+        - ${inputs.state_root}/architecture-targets.json
+      inject:
+        mode: content
+        position: prepend
+        instruction: "Use these files as the authoritative context and target contract:"
+    output_bundle:
+      path: ${inputs.state_root}/draft-bundle.json
+      fields:
+        - name: draft_status
+          json_pointer: /draft_status
+          type: enum
+          allowed: ["DRAFTED", "BLOCKED"]
+
+  - name: ValidateDesignGapArchitecture
+    id: validate_design_gap_architecture
+    command:
+      - python
+      - workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py
+      - --draft-bundle-path
+      - ${inputs.state_root}/draft-bundle.json
+      - --output
+      - ${inputs.state_root}/architecture-validation.json
+    output_bundle:
+      path: ${inputs.state_root}/architecture-validation.json
+      fields:
+        - name: architecture_validation_status
+          json_pointer: /architecture_validation_status
+          type: enum
+          allowed: ["VALID", "BLOCKED", "INVALID"]
+        - name: work_item_bundle_path
+          json_pointer: /work_item_bundle_path
+          type: relpath
+          under: state
+          required: false
+          must_exist_target: true
