@@ -18,11 +18,23 @@ from .definitions import (
     elaborate_definition_module,
 )
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .effects import EffectSummary, merge_effect_summaries
+from .expressions import elaborate_expression
 from .lowering import lower_workflow_definitions, validate_lowered_workflows
 from .macros import collect_macro_catalog, expand_module_forms
+from .procedures import (
+    ProcedureCatalog,
+    ProcedureDef,
+    TypedProcedureDef,
+    build_procedure_catalog,
+    elaborate_procedure_definitions,
+    validate_procedure_effects,
+    with_call_graph,
+)
 from .reader import read_sexpr_file
 from .syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
 from .type_env import PRELUDE_TYPE_NAMES, FrontendTypeEnvironment
+from .typecheck import typecheck_expression
 from .workflows import (
     CertifiedAdapterBinding,
     ExternalToolBinding,
@@ -52,21 +64,27 @@ def compile_stage3_module(
     _validate_definition_module(module)
     type_env = FrontendTypeEnvironment.from_module(module)
     workflow_defs = elaborate_workflow_definitions(syntax_module)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
     workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
     extern_environment = build_extern_environment(
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
     )
     command_boundary_environment = build_command_boundary_environment(command_boundaries)
-    typed_workflows = typecheck_workflow_definitions(
-        workflow_defs,
+    typed_procedures, typed_workflows, procedure_catalog = _infer_stage3_effect_summaries(
+        procedure_defs,
+        workflow_defs=workflow_defs,
         type_env=type_env,
         workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
     )
     lowered_workflows = lower_workflow_definitions(
         typed_workflows,
+        typed_procedures=typed_procedures,
+        procedure_catalog=procedure_catalog,
         workflow_path=path,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
@@ -83,8 +101,10 @@ def compile_stage3_module(
     return Stage3CompileResult(
         module=module,
         workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
+        typed_procedures=typed_procedures,
         typed_workflows=typed_workflows,
         lowered_workflows=lowered_workflows,
         validated_bundles=validated_bundles,
@@ -219,17 +239,17 @@ def _definition_form_path(definition: EnumDef | PathDef | RecordDef | UnionDef) 
 
 
 def _validate_stage1_top_level_forms(module_syntax: WorkflowLispSyntaxModule) -> None:
-    allowed_heads = {"defenum", "defpath", "defrecord", "defunion", "defworkflow"}
+    allowed_heads = {"defenum", "defpath", "defrecord", "defunion", "defworkflow", "defproc"}
     for form in module_syntax.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
         if head_name not in allowed_heads:
             continue
-        if head_name == "defworkflow" and not form.expansion_stack:
+        if head_name in {"defworkflow", "defproc"} and not form.expansion_stack:
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(
                         code="definition_form_unknown",
-                        message="unsupported top-level definition form `defworkflow`",
+                        message=f"unsupported top-level definition form `{head_name}`",
                         span=form.span,
                         form_path=form.form_path,
                     ),
@@ -245,7 +265,7 @@ def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> W
     definition_forms = []
     for form in expanded_module.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
-        if head_name in {"defworkflow", "defmacro"}:
+        if head_name in {"defworkflow", "defproc", "defmacro"}:
             continue
         definition_forms.append(form)
     return WorkflowLispSyntaxModule(
@@ -255,3 +275,269 @@ def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> W
         span=expanded_module.span,
         module_path=expanded_module.module_path,
     )
+
+
+def _typecheck_procedure_definitions(
+    procedure_defs: tuple[ProcedureDef, ...],
+    *,
+    type_env: FrontendTypeEnvironment,
+    workflow_catalog: object,
+    procedure_catalog: ProcedureCatalog,
+    extern_environment: object,
+    command_boundary_environment: object,
+    procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
+) -> tuple[TypedProcedureDef, ...]:
+    from .workflows import ExternEnvironment, ProviderExtern
+
+    externs = extern_environment or ExternEnvironment(bindings_by_name={})
+    typed_procedures: list[TypedProcedureDef] = []
+    for procedure_def in procedure_defs:
+        signature = procedure_catalog.signatures_by_name[procedure_def.name]
+        value_env = {name: type_ref for name, type_ref in signature.params}
+        for extern_name, binding in externs.bindings_by_name.items():
+            if isinstance(binding, ProviderExtern):
+                value_env[extern_name] = type_env.resolve_type(
+                    "Provider",
+                    span=procedure_def.span,
+                    form_path=procedure_def.form_path,
+                )
+            else:
+                value_env[extern_name] = type_env.resolve_type(
+                    "Prompt",
+                    span=procedure_def.span,
+                    form_path=procedure_def.form_path,
+                )
+        body_expr = elaborate_expression(
+            procedure_def.body,
+            bound_names=frozenset(value_env),
+            procedure_names=frozenset(procedure_catalog.signatures_by_name),
+        )
+        typed_body = typecheck_expression(
+            body_expr,
+            type_env=type_env,
+            value_env=value_env,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=externs,
+            command_boundary_environment=command_boundary_environment,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if typed_body.type_ref != signature.return_type_ref:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="procedure_return_type_invalid",
+                        message=(
+                            f"procedure `{procedure_def.name}` declared return type "
+                            f"`{procedure_def.return_type_name}` but body returned a different type"
+                        ),
+                        span=procedure_def.body.span,
+                        form_path=procedure_def.body.form_path,
+                        expansion_stack=procedure_def.body.expansion_stack,
+                    ),
+                )
+            )
+        typed_procedures.append(
+            TypedProcedureDef(
+                definition=procedure_def,
+                signature=signature,
+                typed_body=typed_body,
+                direct_effect_summary=typed_body.effect_summary,
+                transitive_effect_summary=typed_body.effect_summary,
+            )
+        )
+    return tuple(typed_procedures)
+
+
+def _infer_stage3_effect_summaries(
+    procedure_defs: tuple[ProcedureDef, ...],
+    *,
+    workflow_defs: tuple[object, ...],
+    type_env: FrontendTypeEnvironment,
+    workflow_catalog: object,
+    procedure_catalog: ProcedureCatalog,
+    extern_environment: object,
+    command_boundary_environment: object,
+) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
+    procedure_effects_by_name: Mapping[str, EffectSummary] = {}
+    workflow_effects_by_name: Mapping[str, EffectSummary] = {}
+    typed_procedures: tuple[TypedProcedureDef, ...] = ()
+    typed_workflows: tuple[object, ...] = ()
+
+    max_iterations = max(1, len(procedure_defs) + len(workflow_defs)) * 4
+    for _ in range(max_iterations):
+        typed_procedures = _typecheck_procedure_definitions(
+            procedure_defs,
+            type_env=type_env,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
+            typed_procedures,
+            procedure_catalog=procedure_catalog,
+            validate_declared=False,
+        )
+        next_procedure_effects = {
+            procedure.definition.name: procedure.transitive_effect_summary for procedure in typed_procedures
+        }
+        typed_workflows = typecheck_workflow_definitions(
+            workflow_defs,
+            type_env=type_env,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            procedure_effects_by_name=next_procedure_effects,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        next_workflow_effects = {
+            workflow.definition.name: workflow.effect_summary for workflow in typed_workflows
+        }
+        if (
+            next_procedure_effects == dict(procedure_effects_by_name)
+            and next_workflow_effects == dict(workflow_effects_by_name)
+        ):
+            procedure_effects_by_name = next_procedure_effects
+            workflow_effects_by_name = next_workflow_effects
+            break
+        procedure_effects_by_name = next_procedure_effects
+        workflow_effects_by_name = next_workflow_effects
+    else:
+        raise RuntimeError("workflow Lisp effect summary fixpoint did not converge")
+
+    typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
+        typed_procedures,
+        procedure_catalog=procedure_catalog,
+        validate_declared=True,
+    )
+    typed_workflows = typecheck_workflow_definitions(
+        workflow_defs,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
+    )
+    return typed_procedures, typed_workflows, procedure_catalog
+
+
+def _validate_procedure_effects_and_cycles(
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    *,
+    procedure_catalog: ProcedureCatalog,
+    validate_declared: bool = True,
+) -> tuple[tuple[TypedProcedureDef, ...], ProcedureCatalog]:
+    typed_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
+    call_graph = {name: frozenset(_procedure_dependencies(procedure.typed_body.expr)) for name, procedure in typed_by_name.items()}
+    procedure_catalog = with_call_graph(procedure_catalog, call_graph)
+
+    resolved: dict[str, EffectSummary] = {}
+    visiting: list[str] = []
+
+    def visit(name: str) -> EffectSummary:
+        if name in resolved:
+            return resolved[name]
+        if name in visiting:
+            raise LispFrontendCompileError(
+                tuple(
+                    LispFrontendDiagnostic(
+                        code="proc_lowering_cycle",
+                        message=f"recursive procedure lowering cycle detected for `{cycle_name}`",
+                        span=typed_by_name[cycle_name].definition.span,
+                        form_path=typed_by_name[cycle_name].definition.form_path,
+                        expansion_stack=typed_by_name[cycle_name].definition.expansion_stack,
+                    )
+                    for cycle_name in visiting[visiting.index(name):]
+                )
+            )
+        visiting.append(name)
+        procedure = typed_by_name[name]
+        transitive_effects = set(procedure.direct_effect_summary.transitive_effects)
+        procedure_edges = set(procedure.direct_effect_summary.procedure_edges)
+        for callee in call_graph.get(name, frozenset()):
+            callee_summary = visit(callee)
+            transitive_effects.update(callee_summary.transitive_effects)
+            procedure_edges.update(callee_summary.procedure_edges)
+        summary = EffectSummary(
+            direct_effects=procedure.direct_effect_summary.direct_effects,
+            transitive_effects=frozenset(transitive_effects),
+            procedure_edges=frozenset(procedure_edges),
+        )
+        resolved[name] = summary
+        visiting.pop()
+        return summary
+
+    updated: list[TypedProcedureDef] = []
+    for procedure in typed_procedures:
+        summary = visit(procedure.definition.name)
+        if validate_declared:
+            validate_procedure_effects(
+                procedure_def=procedure.definition,
+                declared_effects=procedure.signature.declared_effects,
+                inferred_effects=summary.transitive_effects,
+            )
+        updated.append(
+            TypedProcedureDef(
+                definition=procedure.definition,
+                signature=procedure.signature,
+                typed_body=procedure.typed_body,
+                direct_effect_summary=procedure.direct_effect_summary,
+                transitive_effect_summary=summary,
+            )
+        )
+    return tuple(updated), procedure_catalog
+
+
+def _procedure_dependencies(expr: object) -> set[str]:
+    from .expressions import LetStarExpr, MatchExpr, ProcedureCallExpr, RecordExpr, CallExpr, ProviderResultExpr, CommandResultExpr, WithPhaseExpr
+
+    dependencies: set[str] = set()
+
+    def walk(node: object) -> None:
+        if isinstance(node, ProcedureCallExpr):
+            dependencies.add(node.callee_name)
+            for arg in node.args:
+                walk(arg)
+            return
+        if isinstance(node, LetStarExpr):
+            for _, binding in node.bindings:
+                walk(binding)
+            walk(node.body)
+            return
+        if isinstance(node, MatchExpr):
+            walk(node.subject)
+            for arm in node.arms:
+                walk(arm.body)
+            return
+        if isinstance(node, RecordExpr):
+            for _, field_expr in node.fields:
+                walk(field_expr)
+            return
+        if isinstance(node, CallExpr):
+            for _, binding_expr in node.bindings:
+                walk(binding_expr)
+            return
+        if isinstance(node, ProviderResultExpr):
+            walk(node.provider)
+            walk(node.prompt)
+            for input_expr in node.inputs:
+                walk(input_expr)
+            return
+        if isinstance(node, CommandResultExpr):
+            for argv_expr in node.argv:
+                walk(argv_expr)
+            return
+        if isinstance(node, WithPhaseExpr):
+            walk(node.ctx_expr)
+            walk(node.body)
+
+    walk(expr)
+    return dependencies

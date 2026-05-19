@@ -8,8 +8,10 @@ from typing import TYPE_CHECKING
 
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import elaborate_expression
 from .macros import collect_macro_catalog, expand_module_forms
+from .procedures import ProcedureCatalog
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
@@ -28,6 +30,7 @@ from .typecheck import TypedExpr, typecheck_expression
 if TYPE_CHECKING:
     from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
     from .lowering import LoweredWorkflow
+    from .procedures import TypedProcedureDef
 
 
 @dataclass(frozen=True)
@@ -105,6 +108,7 @@ class TypedWorkflowDef:
     definition: WorkflowDef
     signature: WorkflowSignature
     typed_body: TypedExpr
+    effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY
 
 
 @dataclass(frozen=True)
@@ -117,8 +121,10 @@ class WorkflowCatalog:
 class Stage3CompileResult:
     module: WorkflowLispModule
     workflow_catalog: WorkflowCatalog
+    procedure_catalog: ProcedureCatalog
     extern_environment: ExternEnvironment
     command_boundary_environment: CommandBoundaryEnvironment
+    typed_procedures: tuple["TypedProcedureDef", ...]
     typed_workflows: tuple[TypedWorkflowDef, ...]
     lowered_workflows: tuple["LoweredWorkflow", ...]
     validated_bundles: Mapping[str, "LoadedWorkflowBundle"]
@@ -317,8 +323,11 @@ def typecheck_workflow_definitions(
     *,
     type_env: FrontendTypeEnvironment,
     workflow_catalog: WorkflowCatalog,
+    procedure_catalog: ProcedureCatalog | None = None,
     extern_environment: ExternEnvironment | None = None,
     command_boundary_environment: CommandBoundaryEnvironment | None = None,
+    procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
@@ -350,14 +359,22 @@ def typecheck_workflow_definitions(
             else:
                 value_env[extern_name] = PrimitiveTypeRef(name="Prompt")
 
-        body_expr = elaborate_expression(workflow_def.body, bound_names=frozenset(value_env))
+        procedure_names = frozenset() if procedure_catalog is None else frozenset(procedure_catalog.signatures_by_name)
+        body_expr = elaborate_expression(
+            workflow_def.body,
+            bound_names=frozenset(value_env),
+            procedure_names=procedure_names,
+        )
         typed_body = typecheck_expression(
             body_expr,
             type_env=type_env,
             value_env=value_env,
             workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
             extern_environment=externs,
             command_boundary_environment=command_boundaries,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
         )
         signature = workflow_catalog.signatures_by_name[workflow_def.name]
         if typed_body.type_ref != signature.return_type_ref:
@@ -380,6 +397,7 @@ def typecheck_workflow_definitions(
                 definition=workflow_def,
                 signature=signature,
                 typed_body=typed_body,
+                effect_summary=typed_body.effect_summary,
             )
         )
     return tuple(typed_workflows)

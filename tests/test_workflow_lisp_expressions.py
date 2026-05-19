@@ -188,7 +188,20 @@ def test_elaborate_expression_rejects_unknown_expression_forms() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         elaborate_expression(_expression_syntax("(unknown-form 1)"), bound_names=frozenset())
 
-    _assert_diagnostic_code(excinfo, "expression_form_unknown")
+    _assert_diagnostic_code(excinfo, "procedure_call_unknown")
+
+
+def test_compile_stage3_elaborates_same_file_procedure_call_heads(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    fixture = FIXTURES / "valid" / "defproc_inline.orc"
+    result = compile_stage3_module(
+        fixture,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert type(result.typed_workflows[0].typed_body.expr).__name__ == "ProcedureCallExpr"
 
 
 def test_typecheck_expression_validates_record_exactness() -> None:

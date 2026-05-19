@@ -110,6 +110,17 @@ class CallExpr:
 
 
 @dataclass(frozen=True)
+class ProcedureCallExpr:
+    """One same-file procedure call."""
+
+    callee_name: str
+    args: tuple["ExprNode", ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class WithPhaseExpr:
     """One compile-time phase-scope wrapper."""
 
@@ -164,6 +175,7 @@ ExprNode = (
     | LetStarExpr
     | MatchExpr
     | CallExpr
+    | ProcedureCallExpr
     | WithPhaseExpr
     | PhaseTargetExpr
     | ProviderResultExpr
@@ -171,10 +183,20 @@ ExprNode = (
 )
 
 
-def elaborate_expression(node: SyntaxNode, *, bound_names: frozenset[str]) -> ExprNode:
+def elaborate_expression(
+    node: SyntaxNode,
+    *,
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str] = frozenset(),
+) -> ExprNode:
     """Elaborate one syntax node into the bounded Stage 2 expression AST."""
 
-    return _elaborate(syntax_node_datum(node), form_path=node.form_path, bound_names=bound_names)
+    return _elaborate(
+        syntax_node_datum(node),
+        form_path=node.form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
 
 
 def _elaborate(
@@ -182,6 +204,7 @@ def _elaborate(
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> ExprNode:
     if isinstance(datum, SyntaxString):
         return LiteralExpr(
@@ -210,7 +233,12 @@ def _elaborate(
     if isinstance(datum, SyntaxIdentifier):
         return _elaborate_symbol(datum, form_path=form_path, bound_names=bound_names)
     if isinstance(datum, SyntaxList):
-        return _elaborate_list(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_list(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     raise TypeError(f"unsupported expression datum: {type(datum)!r}")
 
 
@@ -254,6 +282,7 @@ def _elaborate_list(
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> ExprNode:
     if not datum.items:
         _raise_error(
@@ -271,24 +300,66 @@ def _elaborate_list(
             expansion_stack=datum.expansion_stack,
         )
     if head.resolved_name == "record":
-        return _elaborate_record(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_record(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "let*":
-        return _elaborate_letstar(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_letstar(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "match":
-        return _elaborate_match(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_match(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "call":
-        return _elaborate_call(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_call(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "with-phase":
-        return _elaborate_with_phase(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_with_phase(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "phase-target":
         return _elaborate_phase_target(datum, form_path=form_path)
     if head.resolved_name == "provider-result":
-        return _elaborate_provider_result(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_provider_result(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "command-result":
-        return _elaborate_command_result(datum, form_path=form_path, bound_names=bound_names)
+        return _elaborate_command_result(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name in procedure_names:
+        return _elaborate_procedure_call(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     _raise_error(
-        f"unsupported expression form `{head.display_name}`",
-        code="expression_form_unknown",
+        f"unknown same-file procedure callee `{head.display_name}`",
+        code="procedure_call_unknown",
         span=head.span,
         form_path=form_path,
         expansion_stack=head.expansion_stack,
@@ -300,6 +371,7 @@ def _elaborate_record(
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> RecordExpr:
     if len(datum.items) < 2:
         _raise_error("`record` requires a type name", span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
@@ -334,7 +406,12 @@ def _elaborate_record(
         fields.append(
             (
                 keyword_node.value[1:],
-                _elaborate(value_node, form_path=form_path, bound_names=bound_names),
+                _elaborate(
+                    value_node,
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
             )
         )
     return RecordExpr(
@@ -351,6 +428,7 @@ def _elaborate_letstar(
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> LetStarExpr:
     if len(datum.items) != 3:
         _raise_error(
@@ -389,10 +467,16 @@ def _elaborate_letstar(
             raw_binding.items[1],
             form_path=form_path,
             bound_names=frozenset(current_names),
+            procedure_names=procedure_names,
         )
         bindings.append((name_node.resolved_name, value_expr))
         current_names.add(name_node.resolved_name)
-    body = _elaborate(datum.items[2], form_path=form_path, bound_names=frozenset(current_names))
+    body = _elaborate(
+        datum.items[2],
+        form_path=form_path,
+        bound_names=frozenset(current_names),
+        procedure_names=procedure_names,
+    )
     return LetStarExpr(
         bindings=tuple(bindings),
         body=body,
@@ -407,10 +491,16 @@ def _elaborate_match(
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> MatchExpr:
     if len(datum.items) < 2:
         _raise_error("`match` requires a subject", span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
-    subject = _elaborate(datum.items[1], form_path=form_path, bound_names=bound_names)
+    subject = _elaborate(
+        datum.items[1],
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
     arms: list[MatchArm] = []
     for raw_arm in datum.items[2:]:
         if not isinstance(raw_arm, SyntaxList) or len(raw_arm.items) != 2:
@@ -448,6 +538,7 @@ def _elaborate_match(
             raw_arm.items[1],
             form_path=form_path,
             bound_names=frozenset(set(bound_names) | {binding_node.resolved_name}),
+            procedure_names=procedure_names,
         )
         arms.append(
             MatchArm(
@@ -473,6 +564,7 @@ def _elaborate_call(
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> CallExpr:
     if len(datum.items) < 2:
         _raise_error("`call` requires a callee name", span=datum.span, form_path=form_path, expansion_stack=datum.expansion_stack)
@@ -507,7 +599,12 @@ def _elaborate_call(
         bindings.append(
             (
                 keyword_node.value[1:],
-                _elaborate(value_node, form_path=form_path, bound_names=bound_names),
+                _elaborate(
+                    value_node,
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
             )
         )
     return CallExpr(
@@ -519,11 +616,38 @@ def _elaborate_call(
     )
 
 
+def _elaborate_procedure_call(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ProcedureCallExpr:
+    callee_identifier = syntax_identifier(datum.items[0])
+    assert callee_identifier is not None
+    return ProcedureCallExpr(
+        callee_name=callee_identifier.resolved_name,
+        args=tuple(
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            for item in datum.items[1:]
+        ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
 def _elaborate_with_phase(
     datum: SyntaxList,
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> WithPhaseExpr:
     if len(datum.items) != 4:
         _raise_error(
@@ -542,9 +666,19 @@ def _elaborate_with_phase(
             expansion_stack=phase_name_node.expansion_stack,
         )
     return WithPhaseExpr(
-        ctx_expr=_elaborate(datum.items[1], form_path=form_path, bound_names=bound_names),
+        ctx_expr=_elaborate(
+            datum.items[1],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
         phase_name=phase_identifier.resolved_name,
-        body=_elaborate(datum.items[3], form_path=form_path, bound_names=bound_names),
+        body=_elaborate(
+            datum.items[3],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
@@ -587,6 +721,7 @@ def _elaborate_provider_result(
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> ProviderResultExpr:
     if len(datum.items) < 6:
         _raise_error(
@@ -595,7 +730,12 @@ def _elaborate_provider_result(
             form_path=form_path,
             expansion_stack=datum.expansion_stack,
         )
-    provider = _elaborate(datum.items[1], form_path=form_path, bound_names=bound_names)
+    provider = _elaborate(
+        datum.items[1],
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
     sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`provider-result`")
     prompt_node = sections.get(":prompt")
     inputs_node = sections.get(":inputs")
@@ -624,9 +764,20 @@ def _elaborate_provider_result(
         )
     return ProviderResultExpr(
         provider=provider,
-        prompt=_elaborate(prompt_node, form_path=form_path, bound_names=bound_names),
+        prompt=_elaborate(
+            prompt_node,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
         inputs=tuple(
-            _elaborate(item, form_path=form_path, bound_names=bound_names) for item in inputs_node.items
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            for item in inputs_node.items
         ),
         returns_type_name=returns_identifier.resolved_name,
         span=datum.span,
@@ -640,6 +791,7 @@ def _elaborate_command_result(
     *,
     form_path: tuple[str, ...],
     bound_names: frozenset[str],
+    procedure_names: frozenset[str],
 ) -> CommandResultExpr:
     if len(datum.items) < 5:
         _raise_error(
@@ -685,7 +837,13 @@ def _elaborate_command_result(
     return CommandResultExpr(
         step_name=step_identifier.resolved_name,
         argv=tuple(
-            _elaborate(item, form_path=form_path, bound_names=bound_names) for item in argv_node.items
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            for item in argv_node.items
         ),
         returns_type_name=returns_identifier.resolved_name,
         span=datum.span,

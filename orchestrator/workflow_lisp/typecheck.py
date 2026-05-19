@@ -7,6 +7,16 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .effects import (
+    EMPTY_EFFECT_SUMMARY,
+    CallsWorkflowEffect,
+    EffectSummary,
+    ProcedureCallEdge,
+    UsesCommandEffect,
+    UsesProviderEffect,
+    effect_summary_from_direct,
+    merge_effect_summaries,
+)
 from .expressions import (
     CallExpr,
     CommandResultExpr,
@@ -17,6 +27,7 @@ from .expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProcedureCallExpr,
     ProviderResultExpr,
     RecordExpr,
     WithPhaseExpr,
@@ -45,6 +56,7 @@ if TYPE_CHECKING:
         ExternalToolBinding,
         WorkflowCatalog,
     )
+    from .procedures import ProcedureCatalog
 
 
 @dataclass(frozen=True)
@@ -55,6 +67,7 @@ class TypedExpr:
     type_ref: TypeRef
     span: SourceSpan
     form_path: tuple[str, ...]
+    effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY
 
 
 ValueEnvironment = Mapping[str, TypeRef]
@@ -83,9 +96,12 @@ def typecheck_expression(
     value_env: ValueEnvironment,
     proof_scope: ProofScope | None = None,
     workflow_catalog: "WorkflowCatalog | None" = None,
+    procedure_catalog: "ProcedureCatalog | None" = None,
     extern_environment: "ExternEnvironment | None" = None,
     command_boundary_environment: "CommandBoundaryEnvironment | None" = None,
     active_phase_scope: PhaseScope | None = None,
+    procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
 ) -> TypedExpr:
     """Typecheck one bounded Stage 2 expression."""
 
@@ -96,9 +112,12 @@ def typecheck_expression(
         value_env=dict(value_env),
         proof_scope=active_proof,
         workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name or {},
+        workflow_effects_by_name=workflow_effects_by_name or {},
     )
 
 
@@ -109,16 +128,18 @@ def _typecheck(
     value_env: dict[str, TypeRef],
     proof_scope: ProofScope,
     workflow_catalog: "WorkflowCatalog | None",
+    procedure_catalog: "ProcedureCatalog | None",
     extern_environment: "ExternEnvironment | None",
     command_boundary_environment: "CommandBoundaryEnvironment | None",
     active_phase_scope: PhaseScope | None,
+    procedure_effects_by_name: Mapping[str, EffectSummary],
+    workflow_effects_by_name: Mapping[str, EffectSummary],
 ) -> TypedExpr:
     if isinstance(expr, LiteralExpr):
-        return TypedExpr(
+        return _typed(
             expr=expr,
             type_ref=PrimitiveTypeRef(name=_literal_type_name(expr.literal_kind)),
-            span=expr.span,
-            form_path=expr.form_path,
+            effect=EMPTY_EFFECT_SUMMARY,
         )
     if isinstance(expr, NameExpr):
         try:
@@ -131,7 +152,7 @@ def _typecheck(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
-        return TypedExpr(expr=expr, type_ref=type_ref, span=expr.span, form_path=expr.form_path)
+        return _typed(expr=expr, type_ref=type_ref, effect=EMPTY_EFFECT_SUMMARY)
     if isinstance(expr, FieldAccessExpr):
         typed_base = _typecheck(
             expr.base,
@@ -139,9 +160,12 @@ def _typecheck(
             value_env=value_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
         )
         current_type = typed_base.type_ref
         for field_name in expr.fields:
@@ -154,7 +178,7 @@ def _typecheck(
                 type_env=type_env,
                 proof_scope=proof_scope,
             )
-        return TypedExpr(expr=expr, type_ref=current_type, span=expr.span, form_path=expr.form_path)
+        return _typed(expr=expr, type_ref=current_type, effect=typed_base.effect_summary)
     if isinstance(expr, RecordExpr):
         record_type = type_env.resolve_type(expr.type_name, span=expr.span, form_path=expr.form_path)
         if not isinstance(record_type, RecordTypeRef):
@@ -166,6 +190,7 @@ def _typecheck(
             )
         expected_fields = {field.name: field for field in record_type.definition.fields}
         seen_fields: set[str] = set()
+        field_summaries: list[EffectSummary] = []
         for field_name, field_expr in expr.fields:
             if field_name in seen_fields:
                 _raise_error(
@@ -189,10 +214,14 @@ def _typecheck(
                 value_env=value_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
                 active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
             )
+            field_summaries.append(typed_field.effect_summary)
             expected_type = type_env.resolve_type(
                 expected_field.type_name,
                 span=field_expr.span,
@@ -214,10 +243,15 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        return TypedExpr(expr=expr, type_ref=record_type, span=expr.span, form_path=expr.form_path)
+        return _typed(
+            expr=expr,
+            type_ref=record_type,
+            effect=merge_effect_summaries(*field_summaries),
+        )
     if isinstance(expr, LetStarExpr):
         local_env = dict(value_env)
         seen_names: set[str] = set()
+        binding_summaries: list[EffectSummary] = []
         for name, binding_expr in expr.bindings:
             if name in seen_names:
                 _raise_error(
@@ -232,10 +266,14 @@ def _typecheck(
                 value_env=local_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
                 active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
             )
+            binding_summaries.append(typed_binding.effect_summary)
             seen_names.add(name)
             local_env[name] = typed_binding.type_ref
         typed_body = _typecheck(
@@ -244,11 +282,18 @@ def _typecheck(
             value_env=local_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
         )
-        return TypedExpr(expr=expr, type_ref=typed_body.type_ref, span=expr.span, form_path=expr.form_path)
+        return _typed(
+            expr=expr,
+            type_ref=typed_body.type_ref,
+            effect=merge_effect_summaries(*binding_summaries, typed_body.effect_summary),
+        )
     if isinstance(expr, MatchExpr):
         typed_subject = _typecheck(
             expr.subject,
@@ -256,9 +301,12 @@ def _typecheck(
             value_env=value_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
         )
         if not isinstance(typed_subject.type_ref, UnionTypeRef):
             _raise_error(
@@ -271,6 +319,7 @@ def _typecheck(
         seen_variants: set[str] = set()
         expected_variants = {variant.name for variant in union_type.definition.variants}
         arm_result_type: TypeRef | None = None
+        arm_summaries: list[EffectSummary] = []
         for arm in expr.arms:
             if arm.variant_name in seen_variants:
                 _raise_error(
@@ -301,10 +350,14 @@ def _typecheck(
                 value_env=arm_env,
                 proof_scope=ProofScope(facts=arm_facts),
                 workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
                 active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
             )
+            arm_summaries.append(typed_body.effect_summary)
             if arm_result_type is None:
                 arm_result_type = typed_body.type_ref
             elif typed_body.type_ref != arm_result_type:
@@ -330,7 +383,11 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        return TypedExpr(expr=expr, type_ref=arm_result_type, span=expr.span, form_path=expr.form_path)
+        return _typed(
+            expr=expr,
+            type_ref=arm_result_type,
+            effect=merge_effect_summaries(typed_subject.effect_summary, *arm_summaries),
+        )
     if isinstance(expr, CallExpr):
         if workflow_catalog is None:
             raise TypeError("workflow_catalog is required for CallExpr typechecking")
@@ -344,6 +401,7 @@ def _typecheck(
             )
         expected_bindings = dict(signature.params)
         seen_bindings: set[str] = set()
+        binding_summaries: list[EffectSummary] = []
         for binding_name, binding_expr in expr.bindings:
             if binding_name in seen_bindings:
                 _raise_error(
@@ -367,10 +425,14 @@ def _typecheck(
                 value_env=value_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
                 active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
             )
+            binding_summaries.append(typed_binding.effect_summary)
             if typed_binding.type_ref != expected_type:
                 _raise_error(
                     f"call binding `{binding_name}` expected `{_type_label(expected_type)}`"
@@ -387,7 +449,70 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        return TypedExpr(expr=expr, type_ref=signature.return_type_ref, span=expr.span, form_path=expr.form_path)
+        call_summary = effect_summary_from_direct(
+            direct_effects=(CallsWorkflowEffect(subject=(expr.callee_name,)),),
+        )
+        return _typed(
+            expr=expr,
+            type_ref=signature.return_type_ref,
+            effect=merge_effect_summaries(
+                *binding_summaries,
+                call_summary,
+                workflow_effects_by_name.get(expr.callee_name, EMPTY_EFFECT_SUMMARY),
+            ),
+        )
+    if isinstance(expr, ProcedureCallExpr):
+        if procedure_catalog is None:
+            raise TypeError("procedure_catalog is required for ProcedureCallExpr typechecking")
+        signature = procedure_catalog.signatures_by_name.get(expr.callee_name)
+        if signature is None:
+            _raise_error(
+                f"unknown procedure callee `{expr.callee_name}`",
+                code="procedure_call_unknown",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        if len(expr.args) != len(signature.params):
+            _raise_error(
+                f"procedure `{expr.callee_name}` expected {len(signature.params)} positional arguments but got {len(expr.args)}",
+                code="procedure_arity_mismatch",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        arg_summaries: list[EffectSummary] = []
+        for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
+            typed_arg = _typecheck(
+                arg_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+            )
+            arg_summaries.append(typed_arg.effect_summary)
+            if typed_arg.type_ref != expected_type:
+                _raise_error(
+                    f"procedure argument `{param_name}` expected `{_type_label(expected_type)}`"
+                    f" but got `{_type_label(typed_arg.type_ref)}`",
+                    code="type_mismatch",
+                    span=arg_expr.span,
+                    form_path=arg_expr.form_path,
+                )
+        callee_summary = procedure_effects_by_name.get(expr.callee_name, EMPTY_EFFECT_SUMMARY)
+        procedure_summary = effect_summary_from_direct(
+            direct_effects=callee_summary.transitive_effects,
+            procedure_edges=(ProcedureCallEdge(callee_name=expr.callee_name),),
+        )
+        return _typed(
+            expr=expr,
+            type_ref=signature.return_type_ref,
+            effect=merge_effect_summaries(*arg_summaries, procedure_summary),
+        )
     if isinstance(expr, WithPhaseExpr):
         if active_phase_scope is not None:
             _raise_error(
@@ -402,9 +527,12 @@ def _typecheck(
             value_env=value_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
         )
         phase_scope = build_implementation_attempt_phase_scope(
             typed_context.type_ref,
@@ -419,11 +547,18 @@ def _typecheck(
             value_env=value_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             active_phase_scope=phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
         )
-        return TypedExpr(expr=expr, type_ref=typed_body.type_ref, span=expr.span, form_path=expr.form_path)
+        return _typed(
+            expr=expr,
+            type_ref=typed_body.type_ref,
+            effect=merge_effect_summaries(typed_context.effect_summary, typed_body.effect_summary),
+        )
     if isinstance(expr, PhaseTargetExpr):
         if active_phase_scope is None:
             _raise_error(
@@ -439,7 +574,7 @@ def _typecheck(
             span=expr.span,
             form_path=expr.form_path,
         )
-        return TypedExpr(expr=expr, type_ref=target_type, span=expr.span, form_path=expr.form_path)
+        return _typed(expr=expr, type_ref=target_type, effect=EMPTY_EFFECT_SUMMARY)
     if isinstance(expr, ProviderResultExpr):
         return_type = type_env.resolve_type(
             expr.returns_type_name,
@@ -469,9 +604,12 @@ def _typecheck(
             value_env=value_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
         )
         typed_prompt = _typecheck_expected_extern_operand(
             expr.prompt,
@@ -480,9 +618,12 @@ def _typecheck(
             value_env=value_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
         )
         if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
             _raise_error(
@@ -536,30 +677,55 @@ def _typecheck(
                 form_path=expr.prompt.form_path,
                 expansion_stack=expr.prompt.expansion_stack,
             )
+        input_summaries: list[EffectSummary] = []
         for input_expr in expr.inputs:
-            _typecheck(
+            typed_input = _typecheck(
                 input_expr,
                 type_env=type_env,
                 value_env=value_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
                 active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
             )
-        return TypedExpr(expr=expr, type_ref=return_type, span=expr.span, form_path=expr.form_path)
+            input_summaries.append(typed_input.effect_summary)
+        provider_name = expr.provider.name if isinstance(expr.provider, NameExpr) else "provider-result"
+        provider_summary = effect_summary_from_direct(
+            direct_effects=(
+                UsesProviderEffect(subject=tuple(provider_name.split("."))),
+            )
+        )
+        return _typed(
+            expr=expr,
+            type_ref=return_type,
+            effect=merge_effect_summaries(
+                typed_provider.effect_summary,
+                typed_prompt.effect_summary,
+                *input_summaries,
+                provider_summary,
+            ),
+        )
     if isinstance(expr, CommandResultExpr):
+        arg_summaries: list[EffectSummary] = []
         for arg_expr in expr.argv:
-            _typecheck(
+            typed_arg = _typecheck(
                 arg_expr,
                 type_env=type_env,
                 value_env=value_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
                 active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
             )
+            arg_summaries.append(typed_arg.effect_summary)
         command_binding = None
         if command_boundary_environment is not None:
             command_binding = command_boundary_environment.bindings_by_name.get(expr.step_name)
@@ -597,8 +763,27 @@ def _typecheck(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
-        return TypedExpr(expr=expr, type_ref=return_type, span=expr.span, form_path=expr.form_path)
+        command_summary = effect_summary_from_direct(
+            direct_effects=(
+                UsesCommandEffect(subject=(expr.step_name,)),
+            )
+        )
+        return _typed(
+            expr=expr,
+            type_ref=return_type,
+            effect=merge_effect_summaries(*arg_summaries, command_summary),
+        )
     raise TypeError(f"unsupported expression node: {type(expr)!r}")
+
+
+def _typed(*, expr: ExprNode, type_ref: TypeRef, effect: EffectSummary) -> TypedExpr:
+    return TypedExpr(
+        expr=expr,
+        type_ref=type_ref,
+        effect_summary=effect,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
 
 
 def _typecheck_expected_extern_operand(
@@ -609,16 +794,18 @@ def _typecheck_expected_extern_operand(
     value_env: dict[str, TypeRef],
     proof_scope: ProofScope,
     workflow_catalog: "WorkflowCatalog | None",
+    procedure_catalog: "ProcedureCatalog | None",
     extern_environment: "ExternEnvironment | None",
     command_boundary_environment: "CommandBoundaryEnvironment | None",
     active_phase_scope: PhaseScope | None,
+    procedure_effects_by_name: Mapping[str, EffectSummary],
+    workflow_effects_by_name: Mapping[str, EffectSummary],
 ) -> TypedExpr:
     if isinstance(expr, NameExpr) and expr.name not in value_env:
-        return TypedExpr(
+        return _typed(
             expr=expr,
             type_ref=PrimitiveTypeRef(name=expected_primitive),
-            span=expr.span,
-            form_path=expr.form_path,
+            effect=EMPTY_EFFECT_SUMMARY,
         )
     return _typecheck(
         expr,
@@ -626,9 +813,12 @@ def _typecheck_expected_extern_operand(
         value_env=value_env,
         proof_scope=proof_scope,
         workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         active_phase_scope=active_phase_scope,
+        procedure_effects_by_name=procedure_effects_by_name,
+        workflow_effects_by_name=workflow_effects_by_name,
     )
 
 

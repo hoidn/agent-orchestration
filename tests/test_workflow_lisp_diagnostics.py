@@ -257,6 +257,45 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_name_unknow
     assert "macro definition at" in rendered
 
 
+def test_compile_stage3_renders_procedure_provenance_notes_for_shared_validation_errors(tmp_path: Path) -> None:
+    path = tmp_path / "procedure_validation_notes.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath EscapedReport",
+                "    :kind relpath",
+                '    :under "../escape"',
+                "    :must-exist true)",
+                "  (defrecord EscapedSummary",
+                "    (report EscapedReport))",
+                "  (defproc escaped-summary",
+                "    ((report_path EscapedReport))",
+                "    -> EscapedSummary",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record EscapedSummary",
+                "      :report report_path))",
+                "  (defworkflow orchestrate",
+                "    ((report_path EscapedReport))",
+                "    -> EscapedSummary",
+                "    (escaped-summary report_path)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=True, workspace_root=tmp_path)
+
+    rendered = render_diagnostic(excinfo.value.diagnostics[0])
+
+    assert "procedure call site at" in rendered
+    assert "procedure definition at" in rendered
+
+
 def test_compile_stage3_renders_macro_expansion_notes_for_downstream_provider_parse_errors(tmp_path: Path) -> None:
     path = tmp_path / "macro_provider_result_invalid_inputs.orc"
     path.write_text(

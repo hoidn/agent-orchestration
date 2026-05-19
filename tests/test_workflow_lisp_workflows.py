@@ -247,6 +247,23 @@ def test_build_workflow_catalog_accepts_macro_expanded_top_level_workflows() -> 
     assert tuple(workflow_catalog.signatures_by_name) == ("command_checks", "provider_attempt")
 
 
+def test_compile_stage3_module_exposes_procedure_catalog_without_changing_workflow_signatures(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    result = compile_stage3_module(
+        FIXTURES / "valid" / "defproc_inline.orc",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert tuple(result.workflow_catalog.signatures_by_name) == ("orchestrate",)
+    assert tuple(result.procedure_catalog.signatures_by_name) == ("build-checks", "copy-checks")
+    assert [procedure.definition.name for procedure in result.typed_procedures] == [
+        "build-checks",
+        "copy-checks",
+    ]
+
+
 def test_phase_translation_fixture_uses_extern_symbols_without_workflow_transport() -> None:
     syntax_module = _build_syntax_module(PHASE_FIXTURE)
     workflow_def = elaborate_workflow_definitions(syntax_module)[0]

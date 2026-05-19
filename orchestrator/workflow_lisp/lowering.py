@@ -22,9 +22,11 @@ from .expressions import (
     CommandResultExpr,
     FieldAccessExpr,
     LetStarExpr,
+    LiteralExpr,
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProcedureCallExpr,
     ProviderResultExpr,
     RecordExpr,
     WithPhaseExpr,
@@ -40,12 +42,17 @@ from .spans import SourceSpan
 from .syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
 from .type_env import FrontendTypeEnvironment, RecordTypeRef, TypeRef
 from .typecheck import TypedExpr
+from .procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
 from .workflows import (
     CommandBoundaryEnvironment,
     ExternEnvironment,
     PromptExtern,
     ProviderExtern,
+    WorkflowDef,
+    WorkflowParam,
+    WorkflowSignature,
     TypedWorkflowDef,
+    analyze_workflow_boundary_type,
 )
 
 _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
@@ -56,6 +63,7 @@ class LoweringOrigin:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: tuple[object, ...] = ()
+    notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -81,6 +89,8 @@ class LoweredWorkflow:
 def lower_workflow_definitions(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     *,
+    typed_procedures: tuple[TypedProcedureDef, ...] = (),
+    procedure_catalog: ProcedureCatalog | None = None,
     workflow_path: Path,
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
@@ -88,7 +98,23 @@ def lower_workflow_definitions(
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower typed workflows into authored workflow mappings."""
 
-    workflows_by_name = {workflow.definition.name: workflow for workflow in typed_workflows}
+    typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
+    resolved_procedures = _resolve_procedure_lowering(
+        typed_procedures,
+        typed_workflows=typed_workflows,
+        workflow_path=workflow_path,
+        type_env=type_env or FrontendTypeEnvironment.from_module(_definition_only_module(workflow_path)),
+    )
+    private_workflows = {
+        procedure.generated_workflow_name: _private_workflow_from_procedure(procedure)
+        for procedure in resolved_procedures.values()
+        if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW
+        and procedure.generated_workflow_name is not None
+    }
+    workflows_by_name = {
+        **{workflow.definition.name: workflow for workflow in typed_workflows},
+        **private_workflows,
+    }
     resolved_type_env = type_env or FrontendTypeEnvironment.from_module(_definition_only_module(workflow_path))
     lowered_by_name: dict[str, LoweredWorkflow] = {}
     visiting: set[str] = set()
@@ -112,7 +138,10 @@ def lower_workflow_definitions(
         visiting.add(workflow_name)
         typed_workflow = workflows_by_name[workflow_name]
 
-        for dependency in _typed_workflow_dependencies(typed_workflow):
+        for dependency in _typed_workflow_dependencies(
+            typed_workflow,
+            typed_procedures=resolved_procedures,
+        ):
             if dependency in workflows_by_name:
                 lower_one(dependency)
 
@@ -123,14 +152,21 @@ def lower_workflow_definitions(
             command_boundary_environment=command_boundary_environment,
             lowered_callees=lowered_by_name,
             type_env=resolved_type_env,
+            typed_procedures=resolved_procedures,
         )
         lowered_by_name[workflow_name] = lowered
         visiting.remove(workflow_name)
         return lowered
 
+    private_order = [name for name in private_workflows]
+    for workflow_name in private_order:
+        lower_one(workflow_name)
+
     ordered: list[LoweredWorkflow] = []
     for workflow in typed_workflows:
         ordered.append(lower_one(workflow.definition.name))
+    for workflow_name in private_order:
+        ordered.append(lowered_by_name[workflow_name])
     return tuple(ordered)
 
 
@@ -193,29 +229,35 @@ def _lower_one_workflow(
     command_boundary_environment: CommandBoundaryEnvironment,
     lowered_callees: Mapping[str, LoweredWorkflow],
     type_env: FrontendTypeEnvironment,
+    typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> LoweredWorkflow:
     inputs, outputs, flattened_fields = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
+    workflow_origin = _origin_for_workflow(typed_workflow, typed_procedures=typed_procedures)
     origin_outputs = {
-        field.generated_name: _origin_from_source(typed_workflow.definition)
+        field.generated_name: workflow_origin
         for field in flattened_fields
     }
 
     context = _LoweringContext(
         workflow_name=typed_workflow.definition.name,
+        step_name_prefix=typed_workflow.definition.name,
         workflow_path=workflow_path,
         signature=typed_workflow.signature,
         authored_input_contracts=MappingProxyType({name: dict(definition) for name, definition in authored_inputs.items()}),
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         lowered_callees=lowered_callees,
+        typed_procedures=typed_procedures,
         type_env=type_env,
         step_spans={},
         generated_input_spans={},
         generated_output_spans=origin_outputs,
         generated_path_spans={},
         top_level_artifacts={},
+        inline_call_counters={},
+        origin_notes=workflow_origin.notes,
         return_output_contracts=MappingProxyType(
             {
                 name.removeprefix("return__"): dict(definition)
@@ -225,6 +267,17 @@ def _lower_one_workflow(
     )
     local_values = _signature_local_values(typed_workflow)
     steps, terminal = _lower_expression(typed_workflow.typed_body, context=context, local_values=local_values)
+
+    if context.origin_notes:
+        noted_origin = LoweringOrigin(
+            span=workflow_origin.span,
+            form_path=workflow_origin.form_path,
+            expansion_stack=workflow_origin.expansion_stack,
+            notes=context.origin_notes,
+        )
+        for key in list(context.generated_output_spans):
+            if context.generated_output_spans[key] == workflow_origin:
+                context.generated_output_spans[key] = noted_origin
 
     for hidden_input_name, origin in terminal.hidden_inputs.items():
         authored_inputs[hidden_input_name] = {
@@ -251,7 +304,12 @@ def _lower_one_workflow(
         typed_workflow=typed_workflow,
         authored_mapping=authored_mapping,
         origin_map=LoweringOriginMap(
-            workflow_origin=_origin_from_source(typed_workflow.definition),
+            workflow_origin=LoweringOrigin(
+                span=workflow_origin.span,
+                form_path=workflow_origin.form_path,
+                expansion_stack=workflow_origin.expansion_stack,
+                notes=context.origin_notes or workflow_origin.notes,
+            ),
             step_spans=MappingProxyType(dict(context.step_spans)),
             generated_input_spans=MappingProxyType(dict(context.generated_input_spans)),
             generated_output_spans=MappingProxyType(dict(context.generated_output_spans)),
@@ -272,18 +330,22 @@ class _TerminalResult:
 @dataclass
 class _LoweringContext:
     workflow_name: str
+    step_name_prefix: str
     workflow_path: Path
     signature: object
     authored_input_contracts: Mapping[str, Mapping[str, Any]]
     extern_environment: ExternEnvironment
     command_boundary_environment: CommandBoundaryEnvironment
     lowered_callees: Mapping[str, LoweredWorkflow]
+    typed_procedures: Mapping[str, TypedProcedureDef]
     type_env: FrontendTypeEnvironment
     step_spans: dict[str, LoweringOrigin]
     generated_input_spans: dict[str, LoweringOrigin]
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: dict[str, LoweringOrigin]
     top_level_artifacts: dict[str, Any]
+    inline_call_counters: dict[str, int]
+    origin_notes: tuple[str, ...]
     return_output_contracts: Mapping[str, Mapping[str, Any]]
     phase_scope: "_ActivePhaseScope | None" = None
 
@@ -313,8 +375,20 @@ def _origin_from_source(source: object, *, span: SourceSpan | None = None) -> Lo
     )
 
 
+def _origin_from_context_source(context: _LoweringContext, source: object, *, span: SourceSpan | None = None) -> LoweringOrigin:
+    base = _origin_from_source(source, span=span)
+    if not context.origin_notes:
+        return base
+    return LoweringOrigin(
+        span=base.span,
+        form_path=base.form_path,
+        expansion_stack=base.expansion_stack,
+        notes=context.origin_notes,
+    )
+
+
 def _record_step_origin(context: _LoweringContext, *, step_name: str, step_id: str, source: object) -> None:
-    origin = _origin_from_source(source)
+    origin = _origin_from_context_source(context, source)
     context.step_spans[step_name] = origin
     context.step_spans[step_id] = origin
 
@@ -327,15 +401,18 @@ def _lower_expression(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     expr = typed_expr.expr
     if isinstance(expr, CommandResultExpr):
-        return _lower_command_result(typed_expr, context=context)
+        return _lower_command_result(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ProviderResultExpr):
         return _lower_provider_result(
             expr,
             result_type=typed_expr.type_ref,
             context=context,
+            local_values=local_values,
         )
     if isinstance(expr, CallExpr):
         return _lower_call_expr(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, ProcedureCallExpr):
+        return _lower_procedure_call_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, RecordExpr):
         return _lower_record_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, LetStarExpr):
@@ -354,10 +431,11 @@ def _lower_command_result(
     typed_expr: TypedExpr,
     *,
     context: _LoweringContext,
+    local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     expr = typed_expr.expr
     assert isinstance(expr, CommandResultExpr)
-    step_name = f"{context.workflow_name}__{expr.step_name}"
+    step_name = f"{context.step_name_prefix}__{expr.step_name}"
     step_id = _normalize_generated_step_id(step_name)
     binding = context.command_boundary_environment.bindings_by_name[expr.step_name]
     hidden_input_name = f"__write_root__{step_id}__result_bundle"
@@ -371,10 +449,10 @@ def _lower_command_result(
     authored_contract = dict(bundle_contract.payload)
     authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
-    context.generated_path_spans[authored_contract["path"]] = _origin_from_source(expr)
+    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, expr)
 
     command = list(binding.stable_command)
-    command.extend(_render_argv_tail(expr.argv[len(binding.stable_command) :], local_values=_signature_local_values(context)))
+    command.extend(_render_argv_tail(expr.argv[len(binding.stable_command) :], local_values=local_values))
     step: dict[str, Any] = {
         "name": step_name,
         "id": step_id,
@@ -386,7 +464,7 @@ def _lower_command_result(
         step_id=step_id,
         output_refs=_record_output_refs(step_name, typed_expr.type_ref),
         output_kind="step",
-        hidden_inputs={hidden_input_name: _origin_from_source(expr)},
+        hidden_inputs={hidden_input_name: _origin_from_context_source(context, expr)},
     )
 
 
@@ -395,9 +473,10 @@ def _lower_provider_result(
     *,
     result_type: TypeRef,
     context: _LoweringContext,
+    local_values: Mapping[str, Any],
     step_name: str | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    provider_step_name = step_name or f"{context.workflow_name}__result"
+    provider_step_name = step_name or f"{context.step_name_prefix}__result"
     provider_step_id = _normalize_generated_step_id(provider_step_name)
     hidden_input_name = f"__write_root__{provider_step_id}__result_bundle"
     provider_binding = context.extern_environment.bindings_by_name.get(expr.provider.name)
@@ -433,6 +512,7 @@ def _lower_provider_result(
             _build_phase_prompt_input_prelude(
                 expr,
                 context=context,
+                local_values=local_values,
             )
         )
         provider_step["consumes"] = [
@@ -465,9 +545,9 @@ def _lower_provider_result(
         ]
     else:
         authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
-        hidden_inputs[hidden_input_name] = _origin_from_source(expr)
+        hidden_inputs[hidden_input_name] = _origin_from_context_source(context, expr)
     _record_step_origin(context, step_name=provider_step_name, step_id=provider_step_id, source=expr)
-    context.generated_path_spans[authored_contract["path"]] = _origin_from_source(expr)
+    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, expr)
     generated_steps.append(provider_step)
     return generated_steps, _TerminalResult(
         step_name=provider_step_name,
@@ -494,7 +574,7 @@ def _lower_call_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
-    step_name = f"{context.workflow_name}__call_{expr.callee_name}"
+    step_name = f"{context.step_name_prefix}__call_{expr.callee_name}"
     step_id = _normalize_generated_step_id(step_name)
     with_bindings: dict[str, Any] = {}
     binding_by_name = dict(expr.bindings)
@@ -535,6 +615,92 @@ def _lower_call_expr(
     )
 
 
+def _lower_procedure_call_expr(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, ProcedureCallExpr)
+    procedure = context.typed_procedures.get(expr.callee_name)
+    if procedure is None:
+        raise _compile_error(
+            code="procedure_call_unknown",
+            message=f"unknown procedure callee `{expr.callee_name}` during lowering",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+        context.origin_notes = _procedure_provenance_notes(expr, procedure)
+        assert procedure.generated_workflow_name is not None
+        callee = context.lowered_callees.get(procedure.generated_workflow_name)
+        if callee is None:
+            raise _compile_error(
+                code="proc_private_workflow_boundary_invalid",
+                message=f"generated private workflow `{procedure.generated_workflow_name}` was not lowered",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        step_name = f"{context.step_name_prefix}__call_{expr.callee_name}"
+        step_id = _normalize_generated_step_id(step_name)
+        with_bindings: dict[str, Any] = {}
+        for arg_expr, (param_name, param_type) in zip(expr.args, procedure.signature.params, strict=True):
+            if isinstance(param_type, RecordTypeRef):
+                for generated_name, field_path in _flatten_boundary_leaf_paths(param_type, generated_name=param_name):
+                    with_bindings[generated_name] = _render_call_binding_ref(
+                        arg_expr,
+                        local_values=local_values,
+                        field_path=field_path,
+                    )
+            else:
+                with_bindings[param_name] = _render_call_binding_ref(arg_expr, local_values=local_values)
+        for managed_input in _managed_inputs_from_mapping(callee.authored_mapping):
+            with_bindings[managed_input] = (
+                f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{step_name}/{expr.callee_name}/{managed_input}.json"
+            )
+        _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+        return [{"name": step_name, "id": step_id, "call": procedure.generated_workflow_name, "with": with_bindings}], _TerminalResult(
+            step_name=step_name,
+            step_id=step_id,
+            output_refs={
+                output_name: f"root.steps.{step_name}.artifacts.{output_name}"
+                for output_name, _ in _flatten_boundary_leaf_paths(typed_expr.type_ref, generated_name="return")
+            },
+            output_kind="call",
+            hidden_inputs={},
+        )
+
+    prefix_ordinal = context.inline_call_counters.get(expr.callee_name, 0) + 1
+    context.inline_call_counters[expr.callee_name] = prefix_ordinal
+    context.origin_notes = _procedure_provenance_notes(expr, procedure)
+    child_locals = dict(local_values)
+    for arg_expr, (param_name, _) in zip(expr.args, procedure.signature.params, strict=True):
+        child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
+    child_context = _LoweringContext(
+        workflow_name=context.workflow_name,
+        step_name_prefix=f"{context.step_name_prefix}__{expr.callee_name}_{prefix_ordinal}",
+        workflow_path=context.workflow_path,
+        signature=context.signature,
+        authored_input_contracts=context.authored_input_contracts,
+        extern_environment=context.extern_environment,
+        command_boundary_environment=context.command_boundary_environment,
+        lowered_callees=context.lowered_callees,
+        typed_procedures=context.typed_procedures,
+        type_env=context.type_env,
+        step_spans=context.step_spans,
+        generated_input_spans=context.generated_input_spans,
+        generated_output_spans=context.generated_output_spans,
+        generated_path_spans=context.generated_path_spans,
+        top_level_artifacts=context.top_level_artifacts,
+        inline_call_counters=context.inline_call_counters,
+        origin_notes=_procedure_provenance_notes(expr, procedure),
+        return_output_contracts=context.return_output_contracts,
+        phase_scope=context.phase_scope,
+    )
+    return _lower_expression(procedure.typed_body, context=child_context, local_values=child_locals)
+
+
 def _lower_let_star(
     typed_expr: TypedExpr,
     *,
@@ -558,7 +724,7 @@ def _lower_let_star(
             span=binding_expr.span,
             form_path=binding_expr.form_path,
         )
-    provider_step_name = f"{context.workflow_name}__{binding_name}"
+    provider_step_name = f"{context.step_name_prefix}__{binding_name}"
     binding_type = context.type_env.resolve_type(
         binding_expr.returns_type_name,
         span=binding_expr.span,
@@ -568,6 +734,7 @@ def _lower_let_star(
         binding_expr,
         result_type=binding_type,
         context=context,
+        local_values=local_values,
         step_name=provider_step_name,
     )
     local_bindings = dict(local_values)
@@ -615,7 +782,7 @@ def _lower_match_expr(
     provider_step_name: str,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
-    match_step_name = f"{context.workflow_name}__match_{binding_name}"
+    match_step_name = f"{context.step_name_prefix}__match_{binding_name}"
     match_step_id = _normalize_generated_step_id(match_step_name)
     cases: dict[str, Any] = {}
     for arm in match_expr.arms:
@@ -750,6 +917,19 @@ def _signature_local_values(typed_workflow: TypedWorkflowDef | _LoweringContext)
     return local_values
 
 
+def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str, Any]:
+    local_values: dict[str, Any] = {}
+    for param_name, param_type in procedure.signature.params:
+        if isinstance(param_type, RecordTypeRef):
+            local_values[param_name] = _build_record_local_value(
+                param_type,
+                generated_name=param_name,
+            )
+            continue
+        local_values[param_name] = f"inputs.{param_name}"
+    return local_values
+
+
 def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> list[str]:
     rendered: list[str] = []
     for expr in argv:
@@ -758,11 +938,11 @@ def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> li
 
 
 def _render_scalar_expr(expr: Any, *, local_values: Mapping[str, Any]) -> str:
-    from .expressions import LiteralExpr
-
     if isinstance(expr, LiteralExpr):
         return str(expr.value)
-    value = _resolve_expr_local_value(expr, local_values=local_values)
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if isinstance(value, LiteralExpr):
+        return str(value.value)
     if isinstance(value, str):
         return "${" + value + "}"
     raise _compile_error(
@@ -803,10 +983,63 @@ def _resolve_expr_local_value(expr: Any, *, local_values: Mapping[str, Any]) -> 
     return None
 
 
+def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) -> Any:
+    if isinstance(expr, LiteralExpr):
+        return expr
+    resolved = _resolve_expr_local_value(expr, local_values=local_values)
+    if isinstance(resolved, (str, Mapping, LiteralExpr, RecordExpr)):
+        return resolved
+    if resolved is not None:
+        if resolved is expr:
+            return expr
+        return _resolve_inline_expr_value(resolved, local_values=local_values)
+    if isinstance(expr, NameExpr):
+        bound = local_values.get(expr.name)
+        if bound is None:
+            return None
+        if isinstance(bound, (str, Mapping)):
+            return bound
+        if bound is expr:
+            return expr
+        return _resolve_inline_expr_value(bound, local_values=local_values)
+    if isinstance(expr, FieldAccessExpr):
+        return _resolve_inline_field_value(
+            local_values.get(expr.base.name),
+            field_path=tuple(expr.fields),
+            local_values=local_values,
+        )
+    return expr
+
+
+def _resolve_inline_field_value(
+    value: Any,
+    *,
+    field_path: tuple[str, ...],
+    local_values: Mapping[str, Any],
+) -> Any:
+    current = value
+    for field_name in field_path:
+        if current is not None and not isinstance(current, (Mapping, RecordExpr)):
+            next_current = _resolve_inline_expr_value(current, local_values=local_values)
+            if next_current is current:
+                return None
+            current = next_current
+        if isinstance(current, Mapping):
+            current = current.get(field_name)
+            continue
+        if isinstance(current, RecordExpr):
+            current = _record_field_value(current, field_name)
+            current = _resolve_inline_expr_value(current, local_values=local_values)
+            continue
+        return None
+    return current
+
+
 def _build_phase_prompt_input_prelude(
     expr: ProviderResultExpr,
     *,
     context: _LoweringContext,
+    local_values: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
     phase_scope = context.phase_scope
     if phase_scope is None:
@@ -835,12 +1068,11 @@ def _build_phase_prompt_input_prelude(
 
     values: list[dict[str, Any]] = []
     publishes: list[dict[str, str]] = []
-    signature_locals = _signature_local_values(context)
     for artifact_name, input_expr in phase_prompt_inputs:
         raw_source_node = _resolve_phase_prompt_input_source(
             input_expr,
             context=context,
-            local_values=signature_locals,
+            local_values=local_values,
         )
         input_name = _materialize_source_input_name(raw_source_node)
         if artifact_name in {"design", "plan"} and input_name is None:
@@ -886,7 +1118,7 @@ def _build_phase_prompt_input_prelude(
             span=input_expr.span,
             form_path=input_expr.form_path,
         )
-        context.generated_path_spans[pointer_path] = _origin_from_source(input_expr)
+        context.generated_path_spans[pointer_path] = _origin_from_context_source(context, input_expr)
         publishes.append({"artifact": artifact_name, "from": artifact_name})
 
     step_name = "MaterializeImplementationAttemptPromptInputs"
@@ -927,7 +1159,7 @@ def _resolve_phase_prompt_input_source(
             )
         return _materialize_source_from_ref(target_ref)
 
-    value = _resolve_expr_local_value(expr, local_values=local_values)
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(value, str):
         return _materialize_source_from_ref(value)
     raise _compile_error(
@@ -1248,6 +1480,33 @@ def _first_case_output_ref(case_outputs: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _origin_for_workflow(
+    typed_workflow: TypedWorkflowDef,
+    *,
+    typed_procedures: Mapping[str, TypedProcedureDef],
+) -> LoweringOrigin:
+    body_expr = typed_workflow.typed_body.expr
+    if isinstance(body_expr, ProcedureCallExpr):
+        procedure = typed_procedures.get(body_expr.callee_name)
+        if procedure is not None and procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE:
+            return LoweringOrigin(
+                span=typed_workflow.definition.span,
+                form_path=typed_workflow.definition.form_path,
+                expansion_stack=typed_workflow.definition.expansion_stack,
+                notes=_procedure_provenance_notes(body_expr, procedure),
+            )
+    return _origin_from_source(typed_workflow.definition)
+
+
+def _procedure_provenance_notes(call_expr: ProcedureCallExpr, procedure: TypedProcedureDef) -> tuple[str, ...]:
+    call_start = call_expr.span.start
+    definition_start = procedure.definition.span.start
+    return (
+        f"procedure call site at {call_start.path}:{call_start.line}:{call_start.column}",
+        f"procedure definition at {definition_start.path}:{definition_start.line}:{definition_start.column}",
+    )
+
+
 def _lower_match_output_field(
     *,
     record_expr: RecordExpr,
@@ -1317,8 +1576,8 @@ def _lower_record_expr(
             )
         output_refs[output_name] = source_ref
     return [], _TerminalResult(
-        step_name=context.workflow_name,
-        step_id=f"{_normalize_generated_step_id(context.workflow_name)}__return_projection",
+        step_name=context.step_name_prefix,
+        step_id=f"{_normalize_generated_step_id(context.step_name_prefix)}__return_projection",
         output_refs=output_refs,
         output_kind="projection",
         hidden_inputs={},
@@ -1326,7 +1585,7 @@ def _lower_record_expr(
 
 
 def _render_existing_output_ref(expr: Any, *, local_values: Mapping[str, Any]) -> str | None:
-    value = _resolve_expr_local_value(expr, local_values=local_values)
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
     if not isinstance(value, str):
         return None
     if value.startswith("root.steps.") or value.startswith("self.steps.") or value.startswith("inputs."):
@@ -1350,7 +1609,7 @@ def _resolve_active_phase_scope(
             span=expr.span,
             form_path=expr.form_path,
         )
-    context_value = _resolve_expr_local_value(expr.ctx_expr, local_values=local_values)
+    context_value = _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values)
     if not isinstance(context_value, Mapping):
         raise _compile_error(
             code="phase_translation_body_invalid",
@@ -1392,18 +1651,22 @@ def _copy_context_with_phase_scope(
 ) -> _LoweringContext:
     return _LoweringContext(
         workflow_name=context.workflow_name,
+        step_name_prefix=context.step_name_prefix,
         workflow_path=context.workflow_path,
         signature=context.signature,
         authored_input_contracts=context.authored_input_contracts,
         extern_environment=context.extern_environment,
         command_boundary_environment=context.command_boundary_environment,
         lowered_callees=context.lowered_callees,
+        typed_procedures=context.typed_procedures,
         type_env=context.type_env,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         top_level_artifacts=context.top_level_artifacts,
+        inline_call_counters=context.inline_call_counters,
+        origin_notes=context.origin_notes,
         return_output_contracts=context.return_output_contracts,
         phase_scope=phase_scope,
     )
@@ -1421,12 +1684,391 @@ def _record_field_value(record_expr: RecordExpr, field_name: str) -> Any:
     )
 
 
-def _typed_workflow_dependencies(typed_workflow: TypedWorkflowDef) -> set[str]:
+def _resolve_procedure_lowering(
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    *,
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    workflow_path: Path,
+    type_env: FrontendTypeEnvironment,
+) -> Mapping[str, TypedProcedureDef]:
+    call_counts, lowerable_call_sites = _procedure_private_call_site_analysis(
+        typed_procedures,
+        typed_workflows=typed_workflows,
+        type_env=type_env,
+    )
+    resolved: dict[str, TypedProcedureDef] = {}
+    typed_procedures_by_name = {
+        procedure.definition.name: procedure for procedure in typed_procedures
+    }
+    for procedure in typed_procedures:
+        requested = procedure.signature.requested_lowering_mode
+        boundary_valid = _procedure_private_boundary_valid(procedure)
+        body_valid = _procedure_private_body_valid(
+            procedure,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+        )
+        if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW and not boundary_valid:
+            raise _compile_error(
+                code="proc_private_workflow_boundary_invalid",
+                message=f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3",
+                span=procedure.definition.span,
+                form_path=procedure.definition.form_path,
+            )
+        if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW and not body_valid:
+            raise _compile_error(
+                code="proc_private_workflow_boundary_invalid",
+                message=(
+                    f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3 "
+                    "because its body would not export step-backed outputs through the shared-validation seam"
+                ),
+                span=procedure.definition.span,
+                form_path=procedure.definition.form_path,
+            )
+        if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+        elif (
+            requested == ProcedureLoweringMode.AUTO
+            and boundary_valid
+            and body_valid
+            and call_counts.get(procedure.definition.name, 0) > 1
+            and lowerable_call_sites.get(procedure.definition.name, True)
+        ):
+            mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+        else:
+            mode = ProcedureLoweringMode.INLINE
+        generated_name = None
+        if mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+            generated_name = f"%{workflow_path.stem}.{procedure.definition.name}.v1"
+        resolved[procedure.definition.name] = TypedProcedureDef(
+            definition=procedure.definition,
+            signature=procedure.signature,
+            typed_body=procedure.typed_body,
+            direct_effect_summary=procedure.direct_effect_summary,
+            transitive_effect_summary=procedure.transitive_effect_summary,
+            resolved_lowering_mode=mode,
+            generated_workflow_name=generated_name,
+        )
+    return MappingProxyType(resolved)
+
+
+def _procedure_private_call_site_analysis(
+    typed_procedures: tuple[TypedProcedureDef, ...],
+    *,
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+    type_env: FrontendTypeEnvironment,
+) -> tuple[Mapping[str, int], Mapping[str, bool]]:
+    typed_procedures_by_name = {
+        procedure.definition.name: procedure for procedure in typed_procedures
+    }
+    distinct_call_sites: dict[str, set[tuple[SourceSpan, tuple[str, ...]]]] = {}
+    lowerable: dict[str, bool] = {}
+
+    def walk(expr: Any, *, local_values: Mapping[str, Any]) -> None:
+        if isinstance(expr, ProcedureCallExpr):
+            distinct_call_sites.setdefault(expr.callee_name, set()).add((expr.span, expr.form_path))
+            call_site_lowerable = True
+            for arg in expr.args:
+                walk(arg, local_values=local_values)
+                if _resolve_expr_local_value(arg, local_values=local_values) is None:
+                    call_site_lowerable = False
+            lowerable[expr.callee_name] = lowerable.get(expr.callee_name, True) and call_site_lowerable
+            callee = typed_procedures_by_name.get(expr.callee_name)
+            if callee is not None:
+                child_locals = {}
+                for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
+                    child_locals[param_name] = _resolve_expr_local_value(arg_expr, local_values=local_values)
+                walk(callee.typed_body.expr, local_values=child_locals)
+            return
+        if isinstance(expr, LetStarExpr):
+            child_locals = dict(local_values)
+            for binding_name, binding in expr.bindings:
+                walk(binding, local_values=child_locals)
+                resolved_binding = _resolve_expr_local_value(binding, local_values=child_locals)
+                if resolved_binding is not None:
+                    child_locals[binding_name] = resolved_binding
+                elif isinstance(binding, ProviderResultExpr):
+                    binding_type = type_env.resolve_type(
+                        binding.returns_type_name,
+                        span=binding.span,
+                        form_path=binding.form_path,
+                    )
+                    if isinstance(binding_type, RecordTypeRef):
+                        child_locals[binding_name] = _build_record_step_local_value(
+                            binding_type,
+                            step_name=binding_name,
+                        )
+            walk(expr.body, local_values=child_locals)
+            return
+        if isinstance(expr, MatchExpr):
+            walk(expr.subject, local_values=local_values)
+            for arm in expr.arms:
+                walk(arm.body, local_values=local_values)
+            return
+        if isinstance(expr, RecordExpr):
+            for _, value in expr.fields:
+                walk(value, local_values=local_values)
+            return
+        if isinstance(expr, WithPhaseExpr):
+            walk(expr.ctx_expr, local_values=local_values)
+            walk(expr.body, local_values=local_values)
+            return
+        if isinstance(expr, ProviderResultExpr):
+            walk(expr.provider, local_values=local_values)
+            walk(expr.prompt, local_values=local_values)
+            for value in expr.inputs:
+                walk(value, local_values=local_values)
+            return
+        if isinstance(expr, CommandResultExpr):
+            for value in expr.argv:
+                walk(value, local_values=local_values)
+            return
+        if isinstance(expr, CallExpr):
+            for _, value in expr.bindings:
+                walk(value, local_values=local_values)
+
+    for workflow in typed_workflows:
+        walk(workflow.typed_body.expr, local_values=_signature_local_values(workflow))
+    return MappingProxyType(
+        {
+            callee_name: len(call_sites)
+            for callee_name, call_sites in distinct_call_sites.items()
+        }
+    ), MappingProxyType(lowerable)
+
+
+def _procedure_private_boundary_valid(procedure: TypedProcedureDef) -> bool:
+    if not isinstance(procedure.signature.return_type_ref, RecordTypeRef):
+        return False
+    if not analyze_workflow_boundary_type(procedure.signature.return_type_ref, source_path=("return",)).lowerable:
+        return False
+    return all(
+        analyze_workflow_boundary_type(type_ref, source_path=(param_name,)).lowerable
+        for param_name, type_ref in procedure.signature.params
+    )
+
+
+def _procedure_private_body_valid(
+    procedure: TypedProcedureDef,
+    *,
+    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
+    type_env: FrontendTypeEnvironment,
+) -> bool:
+    return _private_workflow_body_exports_step_backed_outputs(
+        procedure.typed_body.expr,
+        return_type_ref=procedure.signature.return_type_ref,
+        local_values=_procedure_signature_local_values(procedure),
+        typed_procedures_by_name=typed_procedures_by_name,
+        type_env=type_env,
+        active_procedures=frozenset({procedure.definition.name}),
+    )
+
+
+def _private_workflow_body_exports_step_backed_outputs(
+    expr: Any,
+    *,
+    return_type_ref: TypeRef,
+    local_values: Mapping[str, Any],
+    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
+    type_env: FrontendTypeEnvironment,
+    active_procedures: frozenset[str],
+) -> bool:
+    if isinstance(expr, (CommandResultExpr, ProviderResultExpr, CallExpr)):
+        return True
+    if isinstance(expr, WithPhaseExpr):
+        return _private_workflow_body_exports_step_backed_outputs(
+            expr.body,
+            return_type_ref=return_type_ref,
+            local_values=local_values,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
+        )
+    if isinstance(expr, ProcedureCallExpr):
+        callee = typed_procedures_by_name.get(expr.callee_name)
+        if callee is None or callee.definition.name in active_procedures:
+            return False
+        child_locals = dict(local_values)
+        for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
+            child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
+        return _private_workflow_body_exports_step_backed_outputs(
+            callee.typed_body.expr,
+            return_type_ref=callee.signature.return_type_ref,
+            local_values=child_locals,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures | {callee.definition.name},
+        )
+    if isinstance(expr, LetStarExpr):
+        child_locals = dict(local_values)
+        for binding_name, binding_expr in expr.bindings:
+            if not isinstance(binding_expr, ProviderResultExpr):
+                return False
+            binding_type = type_env.resolve_type(
+                binding_expr.returns_type_name,
+                span=binding_expr.span,
+                form_path=binding_expr.form_path,
+            )
+            if isinstance(binding_type, RecordTypeRef):
+                child_locals[binding_name] = _build_record_step_local_value(
+                    binding_type,
+                    step_name=binding_name,
+                )
+        return _private_workflow_body_exports_step_backed_outputs(
+            expr.body,
+            return_type_ref=return_type_ref,
+            local_values=child_locals,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
+        )
+    if isinstance(expr, MatchExpr):
+        return _match_outputs_are_step_backed(
+            expr,
+            return_type_ref=return_type_ref,
+            local_values=local_values,
+        )
+    if isinstance(expr, RecordExpr):
+        return _record_outputs_are_step_backed(
+            expr,
+            return_type_ref=return_type_ref,
+            local_values=local_values,
+        )
+    return False
+
+
+def _match_outputs_are_step_backed(
+    match_expr: MatchExpr,
+    *,
+    return_type_ref: TypeRef,
+    local_values: Mapping[str, Any],
+) -> bool:
+    return all(
+        isinstance(arm.body, RecordExpr)
+        and _record_outputs_are_step_backed(
+            arm.body,
+            return_type_ref=return_type_ref,
+            local_values=local_values,
+        )
+        for arm in match_expr.arms
+    )
+
+
+def _record_outputs_are_step_backed(
+    record_expr: RecordExpr,
+    *,
+    return_type_ref: TypeRef,
+    local_values: Mapping[str, Any],
+) -> bool:
+    if not isinstance(return_type_ref, RecordTypeRef):
+        return False
+    for _, field_path in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
+        value = _record_expr_value_at_path(record_expr, field_path)
+        source_ref = _render_existing_output_ref(value, local_values=local_values)
+        if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.")):
+            return False
+    return True
+
+
+def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkflowDef:
+    assert procedure.generated_workflow_name is not None
+    assert isinstance(procedure.signature.return_type_ref, RecordTypeRef)
+    definition = WorkflowDef(
+        name=procedure.generated_workflow_name,
+        params=tuple(
+            WorkflowParam(
+                name=param.name,
+                type_name=param.type_name,
+                span=param.span,
+                form_path=param.form_path,
+                expansion_stack=param.expansion_stack,
+            )
+            for param in procedure.definition.params
+        ),
+        return_type_name=procedure.definition.return_type_name,
+        body=procedure.definition.body,
+        span=procedure.definition.span,
+        form_path=procedure.definition.form_path,
+        expansion_stack=procedure.definition.expansion_stack,
+    )
+    signature = WorkflowSignature(
+        name=procedure.generated_workflow_name,
+        params=procedure.signature.params,
+        return_type_ref=procedure.signature.return_type_ref,
+        span=procedure.signature.span,
+        form_path=procedure.signature.form_path,
+    )
+    return TypedWorkflowDef(
+        definition=definition,
+        signature=signature,
+        typed_body=procedure.typed_body,
+        effect_summary=procedure.transitive_effect_summary,
+    )
+
+
+def _procedure_provenance_notes(expr: ProcedureCallExpr, procedure: TypedProcedureDef) -> tuple[str, ...]:
+    call = expr.span.start
+    definition = procedure.definition.span.start
+    return (
+        f"procedure call site at {call.path}:{call.line}:{call.column}",
+        f"procedure definition at {definition.path}:{definition.line}:{definition.column}",
+    )
+
+
+def _origin_for_workflow(
+    typed_workflow: TypedWorkflowDef,
+    *,
+    typed_procedures: Mapping[str, TypedProcedureDef],
+) -> LoweringOrigin:
+    notes: tuple[str, ...] = ()
+    body_expr = typed_workflow.typed_body.expr
+    if isinstance(body_expr, ProcedureCallExpr):
+        procedure = typed_procedures.get(body_expr.callee_name)
+        if procedure is not None and procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE:
+            notes = _procedure_provenance_notes(body_expr, procedure)
+    elif typed_workflow.definition.name.startswith("%") and ".v1" in typed_workflow.definition.name:
+        procedure_name = typed_workflow.definition.name.removeprefix("%").split(".")[-2]
+        procedure = typed_procedures.get(procedure_name)
+        if procedure is not None:
+            notes = (
+                f"procedure definition at {procedure.definition.span.start.path}:{procedure.definition.span.start.line}:{procedure.definition.span.start.column}",
+            )
+    return LoweringOrigin(
+        span=typed_workflow.definition.span,
+        form_path=typed_workflow.definition.form_path,
+        expansion_stack=typed_workflow.definition.expansion_stack,
+        notes=notes,
+    )
+
+def _typed_workflow_dependencies(
+    typed_workflow: TypedWorkflowDef,
+    *,
+    typed_procedures: Mapping[str, TypedProcedureDef],
+) -> set[str]:
     dependencies: set[str] = set()
+    visiting_procedures: set[str] = set()
 
     def walk(expr: Any) -> None:
         if isinstance(expr, CallExpr):
             dependencies.add(expr.callee_name)
+            for _, value in expr.bindings:
+                walk(value)
+            return
+        if isinstance(expr, ProcedureCallExpr):
+            for arg in expr.args:
+                walk(arg)
+            procedure = typed_procedures.get(expr.callee_name)
+            if procedure is None:
+                return
+            if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+                assert procedure.generated_workflow_name is not None
+                dependencies.add(procedure.generated_workflow_name)
+                return
+            if procedure.definition.name in visiting_procedures:
+                return
+            visiting_procedures.add(procedure.definition.name)
+            walk(procedure.typed_body.expr)
+            visiting_procedures.remove(procedure.definition.name)
             return
         if isinstance(expr, LetStarExpr):
             for _, binding in expr.bindings:
@@ -1437,6 +2079,25 @@ def _typed_workflow_dependencies(typed_workflow: TypedWorkflowDef) -> set[str]:
             walk(expr.subject)
             for arm in expr.arms:
                 walk(arm.body)
+            return
+        if isinstance(expr, RecordExpr):
+            for _, value in expr.fields:
+                walk(value)
+            return
+        if isinstance(expr, WithPhaseExpr):
+            walk(expr.ctx_expr)
+            walk(expr.body)
+            return
+        if isinstance(expr, ProviderResultExpr):
+            walk(expr.provider)
+            walk(expr.prompt)
+            for value in expr.inputs:
+                walk(value)
+            return
+        if isinstance(expr, CommandResultExpr):
+            for value in expr.argv:
+                walk(value)
+            return
 
     walk(typed_workflow.typed_body.expr)
     return dependencies
@@ -1518,6 +2179,7 @@ def _raise_remapped_validation_error(
                 span=origin.span,
                 form_path=origin.form_path or lowered_workflow.typed_workflow.definition.form_path,
                 expansion_stack=origin.expansion_stack,
+                notes=origin.notes,
             )
         )
     raise LispFrontendCompileError(tuple(diagnostics))

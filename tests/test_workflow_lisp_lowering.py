@@ -222,6 +222,24 @@ def test_compile_stage3_module_preserves_macro_provenance_in_origin_maps(tmp_pat
     assert origin.expansion_stack[0].expansion_id == "m0001"
 
 
+def test_compile_stage3_module_includes_generated_private_procedure_workflow(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        FIXTURES / "valid" / "defproc_private_workflow.orc",
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
+
+    assert "%defproc_private_workflow.build-checks.v1" in lowered_names
+
+
 def test_compile_stage3_module_supports_terminal_record_projection_returns(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "terminal_record_projection.orc",
