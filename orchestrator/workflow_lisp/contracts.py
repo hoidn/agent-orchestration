@@ -8,6 +8,8 @@ from typing import Any
 
 from orchestrator.workflow.surface_ast import SurfaceContract
 
+from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .spans import SourceSpan
 from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from .workflows import WorkflowSignature
 
@@ -32,6 +34,8 @@ def derive_structured_result_contract(
     *,
     workflow_name: str,
     step_id: str,
+    span: SourceSpan | None = None,
+    form_path: tuple[str, ...] = (),
 ) -> GeneratedBundleContract:
     """Derive one deterministic structured step-result contract from a frontend type."""
 
@@ -39,14 +43,11 @@ def derive_structured_result_contract(
     if isinstance(type_ref, RecordTypeRef):
         payload = {
             "path": path,
-            "fields": [
-                {
-                    "name": field.name,
-                    "json_pointer": f"/{field.name}",
-                    **_field_contract_definition(_resolve_record_field_type(type_ref, field.name)),
-                }
-                for field in type_ref.definition.fields
-            ],
+            "fields": _flatten_structured_result_fields(
+                type_ref,
+                span=span,
+                form_path=form_path,
+            ),
         }
         return GeneratedBundleContract(
             contract_kind="output_bundle",
@@ -66,14 +67,12 @@ def derive_structured_result_contract(
         "shared_fields": [],
         "variants": {
             variant.name: {
-                "fields": [
-                    {
-                        "name": field.name,
-                        "json_pointer": f"/{field.name}",
-                        **_field_contract_definition(_resolve_variant_field_type(type_ref, variant.name, field.name)),
-                    }
-                    for field in variant.fields
-                ]
+                "fields": _flatten_variant_structured_result_fields(
+                    type_ref,
+                    variant.name,
+                    span=span,
+                    form_path=form_path,
+                ),
             }
             for variant in type_ref.definition.variants
         },
@@ -96,65 +95,84 @@ def derive_workflow_signature_contracts(
     flattened_fields: list[FlattenedContractField] = []
 
     for param_name, type_ref in signature.params:
-        if isinstance(type_ref, RecordTypeRef):
-            for field in type_ref.definition.fields:
-                field_type = _resolve_record_field_type(type_ref, field.name)
-                generated_name = f"{param_name}__{field.name}"
-                definition = _workflow_boundary_contract_definition(field_type)
-                inputs[generated_name] = SurfaceContract(
-                    name=generated_name,
-                    kind=definition["kind"],
-                    value_type=definition["type"],
-                    definition=definition,
-                )
-                flattened_fields.append(
-                    FlattenedContractField(
-                        generated_name=generated_name,
-                        source_path=(param_name, field.name),
-                        contract_definition=definition,
-                    )
-                )
-            continue
-
-        definition = _workflow_boundary_contract_definition(type_ref)
-        inputs[param_name] = SurfaceContract(
-            name=param_name,
-            kind=definition["kind"],
-            value_type=definition["type"],
-            definition=definition,
-        )
-        flattened_fields.append(
-            FlattenedContractField(
-                generated_name=param_name,
-                source_path=(param_name,),
-                contract_definition=definition,
+        for flattened_field in _flatten_workflow_boundary_fields(
+            type_ref,
+            generated_name=param_name,
+            source_path=(param_name,),
+            span=signature.span,
+            form_path=signature.form_path,
+        ):
+            inputs[flattened_field.generated_name] = SurfaceContract(
+                name=flattened_field.generated_name,
+                kind=flattened_field.contract_definition["kind"],
+                value_type=flattened_field.contract_definition["type"],
+                definition=flattened_field.contract_definition,
             )
-        )
+            flattened_fields.append(flattened_field)
 
     if isinstance(signature.return_type_ref, RecordTypeRef):
-        for field in signature.return_type_ref.definition.fields:
-            field_type = _resolve_record_field_type(signature.return_type_ref, field.name)
-            generated_name = f"return__{field.name}"
-            definition = _workflow_boundary_contract_definition(field_type)
-            outputs[generated_name] = SurfaceContract(
-                name=generated_name,
-                kind=definition["kind"],
-                value_type=definition["type"],
-                definition=definition,
+        for flattened_field in _flatten_workflow_boundary_fields(
+            signature.return_type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=signature.span,
+            form_path=signature.form_path,
+        ):
+            outputs[flattened_field.generated_name] = SurfaceContract(
+                name=flattened_field.generated_name,
+                kind=flattened_field.contract_definition["kind"],
+                value_type=flattened_field.contract_definition["type"],
+                definition=flattened_field.contract_definition,
             )
-            flattened_fields.append(
-                FlattenedContractField(
-                    generated_name=generated_name,
-                    source_path=("return", field.name),
-                    contract_definition=definition,
-                )
-            )
+            flattened_fields.append(flattened_field)
 
     return inputs, outputs, tuple(flattened_fields)
 
 
-def _workflow_boundary_contract_definition(type_ref: TypeRef) -> dict[str, Any]:
-    definition = _field_contract_definition(type_ref)
+def _flatten_workflow_boundary_fields(
+    type_ref: TypeRef,
+    *,
+    generated_name: str,
+    source_path: tuple[str, ...],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[FlattenedContractField, ...]:
+    if isinstance(type_ref, RecordTypeRef):
+        flattened: list[FlattenedContractField] = []
+        for field in type_ref.definition.fields:
+            field_type = _resolve_record_field_type(type_ref, field.name)
+            flattened.extend(
+                _flatten_workflow_boundary_fields(
+                    field_type,
+                    generated_name=f"{generated_name}__{field.name}",
+                    source_path=source_path + (field.name,),
+                    span=span,
+                    form_path=form_path,
+                )
+            )
+        return tuple(flattened)
+
+    definition = _workflow_boundary_contract_definition(
+        type_ref,
+        span=span,
+        form_path=form_path,
+    )
+    return (
+        FlattenedContractField(
+            generated_name=generated_name,
+            source_path=source_path,
+            contract_definition=definition,
+        ),
+    )
+
+
+def _workflow_boundary_contract_definition(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    definition = _field_contract_definition(type_ref, span=span, form_path=form_path)
     if definition["type"] == "relpath":
         return {
             "kind": "relpath",
@@ -166,7 +184,12 @@ def _workflow_boundary_contract_definition(type_ref: TypeRef) -> dict[str, Any]:
     }
 
 
-def _field_contract_definition(type_ref: TypeRef) -> dict[str, Any]:
+def _field_contract_definition(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
     if isinstance(type_ref, PathTypeRef):
         return {
             "type": "relpath",
@@ -174,12 +197,26 @@ def _field_contract_definition(type_ref: TypeRef) -> dict[str, Any]:
             "must_exist_target": type_ref.definition.must_exist,
         }
     if isinstance(type_ref, PrimitiveTypeRef):
-        if type_ref.name == "String" or type_ref.name in {"Provider", "Prompt", "Json"}:
+        if type_ref.name == "String":
             return {"type": "string"}
         if type_ref.name == "Int":
             return {"type": "integer"}
         if type_ref.name == "Bool":
             return {"type": "bool"}
+        if type_ref.name == "Json":
+            _raise_contract_error(
+                code="json_surface_unsupported",
+                message="`Json` cannot lower into workflow boundary or structured-result contracts",
+                span=span,
+                form_path=form_path,
+            )
+        if type_ref.name in {"Provider", "Prompt"}:
+            _raise_contract_error(
+                code="workflow_boundary_type_invalid",
+                message=f"`{type_ref.name}` cannot lower into workflow boundary or structured-result contracts",
+                span=span,
+                form_path=form_path,
+            )
         if type_ref.allowed_values:
             return {
                 "type": "enum",
@@ -187,6 +224,98 @@ def _field_contract_definition(type_ref: TypeRef) -> dict[str, Any]:
             }
         return {"type": "string"}
     raise TypeError(f"unsupported field contract type: {type(type_ref)!r}")
+
+
+def _flatten_structured_result_fields(
+    type_ref: RecordTypeRef,
+    *,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for field in type_ref.definition.fields:
+        field_type = _resolve_record_field_type(type_ref, field.name)
+        flattened.extend(
+            _flatten_structured_result_field(
+                field_type,
+                field_path=(field.name,),
+                span=span,
+                form_path=form_path,
+            )
+        )
+    return flattened
+
+
+def _flatten_variant_structured_result_fields(
+    type_ref: UnionTypeRef,
+    variant_name: str,
+    *,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    flattened: list[dict[str, Any]] = []
+    for field in next(variant for variant in type_ref.definition.variants if variant.name == variant_name).fields:
+        field_type = _resolve_variant_field_type(type_ref, variant_name, field.name)
+        flattened.extend(
+            _flatten_structured_result_field(
+                field_type,
+                field_path=(field.name,),
+                span=span,
+                form_path=form_path,
+            )
+        )
+    return flattened
+
+
+def _flatten_structured_result_field(
+    type_ref: TypeRef,
+    *,
+    field_path: tuple[str, ...],
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    if isinstance(type_ref, RecordTypeRef):
+        flattened: list[dict[str, Any]] = []
+        for field in type_ref.definition.fields:
+            field_type = _resolve_record_field_type(type_ref, field.name)
+            flattened.extend(
+                _flatten_structured_result_field(
+                    field_type,
+                    field_path=field_path + (field.name,),
+                    span=span,
+                    form_path=form_path,
+                )
+            )
+        return flattened
+
+    return [
+        {
+            "name": "__".join(field_path),
+            "json_pointer": "/" + "/".join(field_path),
+            **_field_contract_definition(type_ref, span=span, form_path=form_path),
+        }
+    ]
+
+
+def _raise_contract_error(
+    *,
+    code: str,
+    message: str,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> None:
+    if span is None:
+        raise TypeError(message)
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code=code,
+                message=message,
+                span=span,
+                form_path=form_path,
+            ),
+        )
+    )
 
 
 def _resolve_record_field_type(record_type: RecordTypeRef, field_name: str) -> TypeRef:

@@ -1,6 +1,6 @@
-"""Workflow Lisp frontend Stage 1 public symbols."""
+"""Workflow Lisp frontend public symbols."""
 
-from .compiler import PRELUDE_TYPE_NAMES, compile_stage1_module
+from .compiler import PRELUDE_TYPE_NAMES, compile_stage1_module, compile_stage3_module
 from .definitions import (
     DefinitionNode,
     EnumDef,
@@ -20,6 +20,8 @@ from .diagnostics import (
     render_diagnostics,
 )
 from .expressions import (
+    CallExpr,
+    CommandResultExpr,
     ExprNode,
     FieldAccessExpr,
     LetStarExpr,
@@ -27,9 +29,11 @@ from .expressions import (
     MatchArm,
     MatchExpr,
     NameExpr,
+    ProviderResultExpr,
     RecordExpr,
     elaborate_expression,
 )
+from .lowering import LoweredWorkflow, LoweringOriginMap, lower_workflow_definitions, validate_lowered_workflows
 from .reader import read_sexpr_file, read_sexpr_text
 from .sexpr import BoolAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourcePosition, SourceSpan
@@ -44,13 +48,28 @@ from .type_env import (
     VariantCaseTypeRef,
 )
 from .typecheck import ProofFact, ProofScope, TypedExpr, ValueEnvironment, typecheck_expression
+from .workflows import (
+    CertifiedAdapterBinding,
+    CommandBoundaryEnvironment,
+    ExternEnvironment,
+    ExternalToolBinding,
+    PromptExtern,
+    ProviderExtern,
+    Stage3CompileResult,
+)
 
 __all__ = [
+    "CallExpr",
+    "CertifiedAdapterBinding",
+    "CommandBoundaryEnvironment",
+    "CommandResultExpr",
     "BoolAtom",
     "DefinitionNode",
     "ExprNode",
     "EnumDef",
     "EnumValue",
+    "ExternEnvironment",
+    "ExternalToolBinding",
     "FieldAccessExpr",
     "FrontendTypeEnvironment",
     "IntAtom",
@@ -60,6 +79,8 @@ __all__ = [
     "LispFrontendDiagnostic",
     "ListExpr",
     "LiteralExpr",
+    "LoweredWorkflow",
+    "LoweringOriginMap",
     "MatchArm",
     "MatchExpr",
     "NameExpr",
@@ -67,6 +88,9 @@ __all__ = [
     "PathDef",
     "PathTypeRef",
     "PrimitiveTypeRef",
+    "PromptExtern",
+    "ProviderExtern",
+    "ProviderResultExpr",
     "ProofFact",
     "ProofScope",
     "RecordDef",
@@ -76,6 +100,7 @@ __all__ = [
     "SExpr",
     "SourcePosition",
     "SourceSpan",
+    "Stage3CompileResult",
     "StringAtom",
     "SymbolAtom",
     "SyntaxNode",
@@ -90,11 +115,14 @@ __all__ = [
     "WorkflowLispSyntaxModule",
     "build_syntax_module",
     "compile_stage1_module",
+    "compile_stage3_module",
     "elaborate_expression",
     "elaborate_definition_module",
+    "lower_workflow_definitions",
     "read_sexpr_file",
     "read_sexpr_text",
     "render_diagnostic",
     "render_diagnostics",
     "typecheck_expression",
+    "validate_lowered_workflows",
 ]

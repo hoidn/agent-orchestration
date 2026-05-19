@@ -3,7 +3,11 @@
   (:target-dsl "2.14")
   (defenum BlockerClass
     missing_resource
-    roadmap_conflict)
+    unavailable_hardware
+    roadmap_conflict
+    external_dependency_outside_authority
+    user_decision_required
+    unrecoverable_after_fix_attempt)
   (defpath WorkReport
     :kind relpath
     :under "artifacts/work"
@@ -11,6 +15,11 @@
   (defrecord ChecksResult
     (status String)
     (report WorkReport))
+  (defrecord ImplementationSummary
+    (status String)
+    (report WorkReport))
+  (defrecord NestedImplementationSummary
+    (summary ImplementationSummary))
   (defunion ImplementationState
     (COMPLETED
       (execution_report WorkReport))

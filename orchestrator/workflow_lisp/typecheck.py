@@ -30,7 +30,13 @@ from .type_env import (
 )
 
 if TYPE_CHECKING:
-    from .workflows import WorkflowCatalog
+    from .workflows import (
+        CertifiedAdapterBinding,
+        CommandBoundaryEnvironment,
+        ExternEnvironment,
+        ExternalToolBinding,
+        WorkflowCatalog,
+    )
 
 
 @dataclass(frozen=True)
@@ -69,6 +75,8 @@ def typecheck_expression(
     value_env: ValueEnvironment,
     proof_scope: ProofScope | None = None,
     workflow_catalog: "WorkflowCatalog | None" = None,
+    extern_environment: "ExternEnvironment | None" = None,
+    command_boundary_environment: "CommandBoundaryEnvironment | None" = None,
 ) -> TypedExpr:
     """Typecheck one bounded Stage 2 expression."""
 
@@ -79,6 +87,8 @@ def typecheck_expression(
         value_env=dict(value_env),
         proof_scope=active_proof,
         workflow_catalog=workflow_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
     )
 
 
@@ -89,6 +99,8 @@ def _typecheck(
     value_env: dict[str, TypeRef],
     proof_scope: ProofScope,
     workflow_catalog: "WorkflowCatalog | None",
+    extern_environment: "ExternEnvironment | None",
+    command_boundary_environment: "CommandBoundaryEnvironment | None",
 ) -> TypedExpr:
     if isinstance(expr, LiteralExpr):
         return TypedExpr(
@@ -115,6 +127,8 @@ def _typecheck(
             value_env=value_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
         )
         current_type = typed_base.type_ref
         for field_name in expr.fields:
@@ -162,6 +176,8 @@ def _typecheck(
                 value_env=value_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
             )
             expected_type = type_env.resolve_type(
                 expected_field.type_name,
@@ -202,6 +218,8 @@ def _typecheck(
                 value_env=local_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
             )
             seen_names.add(name)
             local_env[name] = typed_binding.type_ref
@@ -211,6 +229,8 @@ def _typecheck(
             value_env=local_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
         )
         return TypedExpr(expr=expr, type_ref=typed_body.type_ref, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, MatchExpr):
@@ -220,6 +240,8 @@ def _typecheck(
             value_env=value_env,
             proof_scope=proof_scope,
             workflow_catalog=workflow_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
         )
         if not isinstance(typed_subject.type_ref, UnionTypeRef):
             _raise_error(
@@ -262,6 +284,8 @@ def _typecheck(
                 value_env=arm_env,
                 proof_scope=ProofScope(facts=arm_facts),
                 workflow_catalog=workflow_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
             )
             if arm_result_type is None:
                 arm_result_type = typed_body.type_ref
@@ -325,6 +349,8 @@ def _typecheck(
                 value_env=value_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
             )
             if typed_binding.type_ref != expected_type:
                 _raise_error(
@@ -344,42 +370,6 @@ def _typecheck(
             )
         return TypedExpr(expr=expr, type_ref=signature.return_type_ref, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, ProviderResultExpr):
-        typed_provider = _typecheck(
-            expr.provider,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-        )
-        typed_prompt = _typecheck(
-            expr.prompt,
-            type_env=type_env,
-            value_env=value_env,
-            proof_scope=proof_scope,
-            workflow_catalog=workflow_catalog,
-        )
-        if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
-            _raise_error(
-                "`provider-result` provider operand must resolve to `Provider`",
-                code="type_mismatch",
-                span=expr.provider.span,
-                form_path=expr.provider.form_path,
-            )
-        if typed_prompt.type_ref != PrimitiveTypeRef(name="Prompt"):
-            _raise_error(
-                "`provider-result` prompt operand must resolve to `Prompt`",
-                code="type_mismatch",
-                span=expr.prompt.span,
-                form_path=expr.prompt.form_path,
-            )
-        for input_expr in expr.inputs:
-            _typecheck(
-                input_expr,
-                type_env=type_env,
-                value_env=value_env,
-                proof_scope=proof_scope,
-                workflow_catalog=workflow_catalog,
-            )
         return_type = type_env.resolve_type(
             expr.returns_type_name,
             span=expr.span,
@@ -392,6 +382,82 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
+        typed_provider = _typecheck_expected_extern_operand(
+            expr.provider,
+            expected_primitive="Provider",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+        )
+        typed_prompt = _typecheck_expected_extern_operand(
+            expr.prompt,
+            expected_primitive="Prompt",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+        )
+        if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
+            _raise_error(
+                "`provider-result` provider operand must resolve to `Provider`",
+                code="provider_result_provider_invalid",
+                span=expr.provider.span,
+                form_path=expr.provider.form_path,
+            )
+        if typed_prompt.type_ref != PrimitiveTypeRef(name="Prompt"):
+            _raise_error(
+                "`provider-result` prompt operand must resolve to `Prompt`",
+                code="provider_result_prompt_invalid",
+                span=expr.prompt.span,
+                form_path=expr.prompt.form_path,
+            )
+        if not isinstance(expr.provider, NameExpr) or extern_environment is None:
+            _raise_error(
+                "`provider-result` requires a compiler-known provider extern",
+                code="provider_result_provider_invalid",
+                span=expr.provider.span,
+                form_path=expr.provider.form_path,
+            )
+        provider_binding = extern_environment.bindings_by_name.get(expr.provider.name)
+        from .workflows import PromptExtern, ProviderExtern
+
+        if not isinstance(provider_binding, ProviderExtern):
+            _raise_error(
+                f"`provider-result` provider `{expr.provider.name}` is not a declared provider extern",
+                code="provider_result_provider_invalid",
+                span=expr.provider.span,
+                form_path=expr.provider.form_path,
+            )
+        if not isinstance(expr.prompt, NameExpr) or extern_environment is None:
+            _raise_error(
+                "`provider-result` requires a compiler-known prompt extern",
+                code="provider_result_prompt_invalid",
+                span=expr.prompt.span,
+                form_path=expr.prompt.form_path,
+            )
+        prompt_binding = extern_environment.bindings_by_name.get(expr.prompt.name)
+        if not isinstance(prompt_binding, PromptExtern):
+            _raise_error(
+                f"`provider-result` prompt `{expr.prompt.name}` is not a declared prompt extern",
+                code="provider_result_prompt_invalid",
+                span=expr.prompt.span,
+                form_path=expr.prompt.form_path,
+            )
+        for input_expr in expr.inputs:
+            _typecheck(
+                input_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+            )
         return TypedExpr(expr=expr, type_ref=return_type, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, CommandResultExpr):
         for arg_expr in expr.argv:
@@ -401,8 +467,22 @@ def _typecheck(
                 value_env=value_env,
                 proof_scope=proof_scope,
                 workflow_catalog=workflow_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
             )
-        _validate_command_argv(expr)
+        command_binding = None
+        if command_boundary_environment is not None:
+            command_binding = command_boundary_environment.bindings_by_name.get(expr.step_name)
+            if command_binding is None:
+                _raise_error(
+                    f"`command-result` `{expr.step_name}` is missing command boundary metadata",
+                    code="command_adapter_missing_contract",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            _validate_command_argv(expr, command_binding)
+        else:
+            _validate_command_argv(expr, None)
         return_type = type_env.resolve_type(
             expr.returns_type_name,
             span=expr.span,
@@ -415,8 +495,46 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
+        from .workflows import CertifiedAdapterBinding
+
+        if isinstance(command_binding, CertifiedAdapterBinding) and command_binding.output_type_name != expr.returns_type_name:
+            _raise_error(
+                f"`command-result` `{expr.step_name}` must return `{command_binding.output_type_name}`",
+                code="command_result_return_type_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
         return TypedExpr(expr=expr, type_ref=return_type, span=expr.span, form_path=expr.form_path)
     raise TypeError(f"unsupported expression node: {type(expr)!r}")
+
+
+def _typecheck_expected_extern_operand(
+    expr: ExprNode,
+    *,
+    expected_primitive: str,
+    type_env: FrontendTypeEnvironment,
+    value_env: dict[str, TypeRef],
+    proof_scope: ProofScope,
+    workflow_catalog: "WorkflowCatalog | None",
+    extern_environment: "ExternEnvironment | None",
+    command_boundary_environment: "CommandBoundaryEnvironment | None",
+) -> TypedExpr:
+    if isinstance(expr, NameExpr) and expr.name not in value_env:
+        return TypedExpr(
+            expr=expr,
+            type_ref=PrimitiveTypeRef(name=expected_primitive),
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    return _typecheck(
+        expr,
+        type_env=type_env,
+        value_env=value_env,
+        proof_scope=proof_scope,
+        workflow_catalog=workflow_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+    )
 
 
 def _resolve_field_access(
@@ -507,10 +625,32 @@ def _type_label(type_ref: TypeRef) -> str:
     return type_ref.name
 
 
-def _validate_command_argv(expr: CommandResultExpr) -> None:
+def _validate_command_argv(
+    expr: CommandResultExpr,
+    binding: "ExternalToolBinding | CertifiedAdapterBinding | None",
+) -> None:
     argv = list(expr.argv)
+    first = _literal_string(argv[0]) if argv else None
+    if first:
+        packed_head = first.split()
+        if len(packed_head) >= 2:
+            head = packed_head[0]
+            flag = packed_head[1]
+            if head.startswith("python") and flag in {"-c", "-"}:
+                _raise_error(
+                    "inline Python command glue is not allowed in `command-result`",
+                    code="inline_python_command_in_workflow",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            if head in {"bash", "sh"} and flag in {"-c", "-lc"}:
+                _raise_error(
+                    "one-string shell wrappers are not allowed in `command-result`",
+                    code="command_result_argv_invalid",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
     if len(argv) >= 2:
-        first = _literal_string(argv[0])
         second = _literal_string(argv[1])
         if first and first.startswith("python") and second in {"-c", "-"}:
             _raise_error(
@@ -519,12 +659,38 @@ def _validate_command_argv(expr: CommandResultExpr) -> None:
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        if first in {"bash", "sh"} and second == "-c":
+        if first in {"bash", "sh"} and second in {"-c", "-lc"}:
             _raise_error(
                 "inline shell command glue is not allowed in `command-result`",
                 code="inline_shell_command_in_workflow",
                 span=expr.span,
                 form_path=expr.form_path,
+            )
+    if not argv:
+        _raise_error(
+            "`command-result` requires a non-empty argv list",
+            code="command_result_argv_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if binding is None:
+        return
+    stable_prefix = list(binding.stable_command)
+    if len(argv) < len(stable_prefix):
+        _raise_error(
+            f"`command-result` `{expr.step_name}` must start with the stable command {' '.join(stable_prefix)!r}",
+            code="command_result_argv_invalid",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    for index, token in enumerate(stable_prefix):
+        actual = _literal_string(argv[index])
+        if actual != token:
+            _raise_error(
+                f"`command-result` `{expr.step_name}` must start with the stable command {' '.join(stable_prefix)!r}",
+                code="command_result_argv_invalid",
+                span=expr.argv[index].span,
+                form_path=expr.argv[index].form_path,
             )
     if len(argv) == 1:
         only = _literal_string(argv[0])

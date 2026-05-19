@@ -1,30 +1,47 @@
 (workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
-  (defworkflow provider_attempt
-    ((provider Provider)
-     (prompt Prompt)
-     (input ChecksResult)
-     (report_path WorkReport))
-    -> ImplementationState
-    (provider-result provider
-      :prompt prompt
-      :inputs (input report_path)
-      :returns ImplementationState))
+  (defenum BlockerClass
+    missing_resource
+    unavailable_hardware
+    roadmap_conflict
+    external_dependency_outside_authority
+    user_decision_required
+    unrecoverable_after_fix_attempt)
+  (defpath WorkReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defrecord ChecksResult
+    (status String)
+    (report WorkReport))
+  (defrecord ImplementationSummary
+    (status String)
+    (report WorkReport))
+  (defunion ImplementationState
+    (COMPLETED
+      (execution_report WorkReport))
+    (BLOCKED
+      (progress_report WorkReport)
+      (blocker_class BlockerClass)))
   (defworkflow command_checks
     ((report_path WorkReport))
     -> ChecksResult
     (command-result run_checks
       :argv ("python" "scripts/run_checks.py" report_path)
       :returns ChecksResult))
-  (defworkflow orchestrate
-    ((provider Provider)
-     (prompt Prompt)
-     (input ChecksResult)
+  (defworkflow provider_attempt
+    ((input ChecksResult)
      (report_path WorkReport))
-    -> ImplementationState
+    -> ImplementationSummary
+    (provider-result providers.execute
+      :prompt prompts.implementation.execute
+      :inputs (input report_path)
+      :returns ImplementationSummary))
+  (defworkflow orchestrate
+    ((input ChecksResult)
+     (report_path WorkReport))
+    -> ImplementationSummary
     (call provider_attempt
-      :provider provider
-      :prompt prompt
       :input input
       :report_path report_path)))
