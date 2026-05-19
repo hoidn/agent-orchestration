@@ -33,6 +33,10 @@ def _enable_v214_loader(monkeypatch) -> None:
     )
 
 
+def _variant_contract_body_as_yaml(prompt_block: str) -> object:
+    return yaml.safe_load("\n".join(prompt_block.splitlines()[2:]))
+
+
 def test_provider_expected_outputs_appends_contract_block_to_prompt(tmp_path: Path):
     """Provider steps append a deterministic output contract block by default."""
     (tmp_path / "prompts").mkdir()
@@ -209,6 +213,50 @@ def test_provider_variant_output_appends_variant_contract_block_to_prompt(tmp_pa
     assert "Variant Output Contract" in captured["prompt"]
     assert "implementation_state" in captured["prompt"]
     assert "execution_report_path" in captured["prompt"]
+
+
+def test_variant_output_prompt_contract_renders_structured_nested_constraints() -> None:
+    """Rendered variant contracts must preserve field constraints as parseable structure."""
+    from orchestrator.contracts.prompt_contract import render_variant_output_contract_block
+
+    prompt_block = render_variant_output_contract_block({
+        "path": "state/variant_bundle.json",
+        "discriminant": {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        },
+        "variants": {
+            "COMPLETED": {
+                "fields": [{
+                    "name": "execution_report_path",
+                    "json_pointer": "/execution_report_path",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                    "must_exist_target": True,
+                }]
+            },
+            "BLOCKED": {
+                "fields": [{
+                    "name": "progress_report_path",
+                    "json_pointer": "/progress_report_path",
+                    "type": "relpath",
+                    "under": "artifacts/work",
+                    "must_exist_target": True,
+                }]
+            },
+        },
+    })
+
+    rendered = _variant_contract_body_as_yaml(prompt_block)
+    bundle = rendered[0]
+    completed_field = bundle["variants"]["COMPLETED"]["fields"][0]
+    blocked_field = bundle["variants"]["BLOCKED"]["fields"][0]
+    assert completed_field["under"] == "artifacts/work"
+    assert completed_field["must_exist_target"] is True
+    assert blocked_field["under"] == "artifacts/work"
+    assert blocked_field["must_exist_target"] is True
 
 
 def test_provider_expected_outputs_prompt_uses_resolved_path_templates(tmp_path: Path):

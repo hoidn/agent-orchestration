@@ -5,23 +5,24 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 
-def _append_field_constraints(lines: List[str], spec: Dict[str, Any]) -> None:
+def _append_field_constraints(lines: List[str], spec: Dict[str, Any], *, indent: int = 2) -> None:
     """Append optional field-level contract constraints."""
+    prefix = " " * indent
     if "allowed" in spec:
         allowed_values = ", ".join(str(value) for value in spec["allowed"])
-        lines.append(f"  allowed: {allowed_values}")
+        lines.append(f"{prefix}allowed: {allowed_values}")
     if "under" in spec:
-        lines.append(f"  under: {spec['under']}")
+        lines.append(f"{prefix}under: {spec['under']}")
     if spec.get("must_exist_target"):
-        lines.append("  must_exist_target: true")
+        lines.append(f"{prefix}must_exist_target: true")
     if spec.get("required") is False:
-        lines.append("  required: false")
+        lines.append(f"{prefix}required: false")
     if "description" in spec:
-        lines.append(f"  description: {spec['description']}")
+        lines.append(f"{prefix}description: {spec['description']}")
     if "format_hint" in spec:
-        lines.append(f"  format_hint: {spec['format_hint']}")
+        lines.append(f"{prefix}format_hint: {spec['format_hint']}")
     if "example" in spec:
-        lines.append(f"  example: {spec['example']}")
+        lines.append(f"{prefix}example: {spec['example']}")
 
 
 def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
@@ -108,7 +109,7 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
             lines.append(f"        - name: {spec['name']}")
             lines.append(f"          json_pointer: {spec['json_pointer']}")
             lines.append(f"          type: {spec['type']}")
-            _append_field_constraints(lines, spec)
+            _append_field_constraints(lines, spec, indent=10)
     return "\n".join(lines) + "\n"
 
 
