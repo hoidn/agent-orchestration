@@ -39,6 +39,37 @@ In the YAML file, that starts at `ExecuteImplementation` and ends at
 | Blocker extraction | Markdown line-prefix extraction. | Structured union field. |
 | Inline glue | Inline `python -c` publish wrappers. | No inline command glue in the source. |
 
+## Why The Lisp Is Shorter
+
+The Lisp version is not shorter because parentheses are magic. It is shorter
+because the authored source describes the workflow's semantic shape, while the
+compiler owns the repetitive runtime protocol.
+
+| Concept | In YAML, the author writes... | In Lisp, the author writes... | What the compiler owns |
+| --- | --- | --- | --- |
+| Provider outcome | A provider step, a pre-snapshot, a candidate map, and a separate variant-selection step. | `(provider-result ... :returns ImplementationAttempt)` | Snapshot setup, candidate tracking, output-bundle validation, and typed artifact registration. |
+| Outcome shape | A discriminant, JSON pointers, per-variant fields, allowed values, and path contracts. | `(defunion ImplementationAttempt ...)` | Converting the union into the lower-level `variant_output` / `select_variant_output` contract. |
+| Variant-safe routing | A `when` condition plus a matching `requires_variant` guard for each branch. | `(match attempt ((COMPLETED completed) ...) ...)` | Proving which variant-specific fields are available in each branch. |
+| State location | `${inputs.state_root}/implementation_state.json` and related path plumbing. | `(with-phase phase-ctx implementation)` plus `phase-ctx` fields. | Deriving canonical state, bundle, snapshot, and target paths from phase context. |
+| Published path values | Python wrappers that read a selected path and write a pointer file before publishing. | A field access such as `completed.execution_report_path`. | Treating the artifact value as authority and materializing compatibility pointers only when required. |
+| Blocker metadata | Text extraction from a human report, such as `line_prefix: "Blocker Class:"`. | A typed field: `(blocker_class BlockerClass)`. | Asking the provider for structured state and validating it before it becomes canonical. |
+| Error surface | Multiple YAML fields can drift out of sync: snapshot names, JSON pointers, guards, refs, and pointer paths. | One typed expression tree. | Reporting type/lowering errors at the source form that created the invalid semantics. |
+
+The practical difference is this:
+
+```text
+YAML authoring model:
+  describe the runtime protocol directly
+  and keep all protocol pieces aligned by hand
+
+Lisp authoring model:
+  describe the typed workflow intent
+  and let reviewed lowering code generate the runtime protocol
+```
+
+That is the source of the concision. The Lisp frontend removes boilerplate only
+when the boilerplate follows from typed semantics the compiler can prove.
+
 ## YAML Shape
 
 The YAML version has to spell out runtime mechanics directly:
