@@ -1,16 +1,37 @@
 # Agent Orchestration
 
-Deterministic, sequential workflow orchestration for command steps and provider-driven agent loops.
+Deterministic workflow orchestration for command steps, provider-driven agent
+loops, and reusable design -> plan -> implementation stacks.
 
-This repo defines:
+This repo is built around three ideas:
 
-- a YAML DSL for workflows
-- strict runtime contracts for control flow, outputs, and artifact lineage
-- filesystem-native run state under `.orchestrate/runs/<run_id>/` so runs are reproducible and debuggable
+- workflows are authored in a strict YAML DSL;
+- runtime state, outputs, artifacts, and routing are contract-checked;
+- every run leaves filesystem-native evidence under
+  `.orchestrate/runs/<run_id>/` so it can be inspected, resumed, and reported.
 
-If you are new to the repo, start by validating a real design -> plan -> implement workflow. The first path below is self-contained and does not require provider credentials.
+The project is useful when an agent workflow needs more structure than an ad
+hoc shell script: typed inputs and outputs, reusable subworkflows, bounded
+review/fix loops, artifact lineage, resumable state, and local observability.
 
-## Prerequisites
+## Start Here
+
+| Goal | Read or run |
+| --- | --- |
+| Understand the repo map | [`docs/index.md`](docs/index.md) |
+| Learn the execution model | [`docs/orchestration_start_here.md`](docs/orchestration_start_here.md) |
+| Author or revise workflow YAML | [`docs/workflow_drafting_guide.md`](docs/workflow_drafting_guide.md) |
+| Check the normative DSL contract | [`specs/index.md`](specs/index.md) and [`specs/dsl.md`](specs/dsl.md) |
+| Find runnable examples | [`workflows/README.md`](workflows/README.md) |
+| Compare the Lisp MVP to YAML | [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md) |
+
+If you are new to the repo, first validate the call-based design -> plan ->
+implementation example. It is self-contained and does not execute provider
+commands when run with `--dry-run`.
+
+## Install
+
+Requirements:
 
 - Python 3.11+
 - `bash`
@@ -18,10 +39,8 @@ If you are new to the repo, start by validating a real design -> plan -> impleme
 
 Optional for real provider execution:
 
-- the `codex` CLI available in your shell
-- whatever auth/configuration your `codex exec` setup requires
-
-## Install
+- the `codex` CLI available in your shell;
+- whatever authentication your `codex exec` setup requires.
 
 ```bash
 git clone <repo-url> agent-orchestration
@@ -38,9 +57,12 @@ Sanity check:
 python -m orchestrator --help
 ```
 
-## First Successful Run
+The CLI program name is `orchestrate`, but the examples use
+`python -m orchestrator` so they work directly from a checkout.
 
-Validate the full call-based design -> plan -> implement stack:
+## First Dry Run
+
+Validate the current modular design -> plan -> implementation stack:
 
 ```bash
 python -m orchestrator run \
@@ -50,24 +72,28 @@ python -m orchestrator run \
 
 Expected result:
 
-- the workflow loads successfully
-- imported subworkflows validate
-- typed inputs/outputs validate
-- no provider command is executed yet
+- the workflow loads successfully;
+- imported subworkflows validate;
+- typed inputs and outputs validate;
+- no provider command is executed.
 
-This example is the best first read because it exercises the current modular stack:
+This example exercises the current reusable stack:
 
-- top-level workflow: [`workflows/examples/design_plan_impl_review_stack_v2_call.yaml`](workflows/examples/design_plan_impl_review_stack_v2_call.yaml)
-- design phase: [`workflows/library/tracked_design_phase.yaml`](workflows/library/tracked_design_phase.yaml)
-- plan phase: [`workflows/library/tracked_plan_phase.yaml`](workflows/library/tracked_plan_phase.yaml)
-- implementation phase: [`workflows/library/design_plan_impl_implementation_phase.yaml`](workflows/library/design_plan_impl_implementation_phase.yaml)
-- input brief: [`workflows/examples/inputs/provider_session_resume_brief.md`](workflows/examples/inputs/provider_session_resume_brief.md)
+- top-level workflow:
+  [`workflows/examples/design_plan_impl_review_stack_v2_call.yaml`](workflows/examples/design_plan_impl_review_stack_v2_call.yaml)
+- design phase:
+  [`workflows/library/tracked_design_phase.yaml`](workflows/library/tracked_design_phase.yaml)
+- plan phase:
+  [`workflows/library/tracked_plan_phase.yaml`](workflows/library/tracked_plan_phase.yaml)
+- implementation phase:
+  [`workflows/library/design_plan_impl_implementation_phase.yaml`](workflows/library/design_plan_impl_implementation_phase.yaml)
+- input brief:
+  [`workflows/examples/inputs/provider_session_resume_brief.md`](workflows/examples/inputs/provider_session_resume_brief.md)
 
-## Run The Same Workflow For Real
+## Run For Real
 
-Only do this after `--dry-run` succeeds and `codex exec` works in your shell.
-
-This uses the workflow's default output paths, so it will write example design, plan, and review artifacts into `docs/plans/`, `artifacts/review/`, and `artifacts/work/`.
+Only run provider workflows after `--dry-run` succeeds and your provider CLI
+works in the same shell.
 
 ```bash
 python -m orchestrator run \
@@ -77,55 +103,118 @@ python -m orchestrator run \
 
 That run will:
 
-- read the brief from `workflows/examples/inputs/provider_session_resume_brief.md`
-- draft and review a design
-- draft and review an execution plan
-- execute implementation work and run the implementation review/fix loop
-- write run state and logs under `.orchestrate/runs/<run_id>/`
+- read the example brief;
+- draft and review a design;
+- draft and review an execution plan;
+- execute implementation work and run the implementation review/fix loop;
+- write run state and logs under `.orchestrate/runs/<run_id>/`;
+- write workflow artifacts under the paths declared by the workflow.
 
-After a run, generate a readable report:
+If the run stops partway through, resume it:
 
 ```bash
-python -m orchestrator report --format md
+python -m orchestrator resume <run_id> --stream-output
 ```
+
+## Observability
+
+The first places to inspect after a run are:
+
+- `.orchestrate/runs/<run_id>/state.json`: step status, artifacts, and errors;
+- `.orchestrate/runs/<run_id>/logs/<Step>.prompt.txt`: composed provider
+  prompt;
+- `.orchestrate/runs/<run_id>/logs/<Step>.stdout` and `.stderr`: command or
+  provider execution traces.
+
+Generate a readable run report:
+
+```bash
+python -m orchestrator report --run-id <run_id> --format md
+```
+
+Serve the local read-only dashboard:
+
+```bash
+python -m orchestrator dashboard --workspace "$(pwd)"
+```
+
+For long workflows, optional summaries can make run review easier:
+
+```bash
+python -m orchestrator run \
+  workflows/examples/design_plan_impl_review_stack_v2_call.yaml \
+  --stream-output \
+  --step-summaries \
+  --summary-profile phase-performance
+```
+
+Summary files are observability artifacts only. They must not drive workflow
+routing or recovery decisions.
 
 For headless email alerts when runs complete, fail, crash, or stall across
-multiple workspaces, see [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md):
-
-```bash
-python -m orchestrator monitor --config ~/.config/orchestrator/monitor.yaml --once --dry-run
-```
-
-If a run stops partway through, resume it:
-
-```bash
-python -m orchestrator resume <run_id>
-```
+multiple workspaces, see [`docs/workflow_monitoring.md`](docs/workflow_monitoring.md).
 
 ## What The Repo Contains
 
-- [`docs/index.md`](docs/index.md): documentation hub and recommended read order
-- [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md): side-by-side comparison of the Workflow Lisp MVP against the equivalent YAML slice
-- [`specs/index.md`](specs/index.md): normative contract for the DSL, CLI, state, and acceptance scope
-- [`workflows/README.md`](workflows/README.md): catalog of example and reusable workflows
-- [`prompts/README.md`](prompts/README.md): curated prompt index
-- [`tests/README.md`](tests/README.md): testing and smoke-check guidance
+| Path | Purpose |
+| --- | --- |
+| [`orchestrator/`](orchestrator/) | Loader, validator, executor, CLI, dashboard, observability, and experimental Workflow Lisp compiler code. |
+| [`specs/`](specs/) | Normative DSL, CLI, state, provider, observability, and acceptance contracts. |
+| [`docs/`](docs/) | Informative guides, design notes, runbooks, and implementation plans. |
+| [`workflows/examples/`](workflows/examples/) | Runnable examples and validation fixtures. |
+| [`workflows/library/`](workflows/library/) | Reusable imported subworkflows and bundled prompt assets. |
+| [`prompts/`](prompts/) | Shared prompt catalog. |
+| [`tests/`](tests/) | Unit, runtime, loader, workflow, and fixture tests. |
+
+Important entry points:
+
+- [`docs/index.md`](docs/index.md): documentation hub and recommended read
+  order;
+- [`workflows/README.md`](workflows/README.md): workflow catalog;
+- [`prompts/README.md`](prompts/README.md): prompt catalog;
+- [`tests/README.md`](tests/README.md): test and smoke-check guidance;
+- [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md):
+  side-by-side Workflow Lisp MVP vs YAML comparison.
 
 ## Common Commands
 
-Validate any workflow without executing steps:
+Validate a workflow without executing steps:
 
 ```bash
 python -m orchestrator run workflows/examples/design_plan_impl_review_stack_v2_call.yaml --dry-run
 ```
 
-Validate another example that demonstrates runtime observability flags:
+Run with live provider output:
+
+```bash
+python -m orchestrator run workflows/examples/design_plan_impl_review_stack_v2_call.yaml --stream-output
+```
+
+Resume an existing run:
+
+```bash
+python -m orchestrator resume <run_id> --stream-output
+```
+
+Render the latest run report:
+
+```bash
+python -m orchestrator report --format md
+```
+
+Serve the dashboard:
+
+```bash
+python -m orchestrator dashboard --workspace "$(pwd)"
+```
+
+Validate an observability-focused example:
 
 ```bash
 python -m orchestrator run workflows/examples/observability_runtime_config_demo.yaml --debug --step-summaries
 ```
 
-Run the default unit/integration test loop:
+Run the default non-e2e test loop:
 
 ```bash
 pytest -m "not e2e" -v
@@ -133,19 +222,24 @@ pytest -m "not e2e" -v
 
 ## Versioning
 
-This repo contains workflows across multiple DSL versions, including older `1.x` examples and newer `2.x` structured-control and call-based examples.
+The repo contains workflows across multiple DSL versions, including older `1.x`
+examples and newer `2.x` structured-control, reusable-call, provider-session,
+managed-job, and v2.14 materialization/variant examples.
 
 Authoritative versioning details live in:
 
 - [`specs/index.md`](specs/index.md)
 - [`specs/versioning.md`](specs/versioning.md)
 
-## Debugging Runs
+## Debugging Rule Of Thumb
 
-The first places to inspect for a failed or confusing run are:
+If agent behavior looks wrong, inspect the composed provider prompt before
+changing workflow logic:
 
-- `state.json`: step results, artifacts, and error context
-- `logs/<Step>.prompt.txt`: the fully composed provider prompt
-- `logs/<Step>.stdout` and `logs/<Step>.stderr`: command or provider execution traces
+```bash
+less .orchestrate/runs/<run_id>/logs/<Step>.prompt.txt
+```
 
-If agent behavior looks wrong, inspect `logs/<Step>.prompt.txt` before changing workflow logic.
+If routing or artifact lineage looks wrong, inspect `state.json` and the
+workflow's declared `outputs`, `publishes`, `consumes`, `expected_outputs`, and
+`output_bundle` contracts before changing prompts.

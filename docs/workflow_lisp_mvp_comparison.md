@@ -159,6 +159,48 @@ The Lisp version keeps the semantic intent in the source:
 The compiler owns the lowering details. The author writes the typed outcome and
 the routing over that outcome.
 
+## What Happened To The Inline Python?
+
+The YAML slice uses inline Python for semantic glue, not for an external tool:
+
+```text
+selected report path
+  -> check that the report file exists
+  -> write a pointer file containing that path
+  -> expose the pointer file as an expected output
+  -> publish the report artifact from that output
+```
+
+That logic appears once for the completed execution report and once for the
+blocked progress report. The code is small, but the workflow author still has
+to keep the selected variant, selected path, pointer path, output name, and
+published artifact aligned by hand.
+
+The `.orc` fixture avoids that authored glue because the selected report path
+is already a typed value on the selected variant:
+
+```lisp
+((COMPLETED completed)
+  completed.execution_report_path)
+
+((BLOCKED blocked)
+  blocked.progress_report_path)
+```
+
+The important distinction is authority:
+
+| Question | YAML slice | Lisp MVP slice |
+| --- | --- | --- |
+| What is the semantic value? | A relpath selected by `select_variant_output`, then copied through a pointer-file wrapper. | A relpath field on the selected union variant. |
+| Who writes the pointer file? | Inline Python in the workflow source. | The author does not write one in this slice. If compatibility materialization is needed, it belongs in compiler/runtime lowering or a certified adapter. |
+| What can drift? | Variant guard, selected artifact ref, pointer path, expected output name, and `publishes` entry. | The typed field access must be valid inside the `match` branch, or compilation fails. |
+| Is Python banned? | No. Command steps and certified adapters are still valid for real external work. | The MVP removes hidden semantic glue from normal authoring; it does not remove legitimate command execution from the system. |
+
+So the Lisp frontend does not make Bash or Python impossible. It makes this
+particular class of inline Bash/Python unnecessary by representing the path as
+typed workflow state instead of reconstructing it through pointer-file side
+effects.
+
 ## Why This Is Better
 
 The improvement is not just fewer lines. The important change is that the Lisp
