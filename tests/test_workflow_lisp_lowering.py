@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 import pytest
@@ -27,6 +28,7 @@ from orchestrator.workflow_lisp.syntax import build_syntax_module
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+MODULE_FIXTURES = FIXTURES / "modules"
 STRUCTURED_RESULTS_FIXTURE = FIXTURES / "valid" / "structured_results.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
@@ -56,6 +58,10 @@ def _command_boundary_environment() -> CommandBoundaryEnvironment:
             ),
         }
     )
+
+
+def _compiler_module():
+    return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
 def _write_module(path: Path, body: str) -> Path:
@@ -998,3 +1004,58 @@ def test_compile_stage3_module_maps_phase_targets_by_name_not_position(tmp_path:
     assert prelude_by_name["progress_report_target"]["source"] == {
         "ref": "inputs.phase-ctx__progress_report_target"
     }
+
+
+def test_compile_stage3_entrypoint_coexists_with_explicit_imported_bundles(tmp_path: Path) -> None:
+    compile_entrypoint = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_entrypoint), "compile_stage3_entrypoint is missing"
+
+    imported_bundle_source = tmp_path / "selector_run.orc"
+    imported_bundle_source.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow selector-run",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (input report_path)",
+                "      :returns ImplementationSummary)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    imported_bundle = compile_stage3_module(
+        imported_bundle_source,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).validated_bundles["selector-run"]
+
+    source_root = MODULE_FIXTURES / "valid" / "imported_bundle_mix"
+    result = compile_entrypoint(
+        source_root / "neurips" / "entry.orc",
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        imported_workflow_bundles={"selector-run": imported_bundle},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "selector-run" in result.entry_result.workflow_catalog.signatures_by_name
+    assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name

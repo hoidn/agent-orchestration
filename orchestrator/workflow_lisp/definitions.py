@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
 from .syntax import (
+    ImportDirective,
     SyntaxBool,
     SyntaxIdentifier,
     SyntaxKeyword,
@@ -93,6 +94,9 @@ class WorkflowLispModule:
 
     language_version: str
     target_dsl_version: str
+    module_name: str | None
+    imports: tuple[ImportDirective, ...]
+    exports: tuple[str, ...]
     definitions: tuple[DefinitionNode, ...]
     span: SourceSpan
 
@@ -106,6 +110,9 @@ def elaborate_definition_module(module: WorkflowLispSyntaxModule) -> WorkflowLis
     return WorkflowLispModule(
         language_version=module.language_version,
         target_dsl_version=module.target_dsl_version,
+        module_name=module.module_name,
+        imports=module.imports,
+        exports=module.exports,
         definitions=tuple(definitions),
         span=module.span,
     )

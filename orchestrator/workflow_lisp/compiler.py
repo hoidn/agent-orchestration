@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
@@ -27,10 +28,23 @@ from .expressions import (
     elaborate_expression,
 )
 from .lowering import lower_workflow_definitions, validate_lowered_workflows
-from .macros import collect_macro_catalog, expand_module_forms
+from .macros import collect_macro_catalog, collect_macro_catalog_with_imports, expand_module_forms
+from .modules import (
+    LinkedModuleGraph,
+    ModuleExportSurface,
+    ModuleImportScope,
+    ModuleMemberBinding,
+    build_import_scope,
+    canonical_callable_key,
+    derive_export_surface,
+    imported_macro_catalog,
+    resolve_module_graph,
+)
 from .procedures import (
     ProcedureCatalog,
     ProcedureDef,
+    ProcedureParam,
+    ProcedureSignature,
     TypedProcedureDef,
     build_procedure_catalog,
     elaborate_procedure_definitions,
@@ -39,12 +53,16 @@ from .procedures import (
 )
 from .reader import read_sexpr_file
 from .syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
-from .type_env import PRELUDE_TYPE_NAMES, FrontendTypeEnvironment
+from .type_env import PRELUDE_TYPE_NAMES, FrontendTypeEnvironment, TypeRef
 from .typecheck import typecheck_expression
 from .workflows import (
     CertifiedAdapterBinding,
     ExternalToolBinding,
     Stage3CompileResult,
+    TypedWorkflowDef,
+    WorkflowDef,
+    WorkflowParam,
+    WorkflowSignature,
 )
 from .workflows import (
     build_command_boundary_environment,
@@ -53,6 +71,75 @@ from .workflows import (
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
 )
+
+
+@dataclass(frozen=True)
+class LinkedStage1CompileResult:
+    graph: LinkedModuleGraph
+    entry_module: WorkflowLispModule
+    compiled_modules_by_name: Mapping[str, WorkflowLispModule]
+
+
+@dataclass(frozen=True)
+class LinkedStage3CompileResult:
+    graph: LinkedModuleGraph
+    entry_result: Stage3CompileResult
+    compiled_results_by_name: Mapping[str, Stage3CompileResult]
+    validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle]
+
+
+def compile_stage1_entrypoint(
+    path: Path,
+    *,
+    source_roots: tuple[Path, ...] | None = None,
+) -> LinkedStage1CompileResult:
+    graph = resolve_module_graph(path, source_roots=source_roots)
+    compiled_modules_by_name: dict[str, WorkflowLispModule] = {}
+    export_surfaces = dict(graph.export_surfaces_by_name)
+    for module_name in graph.topological_order:
+        module_source = graph.modules_by_name[module_name]
+        module = elaborate_definition_module(_definition_only_syntax_module(module_source.syntax_module))
+        _validate_definition_module(module)
+        build_import_scope(module, export_surfaces_by_name=export_surfaces)
+        export_surfaces[module_name] = derive_export_surface(
+            module_source.syntax_module,
+            local_macros=collect_macro_catalog(module_source.syntax_module),
+            local_module=module,
+        )
+        compiled_modules_by_name[module_name] = module
+    return LinkedStage1CompileResult(
+        graph=LinkedModuleGraph(
+            entry_module_name=graph.entry_module_name,
+            modules_by_name=graph.modules_by_name,
+            topological_order=graph.topological_order,
+            export_surfaces_by_name=export_surfaces,
+        ),
+        entry_module=compiled_modules_by_name[graph.entry_module_name],
+        compiled_modules_by_name=compiled_modules_by_name,
+    )
+
+
+def compile_stage3_entrypoint(
+    path: Path,
+    *,
+    source_roots: tuple[Path, ...] | None = None,
+    provider_externs: Mapping[str, str] | None = None,
+    prompt_externs: Mapping[str, str] | None = None,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
+    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
+    validate_shared: bool = True,
+    workspace_root: Path | None = None,
+) -> LinkedStage3CompileResult:
+    graph = resolve_module_graph(path, source_roots=source_roots)
+    return _compile_stage3_graph(
+        graph,
+        provider_externs=provider_externs,
+        prompt_externs=prompt_externs,
+        imported_workflow_bundles=imported_workflow_bundles,
+        command_boundaries=command_boundaries,
+        validate_shared=validate_shared,
+        workspace_root=workspace_root or path.parent,
+    )
 
 def compile_stage3_module(
     path: Path,
@@ -143,6 +230,431 @@ def compile_stage1_module(path: Path) -> WorkflowLispModule:
     module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
     _validate_definition_module(module)
     return module
+
+
+def _compile_stage3_graph(
+    graph: LinkedModuleGraph,
+    *,
+    provider_externs: Mapping[str, str] | None,
+    prompt_externs: Mapping[str, str] | None,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
+    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
+    validate_shared: bool,
+    workspace_root: Path,
+) -> LinkedStage3CompileResult:
+    export_surfaces = dict(graph.export_surfaces_by_name)
+    exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
+    exported_macro_defs_by_module: dict[str, dict[str, object]] = {}
+    exported_procedure_signatures_by_module: dict[str, dict[str, ProcedureSignature]] = {}
+    exported_workflow_signatures_by_module: dict[str, dict[str, WorkflowSignature]] = {}
+    typed_procedures_by_name: dict[str, TypedProcedureDef] = {}
+    procedure_effects_by_name: dict[str, EffectSummary] = {}
+    workflow_effects_by_name: dict[str, EffectSummary] = {}
+    exported_validated_bundles_by_name: dict[str, LoadedWorkflowBundle] = {}
+    compiled_results_by_name: dict[str, Stage3CompileResult] = {}
+    explicit_imported_bundles = dict(imported_workflow_bundles or {})
+
+    for module_name in graph.topological_order:
+        module_source = graph.modules_by_name[module_name]
+        preliminary_module = WorkflowLispModule(
+            language_version=module_source.syntax_module.language_version,
+            target_dsl_version=module_source.syntax_module.target_dsl_version,
+            module_name=module_source.syntax_module.module_name,
+            imports=module_source.syntax_module.imports,
+            exports=module_source.syntax_module.exports,
+            definitions=(),
+            span=module_source.syntax_module.span,
+        )
+        import_scope = build_import_scope(preliminary_module, export_surfaces_by_name=export_surfaces)
+        imported_macros = imported_macro_catalog(
+            import_scope,
+            exported_macros_by_module=exported_macro_defs_by_module,
+        )
+        expanded_syntax = expand_module_forms(
+            module_source.syntax_module,
+            catalog=collect_macro_catalog_with_imports(
+                module_source.syntax_module,
+                imported_definitions=imported_macros,
+            ),
+        )
+        definition_module = elaborate_definition_module(
+            _definition_only_from_expanded_syntax_module(expanded_syntax)
+        )
+        _validate_definition_module(definition_module)
+
+        raw_procedure_defs = elaborate_procedure_definitions(expanded_syntax)
+        raw_workflow_defs = elaborate_workflow_definitions(expanded_syntax)
+        export_surfaces[module_name] = derive_export_surface(
+            expanded_syntax,
+            local_macros=collect_macro_catalog(module_source.syntax_module),
+            local_module=definition_module,
+            procedure_names=tuple(procedure.name for procedure in raw_procedure_defs),
+            workflow_names=tuple(workflow.name for workflow in raw_workflow_defs),
+        )
+        import_scope = build_import_scope(definition_module, export_surfaces_by_name=export_surfaces)
+
+        imported_type_refs = _imported_type_refs(import_scope, exported_type_refs_by_module)
+        type_env = FrontendTypeEnvironment.from_module(
+            definition_module,
+            import_scope=import_scope,
+            imported_type_refs=imported_type_refs,
+        )
+        procedure_defs = _canonicalize_procedure_defs(module_name, raw_procedure_defs)
+        workflow_defs = _canonicalize_workflow_defs(module_name, raw_workflow_defs)
+        procedure_lookup_aliases = _local_callable_lookup_aliases(
+            module_name,
+            raw_names=tuple(procedure.name for procedure in raw_procedure_defs),
+            imported_bindings=import_scope.procedure_bindings,
+        )
+        workflow_lookup_aliases = _local_callable_lookup_aliases(
+            module_name,
+            raw_names=tuple(workflow.name for workflow in raw_workflow_defs),
+            imported_bindings=import_scope.workflow_bindings,
+        )
+        imported_procedure_signatures = _imported_procedure_signatures(
+            import_scope,
+            exported_procedure_signatures_by_module,
+        )
+        imported_workflow_signatures = _imported_workflow_signatures(
+            import_scope,
+            exported_workflow_signatures_by_module,
+        )
+        effective_imported_bundles = _effective_imported_workflow_bundles(
+            import_scope,
+            explicit_imported_bundles=explicit_imported_bundles,
+            exported_validated_bundles_by_name=exported_validated_bundles_by_name,
+        )
+        workflow_catalog = build_workflow_catalog(
+            definition_module,
+            workflow_defs,
+            type_env,
+            imported_signatures=imported_workflow_signatures,
+            lookup_aliases=workflow_lookup_aliases,
+            imported_workflow_bundles=effective_imported_bundles,
+        )
+        procedure_catalog = build_procedure_catalog(
+            procedure_defs,
+            type_env=type_env,
+            imported_signatures=imported_procedure_signatures,
+            lookup_aliases=procedure_lookup_aliases,
+        )
+        extern_environment = build_extern_environment(
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+        )
+        command_boundary_environment = build_command_boundary_environment(command_boundaries)
+        command_boundary_environment = _augment_resource_transition_command_boundaries(
+            command_boundary_environment,
+        )
+        local_procedure_resolver = _procedure_name_resolver(
+            module_name,
+            import_scope,
+            local_raw_names=frozenset(procedure.name for procedure in raw_procedure_defs),
+        )
+        local_workflow_resolver = _workflow_name_resolver(
+            module_name,
+            import_scope,
+            local_raw_names=frozenset(workflow.name for workflow in raw_workflow_defs),
+            external_workflow_names=frozenset(effective_imported_bundles),
+        )
+        typed_procedures, typed_workflows, procedure_catalog = _infer_stage3_effect_summaries(
+            procedure_defs,
+            workflow_defs=workflow_defs,
+            type_env=type_env,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+            procedure_name_resolver=local_procedure_resolver,
+            workflow_name_resolver=local_workflow_resolver,
+        )
+        command_boundary_environment = _augment_resume_command_boundaries(
+            command_boundary_environment,
+            typed_procedures=typed_procedures,
+            typed_workflows=typed_workflows,
+        )
+        combined_typed_procedures = {
+            **typed_procedures_by_name,
+            **{procedure.definition.name: procedure for procedure in typed_procedures},
+        }
+        lowered_workflows = lower_workflow_definitions(
+            typed_workflows,
+            typed_procedures=tuple(combined_typed_procedures.values()),
+            procedure_catalog=procedure_catalog,
+            workflow_path=module_source.path,
+            workflow_catalog=workflow_catalog,
+            imported_workflow_bundles=effective_imported_bundles,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            type_env=type_env,
+        )
+        requires_internal_bundle_validation = (
+            not validate_shared
+            and module_name != graph.entry_module_name
+            and bool(export_surfaces[module_name].workflows_by_name)
+        )
+        validated_exports: Mapping[str, LoadedWorkflowBundle]
+        if validate_shared or requires_internal_bundle_validation:
+            validated_exports = validate_lowered_workflows(
+                lowered_workflows,
+                workspace_root=workspace_root,
+                imported_workflow_bundles=effective_imported_bundles,
+            )
+        else:
+            validated_exports = {}
+        result = Stage3CompileResult(
+            module=definition_module,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            typed_procedures=typed_procedures,
+            typed_workflows=typed_workflows,
+            lowered_workflows=lowered_workflows,
+            validated_bundles=validated_exports if validate_shared else {},
+        )
+        compiled_results_by_name[module_name] = result
+        exported_type_refs_by_module[module_name] = _exported_type_refs(
+            definition_module,
+            export_surfaces[module_name],
+            type_env,
+        )
+        exported_macro_defs_by_module[module_name] = {
+            name: macro_def
+            for name, macro_def in collect_macro_catalog(module_source.syntax_module).definitions_by_name.items()
+            if name in export_surfaces[module_name].macros_by_name
+        }
+        exported_procedure_signatures_by_module[module_name] = {
+            name: procedure_catalog.signatures_by_name[binding.canonical_name]
+            for name, binding in export_surfaces[module_name].procedures_by_name.items()
+        }
+        exported_workflow_signatures_by_module[module_name] = {
+            name: workflow_catalog.signatures_by_name[binding.canonical_name]
+            for name, binding in export_surfaces[module_name].workflows_by_name.items()
+        }
+        for procedure in typed_procedures:
+            typed_procedures_by_name[procedure.definition.name] = procedure
+            procedure_effects_by_name[procedure.definition.name] = procedure.transitive_effect_summary
+        for workflow in typed_workflows:
+            workflow_effects_by_name[workflow.definition.name] = workflow.effect_summary
+        if validated_exports:
+            for binding in export_surfaces[module_name].workflows_by_name.values():
+                exported_validated_bundles_by_name[binding.canonical_name] = validated_exports[binding.canonical_name]
+
+    return LinkedStage3CompileResult(
+        graph=LinkedModuleGraph(
+            entry_module_name=graph.entry_module_name,
+            modules_by_name=graph.modules_by_name,
+            topological_order=graph.topological_order,
+            export_surfaces_by_name=export_surfaces,
+        ),
+        entry_result=compiled_results_by_name[graph.entry_module_name],
+        compiled_results_by_name=compiled_results_by_name,
+        validated_bundles_by_name=exported_validated_bundles_by_name,
+    )
+
+
+def _definition_only_from_expanded_syntax_module(
+    module_syntax: WorkflowLispSyntaxModule,
+) -> WorkflowLispSyntaxModule:
+    definition_forms = []
+    for form in module_syntax.forms:
+        head_name = syntax_head_name(syntax_node_datum(form))
+        if head_name in {"defworkflow", "defproc", "defmacro"}:
+            continue
+        definition_forms.append(form)
+    return WorkflowLispSyntaxModule(
+        language_version=module_syntax.language_version,
+        target_dsl_version=module_syntax.target_dsl_version,
+        module_directive=module_syntax.module_directive,
+        imports=module_syntax.imports,
+        export_directive=module_syntax.export_directive,
+        forms=tuple(definition_forms),
+        span=module_syntax.span,
+        module_path=module_syntax.module_path,
+    )
+
+
+def _canonicalize_procedure_defs(
+    module_name: str,
+    procedure_defs: tuple[ProcedureDef, ...],
+) -> tuple[ProcedureDef, ...]:
+    return tuple(
+        replace(procedure_def, name=canonical_callable_key(module_name, procedure_def.name))
+        for procedure_def in procedure_defs
+    )
+
+
+def _canonicalize_workflow_defs(
+    module_name: str,
+    workflow_defs: tuple[WorkflowDef, ...],
+) -> tuple[WorkflowDef, ...]:
+    return tuple(
+        replace(workflow_def, name=canonical_callable_key(module_name, workflow_def.name))
+        for workflow_def in workflow_defs
+    )
+
+
+def _local_callable_lookup_aliases(
+    module_name: str,
+    *,
+    raw_names: tuple[str, ...],
+    imported_bindings: Mapping[str, ModuleMemberBinding],
+) -> dict[str, str]:
+    aliases = {
+        alias_name: binding.canonical_name
+        for alias_name, binding in imported_bindings.items()
+    }
+    for raw_name in raw_names:
+        aliases[raw_name] = canonical_callable_key(module_name, raw_name)
+    return aliases
+
+
+def _imported_type_refs(
+    import_scope: ModuleImportScope,
+    exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
+) -> dict[str, TypeRef]:
+    imported: dict[str, TypeRef] = {}
+    seen_bindings = {
+        **dict(import_scope.type_bindings),
+        **dict(import_scope.unqualified_type_bindings),
+    }
+    for binding in seen_bindings.values():
+        type_ref = exported_type_refs_by_module.get(binding.module_name, {}).get(binding.member_name)
+        if type_ref is not None:
+            imported[binding.canonical_name] = type_ref
+    return imported
+
+
+def _exported_type_refs(
+    module: WorkflowLispModule,
+    export_surface: ModuleExportSurface,
+    type_env: FrontendTypeEnvironment,
+) -> dict[str, TypeRef]:
+    exported: dict[str, TypeRef] = {}
+    for binding in export_surface.types_by_name.values():
+        exported[binding.member_name] = type_env.resolve_type(
+            binding.member_name,
+            span=module.span,
+            form_path=("workflow-lisp", binding.member_name),
+        )
+    return exported
+
+
+def _imported_procedure_signatures(
+    import_scope: ModuleImportScope,
+    exported_by_module: Mapping[str, Mapping[str, ProcedureSignature]],
+) -> dict[str, ProcedureSignature]:
+    imported: dict[str, ProcedureSignature] = {}
+    for binding in import_scope.procedure_bindings.values():
+        signature = exported_by_module.get(binding.module_name, {}).get(binding.member_name)
+        if signature is not None:
+            imported[binding.canonical_name] = signature
+    return imported
+
+
+def _imported_workflow_signatures(
+    import_scope: ModuleImportScope,
+    exported_by_module: Mapping[str, Mapping[str, WorkflowSignature]],
+) -> dict[str, WorkflowSignature]:
+    imported: dict[str, WorkflowSignature] = {}
+    for binding in import_scope.workflow_bindings.values():
+        signature = exported_by_module.get(binding.module_name, {}).get(binding.member_name)
+        if signature is not None:
+            imported[binding.canonical_name] = signature
+    return imported
+
+
+def _effective_imported_workflow_bundles(
+    import_scope: ModuleImportScope,
+    *,
+    explicit_imported_bundles: Mapping[str, LoadedWorkflowBundle],
+    exported_validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
+    ) -> dict[str, LoadedWorkflowBundle]:
+    effective = dict(explicit_imported_bundles)
+    seen_canonical_names: set[str] = set()
+    for binding in import_scope.workflow_bindings.values():
+        if binding.canonical_name in seen_canonical_names:
+            continue
+        seen_canonical_names.add(binding.canonical_name)
+        bundle = exported_validated_bundles_by_name.get(binding.canonical_name)
+        if bundle is None:
+            continue
+        if binding.canonical_name in effective:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="module_import_collision",
+                        message=f"imported workflow bundle key collision for `{binding.canonical_name}`",
+                        span=_bundle_span(bundle),
+                        form_path=("workflow-lisp", binding.canonical_name),
+                    ),
+                )
+            )
+        effective[binding.canonical_name] = bundle
+    return effective
+
+
+def _procedure_name_resolver(
+    module_name: str,
+    import_scope: ModuleImportScope,
+    *,
+    local_raw_names: frozenset[str],
+):
+    local_names: dict[str, str] = {}
+
+    def resolve(name: str, span, form_path):
+        if name in local_names:
+            return local_names[name]
+        if name in local_raw_names:
+            resolved = canonical_callable_key(module_name, name)
+        else:
+            resolved = import_scope.resolve_procedure_name(name, span=span, form_path=form_path)
+            if resolved == name:
+                resolved = canonical_callable_key(module_name, name)
+        local_names[name] = resolved
+        return resolved
+
+    return resolve
+
+
+def _workflow_name_resolver(
+    module_name: str,
+    import_scope: ModuleImportScope,
+    *,
+    local_raw_names: frozenset[str],
+    external_workflow_names: frozenset[str] = frozenset(),
+):
+    local_names: dict[str, str] = {}
+
+    def resolve(name: str, span, form_path):
+        if name in local_names:
+            return local_names[name]
+        if name in local_raw_names:
+            resolved = canonical_callable_key(module_name, name)
+        else:
+            resolved = import_scope.resolve_workflow_name(name, span=span, form_path=form_path)
+            if resolved == name:
+                if name in external_workflow_names:
+                    resolved = name
+                else:
+                    resolved = canonical_callable_key(module_name, name)
+        local_names[name] = resolved
+        return resolved
+
+    return resolve
+
+
+def _bundle_span(bundle: LoadedWorkflowBundle):
+    from .spans import SourcePosition, SourceSpan
+
+    workflow_path = bundle.provenance.workflow_path
+    return SourceSpan(
+        start=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
+        end=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
+    )
 
 
 def _expanded_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
@@ -387,6 +899,9 @@ def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> W
     return WorkflowLispSyntaxModule(
         language_version=expanded_module.language_version,
         target_dsl_version=expanded_module.target_dsl_version,
+        module_directive=expanded_module.module_directive,
+        imports=expanded_module.imports,
+        export_directive=expanded_module.export_directive,
         forms=tuple(definition_forms),
         span=expanded_module.span,
         module_path=expanded_module.module_path,
@@ -403,6 +918,8 @@ def _typecheck_procedure_definitions(
     command_boundary_environment: object,
     procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    procedure_name_resolver=None,
+    workflow_name_resolver=None,
 ) -> tuple[TypedProcedureDef, ...]:
     from .workflows import ExternEnvironment, ProviderExtern
 
@@ -428,6 +945,8 @@ def _typecheck_procedure_definitions(
             procedure_def.body,
             bound_names=frozenset(value_env),
             procedure_names=frozenset(procedure_catalog.signatures_by_name),
+            procedure_name_resolver=procedure_name_resolver,
+            workflow_name_resolver=workflow_name_resolver,
         )
         typed_body = typecheck_expression(
             body_expr,
@@ -476,9 +995,13 @@ def _infer_stage3_effect_summaries(
     procedure_catalog: ProcedureCatalog,
     extern_environment: object,
     command_boundary_environment: object,
+    procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    procedure_name_resolver=None,
+    workflow_name_resolver=None,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
-    procedure_effects_by_name: Mapping[str, EffectSummary] = {}
-    workflow_effects_by_name: Mapping[str, EffectSummary] = {}
+    procedure_effects_by_name = dict(procedure_effects_by_name or {})
+    workflow_effects_by_name = dict(workflow_effects_by_name or {})
     typed_procedures: tuple[TypedProcedureDef, ...] = ()
     typed_workflows: tuple[object, ...] = ()
 
@@ -493,6 +1016,8 @@ def _infer_stage3_effect_summaries(
             command_boundary_environment=command_boundary_environment,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            procedure_name_resolver=procedure_name_resolver,
+            workflow_name_resolver=workflow_name_resolver,
         )
         typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
             typed_procedures,
@@ -511,6 +1036,8 @@ def _infer_stage3_effect_summaries(
             command_boundary_environment=command_boundary_environment,
             procedure_effects_by_name=next_procedure_effects,
             workflow_effects_by_name=workflow_effects_by_name,
+            procedure_name_resolver=procedure_name_resolver,
+            workflow_name_resolver=workflow_name_resolver,
         )
         next_workflow_effects = {
             workflow.definition.name: workflow.effect_summary for workflow in typed_workflows
@@ -541,6 +1068,8 @@ def _infer_stage3_effect_summaries(
         command_boundary_environment=command_boundary_environment,
         procedure_effects_by_name=procedure_effects_by_name,
         workflow_effects_by_name=workflow_effects_by_name,
+        procedure_name_resolver=procedure_name_resolver,
+        workflow_name_resolver=workflow_name_resolver,
     )
     return typed_procedures, typed_workflows, procedure_catalog
 

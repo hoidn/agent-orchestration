@@ -16,12 +16,17 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding, elaborate_
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+MODULE_FIXTURES = FIXTURES / "modules"
 VALID_ALIAS_FIXTURE = FIXTURES / "valid" / "macro_workflow_alias.orc"
 HYGIENE_FIXTURE = FIXTURES / "valid" / "macro_hygiene_local_binding.orc"
 
 
 def _macros_module():
     return importlib.import_module("orchestrator.workflow_lisp.macros")
+
+
+def _compiler_module():
+    return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
 def _expanded_module(path: Path):
@@ -156,3 +161,20 @@ def test_compile_stage3_module_accepts_macro_emitted_provider_and_command_result
         "command_checks",
         "provider_attempt",
     ]
+
+
+def test_compile_stage3_entrypoint_expands_imported_macros(tmp_path: Path) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = MODULE_FIXTURES / "valid" / "import_macro"
+    result = compile_fn(
+        source_root / "neurips" / "entry.orc",
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert "generated" in result.entry_result.workflow_catalog.signatures_by_name

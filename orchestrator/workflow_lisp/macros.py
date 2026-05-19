@@ -39,6 +39,9 @@ _RESERVED_MACRO_NAMES = frozenset(
         "defunion",
         "defworkflow",
         "defproc",
+        "defmodule",
+        "import",
+        "export",
         "defmacro",
         "record",
         "let*",
@@ -104,7 +107,19 @@ class _ExpansionAllocator:
 def collect_macro_catalog(module_syntax: WorkflowLispSyntaxModule) -> MacroCatalog:
     """Collect all same-file top-level `defmacro` definitions before elaboration."""
 
-    definitions_by_name: dict[str, MacroDef] = {}
+    return collect_macro_catalog_with_imports(module_syntax)
+
+
+def collect_macro_catalog_with_imports(
+    module_syntax: WorkflowLispSyntaxModule,
+    *,
+    imported_definitions: Mapping[str, MacroDef] | None = None,
+) -> MacroCatalog:
+    """Collect same-file macros on top of an optional imported macro catalog."""
+
+    definitions_by_name: dict[str, MacroDef] = dict(imported_definitions or {})
+    imported_names = set(definitions_by_name)
+    local_names: set[str] = set()
     diagnostics: list[LispFrontendDiagnostic] = []
     for form in module_syntax.forms:
         datum = syntax_node_datum(form)
@@ -126,7 +141,7 @@ def collect_macro_catalog(module_syntax: WorkflowLispSyntaxModule) -> MacroCatal
                 )
             )
             continue
-        if macro_def.name in definitions_by_name:
+        if macro_def.name in local_names:
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="macro_reserved_name",
@@ -137,7 +152,12 @@ def collect_macro_catalog(module_syntax: WorkflowLispSyntaxModule) -> MacroCatal
                 )
             )
             continue
+        if macro_def.name in imported_names:
+            definitions_by_name[macro_def.name] = macro_def
+            local_names.add(macro_def.name)
+            continue
         definitions_by_name[macro_def.name] = macro_def
+        local_names.add(macro_def.name)
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))
     return MacroCatalog(definitions_by_name=definitions_by_name)
@@ -169,6 +189,9 @@ def expand_module_forms(
     return WorkflowLispSyntaxModule(
         language_version=module_syntax.language_version,
         target_dsl_version=module_syntax.target_dsl_version,
+        module_directive=module_syntax.module_directive,
+        imports=module_syntax.imports,
+        export_directive=module_syntax.export_directive,
         forms=tuple(expanded_forms),
         span=module_syntax.span,
         module_path=module_syntax.module_path,

@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 import pytest
@@ -23,6 +24,7 @@ from orchestrator.workflow_lisp.syntax import SyntaxNode, WorkflowLispSyntaxModu
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, RecordTypeRef, UnionTypeRef
 from orchestrator.workflow_lisp.workflows import (
     ExternEnvironment,
+    ExternalToolBinding,
     PromptExtern,
     ProviderExtern,
     WorkflowCatalog,
@@ -34,6 +36,7 @@ from orchestrator.workflow_lisp.workflows import (
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+MODULE_FIXTURES = FIXTURES / "modules"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 FORM_PATH = ("workflow-lisp", "workflow-expression-test")
@@ -41,6 +44,10 @@ FORM_PATH = ("workflow-lisp", "workflow-expression-test")
 
 def _build_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
     return build_syntax_module(read_sexpr_file(path))
+
+
+def _compiler_module():
+    return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
 def _compile_definition_module(path: Path):
@@ -524,3 +531,26 @@ def test_typecheck_workflow_definitions_accepts_union_workflow_calls_with_match_
     )
 
     assert [workflow.definition.name for workflow in typed] == ["helper", "entry"]
+
+
+def test_compile_stage3_entrypoint_registers_imported_workflow_signatures(tmp_path: Path) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = MODULE_FIXTURES / "valid" / "callables"
+    result = compile_fn(
+        source_root / "neurips" / "entry.orc",
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name

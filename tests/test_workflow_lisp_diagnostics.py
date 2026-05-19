@@ -1,4 +1,5 @@
 from dataclasses import FrozenInstanceError
+import importlib
 from pathlib import Path
 
 import pytest
@@ -17,6 +18,11 @@ from orchestrator.workflow_lisp.syntax import build_syntax_module
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+MODULE_FIXTURES = FIXTURES / "modules"
+
+
+def _compiler_module():
+    return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
 def test_render_diagnostic_includes_location_and_form_path() -> None:
@@ -410,3 +416,20 @@ def test_compile_stage3_renders_macro_expansion_notes_for_provider_extern_valida
     assert diagnostic.expansion_stack[0].macro_name == "emit-provider-workflow"
     assert "expanded from macro `emit-provider-workflow` call at" in rendered
     assert "macro definition at" in rendered
+
+
+def test_compile_stage1_entrypoint_renders_module_path_mismatch_diagnostic() -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage1_entrypoint", None)
+    assert callable(compile_fn), "compile_stage1_entrypoint is missing"
+
+    source_root = MODULE_FIXTURES / "invalid" / "path_mismatch"
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_fn(
+            source_root / "neurips" / "bad.orc",
+            source_roots=(source_root,),
+        )
+
+    rendered = render_diagnostic(excinfo.value.diagnostics[0])
+
+    assert "[module_path_mismatch]" in rendered
+    assert "other/place" in rendered

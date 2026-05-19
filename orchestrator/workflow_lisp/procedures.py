@@ -92,8 +92,10 @@ def build_procedure_catalog(
     procedure_defs: tuple[ProcedureDef, ...],
     *,
     type_env: FrontendTypeEnvironment,
+    imported_signatures: Mapping[str, ProcedureSignature] | None = None,
+    lookup_aliases: Mapping[str, str] | None = None,
 ) -> ProcedureCatalog:
-    signatures_by_name: dict[str, ProcedureSignature] = {}
+    signatures_by_name: dict[str, ProcedureSignature] = dict(imported_signatures or {})
     definitions_by_name: dict[str, ProcedureDef] = {}
     diagnostics: list[LispFrontendDiagnostic] = []
     for procedure_def in procedure_defs:
@@ -137,6 +139,10 @@ def build_procedure_catalog(
             form_path=procedure_def.form_path,
         )
         definitions_by_name[procedure_def.name] = procedure_def
+    for alias_name, canonical_name in (lookup_aliases or {}).items():
+        signature = signatures_by_name.get(canonical_name)
+        if signature is not None:
+            signatures_by_name[alias_name] = signature
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))
     return ProcedureCatalog(

@@ -3,10 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .definitions import EnumDef, PathDef, RecordDef, UnionDef, UnionVariant, WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourcePosition, SourceSpan
+
+if TYPE_CHECKING:
+    from .modules import ModuleImportScope
 
 
 PRELUDE_PRIMITIVE_TYPE_NAMES = frozenset(
@@ -101,11 +105,25 @@ TypeRef = PrimitiveTypeRef | PathTypeRef | RecordTypeRef | UnionTypeRef | Varian
 class FrontendTypeEnvironment:
     """Resolved type lookup helpers derived from a Stage 1 module."""
 
-    def __init__(self, type_refs: dict[str, TypeRef]):
+    def __init__(
+        self,
+        type_refs: dict[str, TypeRef],
+        *,
+        import_scope: "ModuleImportScope | None" = None,
+        canonical_name_overrides: dict[str, str] | None = None,
+    ):
         self._type_refs = dict(type_refs)
+        self._import_scope = import_scope
+        self._canonical_name_overrides = dict(canonical_name_overrides or {})
 
     @classmethod
-    def from_module(cls, module: WorkflowLispModule) -> "FrontendTypeEnvironment":
+    def from_module(
+        cls,
+        module: WorkflowLispModule,
+        *,
+        import_scope: "ModuleImportScope | None" = None,
+        imported_type_refs: dict[str, TypeRef] | None = None,
+    ) -> "FrontendTypeEnvironment":
         type_refs: dict[str, TypeRef] = {
             name: PrimitiveTypeRef(name=name) for name in PRELUDE_PRIMITIVE_TYPE_NAMES
         }
@@ -159,7 +177,9 @@ class FrontendTypeEnvironment:
                             for variant in definition.variants
                         }
                     )
-        return cls(type_refs)
+        if imported_type_refs:
+            type_refs.update(imported_type_refs)
+        return cls(type_refs, import_scope=import_scope)
 
     def resolve_type(
         self,
@@ -169,8 +189,18 @@ class FrontendTypeEnvironment:
         form_path: tuple[str, ...],
         expansion_stack: tuple[object, ...] = (),
     ) -> TypeRef:
+        lookup_name = self._canonical_name_overrides.get(name, name)
+        local_ref = self._type_refs.get(lookup_name)
+        if local_ref is not None:
+            return local_ref
+        if self._import_scope is not None:
+            lookup_name = self._import_scope.resolve_type_name(
+                lookup_name,
+                span=span,
+                form_path=form_path,
+            )
         try:
-            return self._type_refs[name]
+            return self._type_refs[lookup_name]
         except KeyError:
             _raise_error(
                 f"unknown type `{name}`",

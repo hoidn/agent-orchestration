@@ -250,12 +250,14 @@ def build_workflow_catalog(
     workflow_defs: tuple[WorkflowDef, ...],
     type_env: FrontendTypeEnvironment,
     *,
+    imported_signatures: Mapping[str, WorkflowSignature] | None = None,
+    lookup_aliases: Mapping[str, str] | None = None,
     imported_workflow_bundles: Mapping[str, "LoadedWorkflowBundle"] | None = None,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
 
     del module
-    signatures_by_name: dict[str, WorkflowSignature] = {}
+    signatures_by_name: dict[str, WorkflowSignature] = dict(imported_signatures or {})
     definitions_by_name: dict[str, WorkflowDef] = {}
     diagnostics: list[LispFrontendDiagnostic] = []
     for workflow_def in workflow_defs:
@@ -341,6 +343,8 @@ def build_workflow_catalog(
 
     for imported_name, imported_bundle in (imported_workflow_bundles or {}).items():
         if imported_name in signatures_by_name:
+            if imported_signatures is not None and imported_name in imported_signatures:
+                continue
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="workflow_definition_duplicate",
@@ -355,6 +359,10 @@ def build_workflow_catalog(
             imported_bundle,
             type_env=type_env,
         )
+    for alias_name, canonical_name in (lookup_aliases or {}).items():
+        signature = signatures_by_name.get(canonical_name)
+        if signature is not None:
+            signatures_by_name[alias_name] = signature
 
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))
@@ -556,6 +564,8 @@ def typecheck_workflow_definitions(
     command_boundary_environment: CommandBoundaryEnvironment | None = None,
     procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    procedure_name_resolver=None,
+    workflow_name_resolver=None,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
@@ -592,6 +602,8 @@ def typecheck_workflow_definitions(
             workflow_def.body,
             bound_names=frozenset(value_env),
             procedure_names=procedure_names,
+            procedure_name_resolver=procedure_name_resolver,
+            workflow_name_resolver=workflow_name_resolver,
         )
         typed_body = typecheck_expression(
             body_expr,

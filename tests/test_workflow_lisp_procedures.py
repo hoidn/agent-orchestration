@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 
 import pytest
@@ -26,6 +27,7 @@ from orchestrator.workflow_lisp.workflows import (
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+MODULE_FIXTURES = FIXTURES / "modules"
 INLINE_FIXTURE = FIXTURES / "valid" / "defproc_inline.orc"
 PRIVATE_WORKFLOW_FIXTURE = FIXTURES / "valid" / "defproc_private_workflow.orc"
 EFFECT_MISMATCH_FIXTURE = FIXTURES / "invalid" / "procedure_effect_mismatch.orc"
@@ -73,6 +75,10 @@ def _write_module(path: Path, lines: list[str]) -> Path:
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
     assert excinfo.value.diagnostics[0].code == code
+
+
+def _compiler_module():
+    return importlib.import_module("orchestrator.workflow_lisp.compiler")
 
 
 def test_compile_stage3_collects_defproc_catalog_before_body_checking(tmp_path: Path) -> None:
@@ -696,3 +702,26 @@ def test_shared_validation_remap_renders_procedure_call_and_definition_notes(tmp
 
     assert "procedure call site at" in rendered
     assert "procedure definition at" in rendered
+
+
+def test_compile_stage3_entrypoint_registers_imported_procedure_signatures(tmp_path: Path) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = MODULE_FIXTURES / "valid" / "callables"
+    result = compile_fn(
+        source_root / "neurips" / "entry.orc",
+        source_roots=(source_root,),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert "neurips/procedures::build-checks" in result.entry_result.procedure_catalog.signatures_by_name

@@ -1752,19 +1752,28 @@ def _lower_call_expr(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     expr = typed_expr.expr
     assert isinstance(expr, CallExpr)
-    callee = context.lowered_callees.get(expr.callee_name)
-    if callee is None:
+    signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
+    canonical_name = signature.name if signature is not None else expr.callee_name
+    callee = context.lowered_callees.get(canonical_name)
+    imported_bundle = context.imported_workflow_bundles.get(canonical_name)
+    if callee is None and imported_bundle is None:
         raise _compile_error(
             code="workflow_call_unknown",
             message=f"unknown workflow callee `{expr.callee_name}` during lowering",
             span=expr.span,
             form_path=expr.form_path,
         )
-    step_name = f"{context.step_name_prefix}__call_{expr.callee_name}"
+    step_name = f"{context.step_name_prefix}__call_{canonical_name}"
     step_id = _normalize_generated_step_id(step_name)
     with_bindings: dict[str, Any] = {}
     binding_by_name = dict(expr.bindings)
-    for param_name, param_type in callee.typed_workflow.signature.params:
+    callee_signature = (
+        callee.typed_workflow.signature
+        if callee is not None
+        else signature
+    )
+    assert callee_signature is not None
+    for param_name, param_type in callee_signature.params:
         value_expr = binding_by_name[param_name]
         if isinstance(param_type, RecordTypeRef):
             for generated_name, field_path in _flatten_boundary_leaf_paths(
@@ -1778,15 +1787,20 @@ def _lower_call_expr(
                 )
             continue
         with_bindings[param_name] = _render_call_binding_ref(value_expr, local_values=local_values)
-    for managed_input in _managed_inputs_from_mapping(callee.authored_mapping):
+    managed_inputs = (
+        _managed_inputs_from_mapping(callee.authored_mapping)
+        if callee is not None
+        else _managed_inputs_from_bundle(imported_bundle)
+    )
+    for managed_input in managed_inputs:
         with_bindings[managed_input] = (
-            f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{step_name}/{expr.callee_name}/{managed_input}.json"
+            f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{step_name}/{canonical_name}/{managed_input}.json"
         )
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     step = {
         "name": step_name,
         "id": step_id,
-        "call": expr.callee_name,
+        "call": canonical_name,
         "with": with_bindings,
     }
     return [step], _TerminalResult(
@@ -1810,6 +1824,7 @@ def _lower_procedure_call_expr(
     expr = typed_expr.expr
     assert isinstance(expr, ProcedureCallExpr)
     procedure = context.typed_procedures.get(expr.callee_name)
+    canonical_name = procedure.signature.name if procedure is not None else expr.callee_name
     if procedure is None:
         raise _compile_error(
             code="procedure_call_unknown",
@@ -1828,7 +1843,7 @@ def _lower_procedure_call_expr(
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        step_name = f"{context.step_name_prefix}__call_{expr.callee_name}"
+        step_name = f"{context.step_name_prefix}__call_{canonical_name}"
         step_id = _normalize_generated_step_id(step_name)
         with_bindings: dict[str, Any] = {}
         for arg_expr, (param_name, param_type) in zip(expr.args, procedure.signature.params, strict=True):
@@ -1843,7 +1858,7 @@ def _lower_procedure_call_expr(
                 with_bindings[param_name] = _render_call_binding_ref(arg_expr, local_values=local_values)
         for managed_input in _managed_inputs_from_mapping(callee.authored_mapping):
             with_bindings[managed_input] = (
-                f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{step_name}/{expr.callee_name}/{managed_input}.json"
+                f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{step_name}/{canonical_name}/{managed_input}.json"
             )
         _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
         return [{"name": step_name, "id": step_id, "call": procedure.generated_workflow_name, "with": with_bindings}], _TerminalResult(
@@ -3712,6 +3727,17 @@ def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tupl
     )
 
 
+def _managed_inputs_from_bundle(bundle: LoadedWorkflowBundle | None) -> tuple[str, ...]:
+    if bundle is None:
+        return ()
+    inputs = getattr(bundle.surface, "inputs", {})
+    if not isinstance(inputs, Mapping):
+        return ()
+    return tuple(
+        name for name in inputs if isinstance(name, str) and name.startswith("__write_root__")
+    )
+
+
 def _signature_local_values(typed_workflow: TypedWorkflowDef | _LoweringContext) -> dict[str, Any]:
     if isinstance(typed_workflow, _LoweringContext):
         signature = typed_workflow.signature
@@ -5321,14 +5347,27 @@ def _binding_type_for_expr(expr: Any, *, context: _LoweringContext) -> TypeRef:
         )
     if isinstance(expr, CallExpr):
         callee = context.lowered_callees.get(expr.callee_name)
-        if callee is None:
+        if callee is not None:
+            return callee.typed_workflow.signature.return_type_ref
+        signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
+        if signature is not None:
+            return signature.return_type_ref
+        raise _compile_error(
+            code="workflow_call_unknown",
+            message=f"unknown workflow callee `{expr.callee_name}` during lowering",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, ProcedureCallExpr):
+        procedure = context.typed_procedures.get(expr.callee_name)
+        if procedure is None:
             raise _compile_error(
-                code="workflow_call_unknown",
-                message=f"unknown workflow callee `{expr.callee_name}` during lowering",
+                code="procedure_call_unknown",
+                message=f"unknown procedure callee `{expr.callee_name}` during lowering",
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        return callee.typed_workflow.signature.return_type_ref
+        return procedure.signature.return_type_ref
     raise _compile_error(
         code="workflow_return_not_exportable",
         message=f"Stage 3 lowering does not support let* binding `{type(expr).__name__}`",
@@ -5967,6 +6006,9 @@ def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> W
     return WorkflowLispSyntaxModule(
         language_version=expanded.language_version,
         target_dsl_version=expanded.target_dsl_version,
+        module_directive=expanded.module_directive,
+        imports=expanded.imports,
+        export_directive=expanded.export_directive,
         forms=tuple(definition_forms),
         span=expanded.span,
         module_path=expanded.module_path,
