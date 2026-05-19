@@ -130,6 +130,7 @@ def _copy_neurips_implementation_phase(workspace: Path) -> Path:
     for relpath in [
         "workflows/library/neurips_backlog_implementation_phase.yaml",
         "workflows/library/scripts/run_neurips_backlog_checks.py",
+        "workflows/library/scripts/materialize_neurips_implementation_state.py",
         "workflows/library/prompts/neurips_backlog_implementation_phase/implement_implementation.md",
         "workflows/library/prompts/neurips_backlog_implementation_phase/review_implementation.md",
         "workflows/library/prompts/neurips_backlog_implementation_phase/fix_implementation.md",

@@ -46,13 +46,21 @@ def _copy_runtime_files(workspace: Path) -> Path:
     shutil.copytree(FIXTURE_ROOT, workspace, dirs_exist_ok=True)
     files = [
         "workflows/examples/neurips_steered_backlog_drain.yaml",
+        "workflows/examples/neurips_steered_backlog_drain.legacy.yaml",
         "workflows/library/neurips_backlog_selector.yaml",
+        "workflows/library/neurips_backlog_selector.v214.yaml",
         "workflows/library/neurips_backlog_gap_drafter.yaml",
+        "workflows/library/neurips_backlog_gap_drafter.v214.yaml",
         "workflows/library/neurips_backlog_roadmap_sync_phase.yaml",
+        "workflows/library/neurips_backlog_roadmap_sync.v214.yaml",
         "workflows/library/neurips_backlog_seeded_plan_phase.yaml",
+        "workflows/library/neurips_backlog_seeded_plan_phase.v214.yaml",
         "workflows/library/neurips_backlog_implementation_phase.yaml",
+        "workflows/library/neurips_backlog_implementation_phase.v214.yaml",
         "workflows/library/neurips_selected_backlog_item.yaml",
+        "workflows/library/neurips_selected_backlog_item.v214.yaml",
         "workflows/library/scripts/build_neurips_backlog_manifest.py",
+        "workflows/library/scripts/materialize_neurips_implementation_state.py",
         "workflows/library/scripts/materialize_neurips_selected_item_inputs.py",
         "workflows/library/scripts/move_neurips_backlog_item.py",
         "workflows/library/scripts/recover_neurips_plan_gate_outputs.py",
@@ -463,7 +471,12 @@ def _write_implementation_review(workspace: Path) -> None:
         if (pointer.parent / "implementation_review_decision.txt").exists():
             continue
         state_path = pointer.parent / "implementation_state.txt"
-        if not state_path.exists() or state_path.read_text(encoding="utf-8").strip() != "COMPLETED":
+        state_bundle_path = pointer.parent / "implementation_state.json"
+        state_is_completed = state_path.exists() and state_path.read_text(encoding="utf-8").strip() == "COMPLETED"
+        if state_bundle_path.exists():
+            state_bundle = json.loads(state_bundle_path.read_text(encoding="utf-8"))
+            state_is_completed = state_is_completed or state_bundle.get("implementation_state") == "COMPLETED"
+        if not state_is_completed:
             continue
         target = _target_from_pointer(workspace, pointer.relative_to(workspace).as_posix())
         target.write_text(
@@ -576,6 +589,129 @@ def test_neurips_steered_backlog_runtime_smoke(tmp_path):
     )
     assert checks_report["status"] == "PASS"
     assert checks_report["failed_count"] == 0
+
+
+def test_drain_continues_to_next_iteration(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    state = _run_with_mocked_providers(workspace, workflow_path)
+    run_state = json.loads(
+        (workspace / "state/NEURIPS-HYBRID-RESNET-2026/backlog_drain/run_state.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert state["__provider_calls"] == 6
+    assert run_state["completed_items"] == ["2026-04-22-ready-item"]
+
+
+def test_drain_blocked(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    provider_sequence = [
+        ("SelectNextItem", _write_first_selector),
+        ("ReviewOrUpdateRoadmap", _write_roadmap_sync_outputs),
+        ("DraftPlan", _write_plan_draft),
+        ("ReviewPlanTracked", _write_plan_review),
+        ("ExecuteImplementation", _write_blocked_execution_state),
+    ]
+    call_index = {"value": 0}
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **kwargs):
+        expected_step, writer = provider_sequence[call_index["value"]]
+        actual_step = kwargs.get("step_name")
+        if actual_step is not None:
+            assert actual_step == expected_step
+        call_index["value"] += 1
+        writer(workspace)
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    workflow_relpath = workflow_path.relative_to(workspace).as_posix()
+    bound_inputs = bind_workflow_inputs(workflow_input_contracts(workflow), _fixture_workflow_inputs(), workspace)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, _bundle_context_dict(workflow), bound_inputs=bound_inputs)
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        executor.execute()
+
+    summary = json.loads(
+        (workspace / "artifacts/work/NEURIPS-HYBRID-RESNET-2026/backlog-drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["drain_status"] == "BLOCKED"
+
+
+def test_drain_gap_draft(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+    _replace_active_backlog_with_future_phase_gap_fixture(workspace)
+
+    provider_sequence = [
+        ("DraftMissingBacklogItem", _write_gap_draft),
+        ("SelectNextItem", _write_selector_blocked_after_gap),
+    ]
+    call_index = {"value": 0}
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **kwargs):
+        expected_step, writer = provider_sequence[call_index["value"]]
+        actual_step = kwargs.get("step_name")
+        if actual_step is not None:
+            assert actual_step == expected_step
+        call_index["value"] += 1
+        writer(workspace)
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    loader = WorkflowLoader(workspace)
+    workflow = loader.load(workflow_path)
+    workflow_relpath = workflow_path.relative_to(workspace).as_posix()
+    bound_inputs = bind_workflow_inputs(workflow_input_contracts(workflow), _fixture_workflow_inputs(), workspace)
+    state_manager = StateManager(workspace=workspace, run_id="test-run")
+    state_manager.initialize(workflow_relpath, _bundle_context_dict(workflow), bound_inputs=bound_inputs)
+    executor = WorkflowExecutor(workflow, workspace, state_manager)
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ):
+        executor.execute()
+
+    assert call_index["value"] == 2
+    assert (workspace / "docs/backlog/active/2026-04-28-phase2-gap.md").is_file()
 
 
 def test_neurips_steered_backlog_runtime_recovers_queue_path_drift_after_plan_review(tmp_path):

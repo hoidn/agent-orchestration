@@ -1929,13 +1929,8 @@ def _lower_let_star(
             local_values=local_values,
         )
     local_bindings = dict(local_values)
-    if isinstance(binding_type, RecordTypeRef):
-        local_bindings[binding_name] = _build_record_step_local_value(
-            binding_type,
-            step_name=binding_terminal.step_name,
-        )
-    elif isinstance(binding_type, UnionTypeRef):
-        local_bindings[binding_name] = _build_union_step_local_value(binding_terminal.output_refs)
+    if isinstance(binding_type, (RecordTypeRef, UnionTypeRef)):
+        local_bindings[binding_name] = _build_output_step_local_value(binding_terminal.output_refs)
 
     if isinstance(body_expr, MatchExpr):
         lowered_steps, terminal = _lower_match_expr(
@@ -2117,6 +2112,13 @@ def _lower_finalize_selected_item(
     }
     context.generated_path_spans[summary_pointer_path] = _origin_from_context_source(context, expr)
     selected_active_value = selected_value.get("is-active")
+    placeholder_blocker_value = blocker_contract["allowed"][0]
+    result_output_definitions = {
+        "return__variant": dict(variant_contract),
+        "return__summary-path": dict(summary_contract),
+        "return__run-state": dict(run_state_contract),
+        "return__blocker-class": dict(blocker_contract),
+    }
 
     def _when_from_value(value: Any) -> dict[str, Any] | None:
         if isinstance(value, LiteralExpr):
@@ -2206,17 +2208,14 @@ def _lower_finalize_selected_item(
             "publishes": [{"artifact": summary_artifact_name, "from": summary_artifact_name}],
         }
 
-    def _case_outputs(*, outcome_step_name: str, include_blocker: bool) -> dict[str, Any]:
-        outputs = {
-            "return__variant": {"from": {"ref": f"self.steps.{outcome_step_name}.artifacts.return__variant"}},
-            "return__summary-path": {"from": {"ref": f"self.steps.{outcome_step_name}.artifacts.return__summary-path"}},
-            "return__run-state": {"from": {"ref": f"self.steps.{outcome_step_name}.artifacts.return__run-state"}},
-        }
-        if include_blocker:
-            outputs["return__blocker-class"] = {
-                "from": {"ref": f"self.steps.{outcome_step_name}.artifacts.return__blocker-class"}
+    def _forward_result_outputs(source_ref_prefix: str) -> dict[str, Any]:
+        return {
+            name: {
+                **definition,
+                "from": {"ref": f"{source_ref_prefix}.{name}"},
             }
-        return outputs
+            for name, definition in result_output_definitions.items()
+        }
 
     plan_blocked_outcome_name = "FinalizeSelectedItemOutcomeBlockedByPlan"
     plan_approved_match_name = "FinalizeSelectedItemImplementationResult"
@@ -2225,9 +2224,8 @@ def _lower_finalize_selected_item(
     implementation_cases = {
         "COMPLETED": {
             "id": _normalize_generated_step_id(f"{step_name}__completed"),
-            "outputs": _case_outputs(
-                outcome_step_name=implementation_completed_outcome_name,
-                include_blocker=False,
+            "outputs": _forward_result_outputs(
+                f"self.steps.{implementation_completed_outcome_name}.artifacts"
             ),
             "steps": [
                 {
@@ -2239,19 +2237,21 @@ def _lower_finalize_selected_item(
                             summary_ref=implementation_summary_ref,
                             include_blocker_ref=None,
                         )
+                        + [
+                            {
+                                "name": "return__blocker-class",
+                                "source": {"literal": placeholder_blocker_value},
+                                "contract": dict(blocker_contract),
+                            }
+                        ]
                     },
-                },
-                _publish_summary_step(
-                    name="PublishSelectedItemCompletedSummary",
-                    summary_ref=implementation_summary_ref,
-                ),
+                }
             ],
         },
         "BLOCKED": {
             "id": _normalize_generated_step_id(f"{step_name}__blocked"),
-            "outputs": _case_outputs(
-                outcome_step_name=implementation_blocked_outcome_name,
-                include_blocker=True,
+            "outputs": _forward_result_outputs(
+                f"self.steps.{implementation_blocked_outcome_name}.artifacts"
             ),
             "steps": [
                 {
@@ -2264,40 +2264,44 @@ def _lower_finalize_selected_item(
                             include_blocker_ref=implementation_blocker_ref,
                         )
                     },
-                },
-                _publish_summary_step(
-                    name="PublishSelectedItemBlockedSummary",
-                    summary_ref=implementation_blocked_summary_ref,
-                ),
+                }
             ],
+        },
+    }
+    implementation_match_step = {
+        "name": plan_approved_match_name,
+        "id": _normalize_generated_step_id(plan_approved_match_name),
+        "match": {
+            "ref": implementation_variant_ref,
+            "cases": implementation_cases,
         },
     }
     plan_cases = {
         "APPROVED": {
             "id": _normalize_generated_step_id(f"{step_name}__plan_approved"),
-            "outputs": {
-                "return__variant": {"from": {"ref": f"self.steps.{plan_approved_match_name}.artifacts.return__variant"}},
-                "return__summary-path": {
-                    "from": {"ref": f"self.steps.{plan_approved_match_name}.artifacts.return__summary-path"}
-                },
-                "return__run-state": {"from": {"ref": f"self.steps.{plan_approved_match_name}.artifacts.return__run-state"}},
-            },
+            "outputs": _forward_result_outputs(
+                f"root.steps.{plan_approved_match_name}.artifacts"
+            ),
             "steps": [
-                {
-                    "name": plan_approved_match_name,
-                    "id": _normalize_generated_step_id(plan_approved_match_name),
-                    "match": {
-                        "ref": implementation_variant_ref,
-                        "cases": implementation_cases,
-                    },
-                }
+                _publish_summary_step(
+                    name="PublishSelectedItemApprovedSummary",
+                    summary_ref=f"root.steps.{plan_approved_match_name}.artifacts.return__summary-path",
+                ),
+                _build_match_projection_anchor_step(
+                    match_step_name=step_name,
+                    variant_name="APPROVED",
+                    case_outputs=_forward_result_outputs(
+                        f"root.steps.{plan_approved_match_name}.artifacts"
+                    ),
+                    context=context,
+                    span=expr.span,
+                ),
             ],
         },
         "BLOCKED": {
             "id": _normalize_generated_step_id(f"{step_name}__plan_blocked"),
-            "outputs": _case_outputs(
-                outcome_step_name=plan_blocked_outcome_name,
-                include_blocker=True,
+            "outputs": _forward_result_outputs(
+                f"self.steps.{plan_blocked_outcome_name}.artifacts"
             ),
             "steps": [
                 {
@@ -2315,10 +2319,25 @@ def _lower_finalize_selected_item(
                     name="PublishSelectedItemPlanBlockedSummary",
                     summary_ref=plan_summary_ref,
                 ),
+                _build_match_projection_anchor_step(
+                    match_step_name=step_name,
+                    variant_name="BLOCKED",
+                    case_outputs=_forward_result_outputs(
+                        f"self.steps.{plan_blocked_outcome_name}.artifacts"
+                    ),
+                    context=context,
+                    span=expr.span,
+                ),
             ],
         },
     }
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    _record_step_origin(
+        context,
+        step_name=implementation_match_step["name"],
+        step_id=implementation_match_step["id"],
+        source=expr,
+    )
     step = {
         "name": step_name,
         "id": step_id,
@@ -2327,7 +2346,7 @@ def _lower_finalize_selected_item(
             "cases": plan_cases,
         },
     }
-    return [queue_transition_materialize_step, step], _TerminalResult(
+    return [queue_transition_materialize_step, implementation_match_step, step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
         output_refs={
@@ -2422,10 +2441,24 @@ def _lower_backlog_drain(
         context=context,
         local_values=local_values,
     )
-    selection_value = {
-        "item-id": f"self.steps.{selector_call_name}.artifacts.return__selection__item-id",
-        "item-state-root": f"self.steps.{selector_call_name}.artifacts.return__selection__item-state-root",
-    }
+    selection_payload_type = run_item_signature.params[1][1]
+    if not isinstance(selection_payload_type, RecordTypeRef):
+        raise _compile_error(
+            code="workflow_signature_mismatch",
+            message="`backlog-drain :run-item` second parameter must remain a record payload",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    selection_value: dict[str, Any] = {}
+    for _, field_path in _flatten_boundary_leaf_paths(
+        selection_payload_type,
+        generated_name=run_item_signature.params[1][0],
+    ):
+        _assign_nested_local_value(
+            selection_value,
+            field_path,
+            f"self.steps.{selector_call_name}.artifacts.return__selection__{'__'.join(field_path)}",
+        )
     gap_value = {
         "gap-id": f"self.steps.{selector_call_name}.artifacts.return__gap__gap-id",
     }
@@ -4480,11 +4513,9 @@ def _build_record_step_local_value(type_ref: RecordTypeRef, *, step_name: str) -
     return local_value
 
 
-def _build_union_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
+def _build_output_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
     local_value: dict[str, Any] = {}
     for output_name, ref in output_refs.items():
-        if not output_name.startswith("return__"):
-            continue
         field_path = output_name.removeprefix("return__").split("__")
         current = local_value
         for field_name in field_path[:-1]:
@@ -4495,6 +4526,10 @@ def _build_union_step_local_value(output_refs: Mapping[str, str]) -> dict[str, A
             current = next_current
         current[field_path[-1]] = ref
     return local_value
+
+
+def _build_union_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
+    return _build_output_step_local_value(output_refs)
 
 
 def _build_nested_record_step_local_value(
@@ -4516,6 +4551,17 @@ def _build_nested_record_step_local_value(
             continue
         local_value[field.name] = f"root.steps.{step_name}.artifacts.{'__'.join(next_prefix)}"
     return local_value
+
+
+def _assign_nested_local_value(target: dict[str, Any], field_path: tuple[str, ...], ref: str) -> None:
+    current = target
+    for field_name in field_path[:-1]:
+        nested = current.get(field_name)
+        if not isinstance(nested, dict):
+            nested = {}
+            current[field_name] = nested
+        current = nested
+    current[field_path[-1]] = ref
 
 
 def _flatten_boundary_leaf_paths(
@@ -4783,6 +4829,17 @@ def _resume_start_bundle_ref(
 ) -> str:
     if isinstance(start_expr, CommandResultExpr):
         return f"inputs.__write_root__{start_terminal.step_id}__result_bundle"
+    if isinstance(start_expr, CallExpr):
+        bundle_input_name = _call_result_bundle_input_name(
+            start_expr.callee_name,
+            context=context,
+            span=start_expr.span,
+            form_path=start_expr.form_path,
+        )
+        return (
+            f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{start_terminal.step_name}/"
+            f"{start_expr.callee_name}/{bundle_input_name}.json"
+        )
     if isinstance(start_expr, (RunProviderPhaseExpr, ProduceOneOfExpr)):
         if context.phase_scope is None:
             raise _compile_error(
@@ -4807,6 +4864,120 @@ def _resume_start_bundle_ref(
         span=start_expr.span,
         form_path=start_expr.form_path,
     )
+
+
+def _call_result_bundle_input_name(
+    callee_name: str,
+    *,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> str:
+    lowered_callee = context.lowered_callees.get(callee_name)
+    if lowered_callee is None:
+        raise _compile_error(
+            code="resume_or_start_contract_invalid",
+            message="`resume-or-start :start` workflow call must lower through an available structured-result callee",
+            span=span,
+            form_path=form_path,
+        )
+    return _workflow_result_bundle_input_name(
+        lowered_callee.authored_mapping,
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _workflow_result_bundle_input_name(
+    authored_mapping: Mapping[str, object],
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> str:
+    outputs = authored_mapping.get("outputs")
+    if not isinstance(outputs, Mapping):
+        raise _compile_error(
+            code="resume_or_start_contract_invalid",
+            message="`resume-or-start :start` workflow call must expose step-backed return outputs",
+            span=span,
+            form_path=form_path,
+        )
+    terminal_step_name: str | None = None
+    for output_spec in outputs.values():
+        if not isinstance(output_spec, Mapping):
+            continue
+        source = output_spec.get("from")
+        if not isinstance(source, Mapping):
+            continue
+        ref = source.get("ref")
+        if not isinstance(ref, str):
+            continue
+        match = re.match(r"^(?:self|root)\.steps\.([^.]+)\.artifacts\.[^.]+$", ref)
+        if match is None:
+            continue
+        candidate = match.group(1)
+        if terminal_step_name is None:
+            terminal_step_name = candidate
+            continue
+        if terminal_step_name != candidate:
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` workflow call must normalize through one terminal structured-result step",
+                span=span,
+                form_path=form_path,
+            )
+    if terminal_step_name is None:
+        raise _compile_error(
+            code="resume_or_start_contract_invalid",
+            message="`resume-or-start :start` workflow call must expose return outputs backed by one terminal step",
+            span=span,
+            form_path=form_path,
+        )
+    terminal_step = _find_authored_step_by_name(authored_mapping.get("steps"), terminal_step_name)
+    if terminal_step is None:
+        raise _compile_error(
+            code="resume_or_start_contract_invalid",
+            message="`resume-or-start :start` workflow call terminal step is not available for bundle recovery",
+            span=span,
+            form_path=form_path,
+        )
+    for contract_key in ("output_bundle", "variant_output"):
+        contract = terminal_step.get(contract_key)
+        if not isinstance(contract, Mapping):
+            continue
+        path = contract.get("path")
+        if isinstance(path, str) and path.startswith("${inputs.") and path.endswith("}"):
+            return path.removeprefix("${inputs.").removesuffix("}")
+    raise _compile_error(
+        code="resume_or_start_contract_invalid",
+        message="`resume-or-start :start` workflow call must expose one canonical structured-result bundle path",
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _find_authored_step_by_name(steps: Any, step_name: str) -> Mapping[str, object] | None:
+    if not isinstance(steps, list):
+        return None
+    for step in steps:
+        if not isinstance(step, Mapping):
+            continue
+        if step.get("name") == step_name:
+            return step
+        repeat = step.get("repeat_until")
+        if isinstance(repeat, Mapping):
+            found = _find_authored_step_by_name(repeat.get("steps"), step_name)
+            if found is not None:
+                return found
+        match = step.get("match")
+        if isinstance(match, Mapping):
+            for case in (match.get("cases") or {}).values():
+                if not isinstance(case, Mapping):
+                    continue
+                found = _find_authored_step_by_name(case.get("steps"), step_name)
+                if found is not None:
+                    return found
+    return None
 
 
 def _resume_required_artifact_fields(

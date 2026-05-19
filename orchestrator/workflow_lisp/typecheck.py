@@ -1443,12 +1443,13 @@ def _typecheck(
         if isinstance(expr.start_expr, CallExpr):
             start_signature = workflow_catalog.signatures_by_name.get(expr.start_expr.callee_name) if workflow_catalog is not None else None
             if start_signature is not None and isinstance(start_signature.return_type_ref, UnionTypeRef):
-                _raise_error(
-                    "`resume-or-start :start` may not use a union-returning workflow call in this slice",
-                    code="resume_or_start_contract_invalid",
-                    span=expr.start_expr.span,
-                    form_path=expr.start_expr.form_path,
-                )
+                if start_signature.return_type_ref != return_type:
+                    _raise_error(
+                        "`resume-or-start :start` workflow call must return the declared union `:returns` type",
+                        code="resume_or_start_contract_invalid",
+                        span=expr.start_expr.span,
+                        form_path=expr.start_expr.form_path,
+                    )
         typed_start = _typecheck(
             expr.start_expr,
             type_env=type_env,

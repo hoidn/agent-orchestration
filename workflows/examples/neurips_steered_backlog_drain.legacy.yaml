@@ -1,10 +1,10 @@
-version: "2.14"
-name: "neurips-steered-backlog-drain-v214"
+version: "2.7"
+name: "neurips-steered-backlog-drain"
 
 imports:
-  selector: ../library/neurips_backlog_selector.v214.yaml
-  selected_item: ../library/neurips_selected_backlog_item.v214.yaml
-  gap_drafter: ../library/neurips_backlog_gap_drafter.v214.yaml
+  selector: ../library/neurips_backlog_selector.yaml
+  selected_item: ../library/neurips_selected_backlog_item.yaml
+  gap_drafter: ../library/neurips_backlog_gap_drafter.yaml
 
 context:
   workflow_model: "gpt-5.4"

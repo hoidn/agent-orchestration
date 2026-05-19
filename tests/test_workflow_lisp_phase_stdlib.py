@@ -106,6 +106,10 @@ def _command_boundary_environment() -> CommandBoundaryEnvironment:
                 name="run_checks",
                 stable_command=("python", "scripts/run_checks.py"),
             ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
             "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
                 name="load_canonical_phase_result__ChecksResult",
                 stable_command=(
@@ -150,6 +154,10 @@ def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
             "run_checks": ExternalToolBinding(
                 name="run_checks",
                 stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
             ),
             "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
                 name="load_canonical_phase_result__ChecksResult",
@@ -509,6 +517,10 @@ def test_resume_or_start_reserved_adapter_names_cannot_be_shadowed(tmp_path: Pat
                 name="run_checks",
                 stable_command=("python", "scripts/run_checks.py"),
             ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
             "validate_reusable_phase_state": ExternalToolBinding(
                 name="validate_reusable_phase_state",
                 stable_command=("python", "scripts/not_certified_validator.py"),
@@ -664,7 +676,7 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
     branch_step = plan_gate_workflow["steps"][1]
     assert set(branch_step["match"]["cases"]) == {"REUSE", "START"}
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
-    assert any(step.get("provider") == "fake-execute" for step in _iter_nested_steps(start_steps))
+    assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
     loader_step = plan_gate_workflow["steps"][2]
     assert loader_step["command"][:3] == [
         "python",
@@ -687,6 +699,19 @@ def test_shared_validation_accepts_resume_or_start(tmp_path: Path) -> None:
     assert {
         workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
     } >= {"resume-record-phase", "resume-plan-gate"}
+
+
+def test_resume_or_start_supports_union_start_workflow_call(tmp_path: Path) -> None:
+    result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path, validate_shared=True)
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "resume-plan-gate"
+    )
+    branch_step = next(step for step in authored["steps"] if step.get("name", "").endswith("__select_bundle"))
+    start_steps = branch_step["match"]["cases"]["START"]["steps"]
+
+    assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
 
 
 def test_typecheck_rejects_resume_or_start_contract_invalid() -> None:

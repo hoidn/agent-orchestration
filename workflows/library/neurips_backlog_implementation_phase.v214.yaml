@@ -440,7 +440,7 @@ steps:
                         freshness: any
                       - artifact: checks_report
                         policy: latest_successful
-                        freshness: since_last_consume
+                        freshness: any
                     prompt_consumes: ["design", "plan", "execution_report", "checks_report"]
                     expected_outputs:
                       - name: implementation_review_report_path

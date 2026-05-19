@@ -6,6 +6,9 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import yaml
+
+from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.loader import WorkflowLoader
 from orchestrator.providers.executor import ProviderExecutor
 from orchestrator.state import StateManager
@@ -34,6 +37,21 @@ def _thaw(value):
 
 def _bundle_context_dict(bundle) -> dict:
     return _thaw(workflow_context(bundle))
+
+
+def _iter_workflow_steps(steps):
+    for step in steps or []:
+        if not isinstance(step, dict):
+            continue
+        yield step
+        repeat = step.get("repeat_until")
+        if isinstance(repeat, dict):
+            yield from _iter_workflow_steps(repeat.get("steps"))
+        match = step.get("match")
+        if isinstance(match, dict):
+            for case in (match.get("cases") or {}).values():
+                if isinstance(case, dict):
+                    yield from _iter_workflow_steps(case.get("steps"))
 
 
 def _copy_repo_file_to_workspace(workspace: Path, repo_relpath: str) -> None:
@@ -234,6 +252,30 @@ def test_architecture_index_lists_prior_docs_and_excludes_current_target(tmp_pat
     assert bundle["architecture_index_path"] == output_path.relative_to(workspace).as_posix()
 
 
+def test_design_gap_architect_stays_single_pass_for_stage7_scope():
+    workflow = yaml.safe_load((ROOT / "workflows/library/lisp_frontend_design_gap_architect.v214.yaml").read_text())
+    step_names = [step["name"] for step in workflow["steps"]]
+
+    assert step_names == [
+        "PrepareArchitectureTargets",
+        "BuildExistingArchitectureIndex",
+        "DraftDesignGapArchitecture",
+        "ValidateDesignGapArchitecture",
+    ]
+    assert workflow["outputs"]["architecture_validation_status"]["from"]["ref"] == (
+        "root.steps.ValidateDesignGapArchitecture.artifacts.architecture_validation_status"
+    )
+    assert workflow["outputs"]["work_item_bundle_path"]["from"]["ref"] == (
+        "root.steps.ValidateDesignGapArchitecture.artifacts.work_item_bundle_path"
+    )
+
+    draft_step = next(step for step in workflow["steps"] if step["name"] == "DraftDesignGapArchitecture")
+    fields = {field["name"]: field for field in draft_step["output_bundle"]["fields"]}
+
+    assert set(fields) == {"draft_status"}
+    assert draft_step["depends_on"]["inject"]["mode"] == "content"
+
+
 def test_lisp_frontend_workflows_load(tmp_path):
     workspace = tmp_path / "workspace"
     workflow_path = _copy_runtime_files(workspace)
@@ -249,6 +291,41 @@ def test_lisp_frontend_workflows_load(tmp_path):
         "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
     ]:
         loader.load(workspace / relpath)
+
+
+def test_autonomous_drain_design_gap_path_stays_plan_scoped():
+    workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_autonomous_drain.yaml").read_text())
+    drain_step = next(step for step in workflow["steps"] if step["name"] == "DrainLispFrontendWork")
+    route_selection = next(step for step in drain_step["repeat_until"]["steps"] if step["name"] == "RouteSelection")
+    design_gap_case = route_selection["match"]["cases"]["DRAFT_DESIGN_GAP"]
+
+    assert design_gap_case["outputs"]["drain_status"]["from"]["ref"] == (
+        "self.steps.RunDesignGapWorkItem.artifacts.drain_status"
+    )
+    assert [step["name"] for step in design_gap_case["steps"]] == [
+        "DraftDesignGapArchitecture",
+        "RunDesignGapWorkItem",
+    ]
+
+
+def test_implementation_review_checks_report_consumes_are_loop_safe():
+    workflow_paths = [
+        "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
+        "workflows/library/neurips_backlog_implementation_phase.yaml",
+        "workflows/library/neurips_backlog_implementation_phase.v214.yaml",
+    ]
+
+    offenders = []
+    for relpath in workflow_paths:
+        workflow = yaml.safe_load((ROOT / relpath).read_text(encoding="utf-8"))
+        for step in _iter_workflow_steps(workflow.get("steps")):
+            if step.get("name") != "ReviewImplementation":
+                continue
+            for consume in step.get("consumes") or []:
+                if consume.get("artifact") == "checks_report" and consume.get("freshness", "any") != "any":
+                    offenders.append(f"{relpath}:{step.get('name')}:checks_report")
+
+    assert offenders == []
 
 
 def _next_selector_dir(workspace: Path) -> Path:
@@ -406,10 +483,43 @@ def _write_execution_state(workspace: Path) -> None:
     raise AssertionError("No pending implementation phase root found")
 
 
+def _write_execution_state_noncanonical(workspace: Path) -> None:
+    for root in sorted(workspace.glob("state/**/implementation-phase")):
+        bundle_path = root / "implementation_state.json"
+        if bundle_path.exists():
+            continue
+        target = workspace / "artifacts/work/noncanonical-execution-report.md"
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Execution Report\n\nCompleted at noncanonical path.\n", encoding="utf-8")
+        bundle_path.write_text(
+            json.dumps(
+                {
+                    "implementation_state": "COMPLETED",
+                    "execution_report_path": target.relative_to(workspace).as_posix(),
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return
+    raise AssertionError("No pending implementation phase root found")
+
+
+def _leave_execution_state_missing(_workspace: Path) -> None:
+    return
+
+
 def _implementation_execution_report_target(workspace: Path) -> Path:
     for pointer in sorted(workspace.glob("state/**/implementation-phase/execution_report_target_path.txt")):
         return workspace / pointer.read_text(encoding="utf-8").strip()
     raise AssertionError("No execution report target pointer found")
+
+
+def _published_execution_report_path(workspace: Path) -> Path:
+    for pointer in sorted(workspace.glob("state/**/implementation-phase/execution_report_path.txt")):
+        return workspace / pointer.read_text(encoding="utf-8").strip()
+    raise AssertionError("No published execution report pointer found")
 
 
 def _pending_implementation_review_root(workspace: Path) -> Path:
@@ -443,6 +553,12 @@ def _fix_implementation(workspace: Path) -> None:
     target = _implementation_execution_report_target(workspace)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text("# Execution Report\n\nFixed after review.\n", encoding="utf-8")
+
+
+def _fix_implementation_noncanonical(workspace: Path) -> None:
+    target = _published_execution_report_path(workspace)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("# Execution Report\n\nFixed after review at noncanonical path.\n", encoding="utf-8")
 
 
 def _provider_step_matches(actual: str | None, expected: str) -> bool:
@@ -535,6 +651,96 @@ def test_lisp_frontend_drain_design_gap_runtime_smoke(tmp_path):
     ).is_file()
 
 
+def test_selected_item_fresh_plan(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_execution_state),
+            ("ReviewImplementation", _write_implementation_review),
+            ("SelectNextWork", _write_selector_done),
+        ],
+    )
+
+    assert _provider_step_called(state, "DraftPlan")
+    assert _plan_target(workspace).is_file()
+
+
+def test_selected_item_reuses_approved_plan(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    first_run_state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _leave_execution_state_missing),
+        ],
+    )
+
+    assert first_run_state["status"] == "failed"
+    assert any(workspace.glob("state/**/final_plan_review_decision.txt"))
+    assert _provider_step_called(first_run_state, "DraftPlan")
+    assert _provider_step_called(first_run_state, "ReviewPlan")
+
+    resume_sequence = [
+        ("ExecuteImplementation", _write_execution_state),
+        ("ReviewImplementation", _write_implementation_review),
+        ("SelectNextWork", _write_selector_done),
+    ]
+    call_index = {"value": 0}
+    provider_step_names: list[str | None] = []
+
+    def _prepare_invocation(_self, *args, **kwargs):
+        return SimpleNamespace(input_mode="stdin", prompt=kwargs.get("prompt_content", "")), None
+
+    def _execute(_self, _invocation, **kwargs):
+        assert call_index["value"] < len(resume_sequence)
+        expected_step, writer = resume_sequence[call_index["value"]]
+        actual_step = kwargs.get("step_name")
+        assert _provider_step_matches(actual_step, expected_step)
+        provider_step_names.append(actual_step)
+        call_index["value"] += 1
+        writer(workspace)
+        return SimpleNamespace(
+            exit_code=0,
+            stdout=b"ok",
+            stderr=b"",
+            duration_ms=1,
+            error=None,
+            missing_placeholders=None,
+            invalid_prompt_placeholder=False,
+            raw_stdout=None,
+            normalized_stdout=None,
+            provider_session=None,
+        )
+
+    with patch.object(ProviderExecutor, "prepare_invocation", _prepare_invocation), patch.object(
+        ProviderExecutor, "execute", _execute
+    ), patch("os.getcwd", return_value=str(workspace)):
+        result = resume_workflow(run_id="test-run", repair=False, force_restart=False)
+
+    resumed_state = StateManager(workspace=workspace, run_id="test-run").load()
+    named_provider_steps = [step for step in provider_step_names if step is not None]
+
+    assert result == 0
+    assert call_index["value"] == len(resume_sequence)
+    assert resumed_state.status == "completed"
+    assert all(not _provider_step_matches(step, "DraftPlan") for step in named_provider_steps)
+    assert all(not _provider_step_matches(step, "ReviewPlan") for step in named_provider_steps)
+
+
 def test_lisp_frontend_plan_review_revise_then_approve(tmp_path):
     workspace = tmp_path / "workspace"
     workflow_path = _copy_runtime_files(workspace)
@@ -595,6 +801,40 @@ def test_lisp_frontend_implementation_review_revise_then_approve(tmp_path):
     assert summary["drain_status"] == "DONE"
     assert summary["completed_design_gaps"] == ["parser-syntax"]
     assert "Fixed after review" in _implementation_execution_report_target(workspace).read_text(encoding="utf-8")
+
+
+def test_lisp_frontend_implementation_review_revise_then_approve_with_noncanonical_execution_report_path(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_execution_state_noncanonical),
+            ("ReviewImplementation", _write_implementation_review_revise),
+            ("FixImplementation", _fix_implementation_noncanonical),
+            ("ReviewImplementation", _write_implementation_review),
+            ("SelectNextWork", _write_selector_done),
+        ],
+    )
+
+    assert _provider_step_called(state, "FixImplementation")
+    summary = json.loads(
+        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert summary["drain_status"] == "DONE"
+    assert summary["completed_design_gaps"] == ["parser-syntax"]
+    assert _published_execution_report_path(workspace) == _implementation_execution_report_target(workspace)
+    assert "Fixed after review at noncanonical path" in _published_execution_report_path(workspace).read_text(
+        encoding="utf-8"
+    )
 
 
 def test_lisp_frontend_plan_review_exhaustion_records_blocked(tmp_path):

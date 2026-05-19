@@ -34,40 +34,25 @@
     (state-root Path.state-root)
     (artifact-root Path.artifact-root))
   (defrecord ResumeInputs
-    (resume_from PhaseStateBundle)
+    (resume-from PhaseStateBundle)
     (design DesignDocPath)
     (plan PlanDocPath)
-    (report_path WorkReport))
-  (defrecord ChecksResult
-    (checks_report WorkReport))
+    (report-path WorkReport))
   (defunion PlanGateResult
     (APPROVED
-      (execution_report_path WorkReport))
+      (execution-report-path WorkReport))
     (BLOCKED
-      (progress_report_path WorkReport)
-      (blocker_class BlockerClass)))
+      (progress-report-path WorkReport)
+      (blocker-class BlockerClass)))
+  (defrecord PlanGateSurfaceResult
+    (report-path WorkReport))
   (defworkflow plan-run
     ((phase-ctx PhaseCtx)
      (inputs ResumeInputs))
     -> PlanGateResult
     (command-result resolve_plan_gate
-      :argv ("python" "scripts/resolve_plan_gate.py" inputs.report_path)
+      :argv ("python" "scripts/resolve_plan_gate.py" inputs.report-path)
       :returns PlanGateResult))
-  (defrecord PlanGateSurfaceResult
-    (report_path WorkReport))
-  (defworkflow resume-record-phase
-    ((phase-ctx PhaseCtx)
-     (inputs ResumeInputs))
-    -> ChecksResult
-    (with-phase phase-ctx checks
-      (resume-or-start checks
-        :ctx phase-ctx
-        :resume-from inputs.resume_from
-        :start
-          (command-result run_checks
-            :argv ("python" "scripts/run_checks.py" inputs.report_path)
-            :returns ChecksResult)
-        :returns ChecksResult)))
   (defworkflow resume-plan-gate
     ((phase-ctx PhaseCtx)
      (inputs ResumeInputs))
@@ -76,7 +61,7 @@
       (let* ((result
                (resume-or-start plan-gate
                  :ctx phase-ctx
-                 :resume-from inputs.resume_from
+                 :resume-from inputs.resume-from
                  :valid-when (APPROVED)
                  :start
                    (call plan-run
@@ -86,7 +71,7 @@
         (match result
           ((APPROVED approved)
            (record PlanGateSurfaceResult
-             :report_path approved.execution_report_path))
+             :report-path approved.execution-report-path))
           ((BLOCKED blocked)
            (record PlanGateSurfaceResult
-             :report_path blocked.progress_report_path)))))))
+             :report-path blocked.progress-report-path)))))))
