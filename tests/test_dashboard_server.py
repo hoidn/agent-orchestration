@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 import yaml
@@ -1806,6 +1808,84 @@ def test_summary_live_endpoint_uses_live_note_metadata_when_nested_provider_stat
     assert payload["current_provider_step"]["prompt_href"] is None
     assert payload["live_note"]["available"] is True
     assert payload["live_note"]["text"] == "The reviewer is checking the architecture.\n"
+
+
+def test_summary_live_endpoint_prefers_newer_live_note_over_stale_provider_log(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    old_logs = run_root / "call_frames" / "old" / "logs"
+    summaries.mkdir(parents=True)
+    old_logs.mkdir(parents=True)
+    old_prompt = old_logs / "RouteIterationWork.COMPLETED.ReviewImplementation.prompt.txt"
+    old_prompt.write_text("old review prompt\n", encoding="utf-8")
+    old_stderr = old_logs / "RouteIterationWork.COMPLETED.ReviewImplementation.stderr"
+    old_stderr.write_text("", encoding="utf-8")
+    old_time = datetime(2026, 4, 13, 12, 2, tzinfo=timezone.utc).timestamp()
+    os.utime(old_prompt, (old_time, old_time))
+    os.utime(old_stderr, (old_time, old_time))
+    (summaries / "index.json").write_text(
+        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        encoding="utf-8",
+    )
+    (summaries / "live-current-step.error.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_live_agent_note_error/v1",
+                "step_name": "RouteIterationWork.COMPLETED.ReviewImplementation",
+                "step_id": "root.old_review",
+                "visit_count": 1,
+                "provider": "claude_haiku_summary",
+                "generated_at": "2026-04-13T12:03:00+00:00",
+                "stage": "execute",
+                "error": {"message": "live note provider exited 1"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (summaries / "live-current-step.md").write_text("The reviewer is checking the current design.\n", encoding="utf-8")
+    (summaries / "live-current-step.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_live_agent_note/v1",
+                "step_name": "ReviewDesignGapArchitecture",
+                "step_id": "root.current_review",
+                "visit_count": 1,
+                "provider": "claude_haiku_summary",
+                "generated_at": "2026-04-13T12:04:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "running",
+                "observability": {
+                    "step_summaries": {
+                        "live_agent_notes": {
+                            "enabled": True,
+                            "provider": "claude_haiku_summary",
+                        }
+                    }
+                },
+                "current_step": {
+                    "name": "DrainLispFrontendWork",
+                    "step_id": "root.drain_lisp_frontend_work",
+                    "type": "repeat_until",
+                    "status": "running",
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
+
+    assert payload["current_provider_step"]["name"] == "ReviewDesignGapArchitecture"
+    assert payload["live_note"]["available"] is True
+    assert payload["live_note"]["text"] == "The reviewer is checking the current design.\n"
+    assert "error_href" not in payload["live_note"]
 
 
 def test_summary_live_endpoint_explains_missing_live_note_when_not_enabled(tmp_path: Path):

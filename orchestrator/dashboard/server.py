@@ -1211,8 +1211,11 @@ class DashboardApp:
                 return state_provider
             candidates = [dict(matching_log, in_progress=True)]
 
-        if not candidates:
+        live_note_provider = None
+        if state_provider is None:
             live_note_provider = self._current_provider_step_from_live_note_metadata(row, resolver)
+
+        if not candidates:
             if live_note_provider is not None:
                 return live_note_provider
             return {
@@ -1222,6 +1225,8 @@ class DashboardApp:
 
         active_candidates = [candidate for candidate in candidates if candidate["in_progress"]]
         selected = max(active_candidates or candidates, key=lambda candidate: int(candidate["mtime_ns"]))
+        if live_note_provider is not None and self._provider_payload_is_newer_than_log(live_note_provider, selected):
+            return live_note_provider
         prompt_href = None
         try:
             prompt_href = self._file_href(row, resolver.run_ref(str(selected["prompt_rel"])))
@@ -1258,6 +1263,17 @@ class DashboardApp:
             "stderr_href": stderr_href,
             "stdout_href": stdout_href,
         }
+
+    def _provider_payload_is_newer_than_log(
+        self,
+        provider_payload: Mapping[str, object],
+        log_candidate: Mapping[str, object],
+    ) -> bool:
+        provider_time = self._parse_dashboard_datetime(self._str_or_none(provider_payload.get("updated_at")))
+        log_time = self._parse_dashboard_datetime(self._str_or_none(log_candidate.get("updated_at")))
+        if provider_time is None or log_time is None:
+            return False
+        return provider_time >= log_time
 
     def _current_provider_step_from_live_note_metadata(
         self,
