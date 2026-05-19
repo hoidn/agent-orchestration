@@ -2,11 +2,16 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage1_module
+from orchestrator.workflow_lisp.compiler import (
+    _definition_only_syntax_module,
+    _validate_definition_module,
+    compile_stage1_module,
+)
 from orchestrator.workflow_lisp.contracts import (
     derive_structured_result_contract,
     derive_workflow_signature_contracts,
 )
+from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
@@ -36,6 +41,13 @@ def _build_type_env() -> FrontendTypeEnvironment:
     return FrontendTypeEnvironment.from_module(compile_stage1_module(TYPE_FIXTURE))
 
 
+def _compile_definition_module(path: Path):
+    syntax_module = _build_syntax_module(path)
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    return module
+
+
 def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
@@ -57,16 +69,18 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
     assert excinfo.value.diagnostics[0].code == code
 
 
-def _typecheck_fixture(path: Path, **typecheck_kwargs):
+def _typecheck_fixture(path: Path, *, types_path: Path = TYPE_FIXTURE, **typecheck_kwargs):
+    module = _compile_definition_module(types_path)
+    type_env = FrontendTypeEnvironment.from_module(module)
     syntax_module = _build_syntax_module(path)
     workflow_defs = elaborate_workflow_definitions(syntax_module)
     return typecheck_workflow_definitions(
         workflow_defs,
-        type_env=_build_type_env(),
+        type_env=type_env,
         workflow_catalog=build_workflow_catalog(
-            compile_stage1_module(TYPE_FIXTURE),
+            module,
             workflow_defs,
-            _build_type_env(),
+            type_env,
         ),
         **typecheck_kwargs,
     )
@@ -84,6 +98,7 @@ def test_typecheck_workflow_definitions_validates_same_file_call_signatures() ->
 
     typed_workflows = _typecheck_fixture(
         FIXTURES / "valid" / "structured_results.orc",
+        types_path=FIXTURES / "valid" / "structured_results.orc",
         extern_environment=ExternEnvironment(
             bindings_by_name={
                 "providers.execute": ProviderExtern(
@@ -237,6 +252,7 @@ def test_typecheck_provider_result_rejects_missing_or_mismatched_externs(tmp_pat
     with pytest.raises(LispFrontendCompileError) as missing_externs:
         _typecheck_fixture(
             FIXTURES / "valid" / "structured_results.orc",
+            types_path=FIXTURES / "valid" / "structured_results.orc",
             extern_environment=ExternEnvironment(bindings_by_name={}),
         )
     assert missing_externs.value.diagnostics[0].code == "provider_result_provider_invalid"

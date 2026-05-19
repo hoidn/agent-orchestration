@@ -22,7 +22,6 @@ from .expressions import (
     CommandResultExpr,
     FieldAccessExpr,
     LetStarExpr,
-    LiteralExpr,
     MatchExpr,
     NameExpr,
     ProviderResultExpr,
@@ -560,6 +559,16 @@ def _lower_match_expr(
             case_steps.extend(lowered_output["steps"])
             case_outputs[generated_output_name] = lowered_output["output"]
         case_name = f"{match_step_name}__{arm.variant_name.lower()}"
+        if not case_steps:
+            case_steps.append(
+                _build_match_projection_anchor_step(
+                    match_step_name=match_step_name,
+                    variant_name=arm.variant_name,
+                    case_outputs=case_outputs,
+                    context=context,
+                    span=arm.body.span,
+                )
+            )
         cases[arm.variant_name] = {
             "id": _normalize_generated_step_id(case_name),
             "outputs": case_outputs,
@@ -810,6 +819,48 @@ def _return_field_path(field_name: str) -> tuple[str, ...]:
     return tuple(field_name.split("__"))
 
 
+def _build_match_projection_anchor_step(
+    *,
+    match_step_name: str,
+    variant_name: str,
+    case_outputs: Mapping[str, Any],
+    context: _LoweringContext,
+    span: SourceSpan,
+) -> dict[str, Any]:
+    anchor_ref = _first_case_output_ref(case_outputs)
+    if anchor_ref is None:
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="match return arms must expose at least one exportable field in this Stage 3 slice",
+            span=span,
+            form_path=context.workflow_form_path,
+        )
+    step_name = f"{match_step_name}__{variant_name.lower()}__projection_anchor"
+    step_id = _normalize_generated_step_id(step_name)
+    _record_step_origin(context, step_name=step_name, step_id=step_id, span=span)
+    return {
+        "name": step_name,
+        "id": step_id,
+        "assert": {
+            "compare": {
+                "left": {"ref": anchor_ref},
+                "op": "eq",
+                "right": {"ref": anchor_ref},
+            }
+        },
+    }
+
+
+def _first_case_output_ref(case_outputs: Mapping[str, Any]) -> str | None:
+    for output in case_outputs.values():
+        if not isinstance(output, Mapping):
+            continue
+        source = output.get("from")
+        if isinstance(source, Mapping) and isinstance(source.get("ref"), str):
+            return str(source["ref"])
+    return None
+
+
 def _lower_match_output_field(
     *,
     record_expr: RecordExpr,
@@ -989,7 +1040,7 @@ def _raise_remapped_validation_error(
             continue
         diagnostics.append(
             LispFrontendDiagnostic(
-                code="workflow_boundary_type_invalid",
+                code=_shared_validation_diagnostic_code(message),
                 message=message,
                 span=span,
                 form_path=lowered_workflow.typed_workflow.definition.form_path,
@@ -1014,6 +1065,12 @@ def _remap_validation_message(origin_map: LoweringOriginMap, message: str) -> So
     if "output" in message or "input" in message or "workflow" in message:
         return origin_map.workflow_span
     return None
+
+
+def _shared_validation_diagnostic_code(message: str) -> str:
+    if "parent directory traversal" in message or "absolute paths not allowed" in message:
+        return "path_definition_invalid"
+    return "workflow_boundary_type_invalid"
 
 
 def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tuple[str, ...]) -> LispFrontendCompileError:

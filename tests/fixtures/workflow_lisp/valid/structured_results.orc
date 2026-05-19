@@ -16,7 +16,6 @@
     (status String)
     (report WorkReport))
   (defrecord ImplementationSummary
-    (status String)
     (report WorkReport))
   (defunion ImplementationState
     (COMPLETED
@@ -34,10 +33,18 @@
     ((input ChecksResult)
      (report_path WorkReport))
     -> ImplementationSummary
-    (provider-result providers.execute
-      :prompt prompts.implementation.execute
-      :inputs (input report_path)
-      :returns ImplementationSummary))
+    (let* ((attempt
+             (provider-result providers.execute
+               :prompt prompts.implementation.execute
+               :inputs (input report_path)
+               :returns ImplementationState)))
+      (match attempt
+        ((COMPLETED completed)
+         (record ImplementationSummary
+           :report completed.execution_report))
+        ((BLOCKED blocked)
+         (record ImplementationSummary
+           :report blocked.progress_report)))))
   (defworkflow orchestrate
     ((input ChecksResult)
      (report_path WorkReport))

@@ -2,12 +2,20 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage1_module
+from orchestrator.workflow_lisp.compiler import (
+    _definition_only_syntax_module,
+    _validate_definition_module,
+    compile_stage1_module,
+)
+from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import (
     CallExpr,
+    LetStarExpr,
+    MatchExpr,
     NameExpr,
     ProviderResultExpr,
+    RecordExpr,
     elaborate_expression,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
@@ -31,8 +39,15 @@ def _build_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
     return build_syntax_module(read_sexpr_file(path))
 
 
-def _build_type_env() -> FrontendTypeEnvironment:
-    return FrontendTypeEnvironment.from_module(compile_stage1_module(TYPE_FIXTURE))
+def _compile_definition_module(path: Path):
+    syntax_module = _build_syntax_module(path)
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    return module
+
+
+def _build_type_env(path: Path = TYPE_FIXTURE) -> FrontendTypeEnvironment:
+    return FrontendTypeEnvironment.from_module(_compile_definition_module(path))
 
 
 def _write_module(path: Path, body: str) -> Path:
@@ -61,13 +76,15 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
 
 
 def test_elaborate_workflow_definitions_builds_record_only_same_file_catalog() -> None:
-    syntax_module = _build_syntax_module(FIXTURES / "valid" / "structured_results.orc")
+    structured_results = FIXTURES / "valid" / "structured_results.orc"
+    syntax_module = _build_syntax_module(structured_results)
+    definition_module = _compile_definition_module(structured_results)
 
     workflow_defs = elaborate_workflow_definitions(syntax_module)
     workflow_catalog = build_workflow_catalog(
-        compile_stage1_module(TYPE_FIXTURE),
+        definition_module,
         workflow_defs,
-        _build_type_env(),
+        _build_type_env(structured_results),
     )
 
     assert [workflow_def.name for workflow_def in workflow_defs] == [
@@ -229,7 +246,7 @@ def test_elaborate_expression_rejects_malformed_effectful_forms() -> None:
     _assert_diagnostic_code(malformed_command, "frontend_parse_error")
 
 
-def test_structured_results_fixture_uses_direct_provider_result_and_avoids_provider_prompt_workflow_params() -> None:
+def test_structured_results_fixture_uses_union_provider_result_match_and_avoids_provider_prompt_workflow_params() -> None:
     syntax_module = _build_syntax_module(FIXTURES / "valid" / "structured_results.orc")
     workflow_defs = elaborate_workflow_definitions(syntax_module)
 
@@ -246,9 +263,17 @@ def test_structured_results_fixture_uses_direct_provider_result_and_avoids_provi
 
     assert [param.name for param in provider_attempt.params] == ["input", "report_path"]
     assert [param.name for param in orchestrate.params] == ["input", "report_path"]
-    assert isinstance(provider_body, ProviderResultExpr)
-    assert provider_body.provider.name == "providers.execute"
-    assert provider_body.prompt.name == "prompts.implementation.execute"
+    assert isinstance(provider_body, LetStarExpr)
+    assert provider_body.bindings[0][0] == "attempt"
+    attempt_expr = provider_body.bindings[0][1]
+    assert isinstance(attempt_expr, ProviderResultExpr)
+    assert attempt_expr.provider.name == "providers.execute"
+    assert attempt_expr.prompt.name == "prompts.implementation.execute"
+    assert attempt_expr.returns_type_name == "ImplementationState"
+    assert isinstance(provider_body.body, MatchExpr)
+    assert [arm.variant_name for arm in provider_body.body.arms] == ["COMPLETED", "BLOCKED"]
+    assert all(isinstance(arm.body, RecordExpr) for arm in provider_body.body.arms)
+    assert all([field_name for field_name, _ in arm.body.fields] == ["report"] for arm in provider_body.body.arms)
     assert isinstance(call_body, CallExpr)
     assert [binding_name for binding_name, _ in call_body.bindings] == ["input", "report_path"]
 

@@ -3,7 +3,12 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
-from orchestrator.workflow_lisp.compiler import compile_stage1_module, compile_stage3_module
+from orchestrator.workflow_lisp.compiler import (
+    _definition_only_syntax_module,
+    _validate_definition_module,
+    compile_stage3_module,
+)
+from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.lowering import lower_workflow_definitions, validate_lowered_workflows
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
@@ -22,7 +27,6 @@ from orchestrator.workflow_lisp.syntax import build_syntax_module
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
-TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
 STRUCTURED_RESULTS_FIXTURE = FIXTURES / "valid" / "structured_results.orc"
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 
@@ -58,8 +62,15 @@ def _write_module(path: Path, body: str) -> Path:
     return path
 
 
+def _compile_definition_module(path: Path):
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    return module
+
+
 def _typed_fixture_workflows():
-    module = compile_stage1_module(TYPE_FIXTURE)
+    module = _compile_definition_module(STRUCTURED_RESULTS_FIXTURE)
     type_env = FrontendTypeEnvironment.from_module(module)
     syntax_module = build_syntax_module(read_sexpr_file(STRUCTURED_RESULTS_FIXTURE))
     workflow_defs = elaborate_workflow_definitions(syntax_module)
@@ -97,14 +108,33 @@ def test_lower_workflow_definitions_emits_authored_mappings_with_hidden_write_ro
     assert command_checks.authored_mapping["version"] == "2.14"
     assert "imports" not in orchestrate.authored_mapping
     assert "__write_root__command_checks__run_checks__result_bundle" in command_checks.authored_mapping["inputs"]
-    assert "__write_root__provider_attempt__result__result_bundle" in provider_attempt.authored_mapping["inputs"]
+    assert "__write_root__provider_attempt__attempt__result_bundle" in provider_attempt.authored_mapping["inputs"]
     assert "providers" not in provider_attempt.authored_mapping
+
+    assert [step["id"] for step in provider_attempt.authored_mapping["steps"]] == [
+        "provider_attempt__attempt",
+        "provider_attempt__match_attempt",
+    ]
 
     provider_step = provider_attempt.authored_mapping["steps"][0]
     assert provider_step["provider"] == "test-provider"
     assert provider_step["asset_file"] == "prompts/implementation/execute.md"
     assert provider_step["inject_output_contract"] is True
-    assert "output_bundle" in provider_step
+    assert "variant_output" in provider_step
+
+    match_step = provider_attempt.authored_mapping["steps"][1]
+    assert tuple(provider_attempt.authored_mapping["outputs"]) == ("return__report",)
+    completed_case = match_step["match"]["cases"]["COMPLETED"]
+    assert completed_case["outputs"]["return__report"]["from"]["ref"].endswith(".artifacts.execution_report")
+    assert completed_case["steps"][0]["assert"]["compare"]["left"]["ref"].endswith(".artifacts.execution_report")
+    assert (
+        completed_case["steps"][0]["assert"]["compare"]["left"]
+        == completed_case["steps"][0]["assert"]["compare"]["right"]
+    )
+    blocked_case = match_step["match"]["cases"]["BLOCKED"]
+    assert blocked_case["outputs"]["return__report"]["from"]["ref"].endswith(".artifacts.progress_report")
+    assert blocked_case["steps"][0]["assert"]["compare"]["left"]["ref"].endswith(".artifacts.progress_report")
+    assert blocked_case["steps"][0]["assert"]["compare"]["left"] == blocked_case["steps"][0]["assert"]["compare"]["right"]
 
     command_step = command_checks.authored_mapping["steps"][0]
     assert command_step["command"] == ["python", "scripts/run_checks.py", "${inputs.report_path}"]
@@ -113,8 +143,8 @@ def test_lower_workflow_definitions_emits_authored_mappings_with_hidden_write_ro
     call_step = orchestrate.authored_mapping["steps"][0]
     assert call_step["call"] == "provider_attempt"
     assert (
-        call_step["with"]["__write_root__provider_attempt__result__result_bundle"]
-        == ".orchestrate/workflow_lisp/calls/orchestrate/orchestrate__call_provider_attempt/provider_attempt/__write_root__provider_attempt__result__result_bundle.json"
+        call_step["with"]["__write_root__provider_attempt__attempt__result_bundle"]
+        == ".orchestrate/workflow_lisp/calls/orchestrate/orchestrate__call_provider_attempt/provider_attempt/__write_root__provider_attempt__attempt__result_bundle.json"
     )
 
 
@@ -135,7 +165,7 @@ def test_validate_lowered_workflows_reuses_in_memory_imported_bundles(tmp_path: 
         workflow for workflow in lowered if workflow.typed_workflow.definition.name == "orchestrate"
     ).authored_mapping
     assert workflow_managed_write_root_inputs(validated["provider_attempt"]) == (
-        "__write_root__provider_attempt__result__result_bundle",
+        "__write_root__provider_attempt__attempt__result_bundle",
     )
 
 
@@ -269,8 +299,16 @@ def test_lower_workflow_definitions_supports_projection_only_match_record_output
     match_step = lowered["steps"][1]
     completed_outputs = match_step["match"]["cases"]["COMPLETED"]["outputs"]
     assert completed_outputs["return__report"]["from"]["ref"].endswith(".artifacts.execution_report")
-    assert match_step["match"]["cases"]["COMPLETED"]["steps"] == []
-    assert match_step["match"]["cases"]["BLOCKED"]["steps"] == []
+    assert (
+        match_step["match"]["cases"]["COMPLETED"]["steps"][0]["assert"]["compare"]["left"]["ref"].endswith(
+            ".artifacts.execution_report"
+        )
+    )
+    assert (
+        match_step["match"]["cases"]["BLOCKED"]["steps"][0]["assert"]["compare"]["left"]["ref"].endswith(
+            ".artifacts.progress_report"
+        )
+    )
 
 
 def test_compile_stage3_module_rejects_literal_only_match_exports(tmp_path: Path) -> None:
@@ -323,7 +361,7 @@ def test_compile_stage3_module_rejects_literal_only_match_exports(tmp_path: Path
             workflow_path,
             provider_externs={"providers.execute": "test-provider"},
             prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-            validate_shared=False,
+            validate_shared=True,
             workspace_root=tmp_path,
         )
 
@@ -391,10 +429,15 @@ def test_compile_stage3_module_remaps_shared_validation_failures() -> None:
             workspace_root=Path.cwd(),
         )
 
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code in {"workflow_boundary_type_invalid", "source_map_missing"}
-    assert diagnostic.span.start.path.endswith("shared_validation_remap.orc")
-    assert "id must match" not in diagnostic.message
+    diagnostics = excinfo.value.diagnostics
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "path_definition_invalid",
+        "path_definition_invalid",
+        "path_definition_invalid",
+    ]
+    assert all(diagnostic.span.start.path.endswith("shared_validation_remap.orc") for diagnostic in diagnostics)
+    assert all("parent directory traversal" in diagnostic.message for diagnostic in diagnostics)
+    assert "id must match" not in diagnostics[0].message
 
 
 def test_compile_stage3_module_validates_hyphenated_workflow_names(tmp_path: Path) -> None:
