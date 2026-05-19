@@ -76,6 +76,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** command-adapter, inline-glue, workflow-language, semantic-authority, adapters, lints
 **Use this when:** Auditing workflow command steps, extracting inline Python or shell, deciding whether a script should be a certified adapter, or planning runtime-native promotion.
 
+### [Workflow Lisp MVP Comparison](workflow_lisp_mvp_comparison.md)
+**Description:** README-style side-by-side comparison of the Workflow Lisp MVP `.orc` implementation-attempt slice against the equivalent v2.14 YAML slice, focused on whether the frontend removes real brittleness.
+**Keywords:** lisp-frontend, mvp, comparison, yaml, orc, readability
+**Use this when:** You want the quickest concrete answer to whether the Lisp frontend is an actual authoring improvement.
+
 ### [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
 **Description:** Draft specification for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text.
 **Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, macros, defworkflow

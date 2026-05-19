@@ -105,6 +105,7 @@ python -m orchestrator resume <run_id>
 ## What The Repo Contains
 
 - [`docs/index.md`](docs/index.md): documentation hub and recommended read order
+- [`docs/workflow_lisp_mvp_comparison.md`](docs/workflow_lisp_mvp_comparison.md): side-by-side comparison of the Workflow Lisp MVP against the equivalent YAML slice
 - [`specs/index.md`](specs/index.md): normative contract for the DSL, CLI, state, and acceptance scope
 - [`workflows/README.md`](workflows/README.md): catalog of example and reusable workflows
 - [`prompts/README.md`](prompts/README.md): curated prompt index
