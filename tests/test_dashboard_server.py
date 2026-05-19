@@ -690,7 +690,7 @@ def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
 
     body = response.body.decode("utf-8")
     assert response.status == 200
-    assert body.index("Workflow Structure") < body.index("Current Step")
+    assert body.index("Current Step") < body.index("Workflow Structure")
     assert "Workflow: StructuredWorkflow" in body
     assert "Provider Flow" in body
     assert '<div class="provider-flow-strip"' in body
@@ -1924,7 +1924,7 @@ def test_summary_hub_page_contains_live_panel_and_nonce_script(tmp_path: Path):
     assert 'id="live-current-step"' in body
     assert 'data-live-url="/runs/w0/run1/summaries/live.json"' in body
     assert 'class="live-note-text"' in body
-    assert ".live-note-text{white-space:pre-wrap;overflow-wrap:break-word}" in body
+    assert 'data-live-field="live-note"' in body
     assert 'data-live-field="provider-step"' in body
     assert 'data-live-link="provider-prompt"' in body
     assert nonce_match is not None

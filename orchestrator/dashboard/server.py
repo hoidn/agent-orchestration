@@ -684,7 +684,6 @@ class DashboardApp:
             "</div>",
             f"<p class=\"summary-actions\"><a href=\"{back_href}\">Back to run</a></p>",
             "</header>",
-            workflow_structure_html,
             "<div class=\"summary-top-grid\">",
             f"<section id=\"live-current-step\" class=\"live-panel\" data-live-url=\"{live_href}\">",
             "<h2>Current Step</h2>",
@@ -705,6 +704,7 @@ class DashboardApp:
             "</section>",
             tmux_session_html,
             "</div>",
+            workflow_structure_html,
         ]
         if not index_path.exists():
             lines.extend(
@@ -831,7 +831,7 @@ class DashboardApp:
             ".eyebrow{margin:0;color:#64748b;text-transform:uppercase;font-size:.72rem;font-weight:700;letter-spacing:.08em}"
             ".run-id{margin:.15rem 0 0;color:#475569;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.86rem}"
             ".summary-actions{margin:0;white-space:nowrap}"
-            ".summary-top-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(18rem,.65fr);gap:.9rem;align-items:start}"
+            ".summary-top-grid{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(18rem,.55fr);gap:.9rem;align-items:start}"
             ".workflow-map,.live-panel,.tmux-session{border:1px solid #cbd5e1;border-radius:10px;background:#fff;box-shadow:0 1px 2px rgba(15,23,42,.04)}"
             ".workflow-map{padding:.95rem}"
             ".workflow-map h2{margin:.25rem 0 .5rem}"
@@ -867,7 +867,7 @@ class DashboardApp:
             ".workflow-invocation-body{margin-top:.35rem;padding-top:.35rem;border-top:1px solid #edf2f5}"
             ".provider-flow{border:1px solid #d8e0e6;border-radius:8px;background:#f8fafc;margin:.75rem 0 1rem;padding:.75rem;overflow:hidden}"
             ".provider-flow h3{margin:.1rem 0 .35rem}"
-            ".provider-flow-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.55rem;margin:.65rem 0 .35rem}"
+            ".provider-flow-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.55rem;margin:.65rem 0 .35rem;align-items:start}"
             ".provider-flow-provider-card,.provider-flow-loop-card{border-radius:6px;border:1px solid #9fc6e8;background:#edf6ff;color:#102a43;box-sizing:border-box}"
             ".provider-flow-provider-card{min-width:0;padding:.55rem .65rem;font-weight:700;text-align:center;display:flex;align-items:center;justify-content:center;line-height:1.15}"
             ".provider-flow-loop-card{min-width:0;padding:.48rem .55rem;background:#fffaf3;border-color:#d98b54;overflow:hidden}"
@@ -879,12 +879,14 @@ class DashboardApp:
             ".provider-flow-loop-note{text-align:center;color:#a4410c;font-size:.78rem;margin-top:.3rem}"
             ".provider-flow-source{margin-top:.6rem}"
             ".provider-flow-mermaid{white-space:pre-wrap;overflow-wrap:break-word;margin:.5rem 0 0}"
-            ".live-panel{padding:.95rem;background:#fff}"
-            ".live-grid{display:grid;grid-template-columns:max-content 1fr;gap:.35rem .75rem}"
+            ".live-panel{padding:.85rem .95rem;background:#fff}"
+            ".live-grid{display:grid;grid-template-columns:max-content minmax(10rem,1fr) max-content minmax(10rem,1fr);gap:.32rem .75rem}"
             ".live-grid dt{font-weight:600}"
             ".live-grid dd{margin:0}"
-            ".live-note-text{white-space:pre-wrap;overflow-wrap:break-word;max-height:12rem;margin:.15rem 0 .35rem}"
-            ".tmux-session{padding:.95rem;background:#fff}"
+            ".live-grid dt:nth-of-type(9){grid-column:1 / -1;margin-top:.35rem}"
+            ".live-grid dd:nth-of-type(9){grid-column:1 / -1}"
+            ".live-note-text{white-space:pre-wrap;overflow-wrap:break-word;max-height:8.5rem;margin:.15rem 0 .25rem;font-size:.84rem;line-height:1.3}"
+            ".tmux-session{padding:.85rem .95rem;background:#fff}"
             ".tmux-session p{margin:.2rem 0 .55rem}"
             ".tmux-session details{margin-top:.4rem}"
             ".tmux-session pre{font-size:.78rem;white-space:pre-wrap}"
