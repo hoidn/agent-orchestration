@@ -1903,6 +1903,74 @@ def test_summary_live_endpoint_reports_live_note_provider_errors(tmp_path: Path)
     assert payload["live_note"]["error_href"] == "/runs/w0/run1/files/run/summaries/live-current-step.error.json"
 
 
+def test_summary_live_endpoint_ignores_error_superseded_by_newer_live_note(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    summaries.mkdir(parents=True)
+    (summaries / "index.json").write_text(
+        json.dumps({"schema": "orchestrator_summary_index/v1", "entries": []}),
+        encoding="utf-8",
+    )
+    (summaries / "live-current-step.error.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_live_agent_note_error/v1",
+                "step_name": "ExecuteImplementation",
+                "step_id": "root.execute",
+                "visit_count": 1,
+                "provider": "claude_haiku_summary",
+                "generated_at": "2026-04-13T12:02:00+00:00",
+                "stage": "execute",
+                "error": {"message": "live note provider exited 1"},
+            }
+        ),
+        encoding="utf-8",
+    )
+    (summaries / "live-current-step.md").write_text("The agent recovered after a transient note error.\n", encoding="utf-8")
+    (summaries / "live-current-step.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_live_agent_note/v1",
+                "step_name": "ExecuteImplementation",
+                "step_id": "root.execute",
+                "visit_count": 1,
+                "provider": "claude_haiku_summary",
+                "generated_at": "2026-04-13T12:03:00+00:00",
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps(
+            {
+                "run_id": "run1",
+                "status": "running",
+                "observability": {
+                    "step_summaries": {
+                        "enabled": True,
+                        "live_agent_notes": {
+                            "enabled": True,
+                            "provider": "claude_haiku_summary",
+                        },
+                    }
+                },
+                "current_step": {
+                    "name": "ExecuteImplementation",
+                    "step_id": "root.execute",
+                    "visit_count": 1,
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    payload = json.loads(_app(tmp_path).handle("GET", "/runs/w0/run1/summaries/live.json").body.decode("utf-8"))
+
+    assert payload["live_note"]["available"] is True
+    assert payload["live_note"]["text"] == "The agent recovered after a transient note error.\n"
+    assert "error_href" not in payload["live_note"]
+
+
 def test_summary_hub_page_contains_live_panel_and_nonce_script(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run1"
     summaries = run_root / "summaries"

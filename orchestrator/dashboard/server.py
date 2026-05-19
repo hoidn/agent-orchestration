@@ -1352,10 +1352,25 @@ class DashboardApp:
             error_ref = resolver.run_ref("summaries/live-current-step.error.json", label="live note error")
         except UnsafePathError:
             return self._live_agent_note_unavailable(state, "Live note paths are unsafe.")
+        metadata = None
+        metadata_error_reason = None
+        if metadata_ref.status == "ok":
+            try:
+                loaded_metadata = json.loads(metadata_ref.absolute_path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                metadata_error_reason = "Live note metadata is unreadable."
+            else:
+                if isinstance(loaded_metadata, Mapping):
+                    metadata = loaded_metadata
+                else:
+                    metadata_error_reason = "Live note metadata is invalid."
+
         error_payload = self._current_live_agent_note_error_payload(
             row,
             state,
             error_ref,
+            metadata_ref,
+            metadata,
             current_name,
             current_step_id,
             current_provider_step,
@@ -1367,12 +1382,11 @@ class DashboardApp:
                 state,
                 "Live agent notes are enabled, but no note artifact is available yet.",
             )
-        try:
-            metadata = json.loads(metadata_ref.absolute_path.read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            return self._live_agent_note_unavailable(state, "Live note metadata is unreadable.")
-        if not isinstance(metadata, Mapping):
-            return self._live_agent_note_unavailable(state, "Live note metadata is invalid.")
+        if metadata is None:
+            return self._live_agent_note_unavailable(
+                state,
+                metadata_error_reason or "Live note metadata is unreadable.",
+            )
         note_step_name = self._str_or_none(metadata.get("step_name"))
         note_step_id = self._str_or_none(metadata.get("step_id"))
         if not self._live_note_matches_current_context(
@@ -1403,6 +1417,8 @@ class DashboardApp:
         row,
         state: Mapping[str, object],
         error_ref,
+        metadata_ref,
+        note_metadata: Mapping[str, object] | None,
         current_name: Optional[str],
         current_step_id: Optional[str],
         current_provider_step: Mapping[str, object] | None,
@@ -1420,6 +1436,16 @@ class DashboardApp:
             current_name,
             current_step_id,
             current_provider_step,
+        ):
+            return None
+        if self._live_note_error_superseded(
+            error_payload=payload,
+            error_ref=error_ref,
+            note_metadata=note_metadata,
+            metadata_ref=metadata_ref,
+            current_name=current_name,
+            current_step_id=current_step_id,
+            current_provider_step=current_provider_step,
         ):
             return None
         stage = self._str_or_none(payload.get("stage"))
@@ -1453,6 +1479,46 @@ class DashboardApp:
             "stage": stage,
             "error_href": self._file_href(row, error_ref),
         }
+
+    def _live_note_error_superseded(
+        self,
+        *,
+        error_payload: Mapping[str, object],
+        error_ref,
+        note_metadata: Mapping[str, object] | None,
+        metadata_ref,
+        current_name: Optional[str],
+        current_step_id: Optional[str],
+        current_provider_step: Mapping[str, object] | None,
+    ) -> bool:
+        if note_metadata is None:
+            return False
+        if not self._live_note_matches_current_context(
+            note_metadata,
+            current_name,
+            current_step_id,
+            current_provider_step,
+        ):
+            return False
+        note_time = self._parse_dashboard_datetime(self._str_or_none(note_metadata.get("generated_at")))
+        error_time = self._parse_dashboard_datetime(self._str_or_none(error_payload.get("generated_at")))
+        if note_time is not None and error_time is not None:
+            return note_time >= error_time
+        try:
+            return metadata_ref.absolute_path.stat().st_mtime >= error_ref.absolute_path.stat().st_mtime
+        except OSError:
+            return False
+
+    def _parse_dashboard_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        if not value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
 
     def _live_note_matches_current_context(
         self,
