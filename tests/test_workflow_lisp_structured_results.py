@@ -5,6 +5,7 @@ import pytest
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
+    compile_stage3_module,
     compile_stage1_module,
 )
 from orchestrator.workflow_lisp.contracts import (
@@ -141,6 +142,20 @@ def test_typecheck_workflow_definitions_validates_same_file_call_signatures() ->
     assert isinstance(typed_workflows[0].signature.return_type_ref, RecordTypeRef)
     assert isinstance(typed_workflows[1].signature.return_type_ref, RecordTypeRef)
     assert typed_workflows[2].typed_body.type_ref == typed_workflows[1].signature.return_type_ref
+
+
+def test_macro_emitted_command_result_respects_existing_command_boundary_rules() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            FIXTURES / "valid" / "macro_workflow_alias.orc",
+            validate_shared=False,
+        )
+
+    assert excinfo.value.diagnostics[0].code in {
+        "command_adapter_missing_contract",
+        "command_result_argv_invalid",
+        "provider_result_provider_invalid",
+    }
 
 
 def test_typecheck_workflow_definitions_rejects_unknown_callees(tmp_path: Path) -> None:

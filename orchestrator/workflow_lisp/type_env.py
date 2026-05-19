@@ -4,10 +4,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .compiler import PRELUDE_TYPE_NAMES
 from .definitions import EnumDef, PathDef, RecordDef, UnionDef, UnionVariant, WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
+
+
+PRELUDE_TYPE_NAMES = frozenset({"String", "Int", "Bool", "Json", "Provider", "Prompt", "PathRel"})
 
 
 @dataclass(frozen=True)
@@ -113,7 +115,14 @@ class FrontendTypeEnvironment:
                     )
         return cls(type_refs)
 
-    def resolve_type(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> TypeRef:
+    def resolve_type(
+        self,
+        name: str,
+        *,
+        span: SourceSpan,
+        form_path: tuple[str, ...],
+        expansion_stack: tuple[object, ...] = (),
+    ) -> TypeRef:
         try:
             return self._type_refs[name]
         except KeyError:
@@ -122,6 +131,7 @@ class FrontendTypeEnvironment:
                 code="type_unknown",
                 span=span,
                 form_path=form_path,
+                expansion_stack=expansion_stack,
             )
 
     def record_field(
@@ -131,6 +141,7 @@ class FrontendTypeEnvironment:
         *,
         span: SourceSpan,
         form_path: tuple[str, ...],
+        expansion_stack: tuple[object, ...] = (),
     ) -> TypeRef:
         fields = (
             record_type.definition.fields
@@ -150,12 +161,18 @@ class FrontendTypeEnvironment:
                     )
                 if resolved is not None:
                     return resolved
-                return self.resolve_type(field.type_name, span=span, form_path=form_path)
+                return self.resolve_type(
+                    field.type_name,
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                )
         _raise_error(
             f"unknown field `{field_name}`",
             code="record_field_unknown",
             span=span,
             form_path=form_path,
+            expansion_stack=expansion_stack,
         )
 
     def union_variant(
@@ -165,6 +182,7 @@ class FrontendTypeEnvironment:
         *,
         span: SourceSpan,
         form_path: tuple[str, ...],
+        expansion_stack: tuple[object, ...] = (),
     ) -> VariantCaseTypeRef:
         for variant in union_type.definition.variants:
             if variant.name == variant_name:
@@ -178,6 +196,7 @@ class FrontendTypeEnvironment:
             code="union_variant_unknown",
             span=span,
             form_path=form_path,
+            expansion_stack=expansion_stack,
         )
 
     def field_exists_in_other_variant(
@@ -197,7 +216,14 @@ class FrontendTypeEnvironment:
         return False
 
 
-def _raise_error(message: str, *, code: str, span: SourceSpan, form_path: tuple[str, ...]) -> None:
+def _raise_error(
+    message: str,
+    *,
+    code: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...] = (),
+) -> None:
     raise LispFrontendCompileError(
         (
             LispFrontendDiagnostic(
@@ -205,6 +231,7 @@ def _raise_error(message: str, *, code: str, span: SourceSpan, form_path: tuple[
                 message=message,
                 span=span,
                 form_path=form_path,
+                expansion_stack=expansion_stack,
             ),
         )
     )

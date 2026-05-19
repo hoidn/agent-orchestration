@@ -9,9 +9,19 @@ from typing import TYPE_CHECKING
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expressions import elaborate_expression
-from .sexpr import ListExpr, SymbolAtom
+from .macros import collect_macro_catalog, expand_module_forms
 from .spans import SourceSpan
-from .syntax import SyntaxNode, WorkflowLispSyntaxModule
+from .syntax import (
+    ExpansionStack,
+    SyntaxIdentifier,
+    SyntaxList,
+    SyntaxNode,
+    WorkflowLispSyntaxModule,
+    syntax_head,
+    syntax_identifier,
+    syntax_node_datum,
+    syntax_resolved_name,
+)
 from .type_env import FrontendTypeEnvironment, PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from .typecheck import TypedExpr, typecheck_expression
 
@@ -67,6 +77,7 @@ class WorkflowParam:
     type_name: str
     span: SourceSpan
     form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
 
 
 @dataclass(frozen=True)
@@ -77,6 +88,7 @@ class WorkflowDef:
     body: SyntaxNode
     span: SourceSpan
     form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
 
 
 @dataclass(frozen=True)
@@ -193,13 +205,13 @@ def analyze_workflow_boundary_type(
 def elaborate_workflow_definitions(module_syntax: WorkflowLispSyntaxModule) -> tuple[WorkflowDef, ...]:
     """Elaborate all top-level `defworkflow` forms from one syntax module."""
 
+    expanded_module = expand_module_forms(
+        module_syntax,
+        catalog=collect_macro_catalog(module_syntax),
+    )
     definitions: list[WorkflowDef] = []
-    for form in module_syntax.forms:
-        datum = form.datum
-        if not isinstance(datum, ListExpr) or not datum.items:
-            continue
-        head = datum.items[0]
-        if isinstance(head, SymbolAtom) and head.value == "defworkflow":
+    for form in expanded_module.forms:
+        if syntax_resolved_name(syntax_head(form)) == "defworkflow":
             definitions.append(_elaborate_workflow_definition(form))
     return tuple(definitions)
 
@@ -223,6 +235,7 @@ def build_workflow_catalog(
                     message=f"duplicate workflow definition `{workflow_def.name}`",
                     span=workflow_def.span,
                     form_path=workflow_def.form_path,
+                    expansion_stack=workflow_def.expansion_stack,
                 )
             )
             continue
@@ -230,6 +243,7 @@ def build_workflow_catalog(
             workflow_def.return_type_name,
             span=workflow_def.span,
             form_path=workflow_def.form_path,
+            expansion_stack=workflow_def.expansion_stack,
         )
         if not isinstance(return_type_ref, RecordTypeRef):
             diagnostics.append(
@@ -241,6 +255,7 @@ def build_workflow_catalog(
                     ),
                     span=workflow_def.span,
                     form_path=workflow_def.form_path,
+                    expansion_stack=workflow_def.expansion_stack,
                 )
             )
             continue
@@ -250,6 +265,7 @@ def build_workflow_catalog(
             analysis=return_analysis,
             span=workflow_def.span,
             form_path=workflow_def.form_path,
+            expansion_stack=workflow_def.expansion_stack,
         )
         if return_diagnostic is not None:
             diagnostics.append(return_diagnostic)
@@ -261,6 +277,7 @@ def build_workflow_catalog(
                 param.type_name,
                 span=param.span,
                 form_path=param.form_path,
+                expansion_stack=param.expansion_stack,
             )
             param_analysis = analyze_workflow_boundary_type(param_type, source_path=(param.name,))
             param_diagnostic = _boundary_diagnostic(
@@ -268,6 +285,7 @@ def build_workflow_catalog(
                 analysis=param_analysis,
                 span=param.span,
                 form_path=param.form_path,
+                expansion_stack=param.expansion_stack,
             )
             if param_diagnostic is not None:
                 diagnostics.append(param_diagnostic)
@@ -320,6 +338,7 @@ def typecheck_workflow_definitions(
                             message=f"duplicate workflow parameter `{param_name}`",
                             span=duplicate.span,
                             form_path=duplicate.form_path,
+                            expansion_stack=duplicate.expansion_stack,
                         ),
                     )
                 )
@@ -352,6 +371,7 @@ def typecheck_workflow_definitions(
                         ),
                         span=workflow_def.body.span,
                         form_path=workflow_def.body.form_path,
+                        expansion_stack=workflow_def.body.expansion_stack,
                     ),
                 )
             )
@@ -371,6 +391,7 @@ def _boundary_diagnostic(
     analysis: WorkflowBoundaryAnalysis,
     span: SourceSpan,
     form_path: tuple[str, ...],
+    expansion_stack: ExpansionStack = (),
 ) -> LispFrontendDiagnostic | None:
     if analysis.lowerable:
         return None
@@ -382,6 +403,7 @@ def _boundary_diagnostic(
             message=f"`Json` is not supported on workflow boundaries in Stage 3 (`{path_label}`)",
             span=span,
             form_path=form_path,
+            expansion_stack=expansion_stack,
         )
     if analysis.contains_provider_or_prompt:
         return LispFrontendDiagnostic(
@@ -392,6 +414,7 @@ def _boundary_diagnostic(
             ),
             span=span,
             form_path=form_path,
+            expansion_stack=expansion_stack,
         )
     if analysis.contains_union:
         return LispFrontendDiagnostic(
@@ -402,41 +425,66 @@ def _boundary_diagnostic(
             ),
             span=span,
             form_path=form_path,
+            expansion_stack=expansion_stack,
         )
     return LispFrontendDiagnostic(
         code="workflow_boundary_type_invalid",
         message=f"workflow boundary `{path_label}` is not lowerable in Stage 3",
         span=span,
         form_path=form_path,
+        expansion_stack=expansion_stack,
     )
 
 
 def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
-    datum = form.datum
-    if not isinstance(datum, ListExpr) or len(datum.items) < 6:
+    datum = syntax_node_datum(form)
+    if not isinstance(datum, SyntaxList) or len(datum.items) < 6:
         _raise_error(
             "`defworkflow` requires a name, params, return arrow, return type, and one body",
             span=form.span,
             form_path=form.form_path,
+            expansion_stack=form.expansion_stack,
         )
-    name_node = datum.items[1]
-    if not isinstance(name_node, SymbolAtom):
-        _raise_error("workflow name must be a symbol", span=form.span, form_path=form.form_path)
+    name_node = syntax_identifier(datum.items[1])
+    if name_node is None:
+        _raise_error(
+            "workflow name must be a symbol",
+            span=form.span,
+            form_path=form.form_path,
+            expansion_stack=form.expansion_stack,
+        )
     params_node = datum.items[2]
-    if not isinstance(params_node, ListExpr):
-        _raise_error("workflow params must be a list", span=params_node.span, form_path=form.form_path)
-    arrow_node = datum.items[3]
-    if not isinstance(arrow_node, SymbolAtom) or arrow_node.value != "->":
-        _raise_error("workflow return separator must be `->`", span=arrow_node.span, form_path=form.form_path)
+    if not isinstance(params_node, SyntaxList):
+        _raise_error(
+            "workflow params must be a list",
+            span=params_node.span,
+            form_path=form.form_path,
+            expansion_stack=params_node.expansion_stack,
+        )
+    arrow_node = syntax_identifier(datum.items[3])
+    if arrow_node is None or arrow_node.resolved_name != "->":
+        _raise_error(
+            "workflow return separator must be `->`",
+            span=datum.items[3].span,
+            form_path=form.form_path,
+            expansion_stack=datum.items[3].expansion_stack,
+        )
     return_type_node = datum.items[4]
-    if not isinstance(return_type_node, SymbolAtom):
+    return_type_identifier = syntax_identifier(return_type_node)
+    if return_type_identifier is None:
         _raise_error(
             "workflow return type must be a symbol",
             span=return_type_node.span,
             form_path=form.form_path,
+            expansion_stack=return_type_node.expansion_stack,
         )
     if len(datum.items) != 6:
-        _raise_error("`defworkflow` requires exactly one body expression", span=form.span, form_path=form.form_path)
+        _raise_error(
+            "`defworkflow` requires exactly one body expression",
+            span=form.span,
+            form_path=form.form_path,
+            expansion_stack=form.expansion_stack,
+        )
 
     params = tuple(_elaborate_param(param, form.form_path) for param in params_node.items)
     body_datum = datum.items[5]
@@ -447,17 +495,18 @@ def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
         form_path=form.form_path,
     )
     return WorkflowDef(
-        name=name_node.value,
+        name=name_node.resolved_name,
         params=params,
-        return_type_name=return_type_node.value,
+        return_type_name=return_type_identifier.resolved_name,
         body=body,
         span=form.span,
         form_path=form.form_path,
+        expansion_stack=datum.expansion_stack,
     )
 
 
 def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> WorkflowParam:
-    if not isinstance(raw_param, ListExpr) or len(raw_param.items) != 2:
+    if not isinstance(raw_param, SyntaxList) or len(raw_param.items) != 2:
         span = raw_param.span if hasattr(raw_param, "span") else None
         if span is None:
             raise TypeError("workflow params must carry spans")
@@ -465,22 +514,42 @@ def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> WorkflowP
             "workflow params must be two-item lists of `(name Type)`",
             span=span,
             form_path=form_path,
+            expansion_stack=getattr(raw_param, "expansion_stack", ()),
         )
     name_node = raw_param.items[0]
     type_node = raw_param.items[1]
-    if not isinstance(name_node, SymbolAtom):
-        _raise_error("workflow param names must be symbols", span=name_node.span, form_path=form_path)
-    if not isinstance(type_node, SymbolAtom):
-        _raise_error("workflow param types must be symbols", span=type_node.span, form_path=form_path)
+    name_identifier = syntax_identifier(name_node)
+    type_identifier = syntax_identifier(type_node)
+    if name_identifier is None:
+        _raise_error(
+            "workflow param names must be symbols",
+            span=name_node.span,
+            form_path=form_path,
+            expansion_stack=name_node.expansion_stack,
+        )
+    if type_identifier is None:
+        _raise_error(
+            "workflow param types must be symbols",
+            span=type_node.span,
+            form_path=form_path,
+            expansion_stack=type_node.expansion_stack,
+        )
     return WorkflowParam(
-        name=name_node.value,
-        type_name=type_node.value,
+        name=name_identifier.resolved_name,
+        type_name=type_identifier.resolved_name,
         span=raw_param.span,
         form_path=form_path,
+        expansion_stack=raw_param.expansion_stack,
     )
 
 
-def _raise_error(message: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> None:
+def _raise_error(
+    message: str,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: ExpansionStack = (),
+) -> None:
     raise LispFrontendCompileError(
         (
             LispFrontendDiagnostic(
@@ -488,6 +557,7 @@ def _raise_error(message: str, *, span: SourceSpan, form_path: tuple[str, ...]) 
                 message=message,
                 span=span,
                 form_path=form_path,
+                expansion_stack=expansion_stack,
             ),
         )
     )

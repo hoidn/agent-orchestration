@@ -34,10 +34,10 @@ from .phase import (
     PhaseScope,
     is_implementation_attempt_result_type,
 )
+from .macros import collect_macro_catalog, expand_module_forms
 from .reader import read_sexpr_file
-from .sexpr import ListExpr, SymbolAtom
 from .spans import SourceSpan
-from .syntax import WorkflowLispSyntaxModule, build_syntax_module
+from .syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
 from .type_env import FrontendTypeEnvironment, RecordTypeRef, TypeRef
 from .typecheck import TypedExpr
 from .workflows import (
@@ -52,12 +52,23 @@ _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
 
 
 @dataclass(frozen=True)
+class LoweringOrigin:
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: tuple[object, ...] = ()
+
+
+@dataclass(frozen=True)
 class LoweringOriginMap:
-    workflow_span: SourceSpan
-    step_spans: Mapping[str, SourceSpan]
-    generated_input_spans: Mapping[str, SourceSpan]
-    generated_output_spans: Mapping[str, SourceSpan]
-    generated_path_spans: Mapping[str, SourceSpan]
+    workflow_origin: LoweringOrigin
+    step_spans: Mapping[str, LoweringOrigin]
+    generated_input_spans: Mapping[str, LoweringOrigin]
+    generated_output_spans: Mapping[str, LoweringOrigin]
+    generated_path_spans: Mapping[str, LoweringOrigin]
+
+    @property
+    def workflow_span(self) -> SourceSpan:
+        return self.workflow_origin.span
 
 
 @dataclass(frozen=True)
@@ -73,13 +84,12 @@ def lower_workflow_definitions(
     workflow_path: Path,
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
+    type_env: FrontendTypeEnvironment | None = None,
 ) -> tuple[LoweredWorkflow, ...]:
     """Lower typed workflows into authored workflow mappings."""
 
     workflows_by_name = {workflow.definition.name: workflow for workflow in typed_workflows}
-    type_env = FrontendTypeEnvironment.from_module(
-        elaborate_definition_module(_definition_only_syntax_module(build_syntax_module(read_sexpr_file(workflow_path))))
-    )
+    resolved_type_env = type_env or FrontendTypeEnvironment.from_module(_definition_only_module(workflow_path))
     lowered_by_name: dict[str, LoweredWorkflow] = {}
     visiting: set[str] = set()
 
@@ -112,7 +122,7 @@ def lower_workflow_definitions(
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             lowered_callees=lowered_by_name,
-            type_env=type_env,
+            type_env=resolved_type_env,
         )
         lowered_by_name[workflow_name] = lowered
         visiting.remove(workflow_name)
@@ -187,7 +197,10 @@ def _lower_one_workflow(
     inputs, outputs, flattened_fields = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
-    origin_outputs = {field.generated_name: typed_workflow.definition.span for field in flattened_fields}
+    origin_outputs = {
+        field.generated_name: _origin_from_source(typed_workflow.definition)
+        for field in flattened_fields
+    }
 
     context = _LoweringContext(
         workflow_name=typed_workflow.definition.name,
@@ -213,12 +226,12 @@ def _lower_one_workflow(
     local_values = _signature_local_values(typed_workflow)
     steps, terminal = _lower_expression(typed_workflow.typed_body, context=context, local_values=local_values)
 
-    for hidden_input_name, span in terminal.hidden_inputs.items():
+    for hidden_input_name, origin in terminal.hidden_inputs.items():
         authored_inputs[hidden_input_name] = {
             "kind": "relpath",
             "type": "relpath",
         }
-        context.generated_input_spans[hidden_input_name] = span
+        context.generated_input_spans[hidden_input_name] = origin
 
     authored_mapping: dict[str, object] = {
         "version": "2.14",
@@ -238,7 +251,7 @@ def _lower_one_workflow(
         typed_workflow=typed_workflow,
         authored_mapping=authored_mapping,
         origin_map=LoweringOriginMap(
-            workflow_span=typed_workflow.definition.span,
+            workflow_origin=_origin_from_source(typed_workflow.definition),
             step_spans=MappingProxyType(dict(context.step_spans)),
             generated_input_spans=MappingProxyType(dict(context.generated_input_spans)),
             generated_output_spans=MappingProxyType(dict(context.generated_output_spans)),
@@ -253,7 +266,7 @@ class _TerminalResult:
     step_id: str
     output_refs: Mapping[str, str]
     output_kind: str
-    hidden_inputs: Mapping[str, SourceSpan]
+    hidden_inputs: Mapping[str, LoweringOrigin]
 
 
 @dataclass
@@ -266,10 +279,10 @@ class _LoweringContext:
     command_boundary_environment: CommandBoundaryEnvironment
     lowered_callees: Mapping[str, LoweredWorkflow]
     type_env: FrontendTypeEnvironment
-    step_spans: dict[str, SourceSpan]
-    generated_input_spans: dict[str, SourceSpan]
-    generated_output_spans: Mapping[str, SourceSpan]
-    generated_path_spans: dict[str, SourceSpan]
+    step_spans: dict[str, LoweringOrigin]
+    generated_input_spans: dict[str, LoweringOrigin]
+    generated_output_spans: Mapping[str, LoweringOrigin]
+    generated_path_spans: dict[str, LoweringOrigin]
     top_level_artifacts: dict[str, Any]
     return_output_contracts: Mapping[str, Mapping[str, Any]]
     phase_scope: "_ActivePhaseScope | None" = None
@@ -291,9 +304,19 @@ def _normalize_generated_step_id(raw_name: str) -> str:
     return normalized
 
 
-def _record_step_origin(context: _LoweringContext, *, step_name: str, step_id: str, span: SourceSpan) -> None:
-    context.step_spans[step_name] = span
-    context.step_spans[step_id] = span
+def _origin_from_source(source: object, *, span: SourceSpan | None = None) -> LoweringOrigin:
+    origin_span = span or getattr(source, "span")
+    return LoweringOrigin(
+        span=origin_span,
+        form_path=getattr(source, "form_path", ()),
+        expansion_stack=getattr(source, "expansion_stack", ()),
+    )
+
+
+def _record_step_origin(context: _LoweringContext, *, step_name: str, step_id: str, source: object) -> None:
+    origin = _origin_from_source(source)
+    context.step_spans[step_name] = origin
+    context.step_spans[step_id] = origin
 
 
 def _lower_expression(
@@ -347,8 +370,8 @@ def _lower_command_result(
     )
     authored_contract = dict(bundle_contract.payload)
     authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
-    _record_step_origin(context, step_name=step_name, step_id=step_id, span=expr.span)
-    context.generated_path_spans[authored_contract["path"]] = expr.span
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    context.generated_path_spans[authored_contract["path"]] = _origin_from_source(expr)
 
     command = list(binding.stable_command)
     command.extend(_render_argv_tail(expr.argv[len(binding.stable_command) :], local_values=_signature_local_values(context)))
@@ -363,7 +386,7 @@ def _lower_command_result(
         step_id=step_id,
         output_refs=_record_output_refs(step_name, typed_expr.type_ref),
         output_kind="step",
-        hidden_inputs={hidden_input_name: expr.span},
+        hidden_inputs={hidden_input_name: _origin_from_source(expr)},
     )
 
 
@@ -394,7 +417,7 @@ def _lower_provider_result(
         form_path=expr.form_path,
     )
     authored_contract = dict(bundle_contract.payload)
-    hidden_inputs: dict[str, SourceSpan] = {}
+    hidden_inputs: dict[str, LoweringOrigin] = {}
     generated_steps: list[dict[str, Any]] = []
     provider_step: dict[str, Any] = {
         "name": provider_step_name,
@@ -442,9 +465,9 @@ def _lower_provider_result(
         ]
     else:
         authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
-        hidden_inputs[hidden_input_name] = expr.span
-    _record_step_origin(context, step_name=provider_step_name, step_id=provider_step_id, span=expr.span)
-    context.generated_path_spans[authored_contract["path"]] = expr.span
+        hidden_inputs[hidden_input_name] = _origin_from_source(expr)
+    _record_step_origin(context, step_name=provider_step_name, step_id=provider_step_id, source=expr)
+    context.generated_path_spans[authored_contract["path"]] = _origin_from_source(expr)
     generated_steps.append(provider_step)
     return generated_steps, _TerminalResult(
         step_name=provider_step_name,
@@ -493,7 +516,7 @@ def _lower_call_expr(
         with_bindings[managed_input] = (
             f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{step_name}/{expr.callee_name}/{managed_input}.json"
         )
-    _record_step_origin(context, step_name=step_name, step_id=step_id, span=expr.span)
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     step = {
         "name": step_name,
         "id": step_id,
@@ -638,7 +661,7 @@ def _lower_match_expr(
             "steps": case_steps,
         }
 
-    _record_step_origin(context, step_name=match_step_name, step_id=match_step_id, span=match_expr.span)
+    _record_step_origin(context, step_name=match_step_name, step_id=match_step_id, source=match_expr)
     match_step = {
         "name": match_step_name,
         "id": match_step_id,
@@ -863,12 +886,12 @@ def _build_phase_prompt_input_prelude(
             span=input_expr.span,
             form_path=input_expr.form_path,
         )
-        context.generated_path_spans[pointer_path] = input_expr.span
+        context.generated_path_spans[pointer_path] = _origin_from_source(input_expr)
         publishes.append({"artifact": artifact_name, "from": artifact_name})
 
     step_name = "MaterializeImplementationAttemptPromptInputs"
     step_id = _normalize_generated_step_id(step_name)
-    _record_step_origin(context, step_name=step_name, step_id=step_id, span=expr.span)
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     return [
         {
             "name": step_name,
@@ -1192,11 +1215,16 @@ def _build_match_projection_anchor_step(
             code="workflow_return_not_exportable",
             message="match return arms must expose at least one exportable field in this Stage 3 slice",
             span=span,
-            form_path=context.workflow_form_path,
+            form_path=context.signature.form_path,
         )
     step_name = f"{match_step_name}__{variant_name.lower()}__projection_anchor"
     step_id = _normalize_generated_step_id(step_name)
-    _record_step_origin(context, step_name=step_name, step_id=step_id, span=span)
+    _record_step_origin(
+        context,
+        step_name=step_name,
+        step_id=step_id,
+        source=LoweringOrigin(span=span, form_path=context.signature.form_path),
+    )
     return {
         "name": step_name,
         "id": step_id,
@@ -1471,14 +1499,15 @@ def _raise_remapped_validation_error(
     diagnostics: list[LispFrontendDiagnostic] = []
     for error in errors:
         message = str(error.message)
-        span = _remap_validation_message(lowered_workflow.origin_map, message)
-        if span is None:
+        origin = _remap_validation_message(lowered_workflow.origin_map, message)
+        if origin is None:
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="source_map_missing",
                     message=message,
                     span=lowered_workflow.origin_map.workflow_span,
                     form_path=lowered_workflow.typed_workflow.definition.form_path,
+                    expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
                 )
             )
             continue
@@ -1486,28 +1515,29 @@ def _raise_remapped_validation_error(
             LispFrontendDiagnostic(
                 code=_shared_validation_diagnostic_code(message),
                 message=message,
-                span=span,
-                form_path=lowered_workflow.typed_workflow.definition.form_path,
+                span=origin.span,
+                form_path=origin.form_path or lowered_workflow.typed_workflow.definition.form_path,
+                expansion_stack=origin.expansion_stack,
             )
         )
     raise LispFrontendCompileError(tuple(diagnostics))
 
 
-def _remap_validation_message(origin_map: LoweringOriginMap, message: str) -> SourceSpan | None:
-    for key, span in origin_map.step_spans.items():
+def _remap_validation_message(origin_map: LoweringOriginMap, message: str) -> LoweringOrigin | None:
+    for key, origin in origin_map.step_spans.items():
         if key in message:
-            return span
-    for key, span in origin_map.generated_input_spans.items():
+            return origin
+    for key, origin in origin_map.generated_input_spans.items():
         if key in message:
-            return span
-    for key, span in origin_map.generated_output_spans.items():
+            return origin
+    for key, origin in origin_map.generated_output_spans.items():
         if key in message:
-            return span
-    for key, span in origin_map.generated_path_spans.items():
+            return origin
+    for key, origin in origin_map.generated_path_spans.items():
         if key in message:
-            return span
+            return origin
     if "output" in message or "input" in message or "workflow" in message:
-        return origin_map.workflow_span
+        return origin_map.workflow_origin
     return None
 
 
@@ -1530,20 +1560,31 @@ def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tupl
     )
 
 
+def _definition_only_module(workflow_path: Path):
+    return elaborate_definition_module(
+        _definition_only_syntax_module(build_syntax_module(read_sexpr_file(workflow_path)))
+    )
+
+
 def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> WorkflowLispSyntaxModule:
+    expanded = expand_module_forms(
+        module_syntax,
+        catalog=collect_macro_catalog(module_syntax),
+    )
     definition_forms = []
-    for form in module_syntax.forms:
-        datum = form.datum
-        if not isinstance(datum, ListExpr) or not datum.items:
-            continue
-        head = datum.items[0]
-        if isinstance(head, SymbolAtom) and head.value == "defworkflow":
+    for form in expanded.forms:
+        if syntax_head_name(syntax_node_datum(form)) == "defworkflow":
             continue
         definition_forms.append(form)
     return WorkflowLispSyntaxModule(
-        language_version=module_syntax.language_version,
-        target_dsl_version=module_syntax.target_dsl_version,
+        language_version=expanded.language_version,
+        target_dsl_version=expanded.target_dsl_version,
         forms=tuple(definition_forms),
-        span=module_syntax.span,
-        module_path=module_syntax.module_path,
+        span=expanded.span,
+        module_path=expanded.module_path,
     )
+
+
+def _definition_only_module(workflow_path: Path):
+    syntax_module = build_syntax_module(read_sexpr_file(workflow_path))
+    return elaborate_definition_module(_definition_only_syntax_module(syntax_module))

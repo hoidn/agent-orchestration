@@ -225,6 +225,28 @@ def test_elaborate_expression_supports_call_and_provider_result_with_extern_symb
     assert len(provider_expr.inputs) == 2
 
 
+def test_build_workflow_catalog_accepts_macro_expanded_top_level_workflows() -> None:
+    import importlib
+
+    macros = importlib.import_module("orchestrator.workflow_lisp.macros")
+    fixture = FIXTURES / "valid" / "macro_workflow_alias.orc"
+    syntax_module = _build_syntax_module(fixture)
+    expanded = macros.expand_module_forms(
+        syntax_module,
+        catalog=macros.collect_macro_catalog(syntax_module),
+    )
+    module = elaborate_definition_module(_definition_only_syntax_module(expanded))
+    workflow_defs = elaborate_workflow_definitions(expanded)
+
+    workflow_catalog = build_workflow_catalog(
+        module,
+        workflow_defs,
+        FrontendTypeEnvironment.from_module(module),
+    )
+
+    assert tuple(workflow_catalog.signatures_by_name) == ("command_checks", "provider_attempt")
+
+
 def test_phase_translation_fixture_uses_extern_symbols_without_workflow_transport() -> None:
     syntax_module = _build_syntax_module(PHASE_FIXTURE)
     workflow_def = elaborate_workflow_definitions(syntax_module)[0]

@@ -129,6 +129,7 @@ def _typecheck(
                 code="name_unknown",
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
         return TypedExpr(expr=expr, type_ref=type_ref, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, FieldAccessExpr):
@@ -451,6 +452,7 @@ def _typecheck(
                 code="provider_result_return_type_invalid",
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
         if active_phase_scope is not None and not is_implementation_attempt_result_type(return_type):
             _raise_error(
@@ -458,6 +460,7 @@ def _typecheck(
                 code="provider_result_return_type_invalid",
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
         typed_provider = _typecheck_expected_extern_operand(
             expr.provider,
@@ -487,6 +490,7 @@ def _typecheck(
                 code="provider_result_provider_invalid",
                 span=expr.provider.span,
                 form_path=expr.provider.form_path,
+                expansion_stack=expr.provider.expansion_stack,
             )
         if typed_prompt.type_ref != PrimitiveTypeRef(name="Prompt"):
             _raise_error(
@@ -494,6 +498,7 @@ def _typecheck(
                 code="provider_result_prompt_invalid",
                 span=expr.prompt.span,
                 form_path=expr.prompt.form_path,
+                expansion_stack=expr.prompt.expansion_stack,
             )
         if not isinstance(expr.provider, NameExpr) or extern_environment is None:
             _raise_error(
@@ -501,6 +506,7 @@ def _typecheck(
                 code="provider_result_provider_invalid",
                 span=expr.provider.span,
                 form_path=expr.provider.form_path,
+                expansion_stack=expr.provider.expansion_stack,
             )
         provider_binding = extern_environment.bindings_by_name.get(expr.provider.name)
         from .workflows import PromptExtern, ProviderExtern
@@ -511,6 +517,7 @@ def _typecheck(
                 code="provider_result_provider_invalid",
                 span=expr.provider.span,
                 form_path=expr.provider.form_path,
+                expansion_stack=expr.provider.expansion_stack,
             )
         if not isinstance(expr.prompt, NameExpr) or extern_environment is None:
             _raise_error(
@@ -518,6 +525,7 @@ def _typecheck(
                 code="provider_result_prompt_invalid",
                 span=expr.prompt.span,
                 form_path=expr.prompt.form_path,
+                expansion_stack=expr.prompt.expansion_stack,
             )
         prompt_binding = extern_environment.bindings_by_name.get(expr.prompt.name)
         if not isinstance(prompt_binding, PromptExtern):
@@ -526,6 +534,7 @@ def _typecheck(
                 code="provider_result_prompt_invalid",
                 span=expr.prompt.span,
                 form_path=expr.prompt.form_path,
+                expansion_stack=expr.prompt.expansion_stack,
             )
         for input_expr in expr.inputs:
             _typecheck(
@@ -560,6 +569,7 @@ def _typecheck(
                     code="command_adapter_missing_contract",
                     span=expr.span,
                     form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
                 )
             _validate_command_argv(expr, command_binding)
         else:
@@ -575,6 +585,7 @@ def _typecheck(
                 code="command_result_return_type_invalid",
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
         from .workflows import CertifiedAdapterBinding
 
@@ -584,6 +595,7 @@ def _typecheck(
                 code="command_result_return_type_invalid",
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
         return TypedExpr(expr=expr, type_ref=return_type, span=expr.span, form_path=expr.form_path)
     raise TypeError(f"unsupported expression node: {type(expr)!r}")
@@ -741,6 +753,7 @@ def _validate_command_argv(
                 code="inline_python_command_in_workflow",
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
         if first in {"bash", "sh"} and second in {"-c", "-lc"}:
             _raise_error(
@@ -748,6 +761,7 @@ def _validate_command_argv(
                 code="inline_shell_command_in_workflow",
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
     if not argv:
         _raise_error(
@@ -755,6 +769,7 @@ def _validate_command_argv(
             code="command_result_argv_invalid",
             span=expr.span,
             form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
         )
     if binding is None:
         return
@@ -765,6 +780,7 @@ def _validate_command_argv(
             code="command_result_argv_invalid",
             span=expr.span,
             form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
         )
     for index, token in enumerate(stable_prefix):
         actual = _literal_string(argv[index])
@@ -774,6 +790,7 @@ def _validate_command_argv(
                 code="command_result_argv_invalid",
                 span=expr.argv[index].span,
                 form_path=expr.argv[index].form_path,
+                expansion_stack=expr.argv[index].expansion_stack,
             )
     if len(argv) == 1:
         only = _literal_string(argv[0])
@@ -783,6 +800,7 @@ def _validate_command_argv(
                 code="command_result_argv_invalid",
                 span=expr.span,
                 form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
             )
 
 
@@ -800,7 +818,14 @@ def _union_has_any_field(union_type: UnionTypeRef, field_name: str) -> bool:
     return any(field.name == field_name for variant in union_type.definition.variants for field in variant.fields)
 
 
-def _raise_error(message: str, *, code: str, span: SourceSpan, form_path: tuple[str, ...]) -> None:
+def _raise_error(
+    message: str,
+    *,
+    code: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...] = (),
+) -> None:
     raise LispFrontendCompileError(
         (
             LispFrontendDiagnostic(
@@ -808,6 +833,7 @@ def _raise_error(message: str, *, code: str, span: SourceSpan, form_path: tuple[
                 message=message,
                 span=span,
                 form_path=form_path,
+                expansion_stack=expansion_stack,
             ),
         )
     )

@@ -1,22 +1,123 @@
-"""Syntax-object layer for the workflow Lisp Stage 1 frontend."""
+"""Syntax-object layer for the workflow Lisp frontend."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .sexpr import KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
+from .sexpr import BoolAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourceSpan
 
 
 @dataclass(frozen=True)
-class SyntaxNode:
-    """Syntax wrapper over one authored S-expression node."""
+class ExpansionFrame:
+    """One macro-expansion provenance frame."""
 
-    datum: SExpr
+    macro_name: str
+    expansion_id: str
+    call_span: SourceSpan
+    definition_span: SourceSpan
+    template_path: tuple[str, ...]
+
+
+ExpansionStack = tuple[ExpansionFrame, ...]
+
+
+@dataclass(frozen=True)
+class SyntaxIdentifier:
+    """One syntax-layer identifier with authored and resolved names."""
+
+    display_name: str
+    resolved_name: str
     span: SourceSpan
     module_path: str
     form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack
+    introduced_by_expansion_id: str | None = None
+
+
+@dataclass(frozen=True)
+class SyntaxKeyword:
+    """One syntax-layer keyword atom."""
+
+    value: str
+    span: SourceSpan
+    module_path: str
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack
+
+
+@dataclass(frozen=True)
+class SyntaxString:
+    """One syntax-layer string atom."""
+
+    value: str
+    span: SourceSpan
+    module_path: str
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack
+
+
+@dataclass(frozen=True)
+class SyntaxInt:
+    """One syntax-layer int atom."""
+
+    value: int
+    span: SourceSpan
+    module_path: str
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack
+
+
+@dataclass(frozen=True)
+class SyntaxBool:
+    """One syntax-layer bool atom."""
+
+    value: bool
+    span: SourceSpan
+    module_path: str
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack
+
+
+SyntaxAtom = SyntaxIdentifier | SyntaxKeyword | SyntaxString | SyntaxInt | SyntaxBool
+
+
+@dataclass(frozen=True)
+class SyntaxList:
+    """One recursive syntax list."""
+
+    items: tuple["SyntaxDatum", ...]
+    span: SourceSpan
+    module_path: str
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack
+
+
+SyntaxDatum = SyntaxAtom | SyntaxList
+
+
+@dataclass(frozen=True)
+class SyntaxNode:
+    """Top-level syntax wrapper over one authored or expanded form."""
+
+    datum: SExpr | SyntaxDatum
+    span: SourceSpan
+    module_path: str
+    form_path: tuple[str, ...]
+
+    @property
+    def items(self) -> tuple[SyntaxDatum, ...]:
+        datum = ensure_syntax_datum(self.datum, module_path=self.module_path, form_path=self.form_path)
+        if isinstance(datum, SyntaxList):
+            return datum.items
+        return ()
+
+    @property
+    def expansion_stack(self) -> ExpansionStack:
+        return syntax_expansion_stack(
+            ensure_syntax_datum(self.datum, module_path=self.module_path, form_path=self.form_path)
+        )
 
 
 @dataclass(frozen=True)
@@ -85,6 +186,218 @@ def build_syntax_module(parse_tree: ListExpr) -> WorkflowLispSyntaxModule:
     )
 
 
+def ensure_syntax_datum(
+    datum: SExpr | SyntaxDatum,
+    *,
+    module_path: str,
+    form_path: tuple[str, ...],
+    expansion_stack: ExpansionStack = (),
+) -> SyntaxDatum:
+    """Return one recursive syntax datum, converting raw reader nodes on demand."""
+
+    if isinstance(
+        datum,
+        (SyntaxIdentifier, SyntaxKeyword, SyntaxString, SyntaxInt, SyntaxBool, SyntaxList),
+    ):
+        return datum
+    if isinstance(datum, SymbolAtom):
+        return SyntaxIdentifier(
+            display_name=datum.value,
+            resolved_name=datum.value,
+            span=datum.span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(datum, KeywordAtom):
+        return SyntaxKeyword(
+            value=datum.value,
+            span=datum.span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(datum, StringAtom):
+        return SyntaxString(
+            value=datum.value,
+            span=datum.span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(datum, IntAtom):
+        return SyntaxInt(
+            value=datum.value,
+            span=datum.span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(datum, BoolAtom):
+        return SyntaxBool(
+            value=datum.value,
+            span=datum.span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if isinstance(datum, ListExpr):
+        return SyntaxList(
+            items=tuple(
+                ensure_syntax_datum(
+                    item,
+                    module_path=module_path,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                )
+                for item in datum.items
+            ),
+            span=datum.span,
+            module_path=module_path,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    raise TypeError(f"unsupported syntax datum: {type(datum)!r}")
+
+
+def syntax_node_datum(node: SyntaxNode) -> SyntaxDatum:
+    """Return one syntax node's recursive datum."""
+
+    return ensure_syntax_datum(node.datum, module_path=node.module_path, form_path=node.form_path)
+
+
+def syntax_head_name(datum: SyntaxDatum) -> str | None:
+    """Return the resolved head symbol of one syntax list."""
+
+    if not isinstance(datum, SyntaxList) or not datum.items:
+        return None
+    head = datum.items[0]
+    if isinstance(head, SyntaxIdentifier):
+        return head.resolved_name
+    return None
+
+
+def syntax_identifier(node: object) -> SyntaxIdentifier | None:
+    """Return one identifier syntax node when available."""
+
+    if isinstance(node, SyntaxIdentifier):
+        return node
+    return None
+
+
+def syntax_head(node: SyntaxNode | SyntaxDatum) -> SyntaxIdentifier | None:
+    """Return the identifier head of one syntax list or top-level form."""
+
+    datum = syntax_node_datum(node) if isinstance(node, SyntaxNode) else node
+    if not isinstance(datum, SyntaxList) or not datum.items:
+        return None
+    return syntax_identifier(datum.items[0])
+
+
+def syntax_display_name(datum: object) -> str | None:
+    """Return the authored display name of one identifier."""
+
+    if isinstance(datum, SyntaxIdentifier):
+        return datum.display_name
+    return None
+
+
+def syntax_resolved_name(datum: object) -> str | None:
+    """Return the resolved name of one identifier."""
+
+    if isinstance(datum, SyntaxIdentifier):
+        return datum.resolved_name
+    return None
+
+
+def syntax_span(datum: SyntaxDatum) -> SourceSpan:
+    """Return the source span for one syntax datum."""
+
+    return datum.span
+
+
+def syntax_expansion_stack(datum: SyntaxDatum) -> ExpansionStack:
+    """Return one syntax datum's expansion provenance."""
+
+    return datum.expansion_stack
+
+
+def syntax_with_items(datum: SyntaxList, items: tuple[SyntaxDatum, ...]) -> SyntaxList:
+    """Return one syntax list with updated items."""
+
+    return replace(datum, items=items)
+
+
+def clone_caller_syntax(datum: SyntaxDatum) -> SyntaxDatum:
+    """Clone caller-authored syntax while preserving authored metadata."""
+
+    if isinstance(datum, SyntaxList):
+        return replace(datum, items=tuple(clone_caller_syntax(item) for item in datum.items))
+    return replace(datum)
+
+
+def clone_template_syntax(
+    datum: SyntaxDatum,
+    *,
+    frame: ExpansionFrame,
+    introduced_by_expansion_id: str | None = None,
+) -> SyntaxDatum:
+    """Clone template-authored syntax into one expansion provenance frame."""
+
+    stack = datum.expansion_stack + (frame,)
+    if isinstance(datum, SyntaxList):
+        return replace(
+            datum,
+            items=tuple(
+                clone_template_syntax(
+                    item,
+                    frame=frame,
+                    introduced_by_expansion_id=introduced_by_expansion_id,
+                )
+                for item in datum.items
+            ),
+            expansion_stack=stack,
+        )
+    if isinstance(datum, SyntaxIdentifier):
+        return replace(
+            datum,
+            expansion_stack=stack,
+            introduced_by_expansion_id=introduced_by_expansion_id,
+        )
+    return replace(datum, expansion_stack=stack)
+
+
+def introduced_identifier(
+    identifier: SyntaxIdentifier,
+    *,
+    macro_name: str,
+    expansion_id: str,
+) -> SyntaxIdentifier:
+    """Return one deterministically hygienic identifier binding or reference."""
+
+    return replace(
+        identifier,
+        resolved_name=f"%macro__{macro_name}__{expansion_id}__{identifier.display_name}",
+        introduced_by_expansion_id=expansion_id,
+    )
+
+
+def top_level_form_path(datum: SyntaxDatum) -> tuple[str, ...]:
+    """Derive one deterministic top-level form path from expanded syntax."""
+
+    head = syntax_head_name(datum)
+    if head is None:
+        return ("workflow-lisp",)
+    form_path = ["workflow-lisp", syntax_display_name(datum.items[0]) or head]  # type: ignore[attr-defined]
+    if (
+        isinstance(datum, SyntaxList)
+        and len(datum.items) > 1
+        and isinstance(datum.items[1], SyntaxIdentifier)
+    ):
+        form_path.append(datum.items[1].display_name)
+    return tuple(form_path)
+
+
 def _parse_header_value(form: ListExpr) -> StringAtom:
     if len(form.items) != 2:
         _raise_error("module header forms must contain one keyword and one string value", span=form.span)
@@ -103,9 +416,10 @@ def _build_top_level_syntax_node(item: SExpr, module_path: str) -> SyntaxNode:
     form_path = ["workflow-lisp", head.value]
     if len(item.items) > 1 and isinstance(item.items[1], SymbolAtom):
         form_path.append(item.items[1].value)
+    syntax = ensure_syntax_datum(item, module_path=module_path, form_path=tuple(form_path))
     return SyntaxNode(
-        datum=item,
-        span=item.span,
+        datum=syntax,
+        span=syntax.span,
         module_path=module_path,
         form_path=tuple(form_path),
     )

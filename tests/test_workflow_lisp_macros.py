@@ -1,0 +1,158 @@
+import importlib
+from pathlib import Path
+
+import pytest
+
+from orchestrator.workflow_lisp.compiler import (
+    _definition_only_syntax_module,
+    compile_stage1_module,
+    compile_stage3_module,
+)
+from orchestrator.workflow_lisp.definitions import elaborate_definition_module
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.syntax import build_syntax_module
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding, elaborate_workflow_definitions
+
+
+FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+VALID_ALIAS_FIXTURE = FIXTURES / "valid" / "macro_workflow_alias.orc"
+HYGIENE_FIXTURE = FIXTURES / "valid" / "macro_hygiene_local_binding.orc"
+
+
+def _macros_module():
+    return importlib.import_module("orchestrator.workflow_lisp.macros")
+
+
+def _expanded_module(path: Path):
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    macros = _macros_module()
+    catalog = macros.collect_macro_catalog(syntax_module)
+    return catalog, macros.expand_module_forms(syntax_module, catalog=catalog)
+
+
+def _walk_syntax(node: object):
+    if hasattr(node, "forms"):
+        for form in getattr(node, "forms"):
+            yield from _walk_syntax(form)
+        return
+    yield node
+    if hasattr(node, "items"):
+        for item in getattr(node, "items"):
+            yield from _walk_syntax(item)
+
+
+def test_collect_macro_catalog_supports_same_file_forward_references() -> None:
+    catalog, expanded = _expanded_module(VALID_ALIAS_FIXTURE)
+
+    assert tuple(catalog.definitions_by_name) == ("defworkflow-alias",)
+    assert [workflow.name for workflow in elaborate_workflow_definitions(expanded)] == [
+        "command_checks",
+        "provider_attempt",
+    ]
+    assert [definition.name for definition in elaborate_definition_module(_definition_only_syntax_module(expanded)).definitions] == [
+        "WorkReport",
+        "ChecksResult",
+        "ImplementationSummary",
+        "ImplementationState",
+    ]
+
+
+def test_macro_expansion_assigns_deterministic_ids_and_hygienic_resolved_names() -> None:
+    _, expanded = _expanded_module(HYGIENE_FIXTURE)
+
+    identifiers = [node for node in _walk_syntax(expanded) if hasattr(node, "display_name")]
+    introduced_tmps = [
+        identifier
+        for identifier in identifiers
+        if identifier.display_name == "tmp" and identifier.introduced_by_expansion_id is not None
+    ]
+    caller_tmps = [
+        identifier
+        for identifier in identifiers
+        if identifier.display_name == "tmp" and identifier.introduced_by_expansion_id is None
+    ]
+
+    assert {identifier.introduced_by_expansion_id for identifier in introduced_tmps} == {"m0001"}
+    assert {identifier.resolved_name for identifier in introduced_tmps} == {
+        "%macro__preserve-caller-tmp__m0001__tmp"
+    }
+    assert any(identifier.resolved_name == "tmp" for identifier in caller_tmps)
+
+
+def test_compile_stage1_rejects_reserved_macro_names() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "invalid" / "macro_reserved_name.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "macro_reserved_name"
+    assert "defworkflow" in diagnostic.message
+
+
+def test_compile_stage1_reports_macro_expansion_cycles() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "invalid" / "macro_expansion_cycle.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "macro_expansion_cycle"
+    assert "cyclic-workflow" in diagnostic.message
+
+
+def test_compile_stage1_rejects_invalid_splice_and_invalid_emitted_forms() -> None:
+    with pytest.raises(LispFrontendCompileError) as bad_splice:
+        compile_stage1_module(FIXTURES / "invalid" / "macro_bad_splice.orc")
+    assert bad_splice.value.diagnostics[0].code == "macro_emits_invalid_ast"
+
+    with pytest.raises(LispFrontendCompileError) as invalid_form:
+        compile_stage1_module(FIXTURES / "invalid" / "macro_emits_invalid_form.orc")
+    assert invalid_form.value.diagnostics[0].code == "macro_emits_invalid_ast"
+
+
+def test_compile_stage1_rejects_macro_expansions_that_emit_top_level_defmacro(tmp_path: Path) -> None:
+    invalid_macro_output = tmp_path / "macro_emits_defmacro.orc"
+    invalid_macro_output.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (emit-generated-macro generated)",
+                "  (defmacro emit-generated-macro (name)",
+                "    (defmacro name ()",
+                "      42)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(invalid_macro_output)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "macro_emits_invalid_ast"
+    assert "top-level `defmacro`" in diagnostic.message
+
+
+def test_compile_stage3_module_accepts_macro_emitted_provider_and_command_results(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        VALID_ALIAS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert [workflow.definition.name for workflow in result.typed_workflows] == [
+        "command_checks",
+        "provider_attempt",
+    ]
+    assert [workflow.name for workflow in elaborate_workflow_definitions(_expanded_module(VALID_ALIAS_FIXTURE)[1])] == [
+        "command_checks",
+        "provider_attempt",
+    ]

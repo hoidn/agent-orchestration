@@ -198,6 +198,30 @@ def test_compile_stage3_module_returns_lowered_workflows_and_optional_bundles(tm
     assert tuple(validated.validated_bundles) == ("command_checks", "provider_attempt", "orchestrate")
 
 
+def test_compile_stage3_module_preserves_macro_provenance_in_origin_maps(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        FIXTURES / "valid" / "macro_workflow_alias.orc",
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    command_checks = next(
+        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
+    )
+    origin = command_checks.origin_map.step_spans["command_checks__run_checks"]
+
+    assert origin.expansion_stack[0].macro_name == "defworkflow-alias"
+    assert origin.expansion_stack[0].expansion_id == "m0001"
+
+
 def test_compile_stage3_module_supports_terminal_record_projection_returns(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "terminal_record_projection.orc",

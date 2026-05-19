@@ -14,7 +14,8 @@ from orchestrator.workflow_lisp.expressions import (
     elaborate_expression,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_text
-from orchestrator.workflow_lisp.syntax import SyntaxNode
+from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
     PathTypeRef,
@@ -263,6 +264,36 @@ def test_typecheck_expression_validates_record_exactness() -> None:
             value_env=value_env,
         )
     _assert_diagnostic_code(unknown_field, "record_field_unknown")
+
+
+def test_elaborate_expression_prefers_resolved_names_from_macro_expansion() -> None:
+    import importlib
+
+    macros = importlib.import_module("orchestrator.workflow_lisp.macros")
+    syntax_module = build_syntax_module(
+        read_sexpr_file(FIXTURES / "valid" / "macro_hygiene_local_binding.orc")
+    )
+    expanded = macros.expand_module_forms(
+        syntax_module,
+        catalog=macros.collect_macro_catalog(syntax_module),
+    )
+    from orchestrator.workflow_lisp.workflows import elaborate_workflow_definitions
+
+    elaborated = elaborate_workflow_definitions(expanded)[0]
+    body = elaborate_expression(
+        elaborated.body,
+        bound_names=frozenset(param.name for param in elaborated.params),
+    )
+
+    assert isinstance(body, LetStarExpr)
+    assert body.bindings[0][0] == "tmp"
+    assert isinstance(body.body, LetStarExpr)
+    assert body.body.bindings[0][0] == "%macro__preserve-caller-tmp__m0001__tmp"
+    assert isinstance(body.body.bindings[1][1], NameExpr)
+    assert body.body.bindings[1][1].name == "%macro__preserve-caller-tmp__m0001__tmp"
+    assert isinstance(body.body.body, RecordExpr)
+    assert isinstance(body.body.body.fields[0][1], NameExpr)
+    assert body.body.body.fields[0][1].name == "tmp"
 
 
 def test_typecheck_expression_supports_sequential_letstar_bindings() -> None:

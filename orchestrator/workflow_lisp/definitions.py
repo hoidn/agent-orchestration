@@ -5,9 +5,19 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .sexpr import BoolAtom, KeywordAtom, ListExpr, StringAtom, SymbolAtom
 from .spans import SourceSpan
-from .syntax import SyntaxNode, WorkflowLispSyntaxModule
+from .syntax import (
+    SyntaxBool,
+    SyntaxIdentifier,
+    SyntaxKeyword,
+    SyntaxList,
+    SyntaxNode,
+    SyntaxString,
+    WorkflowLispSyntaxModule,
+    syntax_head,
+    syntax_identifier,
+    syntax_node_datum,
+)
 
 
 @dataclass(frozen=True)
@@ -102,42 +112,43 @@ def elaborate_definition_module(module: WorkflowLispSyntaxModule) -> WorkflowLis
 
 
 def _elaborate_top_level_form(form: SyntaxNode) -> DefinitionNode:
-    datum = form.datum
-    if not isinstance(datum, ListExpr) or not datum.items:
+    datum = syntax_node_datum(form)
+    if not isinstance(datum, SyntaxList) or not datum.items:
         _raise_error("top-level forms must be non-empty lists", span=form.span, form_path=form.form_path)
-    head = datum.items[0]
-    if not isinstance(head, SymbolAtom):
-        _raise_error("top-level forms must start with a symbol", span=head.span, form_path=form.form_path)
-    if head.value == "defenum":
+    head = syntax_head(form)
+    if head is None:
+        _raise_error("top-level forms must start with a symbol", span=form.span, form_path=form.form_path)
+    if head.resolved_name == "defenum":
         return _elaborate_defenum(form, datum)
-    if head.value == "defpath":
+    if head.resolved_name == "defpath":
         return _elaborate_defpath(form, datum)
-    if head.value == "defrecord":
+    if head.resolved_name == "defrecord":
         return _elaborate_defrecord(form, datum)
-    if head.value == "defunion":
+    if head.resolved_name == "defunion":
         return _elaborate_defunion(form, datum)
     _raise_error(
-        f"unsupported top-level definition form `{head.value}`",
+        f"unsupported top-level definition form `{head.display_name}`",
         code="definition_form_unknown",
         span=head.span,
         form_path=form.form_path,
     )
 
 
-def _elaborate_defenum(form: SyntaxNode, datum: ListExpr) -> EnumDef:
+def _elaborate_defenum(form: SyntaxNode, datum: SyntaxList) -> EnumDef:
     name = _expect_symbol(datum, 1, "enum name", form_path=form.form_path)
     raw_values = datum.items[2:]
     if not raw_values:
         _raise_error("`defenum` requires at least one value", span=datum.span, form_path=form.form_path)
     values = []
     for raw_value in raw_values:
-        if not isinstance(raw_value, SymbolAtom):
+        value_identifier = syntax_identifier(raw_value)
+        if value_identifier is None:
             _raise_error("enum values must be symbols", span=raw_value.span, form_path=form.form_path)
-        values.append(EnumValue(name=raw_value.value, span=raw_value.span))
-    return EnumDef(name=name.value, values=tuple(values), span=datum.span)
+        values.append(EnumValue(name=value_identifier.resolved_name, span=raw_value.span))
+    return EnumDef(name=name.resolved_name, values=tuple(values), span=datum.span)
 
 
-def _elaborate_defpath(form: SyntaxNode, datum: ListExpr) -> PathDef:
+def _elaborate_defpath(form: SyntaxNode, datum: SyntaxList) -> PathDef:
     name = _expect_symbol(datum, 1, "path name", form_path=form.form_path)
     entries = datum.items[2:]
     if len(entries) % 2 != 0:
@@ -152,7 +163,7 @@ def _elaborate_defpath(form: SyntaxNode, datum: ListExpr) -> PathDef:
     for index in range(0, len(entries), 2):
         keyword_node = entries[index]
         value_node = entries[index + 1]
-        if not isinstance(keyword_node, KeywordAtom):
+        if not isinstance(keyword_node, SyntaxKeyword):
             _raise_error(
                 "`defpath` entries must start with keywords",
                 code="path_definition_invalid",
@@ -179,21 +190,21 @@ def _elaborate_defpath(form: SyntaxNode, datum: ListExpr) -> PathDef:
     kind_node = values[":kind"]
     under_node = values[":under"]
     must_exist_node = values[":must-exist"]
-    if not isinstance(kind_node, SymbolAtom) or kind_node.value != "relpath":
+    if not isinstance(kind_node, SyntaxIdentifier) or kind_node.resolved_name != "relpath":
         _raise_error(
             "`defpath :kind` must be `relpath` in Stage 1",
             code="path_definition_invalid",
             span=kind_node.span,
             form_path=form.form_path,
         )
-    if not isinstance(under_node, StringAtom):
+    if not isinstance(under_node, SyntaxString):
         _raise_error(
             "`defpath :under` must be a string",
             code="path_definition_invalid",
             span=under_node.span,
             form_path=form.form_path,
         )
-    if not isinstance(must_exist_node, BoolAtom):
+    if not isinstance(must_exist_node, SyntaxBool):
         _raise_error(
             "`defpath :must-exist` must be a boolean",
             code="path_definition_invalid",
@@ -201,48 +212,52 @@ def _elaborate_defpath(form: SyntaxNode, datum: ListExpr) -> PathDef:
             form_path=form.form_path,
         )
     return PathDef(
-        name=name.value,
-        kind=kind_node.value,
+        name=name.resolved_name,
+        kind=kind_node.resolved_name,
         under=under_node.value,
         must_exist=must_exist_node.value,
         span=datum.span,
     )
 
 
-def _elaborate_defrecord(form: SyntaxNode, datum: ListExpr) -> RecordDef:
+def _elaborate_defrecord(form: SyntaxNode, datum: SyntaxList) -> RecordDef:
     name = _expect_symbol(datum, 1, "record name", form_path=form.form_path)
     raw_fields = datum.items[2:]
     if not raw_fields:
         _raise_error("`defrecord` requires at least one field", span=datum.span, form_path=form.form_path)
     fields = tuple(_elaborate_field(raw_field, form.form_path) for raw_field in raw_fields)
-    return RecordDef(name=name.value, fields=fields, span=datum.span)
+    return RecordDef(name=name.resolved_name, fields=fields, span=datum.span)
 
 
-def _elaborate_defunion(form: SyntaxNode, datum: ListExpr) -> UnionDef:
+def _elaborate_defunion(form: SyntaxNode, datum: SyntaxList) -> UnionDef:
     name = _expect_symbol(datum, 1, "union name", form_path=form.form_path)
     raw_variants = datum.items[2:]
     if not raw_variants:
         _raise_error("`defunion` requires at least one variant", span=datum.span, form_path=form.form_path)
     variants: list[UnionVariant] = []
     for raw_variant in raw_variants:
-        if not isinstance(raw_variant, ListExpr) or not raw_variant.items:
+        if not isinstance(raw_variant, SyntaxList) or not raw_variant.items:
             _raise_error("union variants must be non-empty lists", span=raw_variant.span, form_path=form.form_path)
-        variant_name = raw_variant.items[0]
-        if not isinstance(variant_name, SymbolAtom):
-            _raise_error("union variant names must be symbols", span=variant_name.span, form_path=form.form_path)
+        variant_name = syntax_identifier(raw_variant.items[0])
+        if variant_name is None:
+            _raise_error(
+                "union variant names must be symbols",
+                span=raw_variant.items[0].span,
+                form_path=form.form_path,
+            )
         fields = tuple(_elaborate_field(raw_field, form.form_path) for raw_field in raw_variant.items[1:])
         variants.append(
             UnionVariant(
-                name=variant_name.value,
+                name=variant_name.resolved_name,
                 fields=fields,
                 span=raw_variant.span,
             )
         )
-    return UnionDef(name=name.value, variants=tuple(variants), span=datum.span)
+    return UnionDef(name=name.resolved_name, variants=tuple(variants), span=datum.span)
 
 
 def _elaborate_field(raw_field: object, form_path: tuple[str, ...]) -> RecordField:
-    if not isinstance(raw_field, ListExpr) or len(raw_field.items) != 2:
+    if not isinstance(raw_field, SyntaxList) or len(raw_field.items) != 2:
         span = raw_field.span if hasattr(raw_field, "span") else None
         if span is None:
             raise TypeError("field entries must carry spans")
@@ -253,26 +268,33 @@ def _elaborate_field(raw_field: object, form_path: tuple[str, ...]) -> RecordFie
         )
     field_name = raw_field.items[0]
     field_type = raw_field.items[1]
-    if not isinstance(field_name, SymbolAtom):
+    field_name_identifier = syntax_identifier(field_name)
+    field_type_identifier = syntax_identifier(field_type)
+    if field_name_identifier is None:
         _raise_error("field names must be symbols", span=field_name.span, form_path=form_path)
-    if not isinstance(field_type, SymbolAtom):
+    if field_type_identifier is None:
         _raise_error("field type references must be symbols", span=field_type.span, form_path=form_path)
-    return RecordField(name=field_name.value, type_name=field_type.value, span=raw_field.span)
+    return RecordField(
+        name=field_name_identifier.resolved_name,
+        type_name=field_type_identifier.resolved_name,
+        span=raw_field.span,
+    )
 
 
 def _expect_symbol(
-    datum: ListExpr,
+    datum: SyntaxList,
     index: int,
     label: str,
     *,
     form_path: tuple[str, ...],
-) -> SymbolAtom:
+) -> SyntaxIdentifier:
     if len(datum.items) <= index:
         _raise_error(f"missing {label}", span=datum.span, form_path=form_path)
     value = datum.items[index]
-    if not isinstance(value, SymbolAtom):
+    identifier = syntax_identifier(value)
+    if identifier is None:
         _raise_error(f"{label} must be a symbol", span=value.span, form_path=form_path)
-    return value
+    return identifier
 
 
 def _raise_error(

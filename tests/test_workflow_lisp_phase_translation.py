@@ -223,6 +223,21 @@ def test_elaborate_phase_translation_fixture_builds_with_phase_and_phase_target_
     ]
 
 
+def test_compile_stage3_module_keeps_hand_authored_phase_fixture_without_macro_frames(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        VALID_FIXTURE,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    workflow = result.lowered_workflows[0]
+    origin = workflow.origin_map.step_spans["run-implementation-attempt__attempt"]
+
+    assert origin.expansion_stack == ()
+
+
 def test_typecheck_rejects_phase_target_outside_with_phase() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(INVALID_TARGET_FIXTURE)

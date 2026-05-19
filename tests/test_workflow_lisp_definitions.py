@@ -140,3 +140,12 @@ def test_compile_stage1_rejects_duplicate_union_variants() -> None:
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "union_variant_duplicate"
     assert "COMPLETED" in diagnostic.message
+
+def test_compile_stage1_rejects_defworkflow_top_level_forms() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "valid" / "structured_results.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "definition_form_unknown"
+    assert "defworkflow" in diagnostic.message
+

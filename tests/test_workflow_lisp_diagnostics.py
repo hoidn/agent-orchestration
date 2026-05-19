@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
@@ -134,3 +135,239 @@ def test_compile_stage1_preserves_diagnostic_order(tmp_path: Path) -> None:
         "type_unknown",
         "type_unknown",
     ]
+
+
+def test_compile_stage1_renders_macro_expansion_notes_in_stable_order() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "invalid" / "macro_emits_invalid_form.orc")
+
+    rendered = render_diagnostic(excinfo.value.diagnostics[0])
+
+    assert "[macro_emits_invalid_ast]" in rendered
+    assert "expanded from macro `broken-workflow` call at" in rendered
+    assert "macro definition at" in rendered
+
+
+def test_compile_stage3_renders_macro_expansion_notes_for_downstream_command_errors(tmp_path: Path) -> None:
+    path = tmp_path / "macro_command_result_missing_boundary.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (emit-command-workflow command_checks)",
+                "  (defmacro emit-command-workflow (name)",
+                "    (defworkflow name",
+                "      ((report_path WorkReport))",
+                "      -> ChecksResult",
+                "      (command-result run_checks",
+                '        :argv ("python" "scripts/run_checks.py" report_path)',
+                "        :returns ChecksResult))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    rendered = render_diagnostic(diagnostic)
+
+    assert diagnostic.code == "command_adapter_missing_contract"
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-command-workflow"
+    assert "expanded from macro `emit-command-workflow` call at" in rendered
+    assert "macro definition at" in rendered
+
+
+def test_compile_stage3_reports_macro_emitted_malformed_letstar_as_frontend_diagnostic(tmp_path: Path) -> None:
+    path = tmp_path / "macro_emits_malformed_letstar.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Out",
+                "    (value String))",
+                "  (emit-broken-workflow broken)",
+                "  (defmacro emit-broken-workflow (name)",
+                "    (defworkflow name",
+                "      ()",
+                "      -> Out",
+                "      (let*))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    rendered = render_diagnostic(diagnostic)
+
+    assert diagnostic.code == "frontend_parse_error"
+    assert diagnostic.message == "`let*` requires a binding list and one body"
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-broken-workflow"
+    assert "expanded from macro `emit-broken-workflow` call at" in rendered
+
+
+def test_compile_stage3_renders_macro_expansion_notes_for_downstream_name_unknown_errors(tmp_path: Path) -> None:
+    path = tmp_path / "macro_record_missing_name.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Out",
+                "    (value String))",
+                "  (emit-record-workflow broken)",
+                "  (defmacro emit-record-workflow (name)",
+                "    (defworkflow name",
+                "      ()",
+                "      -> Out",
+                "      (record Out :value missing_name))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    rendered = render_diagnostic(diagnostic)
+
+    assert diagnostic.code == "name_unknown"
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-record-workflow"
+    assert "expanded from macro `emit-record-workflow` call at" in rendered
+    assert "macro definition at" in rendered
+
+
+def test_compile_stage3_renders_macro_expansion_notes_for_downstream_provider_parse_errors(tmp_path: Path) -> None:
+    path = tmp_path / "macro_provider_result_invalid_inputs.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationState",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (emit-provider-workflow provider_attempt)",
+                "  (defmacro emit-provider-workflow (name)",
+                "    (defworkflow name",
+                "      ((input WorkReport)",
+                "       (report_path WorkReport))",
+                "      -> ImplementationState",
+                "      (provider-result providers.execute",
+                "        :prompt prompts.implementation.execute",
+                "        :inputs report_path",
+                "        :returns ImplementationState))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    rendered = render_diagnostic(diagnostic)
+
+    assert diagnostic.code == "frontend_parse_error"
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-provider-workflow"
+    assert "expanded from macro `emit-provider-workflow` call at" in rendered
+    assert "macro definition at" in rendered
+
+
+@pytest.mark.parametrize(
+    ("provider_externs", "prompt_externs", "expected_code", "expected_message"),
+    [
+        (
+            {},
+            {"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            "provider_result_provider_invalid",
+            "provider `providers.execute` is not a declared provider extern",
+        ),
+        (
+            {"providers.execute": "test-provider"},
+            {},
+            "provider_result_prompt_invalid",
+            "prompt `prompts.implementation.execute` is not a declared prompt extern",
+        ),
+    ],
+)
+def test_compile_stage3_renders_macro_expansion_notes_for_provider_extern_validation_errors(
+    tmp_path: Path,
+    provider_externs: dict[str, str],
+    prompt_externs: dict[str, str],
+    expected_code: str,
+    expected_message: str,
+) -> None:
+    path = tmp_path / "macro_provider_result_missing_extern.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationState",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (emit-provider-workflow provider_attempt)",
+                "  (defmacro emit-provider-workflow (name)",
+                "    (defworkflow name",
+                "      ((input WorkReport)",
+                "       (report_path WorkReport))",
+                "      -> ImplementationState",
+                "      (provider-result providers.execute",
+                "        :prompt prompts.implementation.execute",
+                "        :inputs (input report_path)",
+                "        :returns ImplementationState))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    rendered = render_diagnostic(diagnostic)
+
+    assert diagnostic.code == expected_code
+    assert expected_message in diagnostic.message
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-provider-workflow"
+    assert "expanded from macro `emit-provider-workflow` call at" in rendered
+    assert "macro definition at" in rendered
