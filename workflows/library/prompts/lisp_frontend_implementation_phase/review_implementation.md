@@ -6,7 +6,7 @@ checks were run. Distinguish correctness-relevant findings from pre-existing or
 cleanup-only lint noise.
 
 If you approve the implementation, stage and commit only the changes that belong
-to this approved implementation before writing `APPROVE`. Leave unrelated
+to this approved implementation before writing `APPROVE`, with a descriptive multiline commit message. Leave unrelated
 pre-existing changes unstaged, and record the commit hash in the review report.
 
 Write the review report to the relpath recorded in
