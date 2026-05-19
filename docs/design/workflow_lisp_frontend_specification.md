@@ -38,12 +38,93 @@ Lisp source
   -> existing runtime
 ```
 
+The same pipeline, with the authority boundary made explicit:
+
+```mermaid
+flowchart LR
+    Source[".orc source"] --> Parse["Frontend parser"]
+    Parse --> FrontendAST["Frontend AST"]
+    FrontendAST --> Expand["Macro expansion and procedural elaboration"]
+    Expand --> CoreAST["Core Workflow AST"]
+    CoreAST --> SharedValidation["Shared validation"]
+    SharedValidation --> SemanticIR["Semantic Workflow IR"]
+    SemanticIR --> ExecutableIR["Executable IR"]
+    ExecutableIR --> Runtime["Existing runtime"]
+
+    YAML["YAML authoring surface"] --> CoreAST
+    DebugYAML["Debug YAML projection"] -. debug only .-> CoreAST
+
+    classDef authority fill:#e8f5e9,stroke:#2e7d32,color:#111;
+    classDef frontend fill:#e3f2fd,stroke:#1565c0,color:#111;
+    classDef projection fill:#fff3e0,stroke:#ef6c00,color:#111,stroke-dasharray: 4 3;
+
+    class CoreAST,SharedValidation,SemanticIR,ExecutableIR,Runtime authority;
+    class Source,Parse,FrontendAST,Expand,YAML frontend;
+    class DebugYAML projection;
+```
+
 The design is grounded in the v2.14 handoff's guardrails: the frontend must
 generate proven core semantics rather than hide unresolved semantics; the core
 substrate includes `materialize_artifacts`, `pre_snapshot`, `variant_output`,
 `select_variant_output`, `requires_variant`, `SnapshotRef`, and variant-aware
 artifact references; and pointer files are representations, not semantic
 authority.
+
+Diagram index:
+
+- Pipeline and authority boundary: introduction.
+- Ownership boundaries and implementation gate: Section 0.
+- Variant proof flow: Section 11.
+- Structured provider result flow: Section 22.
+- Standard-library lowering map: Part VI.
+- Compiler intermediate and source-map flow: Part VIII and Section 74.
+- Validation pass sequence: Section 59.
+
+## How To Read This Document
+
+This is the north-star design for Workflow Lisp. It is not an implementation
+status report and it is not a promise that every described surface exists in
+the current codebase. Use it to understand the target architecture, the semantic
+constraints that must not be weakened, and the staged path from MVP to full
+frontend.
+
+For current implementation status, use the active Lisp frontend run state,
+implementation plans, test results, and the MVP comparison document. For the
+bounded first tranche, start with
+[Workflow Lisp Frontend MVP Specification](workflow_lisp_frontend_mvp_specification.md)
+and [Workflow Lisp MVP Comparison](../workflow_lisp_mvp_comparison.md).
+
+### Reader Paths
+
+| If you want to... | Read first |
+| --- | --- |
+| Decide whether the frontend is allowed to exist at all | Core thesis and design goals: Sections 1-3. |
+| Understand implementation prerequisites and ownership boundaries | Section 0, then internal component docs linked from that section. |
+| Learn the author-facing language | Parts I-II: modules, types, definitions, expressions, calls, and `match`. |
+| Understand semantic authority rules | Parts III-IV: effects, artifact authority, reports, contexts, and derived state. |
+| Understand provider/command output handling | Part V plus lowering rules for `provider-result`, `command-result`, and `produce-one-of`. |
+| Understand the standard library target | Parts VI and XIV. |
+| Understand macro safety | Part VII plus effect validation and source-map requirements. |
+| Understand compiler/runtime internals | Parts VIII-IX, then Parts X-XII. |
+| See the intended end-user shape | Part XV examples and the MVP comparison. |
+| Plan implementation work | Parts XVII-XIX: testing, staging, and open decisions. |
+
+### Grouped Contents
+
+| Area | Sections |
+| --- | --- |
+| Prerequisites and boundaries | Section 0. |
+| Thesis, goals, non-goals | Sections 1-3. |
+| Language surface | Part I, Sections 4-8. |
+| Expressions and control flow | Part II, Sections 9-15. |
+| Effects, authority, state, and contexts | Parts III-IV, Sections 16-21. |
+| Provider, command, and structured output semantics | Part V, Sections 22-25. |
+| Standard procedural library | Part VI, Sections 26-31. |
+| Macro system | Part VII, Sections 32-37. |
+| Compiler intermediates and lowering | Parts VIII-IX, Sections 38-58. |
+| Validation, errors, source maps, observability, CLI | Parts X-XIII, Sections 59-80. |
+| Standard library sketch and examples | Parts XIV-XV, Sections 81-91. |
+| Lints, testing, staging, and open decisions | Parts XVI-XIX, Sections 92-110. |
 
 ## 0. Prerequisites, Boundaries, And Missing Internal Specs
 
@@ -109,6 +190,44 @@ The frontend must not own:
 - path safety enforcement
 - hidden markdown parsing
 - hidden filesystem effects
+
+```mermaid
+flowchart TB
+    subgraph Frontend["Lisp frontend owns authoring-time structure"]
+        Parser["Parser and syntax objects"]
+        Modules["Modules, imports, exports"]
+        Types["Frontend type definitions"]
+        Macros["Macro expansion"]
+        Procedures["defproc and defworkflow elaboration"]
+        SourceMaps["Source-map generation"]
+        Lowering["Lowering to Core Workflow AST"]
+    end
+
+    subgraph Shared["Shared workflow machinery owns semantics"]
+        CoreValidation["Core AST validation"]
+        Contracts["Contract refinement"]
+        Refs["Reference resolution"]
+        Proofs["Variant proof validation"]
+        Snapshots["Snapshot validation"]
+        PointerAuthority["Pointer authority checks"]
+        RuntimeExec["Execution, state, artifacts, observability"]
+    end
+
+    subgraph Forbidden["Frontend must not own"]
+        ProviderRuntime["Provider invocation semantics"]
+        StatePersistence["State persistence"]
+        PathSafety["Path safety enforcement"]
+        HiddenEffects["Hidden filesystem effects or markdown parsing"]
+    end
+
+    Lowering --> CoreValidation
+    CoreValidation --> Contracts --> Refs --> Proofs --> RuntimeExec
+    CoreValidation --> Snapshots --> RuntimeExec
+    CoreValidation --> PointerAuthority --> RuntimeExec
+
+    Frontend -. must not bypass .-> Shared
+    Frontend -. forbidden .-> Forbidden
+```
 
 ### Internal Component Contracts Required Before Runtime Implementation
 
@@ -185,6 +304,20 @@ above answer:
 If a high-level frontend form cannot lower into these contracts, it is not
 implementation-ready. It should remain a design sketch or be backed by a
 clearly marked legacy adapter.
+
+```mermaid
+flowchart TD
+    Start["Frontend form proposed"] --> Contracted{"Referenced component contracts specified?"}
+    Contracted -- no --> Sketch["Keep as design sketch"]
+    Contracted -- yes --> Lowerable{"Can lower to Core AST and shared validation?"}
+    Lowerable -- no --> Adapter{"Is a certified legacy adapter acceptable?"}
+    Adapter -- no --> Defer["Defer or redesign"]
+    Adapter -- yes --> Legacy["Implement as explicit legacy adapter"]
+    Lowerable -- yes --> RuntimeReady["Runtime-integrated implementation may begin"]
+
+    RuntimeReady --> Tests["Add source-map, validation, and behavioral tests"]
+    Legacy --> Tests
+```
 
 ## 1. Core Thesis
 
@@ -960,6 +1093,24 @@ Lowering:
 This maps directly to the v2.14 rule that variant-only references require proof
 via `match` or explicit `requires_variant`.
 
+```mermaid
+flowchart TD
+    UnionValue["implementation: ImplementationResult"] --> Match["match implementation"]
+    Match --> Completed["COMPLETED branch"]
+    Match --> Blocked["BLOCKED branch"]
+
+    Completed --> CompletedProof["ProofContext: implementation == COMPLETED"]
+    Blocked --> BlockedProof["ProofContext: implementation == BLOCKED"]
+
+    CompletedProof --> ExecReport["completed.execution-report available"]
+    CompletedProof --> BlockedFieldsNo["blocked-only fields unavailable"]
+    BlockedProof --> ProgressReport["blocked.progress-report available"]
+    BlockedProof --> CompletedFieldsNo["completed-only fields unavailable"]
+
+    ExecReport --> CoreMatch["CoreMatch + runtime requires_variant guard"]
+    ProgressReport --> CoreMatch
+```
+
 ## 12. Conditionals
 
 `if` is allowed only for pure or already-proven values.
@@ -1333,6 +1484,23 @@ Lowering:
 - `AtomicBundleWriter`
 - `ArtifactEntry` registration
 
+```mermaid
+sequenceDiagram
+    participant Author as Author form
+    participant Compiler as Lisp compiler
+    participant Provider as Provider step
+    participant Validator as VariantContract validator
+    participant State as Canonical state
+    participant Artifacts as Artifact catalog
+
+    Author->>Compiler: provider-result returns ImplementationAttempt
+    Compiler->>Provider: prompt + generated output contract
+    Provider->>Validator: candidate JSON bundle + referenced files
+    Validator->>Validator: validate discriminant, fields, paths
+    Validator->>State: atomic temp-write + rename
+    State->>Artifacts: expose selected variant fields
+```
+
 ### 22.1 Provider Output Authority
 
 The provider must produce structured state, not only prose.
@@ -1434,6 +1602,46 @@ Suggested fix:
 Have the provider/command produce blocker-class in the structured output bundle.
 
 ## Part VI. Standard Procedural Library
+
+The standard library is the compression layer. Its forms are not privileged
+syntax unless the compiler can lower them into explicit core statements,
+effects, contracts, and source maps.
+
+```mermaid
+flowchart TB
+    subgraph AuthorForms["High-level authoring forms"]
+        ProviderPhase["run-provider-phase"]
+        ReviewLoop["review-revise-loop"]
+        ResumeStart["resume-or-start"]
+        ResourceTransition["resource-transition"]
+        Finalize["finalize-selected-item"]
+        Drain["backlog-drain"]
+    end
+
+    subgraph CoreSemantics["Lowered core semantics"]
+        ProviderResult["provider-result / command-result"]
+        Repeat["repeat_until / loop"]
+        Match["match + variant proof"]
+        Call["workflow call"]
+        Adapter["certified command adapter"]
+        RuntimeEffect["runtime-native effect"]
+        Bundle["output_bundle / variant_output"]
+    end
+
+    ProviderPhase --> ProviderResult --> Bundle
+    ReviewLoop --> Repeat
+    ReviewLoop --> ProviderResult
+    ReviewLoop --> Match
+    ResumeStart --> Match
+    ResumeStart --> Call
+    ResourceTransition --> Adapter
+    ResourceTransition --> RuntimeEffect
+    Finalize --> Match
+    Finalize --> Bundle
+    Drain --> Repeat
+    Drain --> Call
+    Drain --> Match
+```
 
 ## 26. `run-provider-phase`
 
@@ -1774,6 +1982,26 @@ Source text
   -> Semantic IR
   -> Executable IR
   -> Runtime plan
+```
+
+```mermaid
+flowchart TD
+    Source["Source text"] --> SExpr["S-expression parse tree"]
+    SExpr --> Syntax["Syntax AST"]
+    Syntax --> Resolved["Resolved Frontend AST"]
+    Resolved --> Expanded["Expanded Frontend AST"]
+    Expanded --> Typed["Typed Frontend AST"]
+    Typed --> Core["Core Workflow AST"]
+    Core --> Validated["Validated Core Workflow AST"]
+    Validated --> Semantic["Semantic IR"]
+    Semantic --> Exec["Executable IR"]
+    Exec --> Plan["Runtime plan"]
+
+    Syntax -. source spans .-> SourceMap["SourceMap"]
+    Expanded -. macro frames .-> SourceMap
+    Core -. generated node origins .-> SourceMap
+    Semantic -. semantic diagnostics .-> SourceMap
+    Exec -. runtime step origins .-> SourceMap
 ```
 
 ## 39. Source Text
@@ -2293,6 +2521,27 @@ Recommended sequence:
 13. source-map coverage validation
 14. executable lowering validation
 
+```mermaid
+flowchart LR
+    Parse["Parse"] --> Module["Module"]
+    Module --> Macro["Macro"]
+    Macro --> Type["Type"]
+    Type --> Effects["Effects"]
+    Effects --> Refs["References"]
+    Refs --> Contracts["Contracts"]
+    Contracts --> Proofs["Variant proofs"]
+    Proofs --> Snapshots["Snapshots"]
+    Snapshots --> Pointers["Pointer authority"]
+    Pointers --> Calls["Workflow calls"]
+    Calls --> Layout["State layout"]
+    Layout --> SourceMaps["Source-map coverage"]
+    SourceMaps --> Lowering["Executable lowering"]
+
+    Proofs -. blocks .-> BadVariant["unproved variant refs"]
+    Pointers -. blocks .-> BadPointer["pointer-as-authority"]
+    SourceMaps -. blocks .-> HiddenNode["unsourced generated nodes"]
+```
+
 ## 60. Type Validation
 
 Checks:
@@ -2492,6 +2741,16 @@ Origin:
   macro stack:
     review-revise-loop
     publish-result
+```
+
+```mermaid
+flowchart TB
+    Orc["neurips/implementation.orc:84"] --> Macro["Macro/procedure expansion frames"]
+    Macro --> CoreNode["Generated Core AST node"]
+    CoreNode --> SemanticNode["Semantic IR node"]
+    SemanticNode --> ExecStep["Executable step"]
+    ExecStep --> RuntimeError["Runtime or validation diagnostic"]
+    RuntimeError --> Report["Diagnostic reports original source span, form, and expansion stack"]
 ```
 
 ## 75. Runtime Observability
