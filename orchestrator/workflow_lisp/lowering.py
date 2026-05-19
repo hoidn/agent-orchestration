@@ -24,8 +24,15 @@ from .expressions import (
     LetStarExpr,
     MatchExpr,
     NameExpr,
+    PhaseTargetExpr,
     ProviderResultExpr,
     RecordExpr,
+    WithPhaseExpr,
+)
+from .phase import (
+    IMPLEMENTATION_ATTEMPT_PHASE_NAME,
+    PhaseScope,
+    is_implementation_attempt_result_type,
 )
 from .reader import read_sexpr_file
 from .sexpr import ListExpr, SymbolAtom
@@ -186,6 +193,7 @@ def _lower_one_workflow(
         workflow_name=typed_workflow.definition.name,
         workflow_path=workflow_path,
         signature=typed_workflow.signature,
+        authored_input_contracts=MappingProxyType({name: dict(definition) for name, definition in authored_inputs.items()}),
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         lowered_callees=lowered_callees,
@@ -253,6 +261,7 @@ class _LoweringContext:
     workflow_name: str
     workflow_path: Path
     signature: object
+    authored_input_contracts: Mapping[str, Mapping[str, Any]]
     extern_environment: ExternEnvironment
     command_boundary_environment: CommandBoundaryEnvironment
     lowered_callees: Mapping[str, LoweredWorkflow]
@@ -263,6 +272,14 @@ class _LoweringContext:
     generated_path_spans: dict[str, SourceSpan]
     top_level_artifacts: dict[str, Any]
     return_output_contracts: Mapping[str, Mapping[str, Any]]
+    phase_scope: "_ActivePhaseScope | None" = None
+
+
+@dataclass(frozen=True)
+class _ActivePhaseScope:
+    scope: PhaseScope
+    bundle_path_ref: str
+    target_refs: Mapping[str, str]
 
 
 def _normalize_generated_step_id(raw_name: str) -> str:
@@ -300,6 +317,8 @@ def _lower_expression(
         return _lower_record_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, LetStarExpr):
         return _lower_let_star(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, WithPhaseExpr):
+        return _lower_with_phase(typed_expr, context=context, local_values=local_values)
     raise _compile_error(
         code="workflow_return_not_exportable",
         message=f"workflow `{context.workflow_name}` cannot lower expression `{type(expr).__name__}` in Stage 3",
@@ -375,10 +394,9 @@ def _lower_provider_result(
         form_path=expr.form_path,
     )
     authored_contract = dict(bundle_contract.payload)
-    authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
-    _record_step_origin(context, step_name=provider_step_name, step_id=provider_step_id, span=expr.span)
-    context.generated_path_spans[authored_contract["path"]] = expr.span
-    provider_step = {
+    hidden_inputs: dict[str, SourceSpan] = {}
+    generated_steps: list[dict[str, Any]] = []
+    provider_step: dict[str, Any] = {
         "name": provider_step_name,
         "id": provider_step_id,
         "provider": provider_binding.provider_id,
@@ -386,12 +404,54 @@ def _lower_provider_result(
         "inject_output_contract": True,
         bundle_contract.contract_kind: authored_contract,
     }
-    return [provider_step], _TerminalResult(
+    if context.phase_scope is not None and is_implementation_attempt_result_type(result_type):
+        authored_contract["path"] = _template_for_ref(context.phase_scope.bundle_path_ref)
+        generated_steps.extend(
+            _build_phase_prompt_input_prelude(
+                expr,
+                context=context,
+            )
+        )
+        provider_step["consumes"] = [
+            {
+                "artifact": "design",
+                "policy": "latest_successful",
+                "freshness": "any",
+            },
+            {
+                "artifact": "plan",
+                "policy": "latest_successful",
+                "freshness": "any",
+            },
+            {
+                "artifact": "execution_report_target",
+                "policy": "latest_successful",
+                "freshness": "any",
+            },
+            {
+                "artifact": "progress_report_target",
+                "policy": "latest_successful",
+                "freshness": "any",
+            },
+        ]
+        provider_step["prompt_consumes"] = [
+            "design",
+            "plan",
+            "execution_report_target",
+            "progress_report_target",
+        ]
+    else:
+        authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
+        hidden_inputs[hidden_input_name] = expr.span
+    _record_step_origin(context, step_name=provider_step_name, step_id=provider_step_id, span=expr.span)
+    context.generated_path_spans[authored_contract["path"]] = expr.span
+    generated_steps.append(provider_step)
+    return generated_steps, _TerminalResult(
         step_name=provider_step_name,
         step_id=provider_step_id,
         output_refs=_record_output_refs(provider_step_name, result_type),
         output_kind="step",
-        hidden_inputs={hidden_input_name: expr.span},
+        hidden_inputs=hidden_inputs,
     )
 
 
@@ -500,6 +560,7 @@ def _lower_let_star(
             context=context,
             binding_name=binding_name,
             provider_step_name=provider_step_name,
+            local_values=local_bindings,
         )
     else:
         lowered_steps, terminal = _lower_expression(
@@ -529,6 +590,7 @@ def _lower_match_expr(
     context: _LoweringContext,
     binding_name: str,
     provider_step_name: str,
+    local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     match_step_name = f"{context.workflow_name}__match_{binding_name}"
     match_step_id = _normalize_generated_step_id(match_step_name)
@@ -555,6 +617,7 @@ def _lower_match_expr(
                 binding_name=arm.binding_name,
                 provider_step_name=provider_step_name,
                 context=context,
+                local_values=local_values,
             )
             case_steps.extend(lowered_output["steps"])
             case_outputs[generated_output_name] = lowered_output["output"]
@@ -593,6 +656,28 @@ def _lower_match_expr(
         },
         output_kind="match",
         hidden_inputs={},
+    )
+
+
+def _lower_with_phase(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, WithPhaseExpr)
+    lowering_phase_scope = _resolve_active_phase_scope(expr, local_values=local_values)
+    scoped_context = _copy_context_with_phase_scope(context, lowering_phase_scope)
+    return _lower_expression(
+        TypedExpr(
+            expr=expr.body,
+            type_ref=typed_expr.type_ref,
+            span=expr.body.span,
+            form_path=expr.body.form_path,
+        ),
+        context=scoped_context,
+        local_values=local_values,
     )
 
 
@@ -690,7 +775,281 @@ def _resolve_expr_local_value(expr: Any, *, local_values: Mapping[str, Any]) -> 
     if isinstance(expr, FieldAccessExpr):
         base_value = local_values.get(expr.base.name)
         return _resolve_nested_local_value(base_value, tuple(expr.fields))
+    if isinstance(expr, PhaseTargetExpr):
+        return None
     return None
+
+
+def _build_phase_prompt_input_prelude(
+    expr: ProviderResultExpr,
+    *,
+    context: _LoweringContext,
+) -> list[dict[str, Any]]:
+    phase_scope = context.phase_scope
+    if phase_scope is None:
+        return []
+
+    if len(expr.inputs) != 4:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="phase-scoped provider-result requires design, plan, and both report targets in this slice",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+
+    design_expr, plan_expr, *report_target_exprs = expr.inputs
+    target_inputs = _phase_prompt_report_target_inputs(
+        report_target_exprs,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    phase_prompt_inputs = (
+        ("design", design_expr),
+        ("plan", plan_expr),
+        ("execution_report_target", target_inputs["execution_report_target"]),
+        ("progress_report_target", target_inputs["progress_report_target"]),
+    )
+
+    values: list[dict[str, Any]] = []
+    publishes: list[dict[str, str]] = []
+    signature_locals = _signature_local_values(context)
+    for artifact_name, input_expr in phase_prompt_inputs:
+        raw_source_node = _resolve_phase_prompt_input_source(
+            input_expr,
+            context=context,
+            local_values=signature_locals,
+        )
+        input_name = _materialize_source_input_name(raw_source_node)
+        if artifact_name in {"design", "plan"} and input_name is None:
+            raise _compile_error(
+                code="phase_translation_body_invalid",
+                message="phase prompt-input materialization must lower from flattened workflow inputs",
+                span=input_expr.span,
+                form_path=input_expr.form_path,
+            )
+        source_node = raw_source_node
+        contract_input_name = input_name
+        if artifact_name in {"execution_report_target", "progress_report_target"}:
+            if input_name is None:
+                raise _compile_error(
+                    code="phase_translation_body_invalid",
+                    message="phase report targets must lower from flattened workflow inputs",
+                    span=input_expr.span,
+                    form_path=input_expr.form_path,
+                )
+            source_node = {"ref": f"inputs.{input_name}"}
+            input_name = None
+        pointer_path = _phase_prompt_input_pointer_path(context.workflow_name, artifact_name)
+        artifact_contract = _phase_prompt_input_contract(
+            artifact_name,
+            input_name=contract_input_name,
+            context=context,
+            span=input_expr.span,
+            form_path=input_expr.form_path,
+        )
+        values.append(
+            {
+                "name": artifact_name,
+                "source": source_node,
+                "contract": artifact_contract,
+                "pointer": {"path": pointer_path},
+            }
+        )
+        context.top_level_artifacts[artifact_name] = _phase_prompt_artifact_definition(
+            contract=artifact_contract,
+            input_name=contract_input_name,
+            context=context,
+            pointer_path=pointer_path,
+            span=input_expr.span,
+            form_path=input_expr.form_path,
+        )
+        context.generated_path_spans[pointer_path] = input_expr.span
+        publishes.append({"artifact": artifact_name, "from": artifact_name})
+
+    step_name = "MaterializeImplementationAttemptPromptInputs"
+    step_id = _normalize_generated_step_id(step_name)
+    _record_step_origin(context, step_name=step_name, step_id=step_id, span=expr.span)
+    return [
+        {
+            "name": step_name,
+            "id": step_id,
+            "materialize_artifacts": {"values": values},
+            "publishes": publishes,
+        }
+    ]
+
+
+def _resolve_phase_prompt_input_source(
+    expr: Any,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> dict[str, str]:
+    if isinstance(expr, PhaseTargetExpr):
+        phase_scope = context.phase_scope
+        if phase_scope is None:
+            raise _compile_error(
+                code="phase_translation_body_invalid",
+                message="phase-target lowering requires an active phase scope",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        target_ref = phase_scope.target_refs.get(expr.target_name)
+        if target_ref is None:
+            raise _compile_error(
+                code="phase_target_unknown",
+                message=f"`phase-target` does not support `{expr.target_name}` in this slice",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        return _materialize_source_from_ref(target_ref)
+
+    value = _resolve_expr_local_value(expr, local_values=local_values)
+    if isinstance(value, str):
+        return _materialize_source_from_ref(value)
+    raise _compile_error(
+        code="phase_translation_body_invalid",
+        message="phase-scoped provider-result inputs must lower from workflow inputs or approved phase targets",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+def _materialize_source_from_ref(ref: str) -> dict[str, str]:
+    if ref.startswith("inputs."):
+        return {"input": ref.removeprefix("inputs.")}
+    return {"ref": ref}
+
+
+def _phase_prompt_report_target_inputs(
+    exprs: list[Any],
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, PhaseTargetExpr]:
+    if len(exprs) != 2:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="phase-scoped provider-result requires both execution and progress report targets",
+            span=span,
+            form_path=form_path,
+        )
+
+    inputs_by_artifact: dict[str, PhaseTargetExpr] = {}
+    for expr in exprs:
+        if not isinstance(expr, PhaseTargetExpr):
+            raise _compile_error(
+                code="phase_translation_body_invalid",
+                message="phase-scoped provider-result report inputs must be phase-target references",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        artifact_name = _phase_prompt_artifact_name_for_target(expr)
+        if artifact_name in inputs_by_artifact:
+            raise _compile_error(
+                code="phase_translation_body_invalid",
+                message="phase-scoped provider-result requires each approved report target exactly once",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        inputs_by_artifact[artifact_name] = expr
+
+    missing = [
+        artifact_name
+        for artifact_name in ("execution_report_target", "progress_report_target")
+        if artifact_name not in inputs_by_artifact
+    ]
+    if missing:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="phase-scoped provider-result requires both execution and progress report targets",
+            span=span,
+            form_path=form_path,
+        )
+    return inputs_by_artifact
+
+
+def _phase_prompt_artifact_name_for_target(expr: PhaseTargetExpr) -> str:
+    if expr.target_name == "execution-report":
+        return "execution_report_target"
+    if expr.target_name == "progress-report":
+        return "progress_report_target"
+    raise _compile_error(
+        code="phase_target_unknown",
+        message=f"`phase-target` does not support `{expr.target_name}` in this slice",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+def _materialize_source_input_name(source: Mapping[str, str]) -> str | None:
+    input_name = source.get("input")
+    if isinstance(input_name, str):
+        return input_name
+    return None
+
+
+def _phase_prompt_input_contract(
+    artifact_name: str,
+    *,
+    input_name: str | None,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    if artifact_name in {"design", "plan"}:
+        return {"inherit": "source"}
+    if input_name is None:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message=f"missing flattened workflow input contract for `{artifact_name}`",
+            span=span,
+            form_path=form_path,
+        )
+    input_contract = context.authored_input_contracts.get(input_name)
+    if input_contract is None:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message=f"missing flattened workflow input contract for `{input_name}`",
+            span=span,
+            form_path=form_path,
+        )
+    return dict(input_contract)
+
+
+def _phase_prompt_artifact_definition(
+    *,
+    contract: Mapping[str, Any],
+    input_name: str | None,
+    context: _LoweringContext,
+    pointer_path: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    artifact_contract = dict(contract)
+    if artifact_contract.get("inherit") == "source":
+        if input_name is None:
+            raise _compile_error(
+                code="phase_translation_body_invalid",
+                message="missing flattened workflow input contract for inherited phase prompt artifact",
+                span=span,
+                form_path=form_path,
+            )
+        input_contract = context.authored_input_contracts.get(input_name)
+        if input_contract is None:
+            raise _compile_error(
+                code="phase_translation_body_invalid",
+                message=f"missing flattened workflow input contract for `{input_name}`",
+                span=span,
+                form_path=form_path,
+            )
+        artifact_contract = dict(input_contract)
+    artifact_contract["pointer"] = pointer_path
+    return artifact_contract
+
+
+def _phase_prompt_input_pointer_path(workflow_name: str, artifact_name: str) -> str:
+    return f".orchestrate/workflow_lisp/{workflow_name}/materialized/{artifact_name}.txt"
 
 
 def _resolve_nested_local_value(value: Any, field_path: tuple[str, ...]) -> Any:
@@ -872,6 +1231,7 @@ def _lower_match_output_field(
     binding_name: str,
     provider_step_name: str,
     context: _LoweringContext,
+    local_values: Mapping[str, Any],
 ) -> dict[str, Any]:
     value = _record_expr_value_at_path(record_expr, _return_field_path(field_name))
     if isinstance(value, FieldAccessExpr) and value.base.name == binding_name:
@@ -884,6 +1244,15 @@ def _lower_match_output_field(
                     "from": {"ref": provider_ref},
                 },
             }
+    source_ref = _render_existing_output_ref(value, local_values=local_values)
+    if source_ref is not None:
+        return {
+            "steps": [],
+            "output": {
+                **contract_definition,
+                "from": {"ref": source_ref},
+            },
+        }
     raise _compile_error(
         code="workflow_return_not_exportable",
         message=(
@@ -932,9 +1301,84 @@ def _render_existing_output_ref(expr: Any, *, local_values: Mapping[str, Any]) -
     value = _resolve_expr_local_value(expr, local_values=local_values)
     if not isinstance(value, str):
         return None
-    if value.startswith("root.steps.") or value.startswith("self.steps."):
+    if value.startswith("root.steps.") or value.startswith("self.steps.") or value.startswith("inputs."):
         return value
     return None
+
+
+def _template_for_ref(ref: str) -> str:
+    return "${" + ref + "}"
+
+
+def _resolve_active_phase_scope(
+    expr: WithPhaseExpr,
+    *,
+    local_values: Mapping[str, Any],
+) -> _ActivePhaseScope:
+    if expr.phase_name != IMPLEMENTATION_ATTEMPT_PHASE_NAME:
+        raise _compile_error(
+            code="phase_context_invalid",
+            message="`with-phase` supports only the `implementation` phase in this bounded slice",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    context_value = _resolve_expr_local_value(expr.ctx_expr, local_values=local_values)
+    if not isinstance(context_value, Mapping):
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="`with-phase` lowering requires the phase context to resolve from workflow inputs",
+            span=expr.ctx_expr.span,
+            form_path=expr.ctx_expr.form_path,
+        )
+    bundle_ref = context_value.get("implementation_state_bundle_path")
+    execution_ref = context_value.get("execution_report_target")
+    progress_ref = context_value.get("progress_report_target")
+    if not all(isinstance(ref, str) for ref in (bundle_ref, execution_ref, progress_ref)):
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="`with-phase` lowering requires bound relpath fields on the phase context",
+            span=expr.ctx_expr.span,
+            form_path=expr.ctx_expr.form_path,
+        )
+    return _ActivePhaseScope(
+        scope=PhaseScope(
+            context_record_name="ImplementationAttemptPhaseCtx",
+            phase_name=expr.phase_name,
+            bundle_path_field="implementation_state_bundle_path",
+            target_fields={
+                "execution-report": "execution_report_target",
+                "progress-report": "progress_report_target",
+            },
+        ),
+        bundle_path_ref=bundle_ref,
+        target_refs={
+            "execution-report": execution_ref,
+            "progress-report": progress_ref,
+        },
+    )
+
+
+def _copy_context_with_phase_scope(
+    context: _LoweringContext,
+    phase_scope: _ActivePhaseScope,
+) -> _LoweringContext:
+    return _LoweringContext(
+        workflow_name=context.workflow_name,
+        workflow_path=context.workflow_path,
+        signature=context.signature,
+        authored_input_contracts=context.authored_input_contracts,
+        extern_environment=context.extern_environment,
+        command_boundary_environment=context.command_boundary_environment,
+        lowered_callees=context.lowered_callees,
+        type_env=context.type_env,
+        step_spans=context.step_spans,
+        generated_input_spans=context.generated_input_spans,
+        generated_output_spans=context.generated_output_spans,
+        generated_path_spans=context.generated_path_spans,
+        top_level_artifacts=context.top_level_artifacts,
+        return_output_contracts=context.return_output_contracts,
+        phase_scope=phase_scope,
+    )
 
 
 def _record_field_value(record_expr: RecordExpr, field_name: str) -> Any:

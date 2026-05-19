@@ -91,6 +91,26 @@ class CallExpr:
 
 
 @dataclass(frozen=True)
+class WithPhaseExpr:
+    """One compile-time phase-scope wrapper."""
+
+    ctx_expr: "ExprNode"
+    phase_name: str
+    body: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class PhaseTargetExpr:
+    """One named phase-target reference."""
+
+    target_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -121,6 +141,8 @@ ExprNode = (
     | LetStarExpr
     | MatchExpr
     | CallExpr
+    | WithPhaseExpr
+    | PhaseTargetExpr
     | ProviderResultExpr
     | CommandResultExpr
 )
@@ -204,6 +226,10 @@ def _elaborate_list(
         return _elaborate_match(datum, form_path=form_path, bound_names=bound_names)
     if head.value == "call":
         return _elaborate_call(datum, form_path=form_path, bound_names=bound_names)
+    if head.value == "with-phase":
+        return _elaborate_with_phase(datum, form_path=form_path, bound_names=bound_names)
+    if head.value == "phase-target":
+        return _elaborate_phase_target(datum, form_path=form_path)
     if head.value == "provider-result":
         return _elaborate_provider_result(datum, form_path=form_path, bound_names=bound_names)
     if head.value == "command-result":
@@ -360,6 +386,53 @@ def _elaborate_call(
     return CallExpr(
         callee_name=callee_node.value,
         bindings=tuple(bindings),
+        span=datum.span,
+        form_path=form_path,
+    )
+
+
+def _elaborate_with_phase(
+    datum: ListExpr,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+) -> WithPhaseExpr:
+    if len(datum.items) != 4:
+        _raise_error("`with-phase` requires a context, phase name, and one body", span=datum.span, form_path=form_path)
+    phase_name_node = datum.items[2]
+    if not isinstance(phase_name_node, SymbolAtom):
+        _raise_error("`with-phase` phase name must be a symbol", span=phase_name_node.span, form_path=form_path)
+    return WithPhaseExpr(
+        ctx_expr=_elaborate(datum.items[1], form_path=form_path, bound_names=bound_names),
+        phase_name=phase_name_node.value,
+        body=_elaborate(datum.items[3], form_path=form_path, bound_names=bound_names),
+        span=datum.span,
+        form_path=form_path,
+    )
+
+
+def _elaborate_phase_target(
+    datum: ListExpr,
+    *,
+    form_path: tuple[str, ...],
+) -> PhaseTargetExpr:
+    if len(datum.items) != 2:
+        _raise_error(
+            "`phase-target` requires exactly one target symbol",
+            code="phase_target_name_invalid",
+            span=datum.span,
+            form_path=form_path,
+        )
+    target_node = datum.items[1]
+    if not isinstance(target_node, SymbolAtom):
+        _raise_error(
+            "`phase-target` target name must be a symbol",
+            code="phase_target_name_invalid",
+            span=target_node.span,
+            form_path=form_path,
+        )
+    return PhaseTargetExpr(
+        target_name=target_node.value,
         span=datum.span,
         form_path=form_path,
     )

@@ -478,7 +478,7 @@ def test_variant_output_shared_fields_are_available_without_variant_proof(
     )
 
 
-def test_pre_snapshot_and_select_variant_output_choose_the_single_changed_candidate(
+def test_pre_snapshot_and_select_variant_output_choose_the_single_changed_implementation_state_candidate(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

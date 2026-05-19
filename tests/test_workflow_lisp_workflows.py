@@ -32,6 +32,7 @@ from orchestrator.workflow_lisp.workflows import (
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
+PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 FORM_PATH = ("workflow-lisp", "workflow-expression-test")
 
 
@@ -222,6 +223,24 @@ def test_elaborate_expression_supports_call_and_provider_result_with_extern_symb
     assert provider_expr.prompt.name == "prompts.implementation.execute"
     assert provider_expr.returns_type_name == "ImplementationState"
     assert len(provider_expr.inputs) == 2
+
+
+def test_phase_translation_fixture_uses_extern_symbols_without_workflow_transport() -> None:
+    syntax_module = _build_syntax_module(PHASE_FIXTURE)
+    workflow_def = elaborate_workflow_definitions(syntax_module)[0]
+    body = elaborate_expression(
+        workflow_def.body,
+        bound_names=frozenset(param.name for param in workflow_def.params),
+    )
+
+    assert [param.name for param in workflow_def.params] == ["phase-ctx", "inputs"]
+    assert type(body).__name__ == "WithPhaseExpr"
+    assert type(body.body).__name__ == "LetStarExpr"
+    attempt_expr = body.body.bindings[0][1]
+    assert isinstance(attempt_expr, ProviderResultExpr)
+    assert attempt_expr.provider.name == "providers.execute"
+    assert attempt_expr.prompt.name == "prompts.implementation.execute"
+    assert attempt_expr.returns_type_name == "ImplementationAttempt"
 
 def test_elaborate_expression_rejects_malformed_effectful_forms() -> None:
     with pytest.raises(LispFrontendCompileError) as malformed_call:

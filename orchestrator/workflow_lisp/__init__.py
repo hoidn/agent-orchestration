@@ -29,11 +29,14 @@ from .expressions import (
     MatchArm,
     MatchExpr,
     NameExpr,
+    PhaseTargetExpr,
     ProviderResultExpr,
     RecordExpr,
+    WithPhaseExpr,
     elaborate_expression,
 )
 from .lowering import LoweredWorkflow, LoweringOriginMap, lower_workflow_definitions, validate_lowered_workflows
+from .phase import PhaseScope
 from .reader import read_sexpr_file, read_sexpr_text
 from .sexpr import BoolAtom, IntAtom, KeywordAtom, ListExpr, SExpr, StringAtom, SymbolAtom
 from .spans import SourcePosition, SourceSpan
@@ -87,6 +90,8 @@ __all__ = [
     "PRELUDE_TYPE_NAMES",
     "PathDef",
     "PathTypeRef",
+    "PhaseScope",
+    "PhaseTargetExpr",
     "PrimitiveTypeRef",
     "PromptExtern",
     "ProviderExtern",
@@ -111,6 +116,7 @@ __all__ = [
     "UnionVariant",
     "ValueEnvironment",
     "VariantCaseTypeRef",
+    "WithPhaseExpr",
     "WorkflowLispModule",
     "WorkflowLispSyntaxModule",
     "build_syntax_module",

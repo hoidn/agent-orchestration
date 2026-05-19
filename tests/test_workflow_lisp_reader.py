@@ -111,6 +111,17 @@ def test_reader_reports_unterminated_string_with_frontend_parse_error() -> None:
     assert "unterminated string" in diagnostic.message
 
 
+def test_reader_rejects_quoted_phase_target_symbol_with_frontend_parse_error() -> None:
+    path = FIXTURES / "invalid" / "phase_target_quoted_symbol_invalid.orc"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        read_sexpr_file(path)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "frontend_parse_error"
+    assert diagnostic.span.start.path.endswith("phase_target_quoted_symbol_invalid.orc")
+
+
 def test_build_syntax_module_requires_workflow_lisp_root() -> None:
     parse_tree = read_sexpr_text(
         '(not-workflow-lisp (:language "0.1") (:target-dsl "2.14"))',

@@ -28,6 +28,7 @@ from orchestrator.workflow_lisp.syntax import build_syntax_module
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 STRUCTURED_RESULTS_FIXTURE = FIXTURES / "valid" / "structured_results.orc"
+PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 
 
@@ -624,3 +625,255 @@ def test_compile_stage3_module_supports_nested_record_workflow_boundaries(tmp_pa
     ]
     assert orchestrate["steps"][0]["with"]["input__summary__status"] == {"ref": "inputs.input__summary__status"}
     assert orchestrate["steps"][0]["with"]["input__summary__report"] == {"ref": "inputs.input__summary__report"}
+
+
+def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scoped_bundle_path(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        PHASE_FIXTURE,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    assert tuple(lowered["outputs"]) == (
+        "return__implementation_state",
+        "return__implementation_state_bundle_path",
+    )
+    assert tuple(lowered["artifacts"]) == (
+        "design",
+        "plan",
+        "execution_report_target",
+        "progress_report_target",
+    )
+    assert "providers" not in lowered
+    assert "__write_root__run_implementation_attempt__attempt__result_bundle" not in lowered["inputs"]
+
+    prelude_step = lowered["steps"][0]
+    assert prelude_step["name"] == "MaterializeImplementationAttemptPromptInputs"
+    assert prelude_step["materialize_artifacts"] == {
+        "values": [
+            {
+                "name": "design",
+                "source": {"input": "inputs__design"},
+                "contract": {"inherit": "source"},
+                "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt",
+                },
+            },
+            {
+                "name": "plan",
+                "source": {"input": "inputs__plan"},
+                "contract": {"inherit": "source"},
+                "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt",
+                },
+            },
+            {
+                "name": "execution_report_target",
+                "source": {"ref": "inputs.phase-ctx__execution_report_target"},
+                "contract": lowered["inputs"]["phase-ctx__execution_report_target"],
+                "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt",
+                },
+            },
+            {
+                "name": "progress_report_target",
+                "source": {"ref": "inputs.phase-ctx__progress_report_target"},
+                "contract": lowered["inputs"]["phase-ctx__progress_report_target"],
+                "pointer": {
+                    "path": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt",
+                },
+            },
+        ]
+    }
+    assert prelude_step["publishes"] == [
+        {"artifact": "design", "from": "design"},
+        {"artifact": "plan", "from": "plan"},
+        {"artifact": "execution_report_target", "from": "execution_report_target"},
+        {"artifact": "progress_report_target", "from": "progress_report_target"},
+    ]
+    assert lowered["artifacts"]["design"] == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "docs/design",
+        "must_exist_target": True,
+        "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/design.txt",
+    }
+    assert lowered["artifacts"]["plan"] == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "docs/plans",
+        "must_exist_target": True,
+        "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/plan.txt",
+    }
+    assert lowered["artifacts"]["execution_report_target"] == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "artifacts/work",
+        "must_exist_target": False,
+        "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/execution_report_target.txt",
+    }
+    assert lowered["artifacts"]["progress_report_target"] == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "artifacts/work",
+        "must_exist_target": False,
+        "pointer": ".orchestrate/workflow_lisp/run-implementation-attempt/materialized/progress_report_target.txt",
+    }
+
+    provider_step = lowered["steps"][1]
+    assert provider_step["provider"] == "fake"
+    assert provider_step["asset_file"] == "prompts/implementation/execute.md"
+    assert provider_step["consumes"] == [
+        {
+            "artifact": "design",
+            "policy": "latest_successful",
+            "freshness": "any",
+        },
+        {
+            "artifact": "plan",
+            "policy": "latest_successful",
+            "freshness": "any",
+        },
+        {
+            "artifact": "execution_report_target",
+            "policy": "latest_successful",
+            "freshness": "any",
+        },
+        {
+            "artifact": "progress_report_target",
+            "policy": "latest_successful",
+            "freshness": "any",
+        },
+    ]
+    assert provider_step["prompt_consumes"] == [
+        "design",
+        "plan",
+        "execution_report_target",
+        "progress_report_target",
+    ]
+    assert "variant_output" in provider_step
+    assert provider_step["variant_output"]["path"] == "${inputs.phase-ctx__implementation_state_bundle_path}"
+
+    match_step = lowered["steps"][2]
+    assert match_step["match"]["ref"] == "root.steps.run-implementation-attempt__attempt.artifacts.variant"
+    completed_outputs = match_step["match"]["cases"]["COMPLETED"]["outputs"]
+    blocked_outputs = match_step["match"]["cases"]["BLOCKED"]["outputs"]
+    assert completed_outputs["return__implementation_state"]["from"]["ref"].endswith(".artifacts.implementation_state")
+    assert blocked_outputs["return__implementation_state"]["from"]["ref"].endswith(".artifacts.implementation_state")
+    assert completed_outputs["return__implementation_state_bundle_path"] == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "artifacts/work",
+        "must_exist_target": False,
+        "from": {"ref": "inputs.phase-ctx__implementation_state_bundle_path"},
+    }
+    assert blocked_outputs["return__implementation_state_bundle_path"] == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "artifacts/work",
+        "must_exist_target": False,
+        "from": {"ref": "inputs.phase-ctx__implementation_state_bundle_path"},
+    }
+
+
+def test_compile_stage3_module_maps_phase_targets_by_name_not_position(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "phase_targets_swapped.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource)",
+                "  (defenum ImplementationStateTag",
+                "    COMPLETED",
+                "    BLOCKED)",
+                "  (defpath DesignDocPath",
+                "    :kind relpath",
+                '    :under "docs/design"',
+                "    :must-exist true)",
+                "  (defpath PlanDocPath",
+                "    :kind relpath",
+                '    :under "docs/plans"',
+                "    :must-exist true)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defpath WorkReportTarget",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defpath ImplementationStateBundlePath",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord ImplementationAttemptInputs",
+                "    (design DesignDocPath)",
+                "    (plan PlanDocPath))",
+                "  (defrecord ImplementationAttemptPhaseCtx",
+                "    (implementation_state_bundle_path ImplementationStateBundlePath)",
+                "    (execution_report_target WorkReportTarget)",
+                "    (progress_report_target WorkReportTarget))",
+                "  (defunion ImplementationAttempt",
+                "    (COMPLETED",
+                "      (implementation_state ImplementationStateTag)",
+                "      (execution_report_path WorkReport))",
+                "    (BLOCKED",
+                "      (implementation_state ImplementationStateTag)",
+                "      (progress_report_path WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defrecord ImplementationAttemptSurfaceResult",
+                "    (implementation_state ImplementationStateTag)",
+                "    (implementation_state_bundle_path ImplementationStateBundlePath))",
+                "  (defworkflow run-implementation-attempt",
+                "    ((phase-ctx ImplementationAttemptPhaseCtx)",
+                "     (inputs ImplementationAttemptInputs))",
+                "    -> ImplementationAttemptSurfaceResult",
+                "    (with-phase phase-ctx implementation",
+                "      (let* ((attempt",
+                "               (provider-result providers.execute",
+                "                 :prompt prompts.implementation.execute",
+                "                 :inputs (inputs.design",
+                "                          inputs.plan",
+                "                          (phase-target progress-report)",
+                "                          (phase-target execution-report))",
+                "                 :returns ImplementationAttempt)))",
+                "        (match attempt",
+                "          ((COMPLETED completed)",
+                "           (record ImplementationAttemptSurfaceResult",
+                "             :implementation_state completed.implementation_state",
+                "             :implementation_state_bundle_path",
+                "               phase-ctx.implementation_state_bundle_path))",
+                "          ((BLOCKED blocked)",
+                "           (record ImplementationAttemptSurfaceResult",
+                "             :implementation_state blocked.implementation_state",
+                "             :implementation_state_bundle_path",
+                "               phase-ctx.implementation_state_bundle_path)))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    prelude_values = result.lowered_workflows[0].authored_mapping["steps"][0]["materialize_artifacts"]["values"]
+    prelude_by_name = {value["name"]: value for value in prelude_values}
+
+    assert prelude_by_name["execution_report_target"]["source"] == {
+        "ref": "inputs.phase-ctx__execution_report_target"
+    }
+    assert prelude_by_name["progress_report_target"]["source"] == {
+        "ref": "inputs.phase-ctx__progress_report_target"
+    }

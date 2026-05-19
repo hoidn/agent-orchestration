@@ -16,8 +16,16 @@ from .expressions import (
     LiteralExpr,
     MatchExpr,
     NameExpr,
+    PhaseTargetExpr,
     ProviderResultExpr,
     RecordExpr,
+    WithPhaseExpr,
+)
+from .phase import (
+    PhaseScope,
+    build_implementation_attempt_phase_scope,
+    is_implementation_attempt_result_type,
+    resolve_phase_target_type,
 )
 from .spans import SourceSpan
 from .type_env import (
@@ -77,6 +85,7 @@ def typecheck_expression(
     workflow_catalog: "WorkflowCatalog | None" = None,
     extern_environment: "ExternEnvironment | None" = None,
     command_boundary_environment: "CommandBoundaryEnvironment | None" = None,
+    active_phase_scope: PhaseScope | None = None,
 ) -> TypedExpr:
     """Typecheck one bounded Stage 2 expression."""
 
@@ -89,6 +98,7 @@ def typecheck_expression(
         workflow_catalog=workflow_catalog,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
     )
 
 
@@ -101,6 +111,7 @@ def _typecheck(
     workflow_catalog: "WorkflowCatalog | None",
     extern_environment: "ExternEnvironment | None",
     command_boundary_environment: "CommandBoundaryEnvironment | None",
+    active_phase_scope: PhaseScope | None,
 ) -> TypedExpr:
     if isinstance(expr, LiteralExpr):
         return TypedExpr(
@@ -129,6 +140,7 @@ def _typecheck(
             workflow_catalog=workflow_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
         )
         current_type = typed_base.type_ref
         for field_name in expr.fields:
@@ -178,6 +190,7 @@ def _typecheck(
                 workflow_catalog=workflow_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
             )
             expected_type = type_env.resolve_type(
                 expected_field.type_name,
@@ -220,6 +233,7 @@ def _typecheck(
                 workflow_catalog=workflow_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
             )
             seen_names.add(name)
             local_env[name] = typed_binding.type_ref
@@ -231,6 +245,7 @@ def _typecheck(
             workflow_catalog=workflow_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
         )
         return TypedExpr(expr=expr, type_ref=typed_body.type_ref, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, MatchExpr):
@@ -242,6 +257,7 @@ def _typecheck(
             workflow_catalog=workflow_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
         )
         if not isinstance(typed_subject.type_ref, UnionTypeRef):
             _raise_error(
@@ -286,6 +302,7 @@ def _typecheck(
                 workflow_catalog=workflow_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
             )
             if arm_result_type is None:
                 arm_result_type = typed_body.type_ref
@@ -351,6 +368,7 @@ def _typecheck(
                 workflow_catalog=workflow_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
             )
             if typed_binding.type_ref != expected_type:
                 _raise_error(
@@ -369,6 +387,58 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         return TypedExpr(expr=expr, type_ref=signature.return_type_ref, span=expr.span, form_path=expr.form_path)
+    if isinstance(expr, WithPhaseExpr):
+        if active_phase_scope is not None:
+            _raise_error(
+                "nested `with-phase` scopes are not supported in this slice",
+                code="phase_scope_nested_unsupported",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_context = _typecheck(
+            expr.ctx_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+        )
+        phase_scope = build_implementation_attempt_phase_scope(
+            typed_context.type_ref,
+            phase_name=expr.phase_name,
+            type_env=type_env,
+            span=expr.ctx_expr.span,
+            form_path=expr.ctx_expr.form_path,
+        )
+        typed_body = _typecheck(
+            expr.body,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=phase_scope,
+        )
+        return TypedExpr(expr=expr, type_ref=typed_body.type_ref, span=expr.span, form_path=expr.form_path)
+    if isinstance(expr, PhaseTargetExpr):
+        if active_phase_scope is None:
+            _raise_error(
+                "`phase-target` is valid only inside an active `with-phase` scope",
+                code="phase_target_outside_with_phase",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        target_type = resolve_phase_target_type(
+            active_phase_scope,
+            expr.target_name,
+            type_env=type_env,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        return TypedExpr(expr=expr, type_ref=target_type, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, ProviderResultExpr):
         return_type = type_env.resolve_type(
             expr.returns_type_name,
@@ -382,6 +452,13 @@ def _typecheck(
                 span=expr.span,
                 form_path=expr.form_path,
             )
+        if active_phase_scope is not None and not is_implementation_attempt_result_type(return_type):
+            _raise_error(
+                "the bounded `with-phase` slice requires `provider-result` to return `ImplementationAttempt`",
+                code="provider_result_return_type_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
         typed_provider = _typecheck_expected_extern_operand(
             expr.provider,
             expected_primitive="Provider",
@@ -391,6 +468,7 @@ def _typecheck(
             workflow_catalog=workflow_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
         )
         typed_prompt = _typecheck_expected_extern_operand(
             expr.prompt,
@@ -401,6 +479,7 @@ def _typecheck(
             workflow_catalog=workflow_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
         )
         if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
             _raise_error(
@@ -457,6 +536,7 @@ def _typecheck(
                 workflow_catalog=workflow_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
             )
         return TypedExpr(expr=expr, type_ref=return_type, span=expr.span, form_path=expr.form_path)
     if isinstance(expr, CommandResultExpr):
@@ -469,6 +549,7 @@ def _typecheck(
                 workflow_catalog=workflow_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
             )
         command_binding = None
         if command_boundary_environment is not None:
@@ -518,6 +599,7 @@ def _typecheck_expected_extern_operand(
     workflow_catalog: "WorkflowCatalog | None",
     extern_environment: "ExternEnvironment | None",
     command_boundary_environment: "CommandBoundaryEnvironment | None",
+    active_phase_scope: PhaseScope | None,
 ) -> TypedExpr:
     if isinstance(expr, NameExpr) and expr.name not in value_env:
         return TypedExpr(
@@ -534,6 +616,7 @@ def _typecheck_expected_extern_operand(
         workflow_catalog=workflow_catalog,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
+        active_phase_scope=active_phase_scope,
     )
 
 

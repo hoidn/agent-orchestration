@@ -31,6 +31,7 @@ from orchestrator.workflow_lisp.workflows import (
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
+PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 
 
 def _build_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
@@ -164,6 +165,67 @@ def test_typecheck_workflow_definitions_rejects_unknown_callees(tmp_path: Path) 
         _typecheck_fixture(missing_callee)
 
     _assert_diagnostic_code(excinfo, "workflow_call_unknown")
+
+
+def test_derive_structured_result_contract_for_phase_translation_union_keeps_variant_fields() -> None:
+    module = _compile_definition_module(PHASE_FIXTURE)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    implementation_attempt = type_env.resolve_type(
+        "ImplementationAttempt",
+        span=_build_syntax_module(PHASE_FIXTURE).span,
+        form_path=("workflow-lisp", "defunion", "ImplementationAttempt"),
+    )
+
+    assert isinstance(implementation_attempt, UnionTypeRef)
+    contract = derive_structured_result_contract(
+        implementation_attempt,
+        workflow_name="run-implementation-attempt",
+        step_id="run-implementation-attempt__attempt",
+        span=_build_syntax_module(PHASE_FIXTURE).span,
+        form_path=("workflow-lisp", "defworkflow", "run-implementation-attempt"),
+    )
+
+    assert contract.contract_kind == "variant_output"
+    assert contract.payload["discriminant"]["name"] == "variant"
+    assert contract.payload["shared_fields"] == [
+        {
+            "name": "implementation_state",
+            "json_pointer": "/implementation_state",
+            "type": "enum",
+            "allowed": ["COMPLETED", "BLOCKED"],
+        }
+    ]
+    assert contract.payload["variants"]["COMPLETED"]["fields"] == [
+        {
+            "name": "execution_report_path",
+            "json_pointer": "/execution_report_path",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        },
+    ]
+    assert contract.payload["variants"]["BLOCKED"]["fields"] == [
+        {
+            "name": "progress_report_path",
+            "json_pointer": "/progress_report_path",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        },
+        {
+            "name": "blocker_class",
+            "json_pointer": "/blocker_class",
+            "type": "enum",
+            "allowed": [
+                "missing_resource",
+                "unavailable_hardware",
+                "roadmap_conflict",
+                "external_dependency_outside_authority",
+                "user_decision_required",
+                "unrecoverable_after_fix_attempt",
+            ],
+        },
+    ]
 
 
 def test_typecheck_workflow_definitions_rejects_return_type_mismatches(tmp_path: Path) -> None:
