@@ -5,22 +5,30 @@ from __future__ import annotations
 import json
 import re
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.executable_ir import ProviderStepConfig
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
-from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.lowering import lower_surface_workflow
+from orchestrator.workflow.surface_ast import SurfaceStepKind
 
 from .definitions import elaborate_definition_module
-from .contracts import derive_structured_result_contract, derive_workflow_signature_contracts
+from .contracts import (
+    derive_structured_result_contract,
+    derive_union_workflow_boundary_projection,
+    derive_workflow_signature_contracts,
+)
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expressions import (
+    BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
+    FinalizeSelectedItemExpr,
     FieldAccessExpr,
     LetStarExpr,
     LiteralExpr,
@@ -30,6 +38,7 @@ from .expressions import (
     ProduceOneOfExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
+    ResourceTransitionExpr,
     RecordExpr,
     ResumeOrStartExpr,
     ReviewReviseLoopExpr,
@@ -46,7 +55,7 @@ from .macros import collect_macro_catalog, expand_module_forms
 from .reader import read_sexpr_file
 from .spans import SourceSpan
 from .syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
-from .type_env import FrontendTypeEnvironment, RecordTypeRef, TypeRef, UnionTypeRef
+from .type_env import FrontendTypeEnvironment, PathTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from .typecheck import TypedExpr
 from .procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
 from .workflows import (
@@ -55,6 +64,7 @@ from .workflows import (
     ExternEnvironment,
     PromptExtern,
     ProviderExtern,
+    WorkflowCatalog,
     WorkflowDef,
     WorkflowParam,
     WorkflowSignature,
@@ -99,6 +109,8 @@ def lower_workflow_definitions(
     typed_procedures: tuple[TypedProcedureDef, ...] = (),
     procedure_catalog: ProcedureCatalog | None = None,
     workflow_path: Path,
+    workflow_catalog: WorkflowCatalog,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment | None = None,
@@ -155,6 +167,8 @@ def lower_workflow_definitions(
         lowered = _lower_one_workflow(
             typed_workflow,
             workflow_path=workflow_path,
+            workflow_catalog=workflow_catalog,
+            imported_workflow_bundles=imported_workflow_bundles or {},
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             lowered_callees=lowered_by_name,
@@ -170,10 +184,17 @@ def lower_workflow_definitions(
         lower_one(workflow_name)
 
     ordered: list[LoweredWorkflow] = []
+    included_names: set[str] = set()
     for workflow in typed_workflows:
-        ordered.append(lower_one(workflow.definition.name))
+        lowered = lower_one(workflow.definition.name)
+        ordered.append(lowered)
+        included_names.add(lowered.typed_workflow.definition.name)
     for workflow_name in private_order:
         ordered.append(lowered_by_name[workflow_name])
+        included_names.add(workflow_name)
+    for workflow_name, lowered in lowered_by_name.items():
+        if workflow_name not in included_names:
+            ordered.append(lowered)
     return tuple(ordered)
 
 
@@ -181,6 +202,7 @@ def validate_lowered_workflows(
     lowered_workflows: tuple[LoweredWorkflow, ...],
     *,
     workspace_root: Path,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
 ) -> Mapping[str, LoadedWorkflowBundle]:
     """Validate authored mappings through the shared elaboration and lowering seam."""
 
@@ -208,11 +230,14 @@ def validate_lowered_workflows(
             )
         visiting.add(workflow_name)
         lowered = lowered_by_name[workflow_name]
-        imported_bundles = {
-            dependency: validate_one(dependency)
-            for dependency in _lowered_workflow_dependencies(lowered)
-            if dependency in lowered_by_name
-        }
+        imported_bundles = dict(imported_workflow_bundles or {})
+        imported_bundles.update(
+            {
+                dependency: validate_one(dependency)
+                for dependency in _lowered_workflow_dependencies(lowered)
+                if dependency in lowered_by_name
+            }
+        )
         bundle = _validate_one_lowered_workflow(
             lowered,
             workspace_root=workspace_root,
@@ -232,6 +257,8 @@ def _lower_one_workflow(
     typed_workflow: TypedWorkflowDef,
     *,
     workflow_path: Path,
+    workflow_catalog: WorkflowCatalog,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle],
     extern_environment: ExternEnvironment,
     command_boundary_environment: CommandBoundaryEnvironment,
     lowered_callees: Mapping[str, LoweredWorkflow],
@@ -253,6 +280,8 @@ def _lower_one_workflow(
         workflow_path=workflow_path,
         signature=typed_workflow.signature,
         authored_input_contracts=MappingProxyType({name: dict(definition) for name, definition in authored_inputs.items()}),
+        workflow_catalog=workflow_catalog,
+        imported_workflow_bundles=imported_workflow_bundles,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         lowered_callees=lowered_callees,
@@ -341,6 +370,8 @@ class _LoweringContext:
     workflow_path: Path
     signature: object
     authored_input_contracts: Mapping[str, Mapping[str, Any]]
+    workflow_catalog: WorkflowCatalog
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle]
     extern_environment: ExternEnvironment
     command_boundary_environment: CommandBoundaryEnvironment
     lowered_callees: Mapping[str, LoweredWorkflow]
@@ -428,6 +459,12 @@ def _lower_expression(
         return _lower_review_revise_loop(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ResumeOrStartExpr):
         return _lower_resume_or_start(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, ResourceTransitionExpr):
+        return _lower_resource_transition(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, FinalizeSelectedItemExpr):
+        return _lower_finalize_selected_item(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, BacklogDrainExpr):
+        return _lower_backlog_drain(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, CallExpr):
         return _lower_call_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ProcedureCallExpr):
@@ -478,6 +515,48 @@ def _lower_command_result(
         "command": command,
         bundle_contract.contract_kind: authored_contract,
     }
+    return [step], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=_record_output_refs(step_name, typed_expr.type_ref),
+        output_kind="step",
+        hidden_inputs={hidden_input_name: _origin_from_context_source(context, expr)},
+    )
+
+
+def _lower_resource_transition(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, ResourceTransitionExpr)
+    binding = context.command_boundary_environment.bindings_by_name["apply_resource_transition"]
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    hidden_input_name = f"__write_root__{step_id}__result_bundle"
+    bundle_contract = derive_structured_result_contract(
+        typed_expr.type_ref,
+        workflow_name=context.workflow_name,
+        step_id=step_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    authored_contract = dict(bundle_contract.payload)
+    authored_contract["path"] = f"${{inputs.{hidden_input_name}}}"
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, expr)
+    payload = _resource_transition_payload(expr, context=context, local_values=local_values)
+    step = {
+        "name": step_name,
+        "id": step_id,
+        "command": [*binding.stable_command, json.dumps(payload)],
+        bundle_contract.contract_kind: authored_contract,
+    }
+    when = _render_boolean_predicate(expr.spec.when_expr, local_values=local_values)
+    if when is not None:
+        step["when"] = when
     return [step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
@@ -1422,7 +1501,10 @@ def _lower_review_revise_loop(
     return generated_steps, _TerminalResult(
         step_name=result_step_name,
         step_id=result_step_id,
-        output_refs={},
+        output_refs={
+            f"return__{field_name}": f"root.steps.{result_step_name}.artifacts.{field_name}"
+            for field_name in result_output_contracts
+        },
         output_kind="match",
         hidden_inputs=hidden_inputs,
     )
@@ -1787,6 +1869,8 @@ def _lower_procedure_call_expr(
         workflow_path=context.workflow_path,
         signature=context.signature,
         authored_input_contracts=context.authored_input_contracts,
+        workflow_catalog=context.workflow_catalog,
+        imported_workflow_bundles=context.imported_workflow_bundles,
         extern_environment=context.extern_environment,
         command_boundary_environment=context.command_boundary_environment,
         lowered_callees=context.lowered_callees,
@@ -1813,14 +1897,16 @@ def _lower_let_star(
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     expr = typed_expr.expr
     assert isinstance(expr, LetStarExpr)
-    if len(expr.bindings) != 1:
-        raise _compile_error(
-            code="workflow_return_not_exportable",
-            message="Stage 3 lowering supports only one let* binding in workflow bodies",
+    binding_name, binding_expr = expr.bindings[0]
+    body_expr: Any = expr.body
+    if len(expr.bindings) > 1:
+        body_expr = LetStarExpr(
+            bindings=expr.bindings[1:],
+            body=expr.body,
             span=expr.span,
             form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
         )
-    binding_name, binding_expr = expr.bindings[0]
     binding_type = _binding_type_for_expr(binding_expr, context=context)
     provider_step_name = f"{context.step_name_prefix}__{binding_name}"
     if isinstance(binding_expr, ProviderResultExpr):
@@ -1848,22 +1934,24 @@ def _lower_let_star(
             binding_type,
             step_name=binding_terminal.step_name,
         )
+    elif isinstance(binding_type, UnionTypeRef):
+        local_bindings[binding_name] = _build_union_step_local_value(binding_terminal.output_refs)
 
-    if isinstance(expr.body, MatchExpr):
+    if isinstance(body_expr, MatchExpr):
         lowered_steps, terminal = _lower_match_expr(
-            expr.body,
+            body_expr,
             context=context,
             binding_name=binding_name,
-            provider_step_name=binding_terminal.step_name,
+            binding_terminal=binding_terminal,
             local_values=local_bindings,
         )
     else:
         lowered_steps, terminal = _lower_expression(
             TypedExpr(
-                expr=expr.body,
+                expr=body_expr,
                 type_ref=typed_expr.type_ref,
-                span=expr.body.span,
-                form_path=expr.body.form_path,
+                span=body_expr.span,
+                form_path=body_expr.form_path,
             ),
             context=context,
             local_values=local_bindings,
@@ -1884,7 +1972,7 @@ def _lower_match_expr(
     *,
     context: _LoweringContext,
     binding_name: str,
-    provider_step_name: str,
+    binding_terminal: _TerminalResult,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
     match_step_name = f"{context.step_name_prefix}__match_{binding_name}"
@@ -1910,7 +1998,7 @@ def _lower_match_expr(
                 match_step_id=match_step_id,
                 variant_name=arm.variant_name,
                 binding_name=arm.binding_name,
-                provider_step_name=provider_step_name,
+                binding_terminal=binding_terminal,
                 context=context,
                 local_values=local_values,
             )
@@ -1938,7 +2026,7 @@ def _lower_match_expr(
         "name": match_step_name,
         "id": match_step_id,
         "match": {
-            "ref": f"root.steps.{provider_step_name}.artifacts.variant",
+            "ref": binding_terminal.output_refs["return__variant"],
             "cases": cases,
         },
     }
@@ -1952,6 +2040,1589 @@ def _lower_match_expr(
         output_kind="match",
         hidden_inputs={},
     )
+
+
+def _lower_finalize_selected_item(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, FinalizeSelectedItemExpr)
+    roadmap_value = _resolve_inline_expr_value(expr.spec.roadmap_expr, local_values=local_values)
+    plan_value = _resolve_inline_expr_value(expr.spec.plan_expr, local_values=local_values)
+    implementation_value = _resolve_inline_expr_value(expr.spec.implementation_expr, local_values=local_values)
+    selected_value = _resolve_inline_expr_value(expr.spec.selected_expr, local_values=local_values)
+    queue_transition_value = _resolve_inline_expr_value(expr.spec.queue_transition_expr, local_values=local_values)
+    if not all(
+        isinstance(value, Mapping)
+        for value in (roadmap_value, plan_value, implementation_value, selected_value, queue_transition_value)
+    ):
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="`finalize-selected-item` lowering requires prior structured results and selected-item inputs",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    run_state_ref = selected_value.get("final-plan-gate-state")
+    roadmap_status_ref = roadmap_value.get("status")
+    plan_variant_ref = plan_value.get("variant")
+    plan_summary_ref = plan_value.get("progress-report-path")
+    plan_blocker_ref = plan_value.get("blocker-class")
+    implementation_variant_ref = implementation_value.get("variant")
+    implementation_summary_ref = implementation_value.get("execution-report-path")
+    implementation_blocked_summary_ref = implementation_value.get("progress-report-path")
+    implementation_blocker_ref = implementation_value.get("blocker-class")
+    queue_transition_id_ref = queue_transition_value.get("transition-id")
+    if not all(
+        isinstance(ref, str)
+        for ref in (
+            run_state_ref,
+            roadmap_status_ref,
+            plan_variant_ref,
+            plan_summary_ref,
+            plan_blocker_ref,
+            implementation_variant_ref,
+            implementation_summary_ref,
+            implementation_blocked_summary_ref,
+            implementation_blocker_ref,
+            queue_transition_id_ref,
+        )
+    ):
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="`finalize-selected-item` lowering requires roadmap, plan, implementation, queue-transition, and selection refs",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    summary_contract = dict(_required_output_contract(context, "summary-path", expr))
+    run_state_contract = dict(_required_output_contract(context, "run-state", expr))
+    variant_contract = dict(_required_output_contract(context, "variant", expr))
+    blocker_contract = context.return_output_contracts.get("blocker-class")
+    if blocker_contract is None:
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="`finalize-selected-item` requires the `SelectedItemResult.blocker-class` contract",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    summary_artifact_name = "selected_item_summary"
+    summary_pointer_path = _selected_item_summary_pointer_path(context.workflow_name)
+    context.top_level_artifacts[summary_artifact_name] = {
+        **summary_contract,
+        "pointer": summary_pointer_path,
+    }
+    context.generated_path_spans[summary_pointer_path] = _origin_from_context_source(context, expr)
+    selected_active_value = selected_value.get("is-active")
+
+    def _when_from_value(value: Any) -> dict[str, Any] | None:
+        if isinstance(value, LiteralExpr):
+            operand: bool | dict[str, str] = bool(value.value)
+        elif isinstance(value, str):
+            operand = {"ref": value}
+        else:
+            return None
+        return {
+            "compare": {
+                "left": operand,
+                "op": "eq",
+                "right": True,
+            }
+        }
+
+    queue_transition_materialize_step = {
+        "name": "FinalizeSelectedItemQueueTransition",
+        "id": _normalize_generated_step_id("FinalizeSelectedItemQueueTransition"),
+        "materialize_artifacts": {
+            "values": [
+                {
+                    "name": "queue_transition_id",
+                    "source": {"ref": queue_transition_id_ref},
+                    "contract": {"kind": "scalar", "type": "string"},
+                }
+            ]
+        },
+    }
+    queue_transition_when = _when_from_value(selected_active_value)
+    if queue_transition_when is not None:
+        queue_transition_materialize_step["when"] = queue_transition_when
+    _record_step_origin(
+        context,
+        step_name=queue_transition_materialize_step["name"],
+        step_id=queue_transition_materialize_step["id"],
+        source=expr,
+    )
+
+    def _outcome_values(*, variant: str, summary_ref: str, include_blocker_ref: str | None) -> list[dict[str, Any]]:
+        values: list[dict[str, Any]] = [
+            {
+                "name": "return__variant",
+                "source": {"literal": variant},
+                "contract": dict(variant_contract),
+            },
+            {
+                "name": "return__summary-path",
+                "source": {"ref": summary_ref},
+                "contract": dict(summary_contract),
+            },
+            {
+                "name": "return__run-state",
+                "source": {"ref": run_state_ref},
+                "contract": dict(run_state_contract),
+            },
+            {
+                "name": "roadmap_status",
+                "source": {"ref": roadmap_status_ref},
+                "contract": {"kind": "scalar", "type": "string"},
+            },
+        ]
+        if include_blocker_ref is not None:
+            values.append(
+                {
+                    "name": "return__blocker-class",
+                    "source": {"ref": include_blocker_ref},
+                    "contract": dict(blocker_contract),
+                }
+            )
+        return values
+
+    def _publish_summary_step(*, name: str, summary_ref: str) -> dict[str, Any]:
+        return {
+            "name": name,
+            "id": _normalize_generated_step_id(name),
+            "materialize_artifacts": {
+                "values": [
+                    {
+                        "name": summary_artifact_name,
+                        "source": {"ref": summary_ref},
+                        "contract": dict(summary_contract),
+                        "pointer": {"path": summary_pointer_path},
+                    }
+                ]
+            },
+            "publishes": [{"artifact": summary_artifact_name, "from": summary_artifact_name}],
+        }
+
+    def _case_outputs(*, outcome_step_name: str, include_blocker: bool) -> dict[str, Any]:
+        outputs = {
+            "return__variant": {"from": {"ref": f"self.steps.{outcome_step_name}.artifacts.return__variant"}},
+            "return__summary-path": {"from": {"ref": f"self.steps.{outcome_step_name}.artifacts.return__summary-path"}},
+            "return__run-state": {"from": {"ref": f"self.steps.{outcome_step_name}.artifacts.return__run-state"}},
+        }
+        if include_blocker:
+            outputs["return__blocker-class"] = {
+                "from": {"ref": f"self.steps.{outcome_step_name}.artifacts.return__blocker-class"}
+            }
+        return outputs
+
+    plan_blocked_outcome_name = "FinalizeSelectedItemOutcomeBlockedByPlan"
+    plan_approved_match_name = "FinalizeSelectedItemImplementationResult"
+    implementation_completed_outcome_name = "FinalizeSelectedItemOutcomeCompleted"
+    implementation_blocked_outcome_name = "FinalizeSelectedItemOutcomeBlockedByImplementation"
+    implementation_cases = {
+        "COMPLETED": {
+            "id": _normalize_generated_step_id(f"{step_name}__completed"),
+            "outputs": _case_outputs(
+                outcome_step_name=implementation_completed_outcome_name,
+                include_blocker=False,
+            ),
+            "steps": [
+                {
+                    "name": implementation_completed_outcome_name,
+                    "id": _normalize_generated_step_id(implementation_completed_outcome_name),
+                    "materialize_artifacts": {
+                        "values": _outcome_values(
+                            variant="CONTINUE",
+                            summary_ref=implementation_summary_ref,
+                            include_blocker_ref=None,
+                        )
+                    },
+                },
+                _publish_summary_step(
+                    name="PublishSelectedItemCompletedSummary",
+                    summary_ref=implementation_summary_ref,
+                ),
+            ],
+        },
+        "BLOCKED": {
+            "id": _normalize_generated_step_id(f"{step_name}__blocked"),
+            "outputs": _case_outputs(
+                outcome_step_name=implementation_blocked_outcome_name,
+                include_blocker=True,
+            ),
+            "steps": [
+                {
+                    "name": implementation_blocked_outcome_name,
+                    "id": _normalize_generated_step_id(implementation_blocked_outcome_name),
+                    "materialize_artifacts": {
+                        "values": _outcome_values(
+                            variant="BLOCKED",
+                            summary_ref=implementation_blocked_summary_ref,
+                            include_blocker_ref=implementation_blocker_ref,
+                        )
+                    },
+                },
+                _publish_summary_step(
+                    name="PublishSelectedItemBlockedSummary",
+                    summary_ref=implementation_blocked_summary_ref,
+                ),
+            ],
+        },
+    }
+    plan_cases = {
+        "APPROVED": {
+            "id": _normalize_generated_step_id(f"{step_name}__plan_approved"),
+            "outputs": {
+                "return__variant": {"from": {"ref": f"self.steps.{plan_approved_match_name}.artifacts.return__variant"}},
+                "return__summary-path": {
+                    "from": {"ref": f"self.steps.{plan_approved_match_name}.artifacts.return__summary-path"}
+                },
+                "return__run-state": {"from": {"ref": f"self.steps.{plan_approved_match_name}.artifacts.return__run-state"}},
+            },
+            "steps": [
+                {
+                    "name": plan_approved_match_name,
+                    "id": _normalize_generated_step_id(plan_approved_match_name),
+                    "match": {
+                        "ref": implementation_variant_ref,
+                        "cases": implementation_cases,
+                    },
+                }
+            ],
+        },
+        "BLOCKED": {
+            "id": _normalize_generated_step_id(f"{step_name}__plan_blocked"),
+            "outputs": _case_outputs(
+                outcome_step_name=plan_blocked_outcome_name,
+                include_blocker=True,
+            ),
+            "steps": [
+                {
+                    "name": plan_blocked_outcome_name,
+                    "id": _normalize_generated_step_id(plan_blocked_outcome_name),
+                    "materialize_artifacts": {
+                        "values": _outcome_values(
+                            variant="BLOCKED",
+                            summary_ref=plan_summary_ref,
+                            include_blocker_ref=plan_blocker_ref,
+                        )
+                    },
+                },
+                _publish_summary_step(
+                    name="PublishSelectedItemPlanBlockedSummary",
+                    summary_ref=plan_summary_ref,
+                ),
+            ],
+        },
+    }
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    step = {
+        "name": step_name,
+        "id": step_id,
+        "match": {
+            "ref": plan_variant_ref,
+            "cases": plan_cases,
+        },
+    }
+    return [queue_transition_materialize_step, step], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs={
+            f"return__{field_name}": f"root.steps.{step_name}.artifacts.return__{field_name}"
+            for field_name in context.return_output_contracts
+        },
+        output_kind="match",
+        hidden_inputs={},
+    )
+
+
+def _lower_backlog_drain(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, BacklogDrainExpr)
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    selector_call_name = f"{step_name}__selector"
+    run_item_call_name = f"{step_name}__run_item"
+    gap_drafter_call_name = f"{step_name}__gap_drafter"
+    selector_signature = context.workflow_catalog.signatures_by_name.get(expr.spec.selector_name)
+    run_item_signature = context.workflow_catalog.signatures_by_name.get(expr.spec.run_item_name)
+    gap_drafter_signature = context.workflow_catalog.signatures_by_name.get(expr.spec.gap_drafter_name)
+    if selector_signature is None or run_item_signature is None or gap_drafter_signature is None:
+        raise _compile_error(
+            code="workflow_call_unknown",
+            message="`backlog-drain` lowering requires all referenced workflows to resolve before lowering",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    selector_callee = context.lowered_callees.get(expr.spec.selector_name)
+    run_item_callee = context.lowered_callees.get(expr.spec.run_item_name)
+    gap_drafter_callee = context.lowered_callees.get(expr.spec.gap_drafter_name)
+    selector_imported = context.imported_workflow_bundles.get(expr.spec.selector_name)
+    run_item_imported = context.imported_workflow_bundles.get(expr.spec.run_item_name)
+    gap_drafter_imported = context.imported_workflow_bundles.get(expr.spec.gap_drafter_name)
+    if (
+        (selector_callee is None and selector_imported is None)
+        or (run_item_callee is None and run_item_imported is None)
+        or (gap_drafter_callee is None and gap_drafter_imported is None)
+    ):
+        raise _compile_error(
+            code="workflow_call_unknown",
+            message="`backlog-drain` lowering requires referenced workflows to be available as same-file callees or registered imported bundles",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    ctx_value = _resolve_inline_expr_value(expr.spec.ctx_expr, local_values=local_values)
+    if not isinstance(ctx_value, Mapping):
+        raise _compile_error(
+            code="workflow_signature_mismatch",
+            message="`backlog-drain :ctx` must lower from workflow inputs in this Stage 3 slice",
+            span=expr.spec.ctx_expr.span,
+            form_path=expr.spec.ctx_expr.form_path,
+        )
+    _validate_backlog_drain_provider_metadata(
+        expr,
+        context=context,
+        local_values=local_values,
+        selector_workflow=selector_callee.typed_workflow if selector_callee is not None else None,
+        run_item_workflow=run_item_callee.typed_workflow if run_item_callee is not None else None,
+        gap_drafter_workflow=gap_drafter_callee.typed_workflow if gap_drafter_callee is not None else None,
+        selector_imported=selector_imported,
+        run_item_imported=run_item_imported,
+        gap_drafter_imported=gap_drafter_imported,
+    )
+    selector_call_target = _specialize_backlog_drain_call_target(
+        workflow_name=expr.spec.selector_name,
+        role_name="selector",
+        imported_bundle=selector_imported,
+        providers_expr=expr.spec.providers_expr,
+        context=context,
+        local_values=local_values,
+    )
+    run_item_call_target = _specialize_backlog_drain_call_target(
+        workflow_name=expr.spec.run_item_name,
+        role_name="run-item",
+        imported_bundle=run_item_imported,
+        providers_expr=expr.spec.providers_expr,
+        context=context,
+        local_values=local_values,
+    )
+    gap_drafter_call_target = _specialize_backlog_drain_call_target(
+        workflow_name=expr.spec.gap_drafter_name,
+        role_name="gap-drafter",
+        imported_bundle=gap_drafter_imported,
+        providers_expr=expr.spec.providers_expr,
+        context=context,
+        local_values=local_values,
+    )
+    selection_value = {
+        "item-id": f"self.steps.{selector_call_name}.artifacts.return__selection__item-id",
+        "item-state-root": f"self.steps.{selector_call_name}.artifacts.return__selection__item-state-root",
+    }
+    gap_value = {
+        "gap-id": f"self.steps.{selector_call_name}.artifacts.return__gap__gap-id",
+    }
+    run_mapping = ctx_value.get("run")
+    if not isinstance(selection_value, Mapping) or not isinstance(gap_value, Mapping) or not isinstance(run_mapping, Mapping):
+        raise _compile_error(
+            code="workflow_signature_mismatch",
+            message="`backlog-drain` lowering requires typed selector outputs and DrainCtx.run fields",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+
+    def _return_contract(field_name: str) -> dict[str, Any]:
+        contract = context.return_output_contracts.get(field_name)
+        if contract is None:
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=f"`backlog-drain` cannot lower missing return contract `{field_name}`",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        return dict(contract)
+
+    selector_with = _build_call_bindings_from_record_value(
+        selector_signature.params[0][0],
+        selector_signature.params[0][1],
+        ctx_value,
+        source_expr=expr.spec.ctx_expr,
+    )
+    item_ctx_value = {
+        "run": run_mapping,
+        "item-id": selection_value.get("item-id"),
+        "state-root": selection_value.get("item-state-root"),
+        "artifact-root": run_mapping.get("artifact-root"),
+        "ledger": ctx_value.get("ledger"),
+    }
+    run_item_with = {
+        **_build_call_bindings_from_record_value(
+            run_item_signature.params[0][0],
+            run_item_signature.params[0][1],
+            item_ctx_value,
+            source_expr=expr.spec.ctx_expr,
+        ),
+        **_build_call_bindings_from_record_value(
+            run_item_signature.params[1][0],
+            run_item_signature.params[1][1],
+            selection_value,
+            source_expr=expr.spec.ctx_expr,
+        ),
+    }
+    gap_drafter_with = {
+        **_build_call_bindings_from_record_value(
+            gap_drafter_signature.params[0][0],
+            gap_drafter_signature.params[0][1],
+            ctx_value,
+            source_expr=expr.spec.ctx_expr,
+        ),
+        **_build_call_bindings_from_record_value(
+            gap_drafter_signature.params[1][0],
+            gap_drafter_signature.params[1][1],
+            gap_value,
+            source_expr=expr.spec.ctx_expr,
+        ),
+    }
+    items_processed_artifact = f"{step_name}__items_processed"
+    items_processed_contract = {"kind": "scalar", "type": "integer"}
+    context.top_level_artifacts[items_processed_artifact] = dict(items_processed_contract)
+    accumulator_status_contract = {
+        "kind": "scalar",
+        "type": "enum",
+        "allowed": ["CONTINUE", "EMPTY", "COMPLETED", "BLOCKED"],
+    }
+    accumulator_run_state_contract = {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "state",
+        "must_exist_target": False,
+    }
+    accumulator_progress_contract = {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "artifacts/work",
+        "must_exist_target": False,
+    }
+    accumulator_blocker_contract = dict(_return_contract("blocker-class"))
+    placeholder_run_state_ref = "inputs.ctx__manifest"
+    placeholder_progress_ref = f"artifacts/work/.orchestrate/workflow_lisp/{step_name}/unused_progress_report.md"
+    placeholder_blocker_value = accumulator_blocker_contract["allowed"][0]
+    hidden_inputs: dict[str, LoweringOrigin] = {}
+
+    loop_output_definitions = {
+        "acc__loop-status": dict(accumulator_status_contract),
+        "acc__items-processed": dict(items_processed_contract),
+        "acc__run-state": dict(accumulator_run_state_contract),
+        "acc__progress-report-path": dict(accumulator_progress_contract),
+        "acc__blocker-class": dict(accumulator_blocker_contract),
+    }
+    loop_outputs = {
+        name: {
+            **definition,
+            "from": {"ref": f"self.steps.{step_name}__route_selection.artifacts.{name}"},
+        }
+        for name, definition in loop_output_definitions.items()
+    }
+
+    def _materialize_outputs_step(
+        *,
+        name: str,
+        step_id_value: str,
+        values: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "name": name,
+            "id": step_id_value,
+            "materialize_artifacts": {
+                "values": values,
+            },
+        }
+
+    def _scalar_step(
+        *,
+        name: str,
+        step_id_value: str,
+        operation: str,
+        by: int | None = None,
+        publish: bool = False,
+    ) -> dict[str, Any]:
+        payload = {"artifact": items_processed_artifact}
+        if operation == "set":
+            payload["value"] = 0
+        else:
+            assert by is not None
+            payload["by"] = by
+        step: dict[str, Any] = {
+            "name": name,
+            "id": step_id_value,
+            f"{operation}_scalar": payload,
+        }
+        if publish:
+            step["publishes"] = [{"artifact": items_processed_artifact, "from": items_processed_artifact}]
+        return step
+
+    def _managed_call_step(
+        *,
+        generated_name: str,
+        call_target: str,
+        with_bindings: Mapping[str, Any],
+        lowered_callee: LoweredWorkflow | None,
+        imported_bundle: LoadedWorkflowBundle | None,
+    ) -> dict[str, Any]:
+        step = {
+            "name": generated_name,
+            "id": _normalize_generated_step_id(generated_name),
+            "call": call_target,
+            "with": dict(with_bindings),
+        }
+        if lowered_callee is not None:
+            managed_inputs = _managed_inputs_from_mapping(lowered_callee.authored_mapping)
+        else:
+            managed_inputs = workflow_managed_write_root_inputs(imported_bundle)
+        for managed_input in managed_inputs:
+            step["with"][managed_input] = (
+                f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{generated_name}/${{loop.index}}/{call_target}/{managed_input}.json"
+            )
+            hidden_inputs[managed_input] = _origin_from_context_source(context, expr)
+        _record_step_origin(context, step_name=generated_name, step_id=step["id"], source=expr)
+        return step
+
+    def _accumulator_marker_step(
+        *,
+        name: str,
+        step_id_value: str,
+        loop_status: str,
+        run_state_ref: str,
+        progress_ref: str | None = None,
+        blocker_ref: str | None = None,
+    ) -> dict[str, Any]:
+        return _materialize_outputs_step(
+            name=name,
+            step_id_value=step_id_value,
+            values=[
+                {
+                    "name": "acc__loop-status",
+                    "source": {"literal": loop_status},
+                    "contract": dict(accumulator_status_contract),
+                },
+                {
+                    "name": "acc__run-state",
+                    "source": {"ref": run_state_ref},
+                    "contract": dict(accumulator_run_state_contract),
+                },
+                {
+                    "name": "acc__progress-report-path",
+                    "source": {"ref": progress_ref} if progress_ref is not None else {"literal": placeholder_progress_ref},
+                    "contract": dict(accumulator_progress_contract),
+                },
+                {
+                    "name": "acc__blocker-class",
+                    "source": {"ref": blocker_ref} if blocker_ref is not None else {"literal": placeholder_blocker_value},
+                    "contract": dict(accumulator_blocker_contract),
+                },
+            ],
+        )
+
+    def _accumulator_outputs(
+        *,
+        marker_step_name: str,
+        items_processed_ref: str,
+    ) -> dict[str, Any]:
+        return {
+            "acc__loop-status": {
+                **loop_output_definitions["acc__loop-status"],
+                "from": {"ref": f"self.steps.{marker_step_name}.artifacts.acc__loop-status"},
+            },
+            "acc__items-processed": {
+                **loop_output_definitions["acc__items-processed"],
+                "from": {"ref": items_processed_ref},
+            },
+            "acc__run-state": {
+                **loop_output_definitions["acc__run-state"],
+                "from": {"ref": f"self.steps.{marker_step_name}.artifacts.acc__run-state"},
+            },
+            "acc__progress-report-path": {
+                **loop_output_definitions["acc__progress-report-path"],
+                "from": {"ref": f"self.steps.{marker_step_name}.artifacts.acc__progress-report-path"},
+            },
+            "acc__blocker-class": {
+                **loop_output_definitions["acc__blocker-class"],
+                "from": {"ref": f"self.steps.{marker_step_name}.artifacts.acc__blocker-class"},
+            },
+        }
+
+    selector_call_step = _managed_call_step(
+        generated_name=selector_call_name,
+        call_target=selector_call_target,
+        with_bindings=selector_with,
+        lowered_callee=selector_callee,
+        imported_bundle=selector_imported,
+    )
+    gap_drafter_call_step = _managed_call_step(
+        generated_name=gap_drafter_call_name,
+        call_target=gap_drafter_call_target,
+        with_bindings=gap_drafter_with,
+        lowered_callee=gap_drafter_callee,
+        imported_bundle=gap_drafter_imported,
+    )
+    gap_drafter_call_step["when"] = {
+        "compare": {
+            "left": {"ref": f"self.steps.{selector_call_name}.artifacts.return__variant"},
+            "op": "eq",
+            "right": "GAP",
+        }
+    }
+    run_item_call_step = _managed_call_step(
+        generated_name=run_item_call_name,
+        call_target=run_item_call_target,
+        with_bindings=run_item_with,
+        lowered_callee=run_item_callee,
+        imported_bundle=run_item_imported,
+    )
+    run_item_call_step["when"] = {
+        "compare": {
+            "left": {"ref": f"self.steps.{selector_call_name}.artifacts.return__variant"},
+            "op": "eq",
+            "right": "SELECTED",
+        }
+    }
+
+    current_items_step_name = f"{step_name}__current_items_processed"
+    current_items_ref = f"self.steps.{current_items_step_name}.artifacts.{items_processed_artifact}"
+    parent_current_items_ref = f"parent.steps.{current_items_step_name}.artifacts.{items_processed_artifact}"
+    current_items_step = _scalar_step(
+        name=current_items_step_name,
+        step_id_value=_normalize_generated_step_id(current_items_step_name),
+        operation="increment",
+        by=0,
+    )
+
+    empty_route_step_name = f"{step_name}__route_empty_selection"
+    empty_marker_name = "MarkEmptySelection"
+    completed_marker_name = "MarkCompletedSelection"
+    empty_route_step = {
+        "name": empty_route_step_name,
+        "id": _normalize_generated_step_id(empty_route_step_name),
+        "when": {
+            "compare": {
+                "left": {"ref": f"self.steps.{selector_call_name}.artifacts.return__variant"},
+                "op": "eq",
+                "right": "EMPTY",
+            }
+        },
+        "if": {
+            "compare": {
+                "left": {"ref": current_items_ref},
+                "op": "eq",
+                "right": 0,
+            }
+        },
+        "then": {
+            "id": _normalize_generated_step_id(f"{empty_route_step_name}__empty"),
+            "outputs": _accumulator_outputs(
+                marker_step_name=empty_marker_name,
+                items_processed_ref=parent_current_items_ref,
+            ),
+            "steps": [
+                _accumulator_marker_step(
+                    name=empty_marker_name,
+                    step_id_value="mark_empty_selection",
+                    loop_status="EMPTY",
+                    run_state_ref=f"parent.steps.{selector_call_name}.artifacts.return__run-state",
+                )
+            ],
+        },
+        "else": {
+            "id": _normalize_generated_step_id(f"{empty_route_step_name}__completed"),
+            "outputs": _accumulator_outputs(
+                marker_step_name=completed_marker_name,
+                items_processed_ref=parent_current_items_ref,
+            ),
+            "steps": [
+                _accumulator_marker_step(
+                    name=completed_marker_name,
+                    step_id_value="mark_completed_selection",
+                    loop_status="COMPLETED",
+                    run_state_ref=f"parent.steps.{selector_call_name}.artifacts.return__run-state",
+                )
+            ],
+        },
+    }
+
+    gap_route_step_name = f"{step_name}__route_gap_result"
+    if isinstance(gap_drafter_signature.return_type_ref, RecordTypeRef):
+        gap_marker_name = "MarkGapContinue"
+        gap_route_step = {
+            "name": gap_route_step_name,
+            "id": _normalize_generated_step_id(gap_route_step_name),
+            "when": {
+                "compare": {
+                    "left": {"ref": f"self.steps.{selector_call_name}.artifacts.return__variant"},
+                    "op": "eq",
+                    "right": "GAP",
+                }
+            },
+            "if": {
+                "compare": {
+                    "left": 1,
+                    "op": "eq",
+                    "right": 1,
+                }
+            },
+            "then": {
+                "id": _normalize_generated_step_id(f"{gap_route_step_name}__continue"),
+                "outputs": _accumulator_outputs(
+                    marker_step_name=gap_marker_name,
+                    items_processed_ref=parent_current_items_ref,
+                ),
+                "steps": [
+                    _accumulator_marker_step(
+                        name=gap_marker_name,
+                        step_id_value="mark_gap_continue",
+                        loop_status="CONTINUE",
+                        run_state_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__run-state",
+                    )
+                ],
+            },
+            "else": {
+                "id": _normalize_generated_step_id(f"{gap_route_step_name}__continue_else"),
+                "outputs": _accumulator_outputs(
+                    marker_step_name=gap_marker_name,
+                    items_processed_ref=parent_current_items_ref,
+                ),
+                "steps": [
+                    _accumulator_marker_step(
+                        name=gap_marker_name,
+                        step_id_value="mark_gap_continue_else",
+                        loop_status="CONTINUE",
+                        run_state_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__run-state",
+                    )
+                ],
+            },
+        }
+    else:
+        gap_continue_marker_name = "MarkGapContinue"
+        gap_blocked_marker_name = "MarkGapBlocked"
+        gap_route_step = {
+            "name": gap_route_step_name,
+            "id": _normalize_generated_step_id(gap_route_step_name),
+            "when": {
+                "compare": {
+                    "left": {"ref": f"self.steps.{selector_call_name}.artifacts.return__variant"},
+                    "op": "eq",
+                    "right": "GAP",
+                }
+            },
+            "match": {
+                "ref": f"self.steps.{gap_drafter_call_name}.artifacts.return__variant",
+                "cases": {
+                    "CONTINUE": {
+                        "id": _normalize_generated_step_id(f"{gap_route_step_name}__continue"),
+                        "outputs": _accumulator_outputs(
+                            marker_step_name=gap_continue_marker_name,
+                            items_processed_ref=parent_current_items_ref,
+                        ),
+                        "steps": [
+                            _accumulator_marker_step(
+                                name=gap_continue_marker_name,
+                                step_id_value="mark_gap_continue",
+                                loop_status="CONTINUE",
+                                run_state_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__run-state",
+                            )
+                        ],
+                    },
+                    "BLOCKED": {
+                        "id": _normalize_generated_step_id(f"{gap_route_step_name}__blocked"),
+                        "outputs": _accumulator_outputs(
+                            marker_step_name=gap_blocked_marker_name,
+                            items_processed_ref=parent_current_items_ref,
+                        ),
+                        "steps": [
+                            _accumulator_marker_step(
+                                name=gap_blocked_marker_name,
+                                step_id_value="mark_gap_blocked",
+                                loop_status="BLOCKED",
+                                run_state_ref=placeholder_run_state_ref,
+                                progress_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__progress-report-path",
+                                blocker_ref=f"parent.steps.{gap_drafter_call_name}.artifacts.return__blocker-class",
+                            )
+                        ],
+                    },
+                },
+            },
+        }
+
+    selected_route_step_name = f"{step_name}__route_selected_result"
+    increment_selected_step_name = "IncrementSelectedItemsProcessed"
+    incremented_items_ref = f"self.steps.{increment_selected_step_name}.artifacts.{items_processed_artifact}"
+    selected_continue_marker_name = "MarkSelectedContinue"
+    selected_blocked_marker_name = "MarkSelectedBlocked"
+    selected_route_step = {
+        "name": selected_route_step_name,
+        "id": _normalize_generated_step_id(selected_route_step_name),
+        "when": {
+            "compare": {
+                "left": {"ref": f"self.steps.{selector_call_name}.artifacts.return__variant"},
+                "op": "eq",
+                "right": "SELECTED",
+            }
+        },
+        "match": {
+            "ref": f"self.steps.{run_item_call_name}.artifacts.return__variant",
+            "cases": {
+                "CONTINUE": {
+                    "id": _normalize_generated_step_id(f"{selected_route_step_name}__continue"),
+                    "outputs": _accumulator_outputs(
+                        marker_step_name=selected_continue_marker_name,
+                        items_processed_ref=incremented_items_ref,
+                    ),
+                    "steps": [
+                        _scalar_step(
+                            name=increment_selected_step_name,
+                            step_id_value="increment_selected_items_processed",
+                            operation="increment",
+                            by=1,
+                            publish=True,
+                        ),
+                        _accumulator_marker_step(
+                            name=selected_continue_marker_name,
+                            step_id_value="mark_selected_continue",
+                            loop_status="CONTINUE",
+                            run_state_ref=f"parent.steps.{run_item_call_name}.artifacts.return__run-state",
+                        ),
+                    ],
+                },
+                "BLOCKED": {
+                    "id": _normalize_generated_step_id(f"{selected_route_step_name}__blocked"),
+                    "outputs": _accumulator_outputs(
+                        marker_step_name=selected_blocked_marker_name,
+                        items_processed_ref=parent_current_items_ref,
+                    ),
+                    "steps": [
+                        _accumulator_marker_step(
+                            name=selected_blocked_marker_name,
+                            step_id_value="mark_selected_blocked",
+                            loop_status="BLOCKED",
+                            run_state_ref=f"parent.steps.{run_item_call_name}.artifacts.return__run-state",
+                            progress_ref=f"parent.steps.{run_item_call_name}.artifacts.return__summary-path",
+                            blocker_ref=f"parent.steps.{run_item_call_name}.artifacts.return__blocker-class",
+                        )
+                    ],
+                },
+            },
+        },
+    }
+
+    route_selection_step_name = f"{step_name}__route_selection"
+
+    def _forward_accumulator_outputs(source_step_name: str) -> dict[str, Any]:
+        return {
+            name: {
+                **definition,
+                "from": {"ref": f"parent.steps.{source_step_name}.artifacts.{name}"},
+            }
+            for name, definition in loop_output_definitions.items()
+        }
+
+    route_selection_step = {
+        "name": route_selection_step_name,
+        "id": _normalize_generated_step_id(route_selection_step_name),
+        "match": {
+            "ref": f"self.steps.{selector_call_name}.artifacts.return__variant",
+            "cases": {
+                "EMPTY": {
+                    "id": _normalize_generated_step_id(f"{route_selection_step_name}__empty"),
+                    "outputs": _forward_accumulator_outputs(empty_route_step_name),
+                    "steps": [
+                        _build_match_projection_anchor_step(
+                            match_step_name=route_selection_step_name,
+                            variant_name="EMPTY",
+                            case_outputs=_forward_accumulator_outputs(empty_route_step_name),
+                            context=context,
+                            span=expr.span,
+                        )
+                    ],
+                },
+                "GAP": {
+                    "id": _normalize_generated_step_id(f"{route_selection_step_name}__gap"),
+                    "outputs": _forward_accumulator_outputs(gap_route_step_name),
+                    "steps": [
+                        _build_match_projection_anchor_step(
+                            match_step_name=route_selection_step_name,
+                            variant_name="GAP",
+                            case_outputs=_forward_accumulator_outputs(gap_route_step_name),
+                            context=context,
+                            span=expr.span,
+                        )
+                    ],
+                },
+                "SELECTED": {
+                    "id": _normalize_generated_step_id(f"{route_selection_step_name}__selected"),
+                    "outputs": _forward_accumulator_outputs(selected_route_step_name),
+                    "steps": [
+                        _build_match_projection_anchor_step(
+                            match_step_name=route_selection_step_name,
+                            variant_name="SELECTED",
+                            case_outputs=_forward_accumulator_outputs(selected_route_step_name),
+                            context=context,
+                            span=expr.span,
+                        )
+                    ],
+                },
+            },
+        },
+    }
+
+    seed_items_processed_step_name = f"{step_name}__seed_items_processed"
+    seed_items_processed_step = _scalar_step(
+        name=seed_items_processed_step_name,
+        step_id_value=_normalize_generated_step_id(seed_items_processed_step_name),
+        operation="set",
+        publish=True,
+    )
+    _record_step_origin(
+        context,
+        step_name=seed_items_processed_step_name,
+        step_id=seed_items_processed_step["id"],
+        source=expr,
+    )
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    _record_step_origin(context, step_name=current_items_step_name, step_id=current_items_step["id"], source=expr)
+    _record_step_origin(context, step_name=empty_route_step_name, step_id=empty_route_step["id"], source=expr)
+    _record_step_origin(context, step_name=gap_route_step_name, step_id=gap_route_step["id"], source=expr)
+    _record_step_origin(context, step_name=selected_route_step_name, step_id=selected_route_step["id"], source=expr)
+    _record_step_origin(context, step_name=route_selection_step_name, step_id=route_selection_step["id"], source=expr)
+
+    repeat_step = {
+        "name": step_name,
+        "id": step_id,
+        "repeat_until": {
+            "id": f"{step_id}__iteration",
+            "max_iterations": _render_repeat_until_max_iterations(
+                expr.spec.max_iterations_expr,
+                local_values=local_values,
+            ),
+            "steps": [
+                selector_call_step,
+                current_items_step,
+                empty_route_step,
+                gap_drafter_call_step,
+                gap_route_step,
+                run_item_call_step,
+                selected_route_step,
+                route_selection_step,
+            ],
+            "outputs": loop_outputs,
+            "condition": {
+                "compare": {
+                    "left": {"ref": "self.outputs.acc__loop-status"},
+                    "op": "ne",
+                    "right": "CONTINUE",
+                }
+            },
+        },
+    }
+
+    result_output_definitions = {
+        f"return__{field_name}": dict(contract)
+        for field_name, contract in context.return_output_contracts.items()
+    }
+
+    def _return_marker_step(
+        *,
+        name: str,
+        step_id_value: str,
+        variant: str,
+        run_state_ref: str,
+        items_processed_ref: str,
+        progress_ref: str,
+        blocker_ref: str,
+    ) -> dict[str, Any]:
+        return _materialize_outputs_step(
+            name=name,
+            step_id_value=step_id_value,
+            values=[
+                {
+                    "name": "return__variant",
+                    "source": {"literal": variant},
+                    "contract": dict(result_output_definitions["return__variant"]),
+                },
+                {
+                    "name": "return__run-state",
+                    "source": {"ref": run_state_ref},
+                    "contract": dict(result_output_definitions["return__run-state"]),
+                },
+                {
+                    "name": "return__items-processed",
+                    "source": {"ref": items_processed_ref},
+                    "contract": dict(result_output_definitions["return__items-processed"]),
+                },
+                {
+                    "name": "return__progress-report-path",
+                    "source": {"ref": progress_ref},
+                    "contract": dict(result_output_definitions["return__progress-report-path"]),
+                },
+                {
+                    "name": "return__blocker-class",
+                    "source": {"ref": blocker_ref},
+                    "contract": dict(result_output_definitions["return__blocker-class"]),
+                },
+            ],
+        )
+
+    def _forward_return_outputs(source_step_name: str) -> dict[str, Any]:
+        return {
+            name: {
+                **definition,
+                "from": {"ref": f"self.steps.{source_step_name}.artifacts.{name}"},
+            }
+            for name, definition in result_output_definitions.items()
+        }
+
+    normalize_step_name = f"{step_name}__normalize_result"
+    normalize_step_id = _normalize_generated_step_id(normalize_step_name)
+    _record_step_origin(context, step_name=normalize_step_name, step_id=normalize_step_id, source=expr)
+    normalize_step = {
+        "name": normalize_step_name,
+        "id": normalize_step_id,
+        "match": {
+            "ref": f"root.steps.{step_name}.artifacts.acc__loop-status",
+            "cases": {
+                "EMPTY": {
+                    "id": _normalize_generated_step_id(f"{normalize_step_name}__empty"),
+                    "outputs": _forward_return_outputs("EmitDrainEmpty"),
+                    "steps": [
+                        _return_marker_step(
+                            name="EmitDrainEmpty",
+                            step_id_value="emit_drain_empty",
+                            variant="EMPTY",
+                            run_state_ref=f"root.steps.{step_name}.artifacts.acc__run-state",
+                            items_processed_ref=f"root.steps.{step_name}.artifacts.acc__items-processed",
+                            progress_ref=f"root.steps.{step_name}.artifacts.acc__progress-report-path",
+                            blocker_ref=f"root.steps.{step_name}.artifacts.acc__blocker-class",
+                        )
+                    ],
+                },
+                "COMPLETED": {
+                    "id": _normalize_generated_step_id(f"{normalize_step_name}__completed"),
+                    "outputs": _forward_return_outputs("EmitDrainCompleted"),
+                    "steps": [
+                        _return_marker_step(
+                            name="EmitDrainCompleted",
+                            step_id_value="emit_drain_completed",
+                            variant="COMPLETED",
+                            run_state_ref=f"root.steps.{step_name}.artifacts.acc__run-state",
+                            items_processed_ref=f"root.steps.{step_name}.artifacts.acc__items-processed",
+                            progress_ref=f"root.steps.{step_name}.artifacts.acc__progress-report-path",
+                            blocker_ref=f"root.steps.{step_name}.artifacts.acc__blocker-class",
+                        )
+                    ],
+                },
+                "BLOCKED": {
+                    "id": _normalize_generated_step_id(f"{normalize_step_name}__blocked"),
+                    "outputs": _forward_return_outputs("EmitDrainBlocked"),
+                    "steps": [
+                        _return_marker_step(
+                            name="EmitDrainBlocked",
+                            step_id_value="emit_drain_blocked",
+                            variant="BLOCKED",
+                            run_state_ref=f"root.steps.{step_name}.artifacts.acc__run-state",
+                            items_processed_ref=f"root.steps.{step_name}.artifacts.acc__items-processed",
+                            progress_ref=f"root.steps.{step_name}.artifacts.acc__progress-report-path",
+                            blocker_ref=f"root.steps.{step_name}.artifacts.acc__blocker-class",
+                        )
+                    ],
+                },
+                "CONTINUE": {
+                    "id": _normalize_generated_step_id(f"{normalize_step_name}__continue"),
+                    "outputs": _forward_return_outputs("EmitDrainContinue"),
+                    "steps": [
+                        _return_marker_step(
+                            name="EmitDrainContinue",
+                            step_id_value="emit_drain_continue",
+                            variant="BLOCKED",
+                            run_state_ref=f"root.steps.{step_name}.artifacts.acc__run-state",
+                            items_processed_ref=f"root.steps.{step_name}.artifacts.acc__items-processed",
+                            progress_ref=f"root.steps.{step_name}.artifacts.acc__progress-report-path",
+                            blocker_ref=f"root.steps.{step_name}.artifacts.acc__blocker-class",
+                        )
+                    ],
+                },
+            },
+        },
+    }
+    return [seed_items_processed_step, repeat_step, normalize_step], _TerminalResult(
+        step_name=normalize_step_name,
+        step_id=normalize_step_id,
+        output_refs={
+            f"return__{field_name}": f"root.steps.{normalize_step_name}.artifacts.return__{field_name}"
+            for field_name in context.return_output_contracts
+        },
+        output_kind="match",
+        hidden_inputs=hidden_inputs,
+    )
+
+
+def _required_output_contract(
+    context: _LoweringContext,
+    field_name: str,
+    source_expr: Any,
+) -> Mapping[str, Any]:
+    contract = context.return_output_contracts.get(field_name)
+    if contract is None:
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message=f"missing lowered workflow return contract for `{field_name}`",
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+        )
+    return contract
+
+
+def _selected_item_summary_pointer_path(workflow_name: str) -> str:
+    return f".orchestrate/workflow_lisp/{workflow_name}/selected_item_summary.txt"
+
+
+def _validate_backlog_drain_provider_metadata(
+    expr: BacklogDrainExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    selector_workflow: TypedWorkflowDef | None,
+    run_item_workflow: TypedWorkflowDef | None,
+    gap_drafter_workflow: TypedWorkflowDef | None,
+    selector_imported: LoadedWorkflowBundle | None,
+    run_item_imported: LoadedWorkflowBundle | None,
+    gap_drafter_imported: LoadedWorkflowBundle | None,
+) -> None:
+    required_provider_names = set()
+    required_prompt_names = set()
+    for role_name, workflow in (
+        ("selector", selector_workflow),
+        ("run-item", run_item_workflow),
+        ("gap-drafter", gap_drafter_workflow),
+    ):
+        provider_count, prompt_count = _same_file_workflow_provider_requirements(
+            workflow,
+            typed_procedures=context.typed_procedures,
+        )
+        if provider_count:
+            required_provider_names.add(f"providers.{role_name}")
+        if prompt_count:
+            required_prompt_names.add(f"prompts.{role_name}")
+    for role_name, imported_bundle in (
+        ("selector", selector_imported),
+        ("run-item", run_item_imported),
+        ("gap-drafter", gap_drafter_imported),
+    ):
+        provider_count, prompt_count = _imported_bundle_provider_requirements(imported_bundle)
+        if provider_count:
+            required_provider_names.add(f"providers.{role_name}")
+        if prompt_count:
+            required_prompt_names.add(f"prompts.{role_name}")
+
+    if not required_provider_names and not required_prompt_names:
+        return
+    if expr.spec.providers_expr is None:
+        raise _compile_error(
+            code="backlog_drain_contract_invalid",
+            message="`backlog-drain :providers` must satisfy the provider/prompt extern requirements of the selected workflows",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    available_names = _provider_metadata_names(expr.spec.providers_expr, local_values=local_values)
+    missing_names = sorted((required_provider_names | required_prompt_names) - available_names)
+    if missing_names:
+        raise _compile_error(
+            code="backlog_drain_contract_invalid",
+            message=(
+                "`backlog-drain :providers` is missing required extern bindings: "
+                + ", ".join(missing_names)
+            ),
+            span=expr.spec.providers_expr.span,
+            form_path=expr.spec.providers_expr.form_path,
+        )
+
+
+def _imported_bundle_provider_requirements(bundle: LoadedWorkflowBundle | None) -> tuple[int, int]:
+    if bundle is None:
+        return 0, 0
+    provider_count = 0
+    prompt_count = 0
+    for step in bundle.surface.steps:
+        provider_count += _count_surface_provider_steps(step)
+        prompt_count += _count_surface_prompt_steps(step)
+    return provider_count, prompt_count
+
+
+def _count_surface_provider_steps(step: Any) -> int:
+    total = 1 if getattr(step, "kind", None) == SurfaceStepKind.PROVIDER else 0
+    total += sum(_count_surface_provider_steps(nested) for nested in _surface_nested_steps(step))
+    return total
+
+
+def _count_surface_prompt_steps(step: Any) -> int:
+    total = 1 if getattr(step, "kind", None) == SurfaceStepKind.PROVIDER and getattr(step, "asset_file", None) else 0
+    total += sum(_count_surface_prompt_steps(nested) for nested in _surface_nested_steps(step))
+    return total
+
+
+def _surface_nested_steps(step: Any) -> tuple[Any, ...]:
+    nested: list[Any] = []
+    then_branch = getattr(step, "then_branch", None)
+    else_branch = getattr(step, "else_branch", None)
+    if then_branch is not None:
+        nested.extend(getattr(then_branch, "steps", ()))
+    if else_branch is not None:
+        nested.extend(getattr(else_branch, "steps", ()))
+    match_cases = getattr(step, "match_cases", None)
+    if isinstance(match_cases, Mapping):
+        for case in match_cases.values():
+            nested.extend(getattr(case, "steps", ()))
+    repeat_until = getattr(step, "repeat_until", None)
+    if repeat_until is not None:
+        nested.extend(getattr(repeat_until, "steps", ()))
+    nested.extend(getattr(step, "for_each_steps", ()))
+    return tuple(nested)
+
+
+def _specialize_backlog_drain_call_target(
+    *,
+    workflow_name: str,
+    role_name: str,
+    imported_bundle: LoadedWorkflowBundle | None,
+    providers_expr: Any | None,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> str:
+    same_file_callee = context.lowered_callees.get(workflow_name)
+    if (imported_bundle is None and same_file_callee is None) or providers_expr is None:
+        return workflow_name
+    provider_name, prompt_name = _provider_role_binding_names(
+        providers_expr,
+        role_name=role_name,
+        local_values=local_values,
+    )
+    if provider_name is None and prompt_name is None:
+        return workflow_name
+    provider_binding = context.extern_environment.bindings_by_name.get(provider_name) if provider_name else None
+    prompt_binding = context.extern_environment.bindings_by_name.get(prompt_name) if prompt_name else None
+    provider_id = provider_binding.provider_id if isinstance(provider_binding, ProviderExtern) else None
+    prompt_path = prompt_binding.asset_file if isinstance(prompt_binding, PromptExtern) else None
+    specialized_name = f"{workflow_name}__{role_name.replace('-', '_')}_rebound"
+    if imported_bundle is not None:
+        specialized_bundle = _specialize_imported_bundle_provider_metadata(
+            imported_bundle,
+            provider_id=provider_id,
+            prompt_path=prompt_path,
+            alias=specialized_name,
+        )
+        mutable_imports = context.imported_workflow_bundles
+        if isinstance(mutable_imports, dict):
+            mutable_imports[specialized_name] = specialized_bundle
+    if same_file_callee is not None:
+        specialized_workflow = _specialize_same_file_lowered_workflow_provider_metadata(
+            same_file_callee,
+            provider_id=provider_id,
+            prompt_path=prompt_path,
+            alias=specialized_name,
+        )
+        mutable_callees = context.lowered_callees
+        if isinstance(mutable_callees, dict):
+            mutable_callees[specialized_name] = specialized_workflow
+    return specialized_name
+
+
+def _provider_role_binding_names(
+    expr: Any,
+    *,
+    role_name: str,
+    local_values: Mapping[str, Any],
+) -> tuple[str | None, str | None]:
+    resolved = _resolve_inline_expr_value(expr, local_values=local_values)
+    role_value = _mapping_field(resolved, role_name)
+    if role_value is None:
+        role_value = _mapping_field(resolved, role_name.replace("-", "_"))
+    return _find_first_nameexpr(role_value, prefix="providers."), _find_first_nameexpr(role_value, prefix="prompts.")
+
+
+def _mapping_field(value: Any, field_name: str) -> Any | None:
+    if isinstance(value, Mapping):
+        return value.get(field_name)
+    if isinstance(value, RecordExpr):
+        for name, field_value in value.fields:
+            if name == field_name:
+                return field_value
+        return None
+    return None
+
+
+def _find_first_nameexpr(value: Any, *, prefix: str) -> str | None:
+    if isinstance(value, NameExpr):
+        return value.name if value.name.startswith(prefix) else None
+    if isinstance(value, RecordExpr):
+        for _, field_value in value.fields:
+            name = _find_first_nameexpr(field_value, prefix=prefix)
+            if name is not None:
+                return name
+        return None
+    if isinstance(value, Mapping):
+        for field_value in value.values():
+            name = _find_first_nameexpr(field_value, prefix=prefix)
+            if name is not None:
+                return name
+    if isinstance(value, tuple):
+        for item in value:
+            name = _find_first_nameexpr(item, prefix=prefix)
+            if name is not None:
+                return name
+    return None
+
+
+def _specialize_imported_bundle_provider_metadata(
+    bundle: LoadedWorkflowBundle,
+    *,
+    provider_id: str | None,
+    prompt_path: str | None,
+    alias: str,
+) -> LoadedWorkflowBundle:
+    if provider_id is None and prompt_path is None:
+        return bundle
+
+    def rewrite_surface_step(step: Any) -> Any:
+        updated_step = step
+        if getattr(step, "kind", None) == SurfaceStepKind.PROVIDER:
+            updated_step = replace(
+                updated_step,
+                provider=provider_id or getattr(updated_step, "provider", None),
+                asset_file=prompt_path or getattr(updated_step, "asset_file", None),
+            )
+        then_branch = getattr(updated_step, "then_branch", None)
+        else_branch = getattr(updated_step, "else_branch", None)
+        match_cases = getattr(updated_step, "match_cases", None)
+        repeat_until = getattr(updated_step, "repeat_until", None)
+        for_each_steps = getattr(updated_step, "for_each_steps", ())
+        replacements: dict[str, Any] = {}
+        if then_branch is not None:
+            replacements["then_branch"] = replace(
+                then_branch,
+                steps=tuple(rewrite_surface_step(step) for step in then_branch.steps),
+            )
+        if else_branch is not None:
+            replacements["else_branch"] = replace(
+                else_branch,
+                steps=tuple(rewrite_surface_step(step) for step in else_branch.steps),
+            )
+        if isinstance(match_cases, Mapping):
+            replacements["match_cases"] = MappingProxyType(
+                {
+                    name: replace(case, steps=tuple(rewrite_surface_step(step) for step in case.steps))
+                    for name, case in match_cases.items()
+                }
+            )
+        if repeat_until is not None:
+            replacements["repeat_until"] = replace(
+                repeat_until,
+                steps=tuple(rewrite_surface_step(step) for step in repeat_until.steps),
+            )
+        if for_each_steps:
+            replacements["for_each_steps"] = tuple(rewrite_surface_step(step) for step in for_each_steps)
+        if replacements:
+            updated_step = replace(updated_step, **replacements)
+        return updated_step
+
+    rewritten_surface = replace(
+        bundle.surface,
+        name=alias,
+        steps=tuple(rewrite_surface_step(step) for step in bundle.surface.steps),
+    )
+    rewritten_nodes = {}
+    for node_id, node in bundle.ir.nodes.items():
+        execution_config = getattr(node, "execution_config", None)
+        if isinstance(execution_config, ProviderStepConfig):
+            execution_config = replace(
+                execution_config,
+                provider=provider_id or execution_config.provider,
+                asset_file=prompt_path or execution_config.asset_file,
+            )
+            rewritten_nodes[node_id] = replace(node, execution_config=execution_config)
+        else:
+            rewritten_nodes[node_id] = node
+    rewritten_ir = replace(
+        bundle.ir,
+        name=alias,
+        nodes=MappingProxyType(rewritten_nodes),
+    )
+    return replace(bundle, surface=rewritten_surface, ir=rewritten_ir)
+
+
+def _specialize_same_file_lowered_workflow_provider_metadata(
+    lowered_workflow: LoweredWorkflow,
+    *,
+    provider_id: str | None,
+    prompt_path: str | None,
+    alias: str,
+) -> LoweredWorkflow:
+    if provider_id is None and prompt_path is None:
+        return lowered_workflow
+
+    def rewrite(value: Any) -> Any:
+        if isinstance(value, list):
+            return [rewrite(item) for item in value]
+        if isinstance(value, Mapping):
+            rewritten = {
+                key: rewrite(item)
+                for key, item in value.items()
+            }
+            if isinstance(value.get("provider"), str):
+                rewritten["provider"] = provider_id or str(value["provider"])
+                if "asset_file" in rewritten:
+                    rewritten["asset_file"] = prompt_path or rewritten["asset_file"]
+            return rewritten
+        return value
+
+    definition = replace(lowered_workflow.typed_workflow.definition, name=alias)
+    signature = replace(lowered_workflow.typed_workflow.signature, name=alias)
+    typed_workflow = replace(
+        lowered_workflow.typed_workflow,
+        definition=definition,
+        signature=signature,
+    )
+    authored_mapping = rewrite(lowered_workflow.authored_mapping)
+    assert isinstance(authored_mapping, dict)
+    authored_mapping["name"] = alias
+    return LoweredWorkflow(
+        typed_workflow=typed_workflow,
+        authored_mapping=authored_mapping,
+        origin_map=lowered_workflow.origin_map,
+    )
+
+
+def _workflow_extern_requirements(
+    typed_workflow: TypedWorkflowDef,
+    *,
+    typed_procedures: Mapping[str, TypedProcedureDef],
+) -> tuple[set[str], set[str]]:
+    provider_names: set[str] = set()
+    prompt_names: set[str] = set()
+    visiting_procedures: set[str] = set()
+
+    def walk(expr: Any) -> None:
+        if isinstance(expr, ProviderResultExpr):
+            if isinstance(expr.provider, NameExpr):
+                provider_names.add(expr.provider.name)
+            if isinstance(expr.prompt, NameExpr):
+                prompt_names.add(expr.prompt.name)
+            for value in expr.inputs:
+                walk(value)
+            return
+        if isinstance(expr, RunProviderPhaseExpr):
+            if isinstance(expr.provider, NameExpr):
+                provider_names.add(expr.provider.name)
+            if isinstance(expr.prompt, NameExpr):
+                prompt_names.add(expr.prompt.name)
+            walk(expr.ctx_expr)
+            walk(expr.inputs_expr)
+            return
+        if isinstance(expr, ReviewReviseLoopExpr):
+            if isinstance(expr.review_provider, NameExpr):
+                provider_names.add(expr.review_provider.name)
+            if isinstance(expr.fix_provider, NameExpr):
+                provider_names.add(expr.fix_provider.name)
+            if isinstance(expr.review_prompt, NameExpr):
+                prompt_names.add(expr.review_prompt.name)
+            if isinstance(expr.fix_prompt, NameExpr):
+                prompt_names.add(expr.fix_prompt.name)
+            for value in expr.inputs:
+                walk(value)
+            return
+        if isinstance(expr, ProduceOneOfExpr):
+            if isinstance(expr.producer.provider_expr, NameExpr):
+                provider_names.add(expr.producer.provider_expr.name)
+            if isinstance(expr.producer.prompt_expr, NameExpr):
+                prompt_names.add(expr.producer.prompt_expr.name)
+            for value in expr.producer.inputs:
+                walk(value)
+            return
+        if isinstance(expr, ProcedureCallExpr):
+            for value in expr.args:
+                walk(value)
+            procedure = typed_procedures.get(expr.callee_name)
+            if procedure is None or procedure.definition.name in visiting_procedures:
+                return
+            visiting_procedures.add(procedure.definition.name)
+            walk(procedure.typed_body.expr)
+            visiting_procedures.remove(procedure.definition.name)
+            return
+        if isinstance(expr, LetStarExpr):
+            for _, binding in expr.bindings:
+                walk(binding)
+            walk(expr.body)
+            return
+        if isinstance(expr, MatchExpr):
+            walk(expr.subject)
+            for arm in expr.arms:
+                walk(arm.body)
+            return
+        if isinstance(expr, RecordExpr):
+            for _, value in expr.fields:
+                walk(value)
+            return
+        if isinstance(expr, CallExpr):
+            for _, value in expr.bindings:
+                walk(value)
+            return
+        if isinstance(expr, CommandResultExpr):
+            for value in expr.argv:
+                walk(value)
+
+    walk(typed_workflow.typed_body.expr)
+    return provider_names, prompt_names
+
+
+def _same_file_workflow_provider_requirements(
+    typed_workflow: TypedWorkflowDef | None,
+    *,
+    typed_procedures: Mapping[str, TypedProcedureDef],
+) -> tuple[int, int]:
+    if typed_workflow is None:
+        return 0, 0
+    provider_names, prompt_names = _workflow_extern_requirements(
+        typed_workflow,
+        typed_procedures=typed_procedures,
+    )
+    return len(provider_names), len(prompt_names)
+
+
+def _provider_metadata_names(expr: Any, *, local_values: Mapping[str, Any]) -> set[str]:
+    resolved = _resolve_inline_expr_value(expr, local_values=local_values)
+    names: set[str] = set()
+
+    def walk(value: Any) -> None:
+        if isinstance(value, NameExpr):
+            names.add(value.name)
+            return
+        if isinstance(value, RecordExpr):
+            for _, field_value in value.fields:
+                walk(field_value)
+            return
+        if isinstance(value, Mapping):
+            for field_value in value.values():
+                walk(field_value)
+            return
+        if isinstance(value, tuple):
+            for item in value:
+                walk(item)
+
+    walk(resolved if resolved is not None else expr)
+    return names
 
 
 def _lower_with_phase(
@@ -2058,6 +3729,42 @@ def _render_scalar_expr(expr: Any, *, local_values: Mapping[str, Any]) -> str:
     )
 
 
+def _render_repeat_until_max_iterations(expr: Any, *, local_values: Mapping[str, Any]) -> int:
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if isinstance(value, LiteralExpr):
+        return int(value.value)
+    raise _compile_error(
+        code="workflow_return_not_exportable",
+        message="`backlog-drain :max-iterations` must lower from a literal integer",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+def _render_boolean_predicate(expr: Any | None, *, local_values: Mapping[str, Any]) -> dict[str, Any] | None:
+    if expr is None:
+        return None
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if isinstance(value, LiteralExpr):
+        operand: bool | dict[str, str] = bool(value.value)
+    elif isinstance(value, str):
+        operand = {"ref": value}
+    else:
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="boolean guards must lower from literals or workflow inputs/refs",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    return {
+        "compare": {
+            "left": operand,
+            "op": "eq",
+            "right": True,
+        }
+    }
+
+
 def _render_call_binding_ref(
     expr: Any,
     *,
@@ -2077,6 +3784,34 @@ def _render_call_binding_ref(
     )
 
 
+def _build_call_bindings_from_record_value(
+    param_name: str,
+    param_type: Any,
+    value: Mapping[str, Any],
+    *,
+    source_expr: Any,
+) -> dict[str, Any]:
+    if not isinstance(param_type, RecordTypeRef):
+        raise _compile_error(
+            code="workflow_signature_mismatch",
+            message="record binding helper requires a record-typed workflow parameter",
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+        )
+    bindings: dict[str, Any] = {}
+    for generated_name, field_path in _flatten_boundary_leaf_paths(param_type, generated_name=param_name):
+        ref = _resolve_nested_local_value(value, field_path)
+        if not isinstance(ref, str):
+            raise _compile_error(
+                code="workflow_signature_mismatch",
+                message="Stage 3 lowering requires synthesized call bindings to resolve to workflow inputs or prior outputs",
+                span=source_expr.span,
+                form_path=source_expr.form_path,
+            )
+        bindings[generated_name] = {"ref": ref}
+    return bindings
+
+
 def _resolve_expr_local_value(expr: Any, *, local_values: Mapping[str, Any]) -> Any:
     if isinstance(expr, NameExpr):
         return local_values.get(expr.name)
@@ -2085,6 +3820,89 @@ def _resolve_expr_local_value(expr: Any, *, local_values: Mapping[str, Any]) -> 
         return _resolve_nested_local_value(base_value, tuple(expr.fields))
     if isinstance(expr, PhaseTargetExpr):
         return None
+    return None
+
+
+def _resource_transition_payload(
+    expr: ResourceTransitionExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "transition_name": expr.spec.transition_name,
+        "from": expr.spec.from_queue_name.rsplit(".", 1)[-1],
+        "to": expr.spec.to_queue_name.rsplit(".", 1)[-1],
+        "event": expr.spec.event_name,
+    }
+    ledger_value = _resolve_inline_expr_value(expr.spec.ledger_expr, local_values=local_values)
+    if isinstance(ledger_value, LiteralExpr):
+        payload["ledger_path"] = str(ledger_value.value)
+    elif isinstance(ledger_value, str):
+        payload["ledger_path"] = "${" + ledger_value + "}"
+    else:
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="`resource-transition :ledger` must lower from a literal or workflow input path",
+            span=expr.spec.ledger_expr.span,
+            form_path=expr.spec.ledger_expr.form_path,
+        )
+
+    resource_value = _resolve_inline_expr_value(expr.spec.resource_expr, local_values=local_values)
+    resource_type = _resolve_signature_expr_type(expr.spec.resource_expr, context=context)
+    if isinstance(resource_value, LiteralExpr):
+        if isinstance(resource_type, PathTypeRef):
+            payload["resource_path"] = str(resource_value.value)
+        else:
+            payload["resource_id"] = str(resource_value.value)
+    elif isinstance(resource_value, str):
+        if isinstance(resource_type, PathTypeRef):
+            payload["resource_path"] = "${" + resource_value + "}"
+        else:
+            payload["resource_id"] = "${" + resource_value + "}"
+    else:
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="`resource-transition :resource` must lower from a literal or workflow input value",
+            span=expr.spec.resource_expr.span,
+            form_path=expr.spec.resource_expr.form_path,
+        )
+
+    if isinstance(expr.spec.resource_expr, FieldAccessExpr):
+        base_value = local_values.get(expr.spec.resource_expr.base.name)
+        if isinstance(base_value, Mapping):
+            sibling_path_ref = base_value.get("item-path")
+            if "resource_path" not in payload and isinstance(sibling_path_ref, str):
+                payload["resource_path"] = "${" + sibling_path_ref + "}"
+            sibling_id_ref = base_value.get("item-id")
+            if "resource_id" not in payload and isinstance(sibling_id_ref, str):
+                payload["resource_id"] = "${" + sibling_id_ref + "}"
+    return payload
+
+
+def _resolve_signature_expr_type(expr: Any, *, context: _LoweringContext) -> TypeRef | None:
+    if isinstance(expr, NameExpr):
+        return _signature_param_type(expr.name, context=context)
+    if isinstance(expr, FieldAccessExpr):
+        current_type = _signature_param_type(expr.base.name, context=context)
+        for field_name in expr.fields:
+            if not isinstance(current_type, RecordTypeRef):
+                return None
+            current_type = context.type_env.record_field(
+                current_type,
+                field_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return current_type
+    return None
+
+
+def _signature_param_type(name: str, *, context: _LoweringContext) -> TypeRef | None:
+    for param_name, param_type in context.signature.params:
+        if param_name == name:
+            return param_type
     return None
 
 
@@ -2662,6 +4480,23 @@ def _build_record_step_local_value(type_ref: RecordTypeRef, *, step_name: str) -
     return local_value
 
 
+def _build_union_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
+    local_value: dict[str, Any] = {}
+    for output_name, ref in output_refs.items():
+        if not output_name.startswith("return__"):
+            continue
+        field_path = output_name.removeprefix("return__").split("__")
+        current = local_value
+        for field_name in field_path[:-1]:
+            next_current = current.get(field_name)
+            if not isinstance(next_current, dict):
+                next_current = {}
+                current[field_name] = next_current
+            current = next_current
+        current[field_path[-1]] = ref
+    return local_value
+
+
 def _build_nested_record_step_local_value(
     type_ref: RecordTypeRef,
     *,
@@ -2684,11 +4519,31 @@ def _build_nested_record_step_local_value(
 
 
 def _flatten_boundary_leaf_paths(
-    type_ref: RecordTypeRef,
+    type_ref: RecordTypeRef | UnionTypeRef,
     *,
     generated_name: str,
     field_path: tuple[str, ...] = (),
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    if isinstance(type_ref, UnionTypeRef):
+        projection = derive_union_workflow_boundary_projection(
+            type_ref,
+            span=type_ref.definition.span,
+            form_path=("workflow-lisp", "defunion", type_ref.name),
+        )
+        flattened: list[tuple[str, tuple[str, ...]]] = [
+            (projection.discriminant_field.generated_name, ("variant",)),
+        ]
+        seen_generated_names = {projection.discriminant_field.generated_name}
+        for field in projection.shared_fields:
+            flattened.append((field.generated_name, field.source_path[1:]))
+            seen_generated_names.add(field.generated_name)
+        for variant in type_ref.definition.variants:
+            for field in projection.variant_fields.get(variant.name, ()):
+                if field.generated_name in seen_generated_names:
+                    continue
+                flattened.append((field.generated_name, field.source_path[1:]))
+                seen_generated_names.add(field.generated_name)
+        return tuple(flattened)
     flattened: list[tuple[str, tuple[str, ...]]] = []
     for field in type_ref.definition.fields:
         field_type = type_ref.field_types[field.name]
@@ -2740,6 +4595,11 @@ def _render_provider_artifact_ref(provider_step_name: str, field_access: FieldAc
 def _record_output_refs(step_name: str, type_ref: Any) -> dict[str, str]:
     if isinstance(type_ref, RecordTypeRef):
         return _flatten_record_output_refs(step_name, type_ref)
+    if isinstance(type_ref, UnionTypeRef):
+        return {
+            output_name: f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
+            for output_name, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name="return")
+        }
     return {}
 
 
@@ -3027,19 +4887,19 @@ def _lower_match_output_field(
     match_step_id: str,
     variant_name: str,
     binding_name: str,
-    provider_step_name: str,
+    binding_terminal: _TerminalResult,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> dict[str, Any]:
     value = _record_expr_value_at_path(record_expr, _return_field_path(field_name))
     if isinstance(value, FieldAccessExpr) and value.base.name == binding_name:
-        provider_ref = _render_provider_artifact_ref(provider_step_name, value)
-        if provider_ref is not None:
+        bound_ref = binding_terminal.output_refs.get(f"return__{'__'.join(value.fields)}")
+        if bound_ref is not None:
             return {
                 "steps": [],
                 "output": {
                     **contract_definition,
-                    "from": {"ref": provider_ref},
+                    "from": {"ref": bound_ref},
                 },
             }
     source_ref = _render_existing_output_ref(value, local_values=local_values)
@@ -3054,7 +4914,7 @@ def _lower_match_output_field(
     raise _compile_error(
         code="workflow_return_not_exportable",
         message=(
-            f"record return field `{field_name}` must lower from the matched provider result "
+            f"record return field `{field_name}` must lower from the matched structured result "
             "in this Stage 3 slice"
         ),
         span=record_expr.span,
@@ -3196,6 +5056,8 @@ def _copy_context_with_phase_scope(
         workflow_path=context.workflow_path,
         signature=context.signature,
         authored_input_contracts=context.authored_input_contracts,
+        workflow_catalog=context.workflow_catalog,
+        imported_workflow_bundles=context.imported_workflow_bundles,
         extern_environment=context.extern_environment,
         command_boundary_environment=context.command_boundary_environment,
         lowered_callees=context.lowered_callees,
@@ -3220,6 +5082,8 @@ def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefi
         workflow_path=context.workflow_path,
         signature=context.signature,
         authored_input_contracts=context.authored_input_contracts,
+        workflow_catalog=context.workflow_catalog,
+        imported_workflow_bundles=context.imported_workflow_bundles,
         extern_environment=context.extern_environment,
         command_boundary_environment=context.command_boundary_environment,
         lowered_callees=context.lowered_callees,
@@ -3266,6 +5130,34 @@ def _binding_type_for_expr(expr: Any, *, context: _LoweringContext) -> TypeRef:
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, ResourceTransitionExpr):
+        return context.type_env.resolve_type(
+            "ResourceTransitionResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, FinalizeSelectedItemExpr):
+        return context.type_env.resolve_type(
+            "SelectedItemResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, BacklogDrainExpr):
+        return context.type_env.resolve_type(
+            "DrainResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, CallExpr):
+        callee = context.lowered_callees.get(expr.callee_name)
+        if callee is None:
+            raise _compile_error(
+                code="workflow_call_unknown",
+                message=f"unknown workflow callee `{expr.callee_name}` during lowering",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        return callee.typed_workflow.signature.return_type_ref
     raise _compile_error(
         code="workflow_return_not_exportable",
         message=f"Stage 3 lowering does not support let* binding `{type(expr).__name__}`",
@@ -3734,12 +5626,27 @@ def _typed_workflow_dependencies(
 
 
 def _lowered_workflow_dependencies(lowered_workflow: LoweredWorkflow) -> set[str]:
-    steps = lowered_workflow.authored_mapping.get("steps")
     dependencies: set[str] = set()
-    if isinstance(steps, list):
-        for step in steps:
-            if isinstance(step, Mapping) and isinstance(step.get("call"), str):
+    steps = lowered_workflow.authored_mapping.get("steps")
+
+    def visit(items: Any) -> None:
+        if not isinstance(items, list):
+            return
+        for step in items:
+            if not isinstance(step, Mapping):
+                continue
+            if isinstance(step.get("call"), str):
                 dependencies.add(str(step["call"]))
+            repeat = step.get("repeat_until")
+            if isinstance(repeat, Mapping):
+                visit(repeat.get("steps"))
+            match = step.get("match")
+            if isinstance(match, Mapping):
+                for case in (match.get("cases") or {}).values():
+                    if isinstance(case, Mapping):
+                        visit(case.get("steps"))
+
+    visit(steps)
     return dependencies
 
 

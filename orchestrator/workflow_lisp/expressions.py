@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .drain_stdlib import BacklogDrainSpec
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .phase_stdlib import (
     ProduceOneOfCandidateFieldSpec,
     ProduceOneOfCandidateSpec,
     ProduceOneOfProducerSpec,
 )
+from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
@@ -235,6 +237,36 @@ class ResumeOrStartExpr:
     validation_spec: object | None = None
 
 
+@dataclass(frozen=True)
+class ResourceTransitionExpr:
+    """One bounded resource movement form."""
+
+    spec: ResourceTransitionSpec
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class FinalizeSelectedItemExpr:
+    """One bounded selected-item terminalization form."""
+
+    spec: FinalizeSelectedItemSpec
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class BacklogDrainExpr:
+    """One bounded compile-time drain loop form."""
+
+    spec: BacklogDrainSpec
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
 ExprNode = (
     NameExpr
     | LiteralExpr
@@ -252,6 +284,9 @@ ExprNode = (
     | ProduceOneOfExpr
     | ReviewReviseLoopExpr
     | ResumeOrStartExpr
+    | ResourceTransitionExpr
+    | FinalizeSelectedItemExpr
+    | BacklogDrainExpr
 )
 
 
@@ -445,6 +480,27 @@ def _elaborate_list(
         )
     if head.resolved_name == "resume-or-start":
         return _elaborate_resume_or_start(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "resource-transition":
+        return _elaborate_resource_transition(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "finalize-selected-item":
+        return _elaborate_finalize_selected_item(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "backlog-drain":
+        return _elaborate_backlog_drain(
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -1222,7 +1278,7 @@ def _elaborate_resume_or_start(
             span=sections[":returns"].span,
             form_path=form_path,
             expansion_stack=sections[":returns"].expansion_stack,
-        )
+    )
     return ResumeOrStartExpr(
         resume_name=resume_identifier.resolved_name,
         ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
@@ -1230,6 +1286,185 @@ def _elaborate_resume_or_start(
         valid_when=valid_variants,
         start_expr=_elaborate(sections[":start"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
         returns_type_name=returns_identifier.resolved_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_resource_transition(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ResourceTransitionExpr:
+    if len(datum.items) < 8:
+        _raise_error(
+            "`resource-transition` requires a transition name plus :ctx, :resource, :from, :to, :ledger, and :event",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    transition_identifier = syntax_identifier(datum.items[1])
+    if transition_identifier is None:
+        _raise_error(
+            "`resource-transition` transition name must be a symbol",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`resource-transition`")
+    required = (":ctx", ":resource", ":from", ":to", ":ledger", ":event")
+    if any(sections.get(keyword) is None for keyword in required):
+        _raise_error(
+            "`resource-transition` requires :ctx, :resource, :from, :to, :ledger, and :event",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    from_identifier = syntax_identifier(sections[":from"])
+    to_identifier = syntax_identifier(sections[":to"])
+    event_identifier = syntax_identifier(sections[":event"])
+    if from_identifier is None or to_identifier is None or event_identifier is None:
+        _raise_error(
+            "`resource-transition` queue and event operands must be symbols",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return ResourceTransitionExpr(
+        spec=ResourceTransitionSpec(
+            transition_name=transition_identifier.resolved_name,
+            ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            when_expr=(
+                _elaborate(sections[":when"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names)
+                if sections.get(":when") is not None
+                else None
+            ),
+            resource_expr=_elaborate(
+                sections[":resource"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            ),
+            from_queue_name=from_identifier.resolved_name,
+            to_queue_name=to_identifier.resolved_name,
+            ledger_expr=_elaborate(sections[":ledger"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            event_name=event_identifier.resolved_name,
+        ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_finalize_selected_item(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> FinalizeSelectedItemExpr:
+    sections = _keyword_sections(datum.items[1:], form_path=form_path, label="`finalize-selected-item`")
+    required = (":ctx", ":selected", ":queue-transition", ":roadmap", ":plan", ":implementation")
+    if any(sections.get(keyword) is None for keyword in required):
+        _raise_error(
+            "`finalize-selected-item` requires :ctx, :selected, :queue-transition, :roadmap, :plan, and :implementation",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return FinalizeSelectedItemExpr(
+        spec=FinalizeSelectedItemSpec(
+            ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            selected_expr=_elaborate(
+                sections[":selected"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            ),
+            queue_transition_expr=_elaborate(
+                sections[":queue-transition"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            ),
+            roadmap_expr=_elaborate(sections[":roadmap"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            plan_expr=_elaborate(sections[":plan"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            implementation_expr=_elaborate(
+                sections[":implementation"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            ),
+        ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_backlog_drain(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> BacklogDrainExpr:
+    if len(datum.items) < 7:
+        _raise_error(
+            "`backlog-drain` requires a drain name plus :ctx, :selector, :run-item, :gap-drafter, and :max-iterations",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    drain_identifier = syntax_identifier(datum.items[1])
+    if drain_identifier is None:
+        _raise_error(
+            "`backlog-drain` drain name must be a symbol",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`backlog-drain`")
+    required = (":ctx", ":selector", ":run-item", ":gap-drafter", ":max-iterations")
+    if any(sections.get(keyword) is None for keyword in required):
+        _raise_error(
+            "`backlog-drain` requires :ctx, :selector, :run-item, :gap-drafter, and :max-iterations",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    selector_identifier = syntax_identifier(sections[":selector"])
+    run_item_identifier = syntax_identifier(sections[":run-item"])
+    gap_drafter_identifier = syntax_identifier(sections[":gap-drafter"])
+    if selector_identifier is None or run_item_identifier is None or gap_drafter_identifier is None:
+        _raise_error(
+            "`backlog-drain` workflow refs must be symbols",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return BacklogDrainExpr(
+        spec=BacklogDrainSpec(
+            drain_name=drain_identifier.resolved_name,
+            ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+            selector_name=selector_identifier.resolved_name,
+            run_item_name=run_item_identifier.resolved_name,
+            gap_drafter_name=gap_drafter_identifier.resolved_name,
+            providers_expr=(
+                _elaborate(sections[":providers"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names)
+                if sections.get(":providers") is not None
+                else None
+            ),
+            max_iterations_expr=_elaborate(
+                sections[":max-iterations"],
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            ),
+        ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from orchestrator.workflow.loaded_bundle import workflow_input_contracts, workflow_output_contracts
+
 from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
@@ -13,6 +15,7 @@ from .expressions import elaborate_expression
 from .macros import collect_macro_catalog, expand_module_forms
 from .procedures import ProcedureCatalog
 from .spans import SourceSpan
+from .spans import SourcePosition
 from .syntax import (
     ExpansionStack,
     SyntaxIdentifier,
@@ -98,7 +101,7 @@ class WorkflowDef:
 class WorkflowSignature:
     name: str
     params: tuple[tuple[str, TypeRef], ...]
-    return_type_ref: RecordTypeRef
+    return_type_ref: RecordTypeRef | UnionTypeRef
     span: SourceSpan
     form_path: tuple[str, ...]
 
@@ -115,6 +118,7 @@ class TypedWorkflowDef:
 class WorkflowCatalog:
     signatures_by_name: Mapping[str, WorkflowSignature]
     definitions_by_name: Mapping[str, WorkflowDef]
+    imported_bundles_by_name: Mapping[str, "LoadedWorkflowBundle"]
 
 
 @dataclass(frozen=True)
@@ -144,6 +148,7 @@ def analyze_workflow_boundary_type(
     type_ref: TypeRef,
     *,
     source_path: tuple[str, ...] = (),
+    allow_union: bool = False,
 ) -> WorkflowBoundaryAnalysis:
     """Return whether one workflow-boundary type can lower to shared contracts."""
 
@@ -187,6 +192,7 @@ def analyze_workflow_boundary_type(
             analysis = analyze_workflow_boundary_type(
                 field_type,
                 source_path=source_path + (field.name,),
+                allow_union=allow_union,
             )
             if not analysis.lowerable:
                 return analysis
@@ -197,6 +203,23 @@ def analyze_workflow_boundary_type(
             contains_union=False,
         )
     if isinstance(type_ref, UnionTypeRef):
+        if allow_union:
+            for variant in type_ref.definition.variants:
+                for field in variant.fields:
+                    field_type = type_ref.variant_field_types[variant.name][field.name]
+                    analysis = analyze_workflow_boundary_type(
+                        field_type,
+                        source_path=source_path + (variant.name, field.name),
+                        allow_union=False,
+                    )
+                    if not analysis.lowerable:
+                        return analysis
+            return WorkflowBoundaryAnalysis(
+                lowerable=True,
+                contains_json=False,
+                contains_provider_or_prompt=False,
+                contains_union=False,
+            )
         return WorkflowBoundaryAnalysis(
             lowerable=False,
             contains_json=False,
@@ -226,6 +249,8 @@ def build_workflow_catalog(
     module: WorkflowLispModule,
     workflow_defs: tuple[WorkflowDef, ...],
     type_env: FrontendTypeEnvironment,
+    *,
+    imported_workflow_bundles: Mapping[str, "LoadedWorkflowBundle"] | None = None,
 ) -> WorkflowCatalog:
     """Build same-file workflow signatures before any body is typechecked."""
 
@@ -251,12 +276,12 @@ def build_workflow_catalog(
             form_path=workflow_def.form_path,
             expansion_stack=workflow_def.expansion_stack,
         )
-        if not isinstance(return_type_ref, RecordTypeRef):
+        if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="workflow_return_type_invalid",
                     message=(
-                        f"workflow `{workflow_def.name}` must return a record type in Stage 3, "
+                        f"workflow `{workflow_def.name}` must return a record or union type in Stage 3, "
                         f"got `{workflow_def.return_type_name}`"
                     ),
                     span=workflow_def.span,
@@ -265,7 +290,11 @@ def build_workflow_catalog(
                 )
             )
             continue
-        return_analysis = analyze_workflow_boundary_type(return_type_ref, source_path=("return",))
+        return_analysis = analyze_workflow_boundary_type(
+            return_type_ref,
+            source_path=("return",),
+            allow_union=True,
+        )
         return_diagnostic = _boundary_diagnostic(
             workflow_name=workflow_def.name,
             analysis=return_analysis,
@@ -310,11 +339,210 @@ def build_workflow_catalog(
         definitions_by_name[workflow_def.name] = workflow_def
         signatures_by_name[workflow_def.name] = signature
 
+    for imported_name, imported_bundle in (imported_workflow_bundles or {}).items():
+        if imported_name in signatures_by_name:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="workflow_definition_duplicate",
+                    message=f"duplicate workflow definition `{imported_name}`",
+                    span=_bundle_source_span(imported_bundle),
+                    form_path=("workflow-lisp", imported_name),
+                )
+            )
+            continue
+        signatures_by_name[imported_name] = _signature_from_imported_bundle(
+            imported_name,
+            imported_bundle,
+            type_env=type_env,
+        )
+
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))
     return WorkflowCatalog(
         signatures_by_name=signatures_by_name,
         definitions_by_name=definitions_by_name,
+        imported_bundles_by_name=dict(imported_workflow_bundles or {}),
+    )
+
+
+def _signature_from_imported_bundle(
+    alias: str,
+    bundle: "LoadedWorkflowBundle",
+    *,
+    type_env: FrontendTypeEnvironment,
+) -> WorkflowSignature:
+    input_contracts = workflow_input_contracts(bundle)
+    grouped_inputs: dict[str, dict[str, Mapping[str, object]]] = {}
+    param_order: list[str] = []
+    for input_name, input_spec in input_contracts.items():
+        if not isinstance(input_name, str) or not isinstance(input_spec, Mapping):
+            continue
+        if input_name.startswith("__write_root__"):
+            continue
+        param_name = input_name.split("__", 1)[0]
+        if param_name not in grouped_inputs:
+            grouped_inputs[param_name] = {}
+            param_order.append(param_name)
+        grouped_inputs[param_name][input_name] = dict(input_spec)
+
+    span = _bundle_source_span(bundle)
+    form_path = ("workflow-lisp", alias)
+    params = tuple(
+        (
+            param_name,
+            _match_boundary_type_from_contracts(
+                grouped_inputs[param_name],
+                type_env=type_env,
+                generated_name=param_name,
+                allow_union=False,
+                span=span,
+                form_path=form_path,
+            ),
+        )
+        for param_name in param_order
+    )
+    return_type_ref = _match_boundary_type_from_contracts(
+        {
+            output_name: dict(output_spec)
+            for output_name, output_spec in workflow_output_contracts(bundle).items()
+            if isinstance(output_name, str) and isinstance(output_spec, Mapping)
+        },
+        type_env=type_env,
+        generated_name="return",
+        allow_union=True,
+        span=span,
+        form_path=form_path,
+    )
+    if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="workflow_ref_return_type_invalid",
+                    message=f"imported workflow `{alias}` must resolve to a record or union return type",
+                    span=span,
+                    form_path=form_path,
+                ),
+            )
+        )
+    return WorkflowSignature(
+        name=alias,
+        params=params,
+        return_type_ref=return_type_ref,
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _match_boundary_type_from_contracts(
+    contracts: Mapping[str, Mapping[str, object]],
+    *,
+    type_env: FrontendTypeEnvironment,
+    generated_name: str,
+    allow_union: bool,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    normalized_contracts = {
+        name: _normalize_boundary_contract_definition(definition)
+        for name, definition in contracts.items()
+        if isinstance(name, str) and isinstance(definition, Mapping)
+    }
+    candidates: list[TypeRef] = []
+    for candidate in type_env._type_refs.values():  # noqa: SLF001 - internal compiler matching
+        if isinstance(candidate, UnionTypeRef) and not allow_union:
+            continue
+        if not isinstance(candidate, (PrimitiveTypeRef, PathTypeRef, RecordTypeRef, UnionTypeRef)):
+            continue
+        analysis = analyze_workflow_boundary_type(
+            candidate,
+            source_path=(generated_name,),
+            allow_union=allow_union,
+        )
+        if not analysis.lowerable:
+            continue
+        if _flattened_boundary_contracts(candidate, generated_name=generated_name, span=span, form_path=form_path) == normalized_contracts:
+            candidates.append(candidate)
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) > 1:
+        candidate_names = ", ".join(sorted(candidate.name for candidate in candidates))
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="workflow_ref_signature_invalid",
+                    message=(
+                        f"imported workflow boundary for `{generated_name}` is ambiguous across authored types: "
+                        f"{candidate_names}"
+                    ),
+                    span=span,
+                    form_path=form_path,
+                ),
+            )
+        )
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="workflow_ref_signature_invalid",
+                message=f"imported workflow boundary for `{generated_name}` does not match any authored type in scope",
+                span=span,
+                form_path=form_path,
+            ),
+        )
+    )
+
+
+def _flattened_boundary_contracts(
+    type_ref: TypeRef,
+    *,
+    generated_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> Mapping[str, Mapping[str, object]]:
+    from .contracts import _flatten_workflow_boundary_fields, derive_union_workflow_boundary_projection
+
+    if isinstance(type_ref, UnionTypeRef):
+        projection = derive_union_workflow_boundary_projection(
+            type_ref,
+            span=span,
+            form_path=form_path,
+        )
+        fields = [projection.discriminant_field, *projection.shared_fields]
+        seen_generated_names = {field.generated_name for field in fields}
+        for variant in type_ref.definition.variants:
+            for field in projection.variant_fields.get(variant.name, ()):
+                if field.generated_name in seen_generated_names:
+                    continue
+                fields.append(field)
+                seen_generated_names.add(field.generated_name)
+        return {
+            field.generated_name: _normalize_boundary_contract_definition(field.contract_definition)
+            for field in fields
+        }
+    return {
+        field.generated_name: _normalize_boundary_contract_definition(field.contract_definition)
+        for field in _flatten_workflow_boundary_fields(
+            type_ref,
+            generated_name=generated_name,
+            source_path=(generated_name,),
+            span=span,
+            form_path=form_path,
+        )
+    }
+
+
+def _normalize_boundary_contract_definition(definition: Mapping[str, object]) -> Mapping[str, object]:
+    return {
+        str(key): value
+        for key, value in dict(definition).items()
+        if key != "from"
+    }
+
+
+def _bundle_source_span(bundle: "LoadedWorkflowBundle") -> SourceSpan:
+    workflow_path = bundle.provenance.workflow_path
+    return SourceSpan(
+        start=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
+        end=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
     )
 
 

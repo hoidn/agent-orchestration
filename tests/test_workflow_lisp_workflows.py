@@ -20,8 +20,11 @@ from orchestrator.workflow_lisp.expressions import (
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.syntax import SyntaxNode, WorkflowLispSyntaxModule, build_syntax_module
-from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, RecordTypeRef
+from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment, RecordTypeRef, UnionTypeRef
 from orchestrator.workflow_lisp.workflows import (
+    ExternEnvironment,
+    PromptExtern,
+    ProviderExtern,
     WorkflowCatalog,
     WorkflowDef,
     build_workflow_catalog,
@@ -336,7 +339,7 @@ def test_structured_results_fixture_uses_union_provider_result_match_and_avoids_
     assert [binding_name for binding_name, _ in call_body.bindings] == ["input", "report_path"]
 
 
-def test_build_workflow_catalog_rejects_union_workflow_returns_in_stage3(tmp_path: Path) -> None:
+def test_build_workflow_catalog_accepts_union_workflow_returns_when_projection_is_supported(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "union_return.orc",
         "\n".join(
@@ -357,10 +360,13 @@ def test_build_workflow_catalog_rejects_union_workflow_returns_in_stage3(tmp_pat
     )
     workflow_defs = elaborate_workflow_definitions(_build_syntax_module(path))
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_workflow_catalog(compile_stage1_module(TYPE_FIXTURE), workflow_defs, _build_type_env())
+    workflow_catalog = build_workflow_catalog(
+        compile_stage1_module(TYPE_FIXTURE),
+        workflow_defs,
+        _build_type_env(),
+    )
 
-    _assert_diagnostic_code(excinfo, "workflow_return_type_invalid")
+    assert isinstance(workflow_catalog.signatures_by_name["provider-attempt"].return_type_ref, UnionTypeRef)
 
 
 @pytest.mark.parametrize(
@@ -453,7 +459,7 @@ def test_build_workflow_catalog_rejects_unsupported_workflow_return_fields(
     _assert_diagnostic_code(excinfo, expected_code)
 
 
-def test_typecheck_workflow_definitions_rejects_calls_to_non_lowerable_same_file_workflows(
+def test_typecheck_workflow_definitions_accepts_union_workflow_calls_with_match_projection(
     tmp_path: Path,
 ) -> None:
     path = _write_module(
@@ -475,16 +481,46 @@ def test_typecheck_workflow_definitions_rejects_calls_to_non_lowerable_same_file
                 "    ((input ChecksResult)",
                 "     (report_path WorkReport))",
                 "    -> ImplementationSummary",
-                "    (call helper",
-                "      :input input",
-                "      :report_path report_path)))",
+                "    (let* ((attempt",
+                "             (call helper",
+                "               :input input",
+                "               :report_path report_path)))",
+                "      (match attempt",
+                "        ((COMPLETED completed)",
+                "         (record ImplementationSummary",
+                "           :status \"completed\"",
+                "           :report completed.execution_report))",
+                "        ((BLOCKED blocked)",
+                "         (record ImplementationSummary",
+                "           :status \"blocked\"",
+                "           :report blocked.progress_report))))))",
             ]
         ),
     )
     syntax_module = _build_syntax_module(path)
     workflow_defs = elaborate_workflow_definitions(syntax_module)
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        build_workflow_catalog(compile_stage1_module(TYPE_FIXTURE), workflow_defs, _build_type_env())
+    workflow_catalog = build_workflow_catalog(
+        compile_stage1_module(TYPE_FIXTURE),
+        workflow_defs,
+        _build_type_env(),
+    )
+    typed = typecheck_workflow_definitions(
+        workflow_defs,
+        type_env=_build_type_env(),
+        workflow_catalog=workflow_catalog,
+        extern_environment=ExternEnvironment(
+            bindings_by_name={
+                "providers.execute": ProviderExtern(
+                    name="providers.execute",
+                    provider_id="test-provider",
+                ),
+                "prompts.implementation.execute": PromptExtern(
+                    name="prompts.implementation.execute",
+                    asset_file="prompts/implementation/execute.md",
+                ),
+            }
+        ),
+    )
 
-    _assert_diagnostic_code(excinfo, "workflow_return_type_invalid")
+    assert [workflow.definition.name for workflow in typed] == ["helper", "entry"]

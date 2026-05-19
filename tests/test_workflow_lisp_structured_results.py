@@ -809,6 +809,65 @@ def test_workflow_signature_contract_flattening_recurses_nested_records() -> Non
     assert flattened[-1].source_path == ("return", "summary", "report")
 
 
+def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
+    type_env = _build_type_env()
+    implementation_state = type_env.resolve_type(
+        "ImplementationState",
+        span=_build_syntax_module(TYPE_FIXTURE).span,
+        form_path=("workflow-lisp", "contract-test"),
+    )
+    work_report = type_env.resolve_type(
+        "WorkReport",
+        span=_build_syntax_module(TYPE_FIXTURE).span,
+        form_path=("workflow-lisp", "contract-test"),
+    )
+
+    assert isinstance(implementation_state, UnionTypeRef)
+    signature = WorkflowSignature(
+        name="provider_attempt",
+        params=(("report_path", work_report),),
+        return_type_ref=implementation_state,
+        span=_build_syntax_module(TYPE_FIXTURE).span,
+        form_path=("workflow-lisp", "defworkflow", "provider_attempt"),
+    )
+
+    _, outputs, flattened = derive_workflow_signature_contracts(signature)
+
+    assert "return__variant" in outputs
+    assert "return__execution_report" in outputs
+    assert "return__progress_report" in outputs
+    assert [field.generated_name for field in flattened if field.generated_name.startswith("return__")] == [
+        "return__variant",
+        "return__execution_report",
+        "return__progress_report",
+        "return__blocker_class",
+    ]
+    assert outputs["return__execution_report"].definition == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "artifacts/work",
+        "must_exist_target": True,
+    }
+    assert outputs["return__progress_report"].definition == {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": "artifacts/work",
+        "must_exist_target": True,
+    }
+    assert outputs["return__blocker_class"].definition == {
+        "kind": "scalar",
+        "type": "enum",
+        "allowed": [
+            "missing_resource",
+            "unavailable_hardware",
+            "roadmap_conflict",
+            "external_dependency_outside_authority",
+            "user_decision_required",
+            "unrecoverable_after_fix_attempt",
+        ],
+    }
+
+
 @pytest.mark.parametrize(
     ("bad_type", "expected_code"),
     [

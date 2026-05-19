@@ -52,6 +52,9 @@ _RESERVED_MACRO_NAMES = frozenset(
         "produce-one-of",
         "review-revise-loop",
         "resume-or-start",
+        "resource-transition",
+        "finalize-selected-item",
+        "backlog-drain",
         "provider",
     }
 )

@@ -59,6 +59,7 @@ def compile_stage3_module(
     *,
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, str] | None = None,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool = True,
     workspace_root: Path | None = None,
@@ -71,13 +72,22 @@ def compile_stage3_module(
     type_env = FrontendTypeEnvironment.from_module(module)
     workflow_defs = elaborate_workflow_definitions(syntax_module)
     procedure_defs = elaborate_procedure_definitions(syntax_module)
-    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
+    workflow_catalog = build_workflow_catalog(
+        module,
+        workflow_defs,
+        type_env,
+        imported_workflow_bundles=effective_imported_workflow_bundles,
+    )
     procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
     extern_environment = build_extern_environment(
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
     )
     command_boundary_environment = build_command_boundary_environment(command_boundaries)
+    command_boundary_environment = _augment_resource_transition_command_boundaries(
+        command_boundary_environment,
+    )
     typed_procedures, typed_workflows, procedure_catalog = _infer_stage3_effect_summaries(
         procedure_defs,
         workflow_defs=workflow_defs,
@@ -97,6 +107,8 @@ def compile_stage3_module(
         typed_procedures=typed_procedures,
         procedure_catalog=procedure_catalog,
         workflow_path=path,
+        workflow_catalog=workflow_catalog,
+        imported_workflow_bundles=effective_imported_workflow_bundles,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         type_env=type_env,
@@ -106,6 +118,7 @@ def compile_stage3_module(
         validated_bundles = validate_lowered_workflows(
             lowered_workflows,
             workspace_root=workspace_root or path.parent,
+            imported_workflow_bundles=effective_imported_workflow_bundles,
         )
     else:
         validated_bundles = {}
@@ -179,6 +192,24 @@ def _augment_resume_command_boundaries(
             fixture_ids=(f"resume_state_load_{return_type_name}",),
             negative_fixture_ids=("resume_state_loader_schema_invalid",),
         )
+    return build_command_boundary_environment(bindings)
+
+
+def _augment_resource_transition_command_boundaries(command_boundary_environment):
+    bindings = dict(command_boundary_environment.bindings_by_name)
+    if "apply_resource_transition" in bindings:
+        return command_boundary_environment
+    bindings["apply_resource_transition"] = CertifiedAdapterBinding(
+        name="apply_resource_transition",
+        stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.apply_resource_transition"),
+        input_contract={"type": "object"},
+        output_type_name="ResourceTransitionResult",
+        effects=("resource_transition", "ledger_update"),
+        path_safety={"kind": "workspace_relpath"},
+        source_map_behavior="step",
+        fixture_ids=("resource_transition_ok",),
+        negative_fixture_ids=("resource_transition_bad",),
+    )
     return build_command_boundary_environment(bindings)
 
 

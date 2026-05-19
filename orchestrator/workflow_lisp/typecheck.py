@@ -18,9 +18,11 @@ from .effects import (
     merge_effect_summaries,
 )
 from .expressions import (
+    BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
     ExprNode,
+    FinalizeSelectedItemExpr,
     FieldAccessExpr,
     LetStarExpr,
     LiteralExpr,
@@ -30,6 +32,7 @@ from .expressions import (
     ProduceOneOfExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
+    ResourceTransitionExpr,
     RecordExpr,
     ResumeOrStartExpr,
     ReviewReviseLoopExpr,
@@ -45,6 +48,13 @@ from .phase import (
     resolve_phase_target_type,
 )
 from .phase_stdlib import ResumeValidationSpec
+from .resource import (
+    ensure_drain_context_type,
+    ensure_finalize_selected_item_inputs,
+    ensure_item_context_type,
+    ensure_resource_transition_resource_type,
+    ensure_resource_transition_members,
+)
 from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
@@ -566,6 +576,387 @@ def _typecheck(
             expr=expr,
             type_ref=typed_body.type_ref,
             effect=merge_effect_summaries(typed_context.effect_summary, typed_body.effect_summary),
+        )
+    if isinstance(expr, ResourceTransitionExpr):
+        resource_result = type_env.resolve_type(
+            "ResourceTransitionResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(resource_result, RecordTypeRef):
+            _raise_error(
+                "`resource-transition` requires a record `ResourceTransitionResult` type",
+                code="resource_transition_contract_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_ctx = _typecheck(
+            expr.spec.ctx_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        ensure_item_context_type(
+            typed_ctx.type_ref,
+            span=expr.spec.ctx_expr.span,
+            form_path=expr.spec.ctx_expr.form_path,
+        )
+        typed_resource = _typecheck(
+            expr.spec.resource_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        ensure_resource_transition_resource_type(
+            typed_resource.type_ref,
+            span=expr.spec.resource_expr.span,
+            form_path=expr.spec.resource_expr.form_path,
+        )
+        typed_ledger = _typecheck(
+            expr.spec.ledger_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_when = None
+        if expr.spec.when_expr is not None:
+            typed_when = _typecheck(
+                expr.spec.when_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+            )
+            if typed_when.type_ref != PrimitiveTypeRef(name="Bool"):
+                _raise_error(
+                    "`resource-transition :when` must resolve to `Bool`",
+                    code="type_mismatch",
+                    span=expr.spec.when_expr.span,
+                    form_path=expr.spec.when_expr.form_path,
+                )
+        if not isinstance(typed_ledger.type_ref, PathTypeRef) or typed_ledger.type_ref.definition.under != "state":
+            _raise_error(
+                "`resource-transition :ledger` must be a relpath under `state`",
+                code="resource_transition_contract_invalid",
+                span=expr.spec.ledger_expr.span,
+                form_path=expr.spec.ledger_expr.form_path,
+            )
+        transition_binding = (
+            None
+            if command_boundary_environment is None
+            else command_boundary_environment.bindings_by_name.get("apply_resource_transition")
+        )
+        if transition_binding is None or getattr(transition_binding, "output_type_name", None) != "ResourceTransitionResult":
+            _raise_error(
+                "`resource-transition` requires the certified `apply_resource_transition` adapter",
+                code="command_adapter_missing_contract",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        ensure_resource_transition_members(
+            resource_result,
+            type_env=type_env,
+            from_queue_name=expr.spec.from_queue_name,
+            to_queue_name=expr.spec.to_queue_name,
+            event_name=expr.spec.event_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        return _typed(
+            expr=expr,
+            type_ref=resource_result,
+            effect=merge_effect_summaries(
+                typed_ctx.effect_summary,
+                typed_resource.effect_summary,
+                typed_ledger.effect_summary,
+                typed_when.effect_summary if typed_when is not None else EMPTY_EFFECT_SUMMARY,
+                effect_summary_from_direct(
+                    direct_effects=(UsesCommandEffect(subject=("apply_resource_transition",)),),
+                ),
+            ),
+        )
+    if isinstance(expr, FinalizeSelectedItemExpr):
+        selected_item_result = type_env.resolve_type(
+            "SelectedItemResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(selected_item_result, UnionTypeRef):
+            _raise_error(
+                "`finalize-selected-item` requires a union `SelectedItemResult` type",
+                code="finalize_selected_item_contract_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_ctx = _typecheck(
+            expr.spec.ctx_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        ensure_item_context_type(
+            typed_ctx.type_ref,
+            span=expr.spec.ctx_expr.span,
+            form_path=expr.spec.ctx_expr.form_path,
+        )
+        typed_selected = _typecheck(
+            expr.spec.selected_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_queue_transition = _typecheck(
+            expr.spec.queue_transition_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        expected_transition = type_env.resolve_type(
+            "ResourceTransitionResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if typed_queue_transition.type_ref != expected_transition:
+            _raise_error(
+                "`finalize-selected-item :queue-transition` must resolve to `ResourceTransitionResult`",
+                code="finalize_selected_item_contract_invalid",
+                span=expr.spec.queue_transition_expr.span,
+                form_path=expr.spec.queue_transition_expr.form_path,
+            )
+        typed_roadmap = _typecheck(
+            expr.spec.roadmap_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_plan = _typecheck(
+            expr.spec.plan_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_implementation = _typecheck(
+            expr.spec.implementation_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if not isinstance(typed_plan.type_ref, UnionTypeRef) or not isinstance(typed_implementation.type_ref, UnionTypeRef):
+            _raise_error(
+                "`finalize-selected-item` requires union plan and implementation results",
+                code="finalize_selected_item_contract_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        ensure_finalize_selected_item_inputs(
+            type_env=type_env,
+            selected_type=typed_selected.type_ref,
+            roadmap_type=typed_roadmap.type_ref,
+            plan_type=typed_plan.type_ref,
+            implementation_type=typed_implementation.type_ref,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        return _typed(
+            expr=expr,
+            type_ref=selected_item_result,
+            effect=merge_effect_summaries(
+                typed_ctx.effect_summary,
+                typed_selected.effect_summary,
+                typed_queue_transition.effect_summary,
+                typed_roadmap.effect_summary,
+                typed_plan.effect_summary,
+                typed_implementation.effect_summary,
+            ),
+        )
+    if isinstance(expr, BacklogDrainExpr):
+        drain_result = type_env.resolve_type(
+            "DrainResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(drain_result, UnionTypeRef):
+            _raise_error(
+                "`backlog-drain` requires a union `DrainResult` type",
+                code="workflow_ref_return_type_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_ctx = _typecheck(
+            expr.spec.ctx_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        ensure_drain_context_type(
+            typed_ctx.type_ref,
+            span=expr.spec.ctx_expr.span,
+            form_path=expr.spec.ctx_expr.form_path,
+        )
+        typed_max = _typecheck(
+            expr.spec.max_iterations_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
+            _raise_error(
+                "`backlog-drain :max-iterations` must resolve to `Int`",
+                code="type_mismatch",
+                span=expr.spec.max_iterations_expr.span,
+                form_path=expr.spec.max_iterations_expr.form_path,
+            )
+        if not isinstance(typed_max.expr, LiteralExpr):
+            _raise_error(
+                "`backlog-drain :max-iterations` must be a literal `Int` in this Stage 6 slice",
+                code="backlog_drain_contract_invalid",
+                span=expr.spec.max_iterations_expr.span,
+                form_path=expr.spec.max_iterations_expr.form_path,
+            )
+        selector_signature = _workflow_ref_signature(
+            workflow_catalog,
+            workflow_name=expr.spec.selector_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        selected_payload_type, gap_payload_type = _validate_selector_workflow_ref(
+            selector_signature,
+            type_env=type_env,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        run_item_signature = _workflow_ref_signature(
+            workflow_catalog,
+            workflow_name=expr.spec.run_item_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _validate_run_item_workflow_ref(
+            run_item_signature,
+            type_env=type_env,
+            selected_payload_type=selected_payload_type,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        gap_drafter_signature = _workflow_ref_signature(
+            workflow_catalog,
+            workflow_name=expr.spec.gap_drafter_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _validate_gap_drafter_workflow_ref(
+            gap_drafter_signature,
+            type_env=type_env,
+            gap_payload_type=gap_payload_type,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        typed_providers = None
+        if expr.spec.providers_expr is not None:
+            typed_providers = _typecheck(
+                expr.spec.providers_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+            )
+        return _typed(
+            expr=expr,
+            type_ref=drain_result,
+            effect=merge_effect_summaries(
+                typed_ctx.effect_summary,
+                typed_max.effect_summary,
+                typed_providers.effect_summary if typed_providers is not None else EMPTY_EFFECT_SUMMARY,
+            ),
         )
     if isinstance(expr, PhaseTargetExpr):
         if active_phase_scope is None:
@@ -1654,6 +2045,315 @@ def _variant_has_field(variant_type: VariantCaseTypeRef, field_name: str) -> boo
 
 def _union_has_any_field(union_type: UnionTypeRef, field_name: str) -> bool:
     return any(field.name == field_name for variant in union_type.definition.variants for field in variant.fields)
+
+
+def _workflow_ref_signature(
+    workflow_catalog: "WorkflowCatalog | None",
+    *,
+    workflow_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> "WorkflowSignature":
+    if workflow_catalog is None:
+        raise TypeError("workflow_catalog is required for workflow ref validation")
+    signature = workflow_catalog.signatures_by_name.get(workflow_name)
+    if signature is None:
+        _raise_error(
+            f"unknown workflow ref `{workflow_name}`",
+            code="workflow_ref_unknown",
+            span=span,
+            form_path=form_path,
+        )
+    return signature
+
+
+def _validate_selector_workflow_ref(
+    signature: "WorkflowSignature",
+    *,
+    type_env: FrontendTypeEnvironment,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[RecordTypeRef, RecordTypeRef]:
+    if len(signature.params) != 1:
+        _raise_error(
+            f"workflow ref `{signature.name}` must accept exactly one `DrainCtx` parameter for `selector`",
+            code="backlog_drain_contract_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    ensure_drain_context_type(signature.params[0][1], span=span, form_path=form_path)
+    if not isinstance(signature.return_type_ref, UnionTypeRef):
+        _raise_error(
+            f"workflow ref `{signature.name}` must return `SelectionResult`-shaped union output",
+            code="workflow_ref_signature_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    _require_union_variant_path_field(
+        signature.return_type_ref,
+        "EMPTY",
+        "run-state",
+        expected_under="state",
+        span=span,
+        form_path=form_path,
+    )
+    gap_payload_type = _require_union_variant_record_field(
+        signature.return_type_ref,
+        "GAP",
+        "gap",
+        span=span,
+        form_path=form_path,
+    )
+    selected_payload_type = _require_union_variant_record_field(
+        signature.return_type_ref,
+        "SELECTED",
+        "selection",
+        span=span,
+        form_path=form_path,
+    )
+    return selected_payload_type, gap_payload_type
+
+
+def _validate_run_item_workflow_ref(
+    signature: "WorkflowSignature",
+    *,
+    type_env: FrontendTypeEnvironment,
+    selected_payload_type: RecordTypeRef,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if len(signature.params) != 2:
+        _raise_error(
+            f"workflow ref `{signature.name}` must accept `ItemCtx` and the selector payload for `run-item`",
+            code="backlog_drain_contract_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    ensure_item_context_type(signature.params[0][1], span=span, form_path=form_path)
+    if signature.params[1][1] != selected_payload_type:
+        _raise_error(
+            f"workflow ref `{signature.name}` second parameter must match the selector `SELECTED.selection` payload",
+            code="workflow_ref_signature_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    if not isinstance(signature.return_type_ref, UnionTypeRef):
+        _raise_error(
+            f"workflow ref `{signature.name}` must return a union for `run-item`",
+            code="workflow_ref_signature_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    blocker_class = type_env.resolve_type(
+        "BlockerClass",
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_path_field(
+        signature.return_type_ref,
+        "CONTINUE",
+        "summary-path",
+        expected_under="artifacts/work",
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_path_field(
+        signature.return_type_ref,
+        "CONTINUE",
+        "run-state",
+        expected_under="state",
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_path_field(
+        signature.return_type_ref,
+        "BLOCKED",
+        "summary-path",
+        expected_under="artifacts/work",
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_exact_type(
+        signature.return_type_ref,
+        "BLOCKED",
+        "blocker-class",
+        expected_type=blocker_class,
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_path_field(
+        signature.return_type_ref,
+        "BLOCKED",
+        "run-state",
+        expected_under="state",
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _validate_gap_drafter_workflow_ref(
+    signature: "WorkflowSignature",
+    *,
+    type_env: FrontendTypeEnvironment,
+    gap_payload_type: RecordTypeRef,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if len(signature.params) != 2:
+        _raise_error(
+            f"workflow ref `{signature.name}` must accept `DrainCtx` and the selector gap payload for `gap-drafter`",
+            code="backlog_drain_contract_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    ensure_drain_context_type(signature.params[0][1], span=span, form_path=form_path)
+    if signature.params[1][1] != gap_payload_type:
+        _raise_error(
+            f"workflow ref `{signature.name}` second parameter must match the selector `GAP.gap` payload",
+            code="workflow_ref_signature_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    if isinstance(signature.return_type_ref, RecordTypeRef):
+        return
+    if not isinstance(signature.return_type_ref, UnionTypeRef):
+        _raise_error(
+            f"workflow ref `{signature.name}` must return a record or union for `gap-drafter`",
+            code="workflow_ref_return_type_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    blocker_class = type_env.resolve_type(
+        "BlockerClass",
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_path_field(
+        signature.return_type_ref,
+        "CONTINUE",
+        "run-state",
+        expected_under="state",
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_path_field(
+        signature.return_type_ref,
+        "BLOCKED",
+        "progress-report-path",
+        expected_under="artifacts/work",
+        span=span,
+        form_path=form_path,
+    )
+    _require_union_variant_exact_type(
+        signature.return_type_ref,
+        "BLOCKED",
+        "blocker-class",
+        expected_type=blocker_class,
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _require_union_variant_field(
+    union_type: UnionTypeRef,
+    variant_name: str,
+    field_name: str,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    variant_fields = union_type.variant_field_types.get(variant_name)
+    if variant_fields is None or field_name not in variant_fields:
+        _raise_error(
+            f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}`",
+            code="workflow_ref_signature_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    return variant_fields[field_name]
+
+
+def _require_union_variant_path_field(
+    union_type: UnionTypeRef,
+    variant_name: str,
+    field_name: str,
+    *,
+    expected_under: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> PathTypeRef:
+    field_type = _require_union_variant_field(
+        union_type,
+        variant_name,
+        field_name,
+        span=span,
+        form_path=form_path,
+    )
+    if not isinstance(field_type, PathTypeRef) or field_type.definition.under != expected_under:
+        _raise_error(
+            (
+                f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}` "
+                f"as a relpath under `{expected_under}`"
+            ),
+            code="workflow_ref_signature_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    return field_type
+
+
+def _require_union_variant_exact_type(
+    union_type: UnionTypeRef,
+    variant_name: str,
+    field_name: str,
+    *,
+    expected_type: TypeRef,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> TypeRef:
+    field_type = _require_union_variant_field(
+        union_type,
+        variant_name,
+        field_name,
+        span=span,
+        form_path=form_path,
+    )
+    if field_type != expected_type:
+        _raise_error(
+            (
+                f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}` "
+                f"as `{getattr(expected_type, 'name', type(expected_type).__name__)}`"
+            ),
+            code="workflow_ref_signature_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    return field_type
+
+
+def _require_union_variant_record_field(
+    union_type: UnionTypeRef,
+    variant_name: str,
+    field_name: str,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> RecordTypeRef:
+    field_type = _require_union_variant_field(
+        union_type,
+        variant_name,
+        field_name,
+        span=span,
+        form_path=form_path,
+    )
+    if not isinstance(field_type, RecordTypeRef):
+        _raise_error(
+            f"workflow ref return union `{union_type.name}` must expose record field `{variant_name}.{field_name}`",
+            code="workflow_ref_signature_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    return field_type
 
 
 def _raise_error(

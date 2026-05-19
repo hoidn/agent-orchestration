@@ -76,19 +76,22 @@ def _typed_fixture_workflows():
     syntax_module = build_syntax_module(read_sexpr_file(STRUCTURED_RESULTS_FIXTURE))
     workflow_defs = elaborate_workflow_definitions(syntax_module)
     workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
-    return typecheck_workflow_definitions(
+    typed_workflows = typecheck_workflow_definitions(
         workflow_defs,
         type_env=type_env,
         workflow_catalog=workflow_catalog,
         extern_environment=_extern_environment(),
         command_boundary_environment=_command_boundary_environment(),
     )
+    return typed_workflows, workflow_catalog
 
 
 def test_lower_workflow_definitions_emits_authored_mappings_with_hidden_write_roots() -> None:
+    typed_workflows, workflow_catalog = _typed_fixture_workflows()
     lowered = lower_workflow_definitions(
-        _typed_fixture_workflows(),
+        typed_workflows,
         workflow_path=STRUCTURED_RESULTS_FIXTURE,
+        workflow_catalog=workflow_catalog,
         extern_environment=_extern_environment(),
         command_boundary_environment=_command_boundary_environment(),
     )
@@ -150,9 +153,11 @@ def test_lower_workflow_definitions_emits_authored_mappings_with_hidden_write_ro
 
 
 def test_validate_lowered_workflows_reuses_in_memory_imported_bundles(tmp_path: Path) -> None:
+    typed_workflows, workflow_catalog = _typed_fixture_workflows()
     lowered = lower_workflow_definitions(
-        _typed_fixture_workflows(),
+        typed_workflows,
         workflow_path=STRUCTURED_RESULTS_FIXTURE,
+        workflow_catalog=workflow_catalog,
         extern_environment=_extern_environment(),
         command_boundary_environment=_command_boundary_environment(),
     )
@@ -196,6 +201,80 @@ def test_compile_stage3_module_returns_lowered_workflows_and_optional_bundles(tm
     assert len(no_validation.lowered_workflows) == 3
     assert no_validation.validated_bundles == {}
     assert tuple(validated.validated_bundles) == ("command_checks", "provider_attempt", "orchestrate")
+
+
+def test_lower_workflow_definitions_supports_union_returning_same_file_calls(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "union_call_projection.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware",
+                "    roadmap_conflict",
+                "    external_dependency_outside_authority",
+                "    user_decision_required",
+                "    unrecoverable_after_fix_attempt)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defunion ImplementationState",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow helper",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> ImplementationState",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (input report_path)",
+                "      :returns ImplementationState))",
+                "  (defworkflow entry",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (let* ((attempt",
+                "             (call helper",
+                "               :input input",
+                "               :report_path report_path)))",
+                "      (match attempt",
+                "        ((COMPLETED completed)",
+                "         (record ImplementationSummary",
+                "           :report completed.execution_report))",
+                "        ((BLOCKED blocked)",
+                "         (record ImplementationSummary",
+                "           :report blocked.progress_report))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "entry"
+    )
+
+    assert any(step.get("call") == "helper" for step in authored["steps"])
+    assert any("match" in step for step in authored["steps"])
 
 
 def test_compile_stage3_module_preserves_macro_provenance_in_origin_maps(tmp_path: Path) -> None:

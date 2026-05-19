@@ -29,6 +29,13 @@ class FlattenedContractField:
     contract_definition: Mapping[str, Any]
 
 
+@dataclass(frozen=True)
+class UnionWorkflowBoundaryProjection:
+    discriminant_field: FlattenedContractField
+    shared_fields: tuple[FlattenedContractField, ...]
+    variant_fields: Mapping[str, tuple[FlattenedContractField, ...]]
+
+
 def derive_structured_result_contract(
     type_ref: RecordTypeRef | UnionTypeRef,
     *,
@@ -129,8 +136,82 @@ def derive_workflow_signature_contracts(
                 definition=flattened_field.contract_definition,
             )
             flattened_fields.append(flattened_field)
+    else:
+        projection = derive_union_workflow_boundary_projection(
+            signature.return_type_ref,
+            span=signature.span,
+            form_path=signature.form_path,
+        )
+        union_fields = [
+            projection.discriminant_field,
+            *projection.shared_fields,
+        ]
+        seen_generated_names = {field.generated_name for field in union_fields}
+        for variant in signature.return_type_ref.definition.variants:
+            for field in projection.variant_fields.get(variant.name, ()):
+                if field.generated_name in seen_generated_names:
+                    continue
+                union_fields.append(field)
+                seen_generated_names.add(field.generated_name)
+        for flattened_field in union_fields:
+            outputs[flattened_field.generated_name] = SurfaceContract(
+                name=flattened_field.generated_name,
+                kind=flattened_field.contract_definition["kind"],
+                value_type=flattened_field.contract_definition["type"],
+                definition=flattened_field.contract_definition,
+            )
+            flattened_fields.append(flattened_field)
 
     return inputs, outputs, tuple(flattened_fields)
+
+
+def derive_union_workflow_boundary_projection(
+    type_ref: UnionTypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> UnionWorkflowBoundaryProjection:
+    discriminant_field = FlattenedContractField(
+        generated_name="return__variant",
+        source_path=("return", "variant"),
+        contract_definition={
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": [variant.name for variant in type_ref.definition.variants],
+        },
+    )
+    shared_fields = tuple(
+        FlattenedContractField(
+            generated_name=f"return__{field['name']}",
+            source_path=("return", field["name"]),
+            contract_definition=_workflow_boundary_contract_from_structured_field(field),
+        )
+        for field in _shared_variant_structured_result_fields(
+            type_ref,
+            span=span,
+            form_path=form_path,
+        )
+    )
+    variant_fields: dict[str, tuple[FlattenedContractField, ...]] = {}
+    for variant in type_ref.definition.variants:
+        variant_fields[variant.name] = tuple(
+            FlattenedContractField(
+                generated_name=f"return__{field['name']}",
+                source_path=("return", field["name"]),
+                contract_definition=_workflow_boundary_contract_from_structured_field(field),
+            )
+            for field in _flatten_variant_structured_result_fields(
+                type_ref,
+                variant.name,
+                span=span,
+                form_path=form_path,
+            )
+        )
+    return UnionWorkflowBoundaryProjection(
+        discriminant_field=discriminant_field,
+        shared_fields=shared_fields,
+        variant_fields=variant_fields,
+    )
 
 
 def _flatten_workflow_boundary_fields(
@@ -186,6 +267,16 @@ def _workflow_boundary_contract_definition(
         "kind": "scalar",
         **definition,
     }
+
+
+def _workflow_boundary_contract_from_structured_field(field_definition: Mapping[str, Any]) -> dict[str, Any]:
+    definition = {
+        key: value
+        for key, value in field_definition.items()
+        if key in {"type", "allowed", "under", "must_exist_target"}
+    }
+    definition["kind"] = "relpath" if definition.get("type") == "relpath" else "scalar"
+    return definition
 
 
 def _field_contract_definition(

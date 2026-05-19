@@ -1,0 +1,56 @@
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defenum Queue
+    active
+    in_progress)
+  (defenum LedgerEvent
+    SELECTED)
+  (defpath StateFile
+    :kind relpath
+    :under "state"
+    :must-exist false)
+  (defpath BacklogActivePath
+    :kind relpath
+    :under "docs/backlog/active"
+    :must-exist true)
+  (defpath BacklogInProgressPath
+    :kind relpath
+    :under "docs/backlog/in_progress"
+    :must-exist true)
+  (defrecord RunCtx
+    (run-id RunId)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root))
+  (defrecord ItemCtx
+    (run RunCtx)
+    (item-id String)
+    (state-root Path.state-root)
+    (artifact-root Path.artifact-root)
+    (ledger StateFile))
+  (defrecord SelectedItem
+    (item-id String)
+    (item-path BacklogActivePath)
+    (is-active Bool))
+  (defrecord ResourceTransitionResult
+    (resource-id String)
+    (from Queue)
+    (to Queue)
+    (new-path BacklogInProgressPath)
+    (transition-id String))
+  (defrecord TransitionSummary
+    (transition-id String))
+  (defworkflow move-selected-item
+    ((item-ctx ItemCtx)
+     (selected SelectedItem))
+    -> TransitionSummary
+    (let* ((transition
+             (resource-transition backlog-item
+               :ctx item-ctx
+               :resource selected.item-id
+               :from Queue.active
+               :to Queue.in_progress
+               :ledger item-ctx.ledger
+               :event SELECTED)))
+      (record TransitionSummary
+        :transition-id transition.transition-id))))
