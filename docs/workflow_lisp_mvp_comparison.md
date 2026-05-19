@@ -39,36 +39,35 @@ In the YAML file, that starts at `ExecuteImplementation` and ends at
 | Blocker extraction | Markdown line-prefix extraction. | Structured union field. |
 | Inline glue | Inline `python -c` publish wrappers. | No inline command glue in the source. |
 
-## Why The Lisp Is Shorter
+## Where The Concision Comes From
 
-The Lisp version is not shorter because parentheses are magic. It is shorter
-because the authored source describes the workflow's semantic shape, while the
-compiler owns the repetitive runtime protocol.
-
-| Concept | In YAML, the author writes... | In Lisp, the author writes... | What the compiler owns |
-| --- | --- | --- | --- |
-| Provider outcome | A provider step, a pre-snapshot, a candidate map, and a separate variant-selection step. | `(provider-result ... :returns ImplementationAttempt)` | Snapshot setup, candidate tracking, output-bundle validation, and typed artifact registration. |
-| Outcome shape | A discriminant, JSON pointers, per-variant fields, allowed values, and path contracts. | `(defunion ImplementationAttempt ...)` | Converting the union into the lower-level `variant_output` / `select_variant_output` contract. |
-| Variant-safe routing | A `when` condition plus a matching `requires_variant` guard for each branch. | `(match attempt ((COMPLETED completed) ...) ...)` | Proving which variant-specific fields are available in each branch. |
-| State location | `${inputs.state_root}/implementation_state.json` and related path plumbing. | `(with-phase phase-ctx implementation)` plus `phase-ctx` fields. | Deriving canonical state, bundle, snapshot, and target paths from phase context. |
-| Published path values | Python wrappers that read a selected path and write a pointer file before publishing. | A field access such as `completed.execution_report_path`. | Treating the artifact value as authority and materializing compatibility pointers only when required. |
-| Blocker metadata | Text extraction from a human report, such as `line_prefix: "Blocker Class:"`. | A typed field: `(blocker_class BlockerClass)`. | Asking the provider for structured state and validating it before it becomes canonical. |
-| Error surface | Multiple YAML fields can drift out of sync: snapshot names, JSON pointers, guards, refs, and pointer paths. | One typed expression tree. | Reporting type/lowering errors at the source form that created the invalid semantics. |
-
-The practical difference is this:
+The YAML slice is close to the runtime protocol. That is useful for
+implementation work because every step is visible, but it makes authors spell
+out details that are mostly consequences of a smaller semantic idea:
 
 ```text
-YAML authoring model:
-  describe the runtime protocol directly
-  and keep all protocol pieces aligned by hand
-
-Lisp authoring model:
-  describe the typed workflow intent
-  and let reviewed lowering code generate the runtime protocol
+Run the implementation provider.
+It returns either COMPLETED or BLOCKED.
+Expose only the fields that belong to the selected variant.
 ```
 
-That is the source of the concision. The Lisp frontend removes boilerplate only
-when the boilerplate follows from typed semantics the compiler can prove.
+The Lisp slice makes that smaller idea explicit. The compiler then lowers it
+into the v2.14 protocol pieces that YAML currently has to author directly.
+
+| Authoring problem | YAML expression | Lisp expression | Why the Lisp stays smaller |
+| --- | --- | --- | --- |
+| Declare the possible provider outcomes. | Repeat the discriminant, enum values, JSON pointers, field contracts, and per-variant fields inside `select_variant_output`. | Define one `ImplementationAttempt` union. | The union is the single source of truth for the discriminant and variant fields. |
+| Capture evidence for which outcome happened. | Add `pre_snapshot`, candidate refs, snapshot evidence, and `select_variant_output` wiring. | Return `ImplementationAttempt` from `provider-result`. | Snapshot and selection mechanics are generated from the typed provider result. |
+| Use a variant-specific field. | Write a `when` condition and a matching `requires_variant` guard before referencing the field. | Use the field inside the matching `match` arm. | The branch itself is the proof that the field is available. |
+| Manage phase-local state paths. | Thread `${inputs.state_root}/...` paths through steps and bundle outputs. | Use `with-phase`, `phase-target`, and typed phase context fields. | Canonical state and target paths are derived from phase context instead of repeated in the workflow body. |
+| Publish selected report paths. | Run inline Python to check a selected path and write a pointer file, then publish that pointer-backed output. | Refer to the typed path value selected by the union branch. | The artifact value remains authoritative; pointer materialization is not part of normal authoring. |
+| Record structured blocker data. | Extract `Blocker Class:` from a markdown candidate. | Make `blocker_class` a typed field on the `BLOCKED` variant. | The provider result is validated as structured state; the report remains a human-readable view. |
+| Diagnose mismatches. | Debug drift across refs, JSON pointers, snapshot names, guards, and pointer paths. | Debug a typed source form. | The compiler can attach errors to the form that introduced the invalid type, field, or branch. |
+
+This is the meaningful abstraction boundary: YAML describes the execution
+protocol directly; `.orc` describes typed workflow intent and relies on shared
+lowering code to produce the protocol. The frontend is useful only where that
+lowering is deterministic, validated, and source-mapped.
 
 ## YAML Shape
 
