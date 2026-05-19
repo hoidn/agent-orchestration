@@ -6,10 +6,50 @@ from dataclasses import dataclass
 
 from .definitions import EnumDef, PathDef, RecordDef, UnionDef, UnionVariant, WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
-from .spans import SourceSpan
+from .spans import SourcePosition, SourceSpan
 
 
-PRELUDE_TYPE_NAMES = frozenset({"String", "Int", "Bool", "Json", "Provider", "Prompt", "PathRel"})
+PRELUDE_PRIMITIVE_TYPE_NAMES = frozenset(
+    {
+        "String",
+        "Int",
+        "Bool",
+        "Json",
+        "Provider",
+        "Prompt",
+        "PathRel",
+        "RunId",
+        "Symbol",
+    }
+)
+
+
+def _prelude_span(name: str) -> SourceSpan:
+    return SourceSpan(
+        start=SourcePosition(path=f"<prelude:{name}>", line=1, column=1, offset=0),
+        end=SourcePosition(path=f"<prelude:{name}>", line=1, column=1, offset=0),
+    )
+
+
+PRELUDE_PATH_TYPES = {
+    "Path.state-root": PathDef(
+        name="Path.state-root",
+        kind="relpath",
+        under="state",
+        must_exist=False,
+        span=_prelude_span("Path.state-root"),
+    ),
+    "Path.artifact-root": PathDef(
+        name="Path.artifact-root",
+        kind="relpath",
+        under="artifacts",
+        must_exist=False,
+        span=_prelude_span("Path.artifact-root"),
+    ),
+}
+
+
+PRELUDE_TYPE_NAMES = PRELUDE_PRIMITIVE_TYPE_NAMES | frozenset(PRELUDE_PATH_TYPES)
 
 
 @dataclass(frozen=True)
@@ -67,8 +107,14 @@ class FrontendTypeEnvironment:
     @classmethod
     def from_module(cls, module: WorkflowLispModule) -> "FrontendTypeEnvironment":
         type_refs: dict[str, TypeRef] = {
-            name: PrimitiveTypeRef(name=name) for name in PRELUDE_TYPE_NAMES
+            name: PrimitiveTypeRef(name=name) for name in PRELUDE_PRIMITIVE_TYPE_NAMES
         }
+        type_refs.update(
+            {
+                name: PathTypeRef(name=name, definition=definition)
+                for name, definition in PRELUDE_PATH_TYPES.items()
+            }
+        )
         for definition in module.definitions:
             if isinstance(definition, EnumDef):
                 type_refs[definition.name] = PrimitiveTypeRef(

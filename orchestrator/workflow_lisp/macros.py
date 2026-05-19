@@ -48,6 +48,11 @@ _RESERVED_MACRO_NAMES = frozenset(
         "command-result",
         "with-phase",
         "phase-target",
+        "run-provider-phase",
+        "produce-one-of",
+        "review-revise-loop",
+        "resume-or-start",
+        "provider",
     }
 )
 

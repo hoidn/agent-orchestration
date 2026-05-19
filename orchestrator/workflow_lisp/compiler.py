@@ -19,7 +19,13 @@ from .definitions import (
 )
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EffectSummary, merge_effect_summaries
-from .expressions import elaborate_expression
+from .expressions import (
+    LetStarExpr,
+    MatchExpr,
+    ResumeOrStartExpr,
+    WithPhaseExpr,
+    elaborate_expression,
+)
 from .lowering import lower_workflow_definitions, validate_lowered_workflows
 from .macros import collect_macro_catalog, expand_module_forms
 from .procedures import (
@@ -81,6 +87,11 @@ def compile_stage3_module(
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
     )
+    command_boundary_environment = _augment_resume_command_boundaries(
+        command_boundary_environment,
+        typed_procedures=typed_procedures,
+        typed_workflows=typed_workflows,
+    )
     lowered_workflows = lower_workflow_definitions(
         typed_workflows,
         typed_procedures=typed_procedures,
@@ -126,6 +137,80 @@ def _expanded_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
     syntax_module = build_syntax_module(parse_tree)
     catalog = collect_macro_catalog(syntax_module)
     return expand_module_forms(syntax_module, catalog=catalog)
+
+
+def _augment_resume_command_boundaries(
+    command_boundary_environment,
+    typed_procedures,
+    typed_workflows,
+):
+    bindings = dict(command_boundary_environment.bindings_by_name)
+    resume_exprs = [workflow.typed_body.expr for workflow in typed_workflows]
+    resume_exprs.extend(procedure.typed_body.expr for procedure in typed_procedures)
+    if not any(_workflow_contains_resume_or_start(expr) for expr in resume_exprs):
+        return command_boundary_environment
+    bindings["validate_reusable_phase_state"] = CertifiedAdapterBinding(
+        name="validate_reusable_phase_state",
+        stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
+        input_contract={"type": "object"},
+        output_type_name="ResumeReuseDecision",
+        effects=("resume_state_reuse", "structured_result"),
+        path_safety={"kind": "workspace_relpath"},
+        source_map_behavior="step",
+        fixture_ids=("resume_state_reuse_valid",),
+        negative_fixture_ids=("resume_state_pointer_authority_forbidden",),
+    )
+    for return_type_name in sorted(
+        {
+            return_type_name
+            for expr in resume_exprs
+            for return_type_name in _resume_return_type_names(expr)
+        }
+    ):
+        loader_name = f"load_canonical_phase_result__{return_type_name}"
+        bindings[loader_name] = CertifiedAdapterBinding(
+            name=loader_name,
+            stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.load_canonical_phase_result"),
+            input_contract={"type": "object"},
+            output_type_name=return_type_name,
+            effects=("structured_result",),
+            path_safety={"kind": "workspace_relpath"},
+            source_map_behavior="step",
+            fixture_ids=(f"resume_state_load_{return_type_name}",),
+            negative_fixture_ids=("resume_state_loader_schema_invalid",),
+        )
+    return build_command_boundary_environment(bindings)
+
+
+def _workflow_contains_resume_or_start(expr) -> bool:
+    if isinstance(expr, ResumeOrStartExpr):
+        return True
+    if isinstance(expr, LetStarExpr):
+        return any(_workflow_contains_resume_or_start(binding_expr) for _, binding_expr in expr.bindings) or _workflow_contains_resume_or_start(expr.body)
+    if isinstance(expr, MatchExpr):
+        return _workflow_contains_resume_or_start(expr.subject) or any(_workflow_contains_resume_or_start(arm.body) for arm in expr.arms)
+    if isinstance(expr, WithPhaseExpr):
+        return _workflow_contains_resume_or_start(expr.body)
+    return False
+
+
+def _resume_return_type_names(expr) -> tuple[str, ...]:
+    if isinstance(expr, ResumeOrStartExpr):
+        return (expr.returns_type_name,)
+    if isinstance(expr, LetStarExpr):
+        names: list[str] = []
+        for _, binding_expr in expr.bindings:
+            names.extend(_resume_return_type_names(binding_expr))
+        names.extend(_resume_return_type_names(expr.body))
+        return tuple(names)
+    if isinstance(expr, MatchExpr):
+        names = list(_resume_return_type_names(expr.subject))
+        for arm in expr.arms:
+            names.extend(_resume_return_type_names(arm.body))
+        return tuple(names)
+    if isinstance(expr, WithPhaseExpr):
+        return _resume_return_type_names(expr.body)
+    return ()
 
 
 def _validate_definition_module(module: WorkflowLispModule) -> None:

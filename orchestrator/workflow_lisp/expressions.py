@@ -5,6 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .phase_stdlib import (
+    ProduceOneOfCandidateFieldSpec,
+    ProduceOneOfCandidateSpec,
+    ProduceOneOfProducerSpec,
+)
 from .spans import SourceSpan
 from .syntax import (
     ExpansionStack,
@@ -167,6 +172,69 @@ class CommandResultExpr:
     expansion_stack: ExpansionStack = ()
 
 
+@dataclass(frozen=True)
+class RunProviderPhaseExpr:
+    """One high-level typed phase provider execution form."""
+
+    phase_name: str
+    ctx_expr: "ExprNode"
+    inputs_expr: "ExprNode"
+    provider: "ExprNode"
+    prompt: "ExprNode"
+    returns_type_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ProduceOneOfExpr:
+    """One high-level produced-outcome selection form."""
+
+    returns_type_name: str
+    ctx_expr: "ExprNode"
+    producer: ProduceOneOfProducerSpec
+    candidates: tuple[ProduceOneOfCandidateSpec, ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ReviewReviseLoopExpr:
+    """One bounded review/revise loop form."""
+
+    loop_name: str
+    ctx_expr: "ExprNode"
+    completed_expr: "ExprNode"
+    inputs_expr: "ExprNode"
+    review_provider: "ExprNode"
+    fix_provider: "ExprNode"
+    review_prompt: "ExprNode"
+    fix_prompt: "ExprNode"
+    max_expr: "ExprNode"
+    returns_type_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ResumeOrStartExpr:
+    """One typed reusable-state gate around resume or fresh start."""
+
+    resume_name: str
+    ctx_expr: "ExprNode"
+    resume_from_expr: "ExprNode"
+    valid_when: tuple[str, ...]
+    start_expr: "ExprNode"
+    returns_type_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+    validation_spec: object | None = None
+
+
 ExprNode = (
     NameExpr
     | LiteralExpr
@@ -180,6 +248,10 @@ ExprNode = (
     | PhaseTargetExpr
     | ProviderResultExpr
     | CommandResultExpr
+    | RunProviderPhaseExpr
+    | ProduceOneOfExpr
+    | ReviewReviseLoopExpr
+    | ResumeOrStartExpr
 )
 
 
@@ -345,6 +417,34 @@ def _elaborate_list(
         )
     if head.resolved_name == "command-result":
         return _elaborate_command_result(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "run-provider-phase":
+        return _elaborate_run_provider_phase(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "produce-one-of":
+        return _elaborate_produce_one_of(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "review-revise-loop":
+        return _elaborate_review_revise_loop(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "resume-or-start":
+        return _elaborate_resume_or_start(
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -849,6 +949,433 @@ def _elaborate_command_result(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_run_provider_phase(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> RunProviderPhaseExpr:
+    if len(datum.items) < 7:
+        _raise_error(
+            "`run-provider-phase` requires a phase name plus :ctx, :inputs, :provider, :prompt, and :returns",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    phase_identifier = syntax_identifier(datum.items[1])
+    if phase_identifier is None:
+        _raise_error(
+            "`run-provider-phase` phase name must be a symbol",
+            code="run_provider_phase_return_invalid",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`run-provider-phase`")
+    ctx_node = sections.get(":ctx")
+    inputs_node = sections.get(":inputs")
+    provider_node = sections.get(":provider")
+    prompt_node = sections.get(":prompt")
+    returns_node = sections.get(":returns")
+    if any(node is None for node in (ctx_node, inputs_node, provider_node, prompt_node, returns_node)):
+        _raise_error(
+            "`run-provider-phase` requires :ctx, :inputs, :provider, :prompt, and :returns",
+            code="run_provider_phase_return_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    returns_identifier = syntax_identifier(returns_node)
+    if returns_identifier is None:
+        _raise_error(
+            "`run-provider-phase :returns` must be a symbol",
+            code="run_provider_phase_return_invalid",
+            span=returns_node.span,
+            form_path=form_path,
+            expansion_stack=returns_node.expansion_stack,
+        )
+    return RunProviderPhaseExpr(
+        phase_name=phase_identifier.resolved_name,
+        ctx_expr=_elaborate(ctx_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        inputs_expr=_elaborate(inputs_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        provider=_elaborate(provider_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        prompt=_elaborate(prompt_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        returns_type_name=returns_identifier.resolved_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_produce_one_of(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ProduceOneOfExpr:
+    if len(datum.items) < 6:
+        _raise_error(
+            "`produce-one-of` requires a return type plus :ctx, :producer, and :candidates",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    returns_identifier = syntax_identifier(datum.items[1])
+    if returns_identifier is None:
+        _raise_error(
+            "`produce-one-of` return type must be a symbol",
+            code="produce_one_of_candidate_invalid",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`produce-one-of`")
+    ctx_node = sections.get(":ctx")
+    producer_node = sections.get(":producer")
+    candidates_node = sections.get(":candidates")
+    if ctx_node is None or producer_node is None or candidates_node is None:
+        _raise_error(
+            "`produce-one-of` requires :ctx, :producer, and :candidates",
+            code="produce_one_of_candidate_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if not isinstance(producer_node, SyntaxList):
+        _raise_error(
+            "`produce-one-of :producer` must be a list",
+            code="produce_one_of_candidate_invalid",
+            span=producer_node.span,
+            form_path=form_path,
+            expansion_stack=producer_node.expansion_stack,
+        )
+    producer = _elaborate_produce_one_of_producer(
+        producer_node,
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+    if not isinstance(candidates_node, SyntaxList):
+        _raise_error(
+            "`produce-one-of :candidates` must be a list",
+            code="produce_one_of_candidate_invalid",
+            span=candidates_node.span,
+            form_path=form_path,
+            expansion_stack=candidates_node.expansion_stack,
+        )
+    return ProduceOneOfExpr(
+        returns_type_name=returns_identifier.resolved_name,
+        ctx_expr=_elaborate(ctx_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        producer=producer,
+        candidates=tuple(
+            _elaborate_produce_one_of_candidate(
+                candidate_node,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            for candidate_node in candidates_node.items
+        ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_review_revise_loop(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ReviewReviseLoopExpr:
+    if len(datum.items) < 9:
+        _raise_error(
+            "`review-revise-loop` requires a loop name plus :ctx, :completed, :inputs, provider, prompt, :max, and :returns",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    loop_identifier = syntax_identifier(datum.items[1])
+    if loop_identifier is None:
+        _raise_error(
+            "`review-revise-loop` loop name must be a symbol",
+            code="review_loop_result_contract_invalid",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`review-revise-loop`")
+    required = (
+        ":ctx",
+        ":completed",
+        ":inputs",
+        ":review-provider",
+        ":fix-provider",
+        ":review-prompt",
+        ":fix-prompt",
+        ":max",
+        ":returns",
+    )
+    missing = [keyword for keyword in required if sections.get(keyword) is None]
+    if missing:
+        _raise_error(
+            "`review-revise-loop` requires :ctx, :completed, :inputs, :review-provider, :fix-provider, :review-prompt, :fix-prompt, :max, and :returns",
+            code="review_loop_result_contract_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    returns_identifier = syntax_identifier(sections[":returns"])
+    if returns_identifier is None:
+        _raise_error(
+            "`review-revise-loop :returns` must be a symbol",
+            code="review_loop_result_contract_invalid",
+            span=sections[":returns"].span,
+            form_path=form_path,
+            expansion_stack=sections[":returns"].expansion_stack,
+        )
+    return ReviewReviseLoopExpr(
+        loop_name=loop_identifier.resolved_name,
+        ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        completed_expr=_elaborate(sections[":completed"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        inputs_expr=_elaborate(sections[":inputs"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        review_provider=_elaborate(sections[":review-provider"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        fix_provider=_elaborate(sections[":fix-provider"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        review_prompt=_elaborate(sections[":review-prompt"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        fix_prompt=_elaborate(sections[":fix-prompt"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        max_expr=_elaborate(sections[":max"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        returns_type_name=returns_identifier.resolved_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_resume_or_start(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ResumeOrStartExpr:
+    if len(datum.items) < 6:
+        _raise_error(
+            "`resume-or-start` requires a name plus :ctx, :resume-from, :start, and :returns",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    resume_identifier = syntax_identifier(datum.items[1])
+    if resume_identifier is None:
+        _raise_error(
+            "`resume-or-start` name must be a symbol",
+            code="resume_or_start_contract_invalid",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`resume-or-start`")
+    required = (":ctx", ":resume-from", ":start", ":returns")
+    if any(sections.get(keyword) is None for keyword in required):
+        _raise_error(
+            "`resume-or-start` requires :ctx, :resume-from, :start, and :returns",
+            code="resume_or_start_contract_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    valid_when_node = sections.get(":valid-when")
+    valid_variants: tuple[str, ...] = ()
+    if valid_when_node is not None:
+        if not isinstance(valid_when_node, SyntaxList):
+            _raise_error(
+                "`resume-or-start :valid-when` must be a list of variants",
+                code="resume_or_start_contract_invalid",
+                span=valid_when_node.span,
+                form_path=form_path,
+                expansion_stack=valid_when_node.expansion_stack,
+            )
+        variants: list[str] = []
+        for item in valid_when_node.items:
+            variant_identifier = syntax_identifier(item)
+            if variant_identifier is None:
+                _raise_error(
+                    "`resume-or-start :valid-when` entries must be symbols",
+                    code="resume_or_start_contract_invalid",
+                    span=item.span,
+                    form_path=form_path,
+                    expansion_stack=item.expansion_stack,
+                )
+            variants.append(variant_identifier.resolved_name)
+        valid_variants = tuple(variants)
+    returns_identifier = syntax_identifier(sections[":returns"])
+    if returns_identifier is None:
+        _raise_error(
+            "`resume-or-start :returns` must be a symbol",
+            code="resume_or_start_contract_invalid",
+            span=sections[":returns"].span,
+            form_path=form_path,
+            expansion_stack=sections[":returns"].expansion_stack,
+        )
+    return ResumeOrStartExpr(
+        resume_name=resume_identifier.resolved_name,
+        ctx_expr=_elaborate(sections[":ctx"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        resume_from_expr=_elaborate(sections[":resume-from"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        valid_when=valid_variants,
+        start_expr=_elaborate(sections[":start"], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        returns_type_name=returns_identifier.resolved_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_produce_one_of_producer(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ProduceOneOfProducerSpec:
+    head = syntax_head(datum)
+    if head is None or head.resolved_name != "provider" or len(datum.items) < 5:
+        _raise_error(
+            "`produce-one-of :producer` must be a `(provider ...)` form",
+            code="produce_one_of_candidate_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`produce-one-of :producer`")
+    prompt_node = sections.get(":prompt")
+    inputs_node = sections.get(":inputs")
+    if prompt_node is None or inputs_node is None or not isinstance(inputs_node, SyntaxList):
+        _raise_error(
+            "`produce-one-of :producer` requires :prompt and list-valued :inputs",
+            code="produce_one_of_candidate_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return ProduceOneOfProducerSpec(
+        kind="provider",
+        provider_expr=_elaborate(datum.items[1], form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        prompt_expr=_elaborate(prompt_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
+        inputs=tuple(
+            _elaborate(item, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names)
+            for item in inputs_node.items
+        ),
+    )
+
+
+def _elaborate_produce_one_of_candidate(
+    datum: object,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ProduceOneOfCandidateSpec:
+    if not isinstance(datum, SyntaxList) or not datum.items:
+        _raise_error(
+            "`produce-one-of` candidates must be non-empty lists",
+            code="produce_one_of_candidate_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    variant_identifier = syntax_identifier(datum.items[0])
+    if variant_identifier is None:
+        _raise_error(
+            "`produce-one-of` candidate variants must be symbols",
+            code="produce_one_of_candidate_invalid",
+            span=datum.items[0].span,
+            form_path=form_path,
+            expansion_stack=datum.items[0].expansion_stack,
+        )
+    fields = tuple(
+        _elaborate_produce_one_of_candidate_field(
+            item,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+        for item in datum.items[1:]
+    )
+    if not fields:
+        _raise_error(
+            "`produce-one-of` candidates must describe at least one field",
+            code="produce_one_of_candidate_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return ProduceOneOfCandidateSpec(variant_name=variant_identifier.resolved_name, fields=fields)
+
+
+def _elaborate_produce_one_of_candidate_field(
+    datum: object,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ProduceOneOfCandidateFieldSpec:
+    if not isinstance(datum, SyntaxList) or len(datum.items) < 3:
+        _raise_error(
+            "`produce-one-of` candidate fields must be structured lists",
+            code="produce_one_of_candidate_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    field_identifier = syntax_identifier(datum.items[0])
+    if field_identifier is None:
+        _raise_error(
+            "`produce-one-of` candidate field names must be symbols",
+            code="produce_one_of_candidate_invalid",
+            span=datum.items[0].span,
+            form_path=form_path,
+            expansion_stack=datum.items[0].expansion_stack,
+        )
+    if len(datum.items) >= 4 and isinstance(datum.items[1], SyntaxIdentifier) and isinstance(datum.items[2], SyntaxKeyword):
+        source_type_identifier = syntax_identifier(datum.items[1])
+        sections = _keyword_sections(datum.items[2:], form_path=form_path, label="`produce-one-of` candidate field")
+        source_node = sections.get(":source")
+        source_identifier = syntax_identifier(source_node) if source_node is not None else None
+        if source_type_identifier is None or source_identifier is None:
+            _raise_error(
+                "`produce-one-of` candidate source fields require a type name and `:source` symbol",
+                code="produce_one_of_candidate_invalid",
+                span=datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
+        return ProduceOneOfCandidateFieldSpec(
+            field_name=field_identifier.resolved_name,
+            source_type_name=source_type_identifier.resolved_name,
+            source_kind=source_identifier.resolved_name,
+        )
+    sections = _keyword_sections(datum.items[1:], form_path=form_path, label="`produce-one-of` candidate field")
+    target_node = sections.get(":target")
+    schema_node = sections.get(":schema")
+    schema_identifier = syntax_identifier(schema_node) if schema_node is not None else None
+    if target_node is None or schema_identifier is None:
+        _raise_error(
+            "`produce-one-of` candidate path fields require `:target` and `:schema`",
+            code="produce_one_of_candidate_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return ProduceOneOfCandidateFieldSpec(
+        field_name=field_identifier.resolved_name,
+        schema_type_name=schema_identifier.resolved_name,
+        target_expr=_elaborate(target_node, form_path=form_path, bound_names=bound_names, procedure_names=procedure_names),
     )
 
 

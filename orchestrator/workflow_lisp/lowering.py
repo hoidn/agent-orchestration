@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import re
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,13 +27,18 @@ from .expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProduceOneOfExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
     RecordExpr,
+    ResumeOrStartExpr,
+    ReviewReviseLoopExpr,
+    RunProviderPhaseExpr,
     WithPhaseExpr,
 )
 from .phase import (
     IMPLEMENTATION_ATTEMPT_PHASE_NAME,
+    PHASE_TARGET_SPECS,
     PhaseScope,
     is_implementation_attempt_result_type,
 )
@@ -40,10 +46,11 @@ from .macros import collect_macro_catalog, expand_module_forms
 from .reader import read_sexpr_file
 from .spans import SourceSpan
 from .syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
-from .type_env import FrontendTypeEnvironment, RecordTypeRef, TypeRef
+from .type_env import FrontendTypeEnvironment, RecordTypeRef, TypeRef, UnionTypeRef
 from .typecheck import TypedExpr
 from .procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
 from .workflows import (
+    CertifiedAdapterBinding,
     CommandBoundaryEnvironment,
     ExternEnvironment,
     PromptExtern,
@@ -355,6 +362,10 @@ class _ActivePhaseScope:
     scope: PhaseScope
     bundle_path_ref: str
     target_refs: Mapping[str, str]
+    temp_bundle_path_ref: str | None = None
+    snapshot_root_ref: str | None = None
+    candidate_root_ref: str | None = None
+    runtime_phase_name_ref: str | None = None
 
 
 def _normalize_generated_step_id(raw_name: str) -> str:
@@ -409,6 +420,14 @@ def _lower_expression(
             context=context,
             local_values=local_values,
         )
+    if isinstance(expr, RunProviderPhaseExpr):
+        return _lower_run_provider_phase(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, ProduceOneOfExpr):
+        return _lower_produce_one_of(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, ReviewReviseLoopExpr):
+        return _lower_review_revise_loop(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, ResumeOrStartExpr):
+        return _lower_resume_or_start(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, CallExpr):
         return _lower_call_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, ProcedureCallExpr):
@@ -553,6 +572,1091 @@ def _lower_provider_result(
         step_name=provider_step_name,
         step_id=provider_step_id,
         output_refs=_record_output_refs(provider_step_name, result_type),
+        output_kind="step",
+        hidden_inputs=hidden_inputs,
+    )
+
+
+def _lower_run_provider_phase(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, RunProviderPhaseExpr)
+    if context.phase_scope is None:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="`run-provider-phase` lowering requires an active phase scope",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    _require_phase_scope_name_match(
+        context.phase_scope,
+        authored_name=expr.phase_name,
+        form_name="run-provider-phase",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    provider_binding = context.extern_environment.bindings_by_name.get(expr.provider.name)
+    prompt_binding = context.extern_environment.bindings_by_name.get(expr.prompt.name)
+    if not isinstance(provider_binding, ProviderExtern) or not isinstance(prompt_binding, PromptExtern):
+        raise _compile_error(
+            code="provider_result_provider_invalid",
+            message="run-provider-phase lowering requires validated provider/prompt externs",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    bundle_contract = derive_structured_result_contract(
+        typed_expr.type_ref,
+        workflow_name=context.workflow_name,
+        step_id=step_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    authored_contract = dict(bundle_contract.payload)
+    authored_contract["path"] = context.phase_scope.bundle_path_ref
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    generated_steps, consumes, prompt_consumes, hidden_inputs = _build_phase_stdlib_prompt_input_prelude(
+        (
+            ("inputs", expr.inputs_expr),
+            (
+                "execution_report_target",
+                PhaseTargetExpr("execution-report", expr.span, expr.form_path, expr.expansion_stack),
+            ),
+            (
+                "progress_report_target",
+                PhaseTargetExpr("progress-report", expr.span, expr.form_path, expr.expansion_stack),
+            ),
+        ),
+        context=context,
+        local_values=local_values,
+        source_expr=expr,
+    )
+    step = {
+        "name": step_name,
+        "id": step_id,
+        "provider": provider_binding.provider_id,
+        "asset_file": prompt_binding.asset_file,
+        "inject_output_contract": True,
+        bundle_contract.contract_kind: authored_contract,
+        "consumes": consumes,
+        "prompt_consumes": prompt_consumes,
+    }
+    generated_steps.append(step)
+    return generated_steps, _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=_record_output_refs(step_name, typed_expr.type_ref),
+        output_kind="step",
+        hidden_inputs=hidden_inputs,
+    )
+
+
+def _lower_produce_one_of(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, ProduceOneOfExpr)
+    if context.phase_scope is None or context.phase_scope.snapshot_root_ref is None:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="`produce-one-of` lowering requires an active generic phase scope",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    provider_binding = context.extern_environment.bindings_by_name.get(expr.producer.provider_expr.name)
+    prompt_binding = context.extern_environment.bindings_by_name.get(expr.producer.prompt_expr.name)
+    if not isinstance(provider_binding, ProviderExtern) or not isinstance(prompt_binding, PromptExtern):
+        raise _compile_error(
+            code="provider_result_provider_invalid",
+            message="produce-one-of lowering requires validated provider/prompt externs",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    step_prefix = context.step_name_prefix
+    execute_step_name = f"{step_prefix}__produce"
+    execute_step_id = _normalize_generated_step_id(execute_step_name)
+    select_step_name = f"{step_prefix}__select_variant"
+    select_step_id = _normalize_generated_step_id(select_step_name)
+    result_step_name = step_prefix
+    result_step_id = _normalize_generated_step_id(result_step_name)
+    _record_step_origin(context, step_name=execute_step_name, step_id=execute_step_id, source=expr)
+    _record_step_origin(context, step_name=select_step_name, step_id=select_step_id, source=expr)
+    select_contract = derive_structured_result_contract(
+        typed_expr.type_ref,
+        workflow_name=context.workflow_name,
+        step_id=select_step_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    select_payload = dict(select_contract.payload)
+    select_payload["path"] = context.phase_scope.bundle_path_ref
+    select_payload["evidence"] = {
+        "mode": "snapshot_diff",
+        "snapshot": {
+            "ref": f"root.steps.{execute_step_name}.snapshots.{step_prefix}_before",
+        },
+    }
+    generated_steps, consumes, prompt_consumes, hidden_inputs = _build_phase_stdlib_prompt_input_prelude(
+        (
+            ("producer", expr.producer.inputs),
+            (
+                "execution_report_target",
+                PhaseTargetExpr("execution-report", expr.span, expr.form_path, expr.expansion_stack),
+            ),
+            (
+                "progress_report_target",
+                PhaseTargetExpr("progress-report", expr.span, expr.form_path, expr.expansion_stack),
+            ),
+        ),
+        context=context,
+        local_values=local_values,
+        source_expr=expr,
+    )
+    prompt_input_step_name = generated_steps[0]["name"]
+    snapshot_candidates = {
+        candidate.variant_name: {
+            "ref": f"root.steps.{prompt_input_step_name}.artifacts.{_render_candidate_target_artifact_name(candidate)}"
+        }
+        for candidate in expr.candidates
+    }
+    union_payload = derive_structured_result_contract(
+        typed_expr.type_ref,
+        workflow_name=context.workflow_name,
+        step_id=result_step_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    ).payload
+    output_contracts = _union_output_contracts(
+        typed_expr.type_ref,
+        payload=union_payload,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    shared_field_names = {field["name"] for field in union_payload["shared_fields"]}
+
+    def _produce_one_of_case_block(variant_name: str) -> dict[str, Any]:
+        variant_payload = union_payload["variants"][variant_name]
+        variant_field_names = {field["name"] for field in variant_payload["fields"]}
+        variant_relpath_fields = [
+            field["name"] for field in variant_payload["fields"] if field.get("type") == "relpath"
+        ]
+        fallback_relpath_ref = None
+        if variant_relpath_fields:
+            fallback_relpath_ref = f"root.steps.{select_step_name}.artifacts.{variant_relpath_fields[0]}"
+        local_values_payload: list[dict[str, Any]] = []
+        case_outputs: dict[str, Any] = {}
+
+        for field_name, definition in output_contracts.items():
+            if field_name == "variant":
+                case_outputs[field_name] = {
+                    **definition,
+                    "from": {"ref": f"root.steps.{select_step_name}.artifacts.variant"},
+                }
+                continue
+            if field_name in variant_field_names:
+                case_outputs[field_name] = {
+                    **definition,
+                    "from": {"ref": f"root.steps.{select_step_name}.artifacts.{field_name}"},
+                }
+                continue
+            if field_name in shared_field_names:
+                if definition.get("kind") == "scalar" and definition.get("type") == "enum" and variant_name in definition.get("allowed", []):
+                    local_values_payload.append(
+                        {
+                            "name": field_name,
+                            "source": {"literal": variant_name},
+                            "contract": dict(definition),
+                        }
+                    )
+                    case_outputs[field_name] = {
+                        **definition,
+                        "from": {"ref": f"self.steps.MaterializeSharedFields.artifacts.{field_name}"},
+                    }
+                    continue
+                if definition.get("kind") == "scalar" and definition.get("type") == "string":
+                    local_values_payload.append(
+                        {
+                            "name": field_name,
+                            "source": {"literal": variant_name.lower()},
+                            "contract": dict(definition),
+                        }
+                    )
+                    case_outputs[field_name] = {
+                        **definition,
+                        "from": {"ref": f"self.steps.MaterializeSharedFields.artifacts.{field_name}"},
+                    }
+                    continue
+            if definition.get("kind") == "relpath" and fallback_relpath_ref is not None:
+                case_outputs[field_name] = {
+                    **definition,
+                    "from": {"ref": fallback_relpath_ref},
+                }
+                continue
+            if definition.get("kind") == "scalar" and definition.get("type") == "enum":
+                allowed = definition.get("allowed", [])
+                literal_value = allowed[0] if isinstance(allowed, list) and allowed else variant_name
+                local_values_payload.append(
+                    {
+                        "name": field_name,
+                        "source": {"literal": literal_value},
+                        "contract": dict(definition),
+                    }
+                )
+                case_outputs[field_name] = {
+                    **definition,
+                    "from": {"ref": f"self.steps.MaterializeSharedFields.artifacts.{field_name}"},
+                }
+                continue
+            if definition.get("kind") == "scalar" and definition.get("type") == "string":
+                local_values_payload.append(
+                    {
+                        "name": field_name,
+                        "source": {"literal": variant_name.lower()},
+                        "contract": dict(definition),
+                    }
+                )
+                case_outputs[field_name] = {
+                    **definition,
+                    "from": {"ref": f"self.steps.MaterializeSharedFields.artifacts.{field_name}"},
+                }
+                continue
+            raise _compile_error(
+                code="produce_one_of_candidate_invalid",
+                message=f"`produce-one-of` cannot normalize field `{field_name}` for variant `{variant_name}` in this slice",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+
+        case_steps: list[dict[str, Any]] = []
+        if local_values_payload:
+            case_steps.append(
+                {
+                    "name": "MaterializeSharedFields",
+                    "id": "materialize_shared_fields",
+                    "materialize_artifacts": {"values": local_values_payload},
+                }
+            )
+        case_steps.append(
+            _build_match_projection_anchor_step(
+                match_step_name=result_step_name,
+                variant_name=variant_name,
+                case_outputs=case_outputs,
+                context=context,
+                span=expr.span,
+            )
+        )
+        return {
+            "id": _normalize_generated_step_id(f"{result_step_name}__{variant_name.lower()}"),
+            "outputs": case_outputs,
+            "steps": case_steps,
+        }
+
+    generated_steps.extend(
+        [
+            {
+                "name": execute_step_name,
+                "id": execute_step_id,
+                "pre_snapshot": {
+                    "name": f"{step_prefix}_before",
+                    "digest": "sha256",
+                    "candidates": snapshot_candidates,
+                },
+                "provider": provider_binding.provider_id,
+                "asset_file": prompt_binding.asset_file,
+                "consumes": consumes,
+                "prompt_consumes": prompt_consumes,
+            },
+            {
+                "name": select_step_name,
+                "id": select_step_id,
+                "select_variant_output": select_payload,
+            },
+            {
+                "name": result_step_name,
+                "id": result_step_id,
+                "match": {
+                    "ref": f"root.steps.{select_step_name}.artifacts.variant",
+                    "cases": {
+                        variant_name: _produce_one_of_case_block(variant_name)
+                        for variant_name in union_payload["variants"]
+                    },
+                },
+            },
+        ]
+    )
+    return generated_steps, _TerminalResult(
+        step_name=result_step_name,
+        step_id=result_step_id,
+        output_refs=_record_output_refs(result_step_name, typed_expr.type_ref),
+        output_kind="match",
+        hidden_inputs=hidden_inputs,
+    )
+
+
+def _lower_review_revise_loop(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, ReviewReviseLoopExpr)
+    if context.phase_scope is None:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message="`review-revise-loop` lowering requires an active phase scope",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    _require_phase_scope_name_match(
+        context.phase_scope,
+        authored_name=expr.loop_name,
+        form_name="review-revise-loop",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    repeat_step_name = f"{context.step_name_prefix}__loop"
+    repeat_step_id = _normalize_generated_step_id(repeat_step_name)
+    result_step_name = context.step_name_prefix
+    result_step_id = _normalize_generated_step_id(result_step_name)
+    _record_step_origin(context, step_name=repeat_step_name, step_id=repeat_step_id, source=expr)
+    _record_step_origin(context, step_name=result_step_name, step_id=result_step_id, source=expr)
+    review_contract_path = _join_ref_path(
+        context.phase_scope.candidate_root_ref or "inputs.phase-ctx__state-root",
+        "review-loop/review-result.json",
+    )
+    review_output_bundle = {
+        "path": review_contract_path,
+        "fields": [
+            {
+                "name": "review_decision",
+                "json_pointer": "/review_decision",
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE", "BLOCKED"],
+            },
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            },
+            {
+                "name": "review_report",
+                "json_pointer": "/review_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            },
+            {
+                "name": "progress_report",
+                "json_pointer": "/progress_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            },
+            {
+                "name": "blocker_class",
+                "json_pointer": "/blocker_class",
+                "type": "enum",
+                "allowed": [
+                    "missing_resource",
+                    "unavailable_hardware",
+                    "roadmap_conflict",
+                    "external_dependency_outside_authority",
+                    "user_decision_required",
+                    "unrecoverable_after_fix_attempt",
+                ],
+            },
+        ],
+    }
+    review_provider = context.extern_environment.bindings_by_name.get(expr.review_provider.name)
+    fix_provider = context.extern_environment.bindings_by_name.get(expr.fix_provider.name)
+    review_prompt = context.extern_environment.bindings_by_name.get(expr.review_prompt.name)
+    fix_prompt = context.extern_environment.bindings_by_name.get(expr.fix_prompt.name)
+    if not isinstance(review_provider, ProviderExtern) or not isinstance(fix_provider, ProviderExtern):
+        raise _compile_error(
+            code="provider_result_provider_invalid",
+            message="review-revise-loop lowering requires validated provider externs",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if not isinstance(review_prompt, PromptExtern) or not isinstance(fix_prompt, PromptExtern):
+        raise _compile_error(
+            code="provider_result_provider_invalid",
+            message="review-revise-loop lowering requires validated prompt externs",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    generated_steps, consumes, prompt_consumes, hidden_inputs = _build_phase_stdlib_prompt_input_prelude(
+        (
+            ("completed", expr.completed_expr),
+            ("inputs", expr.inputs_expr),
+        ),
+        context=context,
+        local_values=local_values,
+        source_expr=expr,
+    )
+    review_result_ref = "parent.steps.ReviewDecision.artifacts"
+    route_output_contracts = {
+        "variant": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["APPROVED", "BLOCKED", "REVISE", "EXHAUSTED"],
+        },
+        "review_decision": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["APPROVE", "REVISE", "BLOCKED"],
+        },
+        "checks_report": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        },
+        "review_report": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        },
+        "progress_report": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        },
+        "blocker_class": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": [
+                "missing_resource",
+                "unavailable_hardware",
+                "roadmap_conflict",
+                "external_dependency_outside_authority",
+                "user_decision_required",
+                "unrecoverable_after_fix_attempt",
+            ],
+        },
+        "last_review_report": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        },
+        "reason": {
+            "kind": "scalar",
+            "type": "string",
+        },
+    }
+
+    def _route_case_outputs(*, variant_step: str, reason_step: str) -> dict[str, Any]:
+        return {
+            "variant": {
+                **route_output_contracts["variant"],
+                "from": {"ref": f"self.steps.{variant_step}.artifacts.variant"},
+            },
+            "review_decision": {
+                **route_output_contracts["review_decision"],
+                "from": {"ref": f"{review_result_ref}.review_decision"},
+            },
+            "checks_report": {
+                **route_output_contracts["checks_report"],
+                "from": {"ref": f"{review_result_ref}.checks_report"},
+            },
+            "review_report": {
+                **route_output_contracts["review_report"],
+                "from": {"ref": f"{review_result_ref}.review_report"},
+            },
+            "progress_report": {
+                **route_output_contracts["progress_report"],
+                "from": {"ref": f"{review_result_ref}.progress_report"},
+            },
+            "blocker_class": {
+                **route_output_contracts["blocker_class"],
+                "from": {"ref": f"{review_result_ref}.blocker_class"},
+            },
+            "last_review_report": {
+                **route_output_contracts["last_review_report"],
+                "from": {"ref": f"{review_result_ref}.review_report"},
+            },
+            "reason": {
+                **route_output_contracts["reason"],
+                "from": {"ref": f"self.steps.{reason_step}.artifacts.reason"},
+            },
+        }
+
+    loop_outputs = {
+        "variant": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["APPROVED", "BLOCKED", "REVISE", "EXHAUSTED"],
+            "from": {"ref": "self.steps.RouteDecision.artifacts.variant"},
+        },
+        "review_decision": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": ["APPROVE", "REVISE", "BLOCKED"],
+            "from": {"ref": "self.steps.RouteDecision.artifacts.review_decision"},
+        },
+        "checks_report": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+            "from": {"ref": "self.steps.RouteDecision.artifacts.checks_report"},
+        },
+        "review_report": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+            "from": {"ref": "self.steps.RouteDecision.artifacts.review_report"},
+        },
+        "progress_report": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+            "from": {"ref": "self.steps.RouteDecision.artifacts.progress_report"},
+        },
+        "blocker_class": {
+            "kind": "scalar",
+            "type": "enum",
+            "allowed": [
+                "missing_resource",
+                "unavailable_hardware",
+                "roadmap_conflict",
+                "external_dependency_outside_authority",
+                "user_decision_required",
+                "unrecoverable_after_fix_attempt",
+            ],
+            "from": {"ref": "self.steps.RouteDecision.artifacts.blocker_class"},
+        },
+        "last_review_report": {
+            "kind": "relpath",
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+            "from": {"ref": "self.steps.RouteDecision.artifacts.last_review_report"},
+        },
+        "reason": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "self.steps.RouteDecision.artifacts.reason"},
+        },
+    }
+    repeat_step = {
+        "name": repeat_step_name,
+        "id": repeat_step_id,
+        "repeat_until": {
+            "id": "review_loop_iteration",
+            "max_iterations": int(_render_scalar_expr(expr.max_expr, local_values=local_values)),
+            "outputs": loop_outputs,
+            "condition": {
+                "compare": {
+                    "left": {"ref": "self.outputs.variant"},
+                    "op": "ne",
+                    "right": "REVISE",
+                }
+            },
+            "on_exhausted": {
+                "outputs": {
+                    "variant": "EXHAUSTED",
+                    "reason": "max_iterations_reached",
+                }
+            },
+            "steps": [
+                {
+                    "name": "ReviewDecision",
+                    "id": "review_decision",
+                    "provider": review_provider.provider_id,
+                    "asset_file": review_prompt.asset_file,
+                    "consumes": consumes,
+                    "prompt_consumes": prompt_consumes,
+                    "inject_output_contract": True,
+                    "output_bundle": review_output_bundle,
+                },
+                {
+                    "name": "RouteDecision",
+                    "id": "route_decision",
+                    "match": {
+                        "ref": "self.steps.ReviewDecision.artifacts.review_decision",
+                        "cases": {
+                            "APPROVE": {
+                                "id": "approved_case",
+                                "outputs": _route_case_outputs(
+                                    variant_step="MarkApproved",
+                                    reason_step="WriteApprovedReason",
+                                ),
+                                "steps": [
+                                    {
+                                        "name": "MarkApproved",
+                                        "id": "mark_approved",
+                                        "materialize_artifacts": {
+                                            "values": [
+                                                {
+                                                    "name": "variant",
+                                                    "source": {"literal": "APPROVED"},
+                                                    "contract": dict(route_output_contracts["variant"]),
+                                                }
+                                            ],
+                                        },
+                                    },
+                                    {
+                                        "name": "WriteApprovedReason",
+                                        "id": "write_approved_reason",
+                                        "materialize_artifacts": {
+                                            "values": [
+                                                {
+                                                    "name": "reason",
+                                                    "source": {"literal": "approved"},
+                                                    "contract": dict(route_output_contracts["reason"]),
+                                                }
+                                            ],
+                                        },
+                                    },
+                                ],
+                            },
+                            "BLOCKED": {
+                                "id": "blocked_case",
+                                "outputs": _route_case_outputs(
+                                    variant_step="MarkBlocked",
+                                    reason_step="WriteBlockedReason",
+                                ),
+                                "steps": [
+                                    {
+                                        "name": "MarkBlocked",
+                                        "id": "mark_blocked",
+                                        "materialize_artifacts": {
+                                            "values": [
+                                                {
+                                                    "name": "variant",
+                                                    "source": {"literal": "BLOCKED"},
+                                                    "contract": dict(route_output_contracts["variant"]),
+                                                }
+                                            ],
+                                        },
+                                    },
+                                    {
+                                        "name": "WriteBlockedReason",
+                                        "id": "write_blocked_reason",
+                                        "materialize_artifacts": {
+                                            "values": [
+                                                {
+                                                    "name": "reason",
+                                                    "source": {"literal": "blocked"},
+                                                    "contract": dict(route_output_contracts["reason"]),
+                                                }
+                                            ],
+                                        },
+                                    },
+                                ],
+                            },
+                            "REVISE": {
+                                "id": "revise_case",
+                                "outputs": _route_case_outputs(
+                                    variant_step="MarkRevise",
+                                    reason_step="WriteReviseReason",
+                                ),
+                                "steps": [
+                                    {
+                                        "name": "ApplyFix",
+                                        "id": "apply_fix",
+                                        "provider": fix_provider.provider_id,
+                                        "asset_file": fix_prompt.asset_file,
+                                        "consumes": consumes,
+                                        "prompt_consumes": prompt_consumes,
+                                    },
+                                    {
+                                        "name": "MarkRevise",
+                                        "id": "mark_revise",
+                                        "materialize_artifacts": {
+                                            "values": [
+                                                {
+                                                    "name": "variant",
+                                                    "source": {"literal": "REVISE"},
+                                                    "contract": dict(route_output_contracts["variant"]),
+                                                }
+                                            ],
+                                        },
+                                    },
+                                    {
+                                        "name": "WriteReviseReason",
+                                        "id": "write_revise_reason",
+                                        "materialize_artifacts": {
+                                            "values": [
+                                                {
+                                                    "name": "reason",
+                                                    "source": {"literal": "revise_requested"},
+                                                    "contract": dict(route_output_contracts["reason"]),
+                                                }
+                                            ],
+                                        },
+                                    },
+                                ],
+                            },
+                        },
+                    },
+                },
+            ],
+        },
+    }
+    result_output_contracts = _review_loop_result_output_contracts(
+        typed_expr.type_ref,
+        context=context,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+    def _result_case_outputs(*, variant_ref: str) -> dict[str, Any]:
+        return {
+            field_name: {
+                **definition,
+                "from": {"ref": variant_ref if field_name == "variant" else f"root.steps.{repeat_step_name}.artifacts.{field_name}"},
+            }
+            for field_name, definition in result_output_contracts.items()
+        }
+
+    result_cases = {
+        "APPROVED": {
+            "id": _normalize_generated_step_id(f"{result_step_name}__approved"),
+            "outputs": _result_case_outputs(
+                variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
+            ),
+            "steps": [
+                _build_match_projection_anchor_step(
+                    match_step_name=result_step_name,
+                    variant_name="APPROVED",
+                    case_outputs=_result_case_outputs(
+                        variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
+                    ),
+                    context=context,
+                    span=expr.span,
+                )
+            ],
+        },
+        "BLOCKED": {
+            "id": _normalize_generated_step_id(f"{result_step_name}__blocked"),
+            "outputs": _result_case_outputs(
+                variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
+            ),
+            "steps": [
+                _build_match_projection_anchor_step(
+                    match_step_name=result_step_name,
+                    variant_name="BLOCKED",
+                    case_outputs=_result_case_outputs(
+                        variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
+                    ),
+                    context=context,
+                    span=expr.span,
+                )
+            ],
+        },
+        "EXHAUSTED": {
+            "id": _normalize_generated_step_id(f"{result_step_name}__exhausted"),
+            "outputs": _result_case_outputs(
+                variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
+            ),
+            "steps": [
+                _build_match_projection_anchor_step(
+                    match_step_name=result_step_name,
+                    variant_name="EXHAUSTED",
+                    case_outputs=_result_case_outputs(
+                        variant_ref=f"root.steps.{repeat_step_name}.artifacts.variant",
+                    ),
+                    context=context,
+                    span=expr.span,
+                )
+            ],
+        },
+        "REVISE": {
+            "id": _normalize_generated_step_id(f"{result_step_name}__revise"),
+            "outputs": _result_case_outputs(
+                variant_ref="self.steps.NormalizeReviseVariant.artifacts.variant",
+            ),
+            "steps": [
+                {
+                    "name": "NormalizeReviseVariant",
+                    "id": "normalize_revise_variant",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "variant",
+                                "source": {"literal": "EXHAUSTED"},
+                                "contract": dict(result_output_contracts["variant"]),
+                            }
+                        ],
+                    },
+                },
+                _build_match_projection_anchor_step(
+                    match_step_name=result_step_name,
+                    variant_name="REVISE",
+                    case_outputs=_result_case_outputs(
+                        variant_ref="self.steps.NormalizeReviseVariant.artifacts.variant",
+                    ),
+                    context=context,
+                    span=expr.span,
+                ),
+            ],
+        },
+    }
+    result_step = {
+        "name": result_step_name,
+        "id": result_step_id,
+        "match": {
+            "ref": f"root.steps.{repeat_step_name}.artifacts.variant",
+            "cases": result_cases,
+        },
+    }
+    generated_steps.extend([repeat_step, result_step])
+    return generated_steps, _TerminalResult(
+        step_name=result_step_name,
+        step_id=result_step_id,
+        output_refs={},
+        output_kind="match",
+        hidden_inputs=hidden_inputs,
+    )
+
+
+def _lower_resume_or_start(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    expr = typed_expr.expr
+    assert isinstance(expr, ResumeOrStartExpr)
+    validator_binding = context.command_boundary_environment.bindings_by_name.get("validate_reusable_phase_state")
+    if context.phase_scope is not None:
+        _require_phase_scope_name_match(
+            context.phase_scope,
+            authored_name=expr.resume_name,
+            form_name="resume-or-start",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if not isinstance(validator_binding, CertifiedAdapterBinding):
+        raise _compile_error(
+            code="resume_or_start_uncertified_backend",
+            message="`resume-or-start` lowering requires the certified reusable-state validator binding",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    validator_step_name = f"{context.step_name_prefix}__resume_decision"
+    validator_step_id = _normalize_generated_step_id(validator_step_name)
+    branch_step_name = f"{context.step_name_prefix}__select_bundle"
+    branch_step_id = _normalize_generated_step_id(branch_step_name)
+    loader_step_name = context.step_name_prefix
+    loader_step_id = _normalize_generated_step_id(loader_step_name)
+    _record_step_origin(context, step_name=validator_step_name, step_id=validator_step_id, source=expr)
+    _record_step_origin(context, step_name=branch_step_name, step_id=branch_step_id, source=expr)
+    _record_step_origin(context, step_name=loader_step_name, step_id=loader_step_id, source=expr)
+    resume_from_ref = _render_existing_output_ref(expr.resume_from_expr, local_values=local_values)
+    if resume_from_ref is None:
+        raise _compile_error(
+            code="resume_or_start_contract_invalid",
+            message="`resume-or-start :resume-from` must lower from one workflow input or existing output ref",
+            span=expr.resume_from_expr.span,
+            form_path=expr.resume_from_expr.form_path,
+        )
+    validator_hidden_input = f"__write_root__{validator_step_id}__result_bundle"
+    validator_payload = json.dumps(
+        {
+            "resume_from": _template_for_ref(resume_from_ref),
+            "expected_return_type": expr.returns_type_name,
+            "valid_variants": list(expr.valid_when),
+            "required_artifact_fields": {
+                key: list(value)
+                for key, value in _resume_required_artifact_fields(
+                    typed_expr.type_ref,
+                    context=context,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                ).items()
+            },
+        }
+    )
+    validator_step = {
+        "name": validator_step_name,
+        "id": validator_step_id,
+        "command": [*validator_binding.stable_command, validator_payload],
+        "variant_output": {
+            "path": f"${{inputs.{validator_hidden_input}}}",
+            "discriminant": {
+                "name": "variant",
+                "json_pointer": "/variant",
+                "type": "enum",
+                "allowed": ["REUSE", "START"],
+            },
+            "shared_fields": [],
+            "variants": {
+                "REUSE": {
+                    "fields": [
+                        {
+                            "name": "source_bundle_path",
+                            "json_pointer": "/source_bundle_path",
+                            "type": "relpath",
+                        }
+                    ]
+                },
+                "START": {
+                    "fields": [
+                        {
+                            "name": "reason_code",
+                            "json_pointer": "/reason_code",
+                            "type": "string",
+                        }
+                    ]
+                },
+            },
+        },
+    }
+    start_context = _copy_context_with_step_prefix(
+        context,
+        step_name_prefix=f"{context.step_name_prefix}__start",
+    )
+    start_steps, start_terminal = _lower_expression(
+        TypedExpr(
+            expr=expr.start_expr,
+            type_ref=typed_expr.type_ref,
+            span=expr.start_expr.span,
+            form_path=expr.start_expr.form_path,
+        ),
+        context=start_context,
+        local_values=local_values,
+    )
+    start_bundle_ref = _resume_start_bundle_ref(
+        expr.start_expr,
+        start_terminal=start_terminal,
+        context=start_context,
+    )
+    start_case_steps = list(start_steps)
+    start_bundle_output_ref = start_bundle_ref
+    if not start_bundle_ref.startswith("root.steps.") and not start_bundle_ref.startswith("self.steps.") and not start_bundle_ref.startswith("parent.steps."):
+        capture_step_name = "CaptureFreshBundlePath"
+        capture_step_id = "capture_fresh_bundle_path"
+        start_case_steps.append(
+            {
+                "name": capture_step_name,
+                "id": capture_step_id,
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "source_bundle_path",
+                            "source": (
+                                {"input": start_bundle_ref.removeprefix("inputs.")}
+                                if start_bundle_ref.startswith("inputs.")
+                                else {"literal": start_bundle_ref}
+                            ),
+                            "contract": {
+                                "kind": "relpath",
+                                "type": "relpath",
+                            },
+                        }
+                    ],
+                },
+            }
+        )
+        start_bundle_output_ref = f"self.steps.{capture_step_name}.artifacts.source_bundle_path"
+    branch_case_outputs = {
+        "source_bundle_path": {
+            "kind": "relpath",
+            "type": "relpath",
+            "from": {"ref": f"parent.steps.{validator_step_name}.artifacts.source_bundle_path"},
+        }
+    }
+    branch_step = {
+        "name": branch_step_name,
+        "id": branch_step_id,
+        "match": {
+            "ref": f"root.steps.{validator_step_name}.artifacts.variant",
+            "cases": {
+                "REUSE": {
+                    "id": "reuse_bundle",
+                    "outputs": branch_case_outputs,
+                    "steps": [
+                        {
+                            "name": "ReuseBranchAnchor",
+                            "id": "reuse_branch_anchor",
+                            "assert": {
+                                "compare": {
+                                    "left": {
+                                        "ref": f"parent.steps.{validator_step_name}.artifacts.variant",
+                                    },
+                                    "op": "eq",
+                                    "right": "REUSE",
+                                }
+                            },
+                        }
+                    ],
+                },
+                "START": {
+                    "id": "start_bundle",
+                    "outputs": {
+                        "source_bundle_path": {
+                            "kind": "relpath",
+                            "type": "relpath",
+                            "from": {"ref": start_bundle_output_ref},
+                        }
+                    },
+                    "steps": start_case_steps,
+                },
+            },
+        },
+    }
+    loader_binding_name = f"load_canonical_phase_result__{expr.returns_type_name}"
+    loader_binding = context.command_boundary_environment.bindings_by_name.get(loader_binding_name)
+    if not isinstance(loader_binding, CertifiedAdapterBinding):
+        raise _compile_error(
+            code="resume_or_start_uncertified_backend",
+            message=f"`resume-or-start` lowering requires `{loader_binding_name}`",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    loader_contract = derive_structured_result_contract(
+        typed_expr.type_ref,
+        workflow_name=context.workflow_name,
+        step_id=loader_step_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    loader_hidden_input = f"__write_root__{loader_step_id}__result_bundle"
+    loader_payload = json.dumps(
+        {
+            "bundle_path": "${root.steps."
+            + branch_step_name
+            + ".artifacts.source_bundle_path}",
+            "expected_return_type": expr.returns_type_name,
+        }
+    )
+    loader_step = {
+        "name": loader_step_name,
+        "id": loader_step_id,
+        "command": [*loader_binding.stable_command, loader_payload],
+        loader_contract.contract_kind: {
+            **dict(loader_contract.payload),
+            "path": f"${{inputs.{loader_hidden_input}}}",
+        },
+    }
+    hidden_inputs = {
+        validator_hidden_input: _origin_from_context_source(context, expr),
+        loader_hidden_input: _origin_from_context_source(context, expr),
+    }
+    hidden_inputs.update(start_terminal.hidden_inputs)
+    return [validator_step, branch_step, loader_step], _TerminalResult(
+        step_name=loader_step_name,
+        step_id=loader_step_id,
+        output_refs=_record_output_refs(loader_step_name, typed_expr.type_ref),
         output_kind="step",
         hidden_inputs=hidden_inputs,
     )
@@ -717,31 +1821,32 @@ def _lower_let_star(
             form_path=expr.form_path,
         )
     binding_name, binding_expr = expr.bindings[0]
-    if not isinstance(binding_expr, ProviderResultExpr):
-        raise _compile_error(
-            code="workflow_return_not_exportable",
-            message="Stage 3 lowering supports let* only for provider-result bindings",
-            span=binding_expr.span,
-            form_path=binding_expr.form_path,
-        )
+    binding_type = _binding_type_for_expr(binding_expr, context=context)
     provider_step_name = f"{context.step_name_prefix}__{binding_name}"
-    binding_type = context.type_env.resolve_type(
-        binding_expr.returns_type_name,
-        span=binding_expr.span,
-        form_path=binding_expr.form_path,
-    )
-    provider_steps, provider_terminal = _lower_provider_result(
-        binding_expr,
-        result_type=binding_type,
-        context=context,
-        local_values=local_values,
-        step_name=provider_step_name,
-    )
+    if isinstance(binding_expr, ProviderResultExpr):
+        binding_steps, binding_terminal = _lower_provider_result(
+            binding_expr,
+            result_type=binding_type,
+            context=context,
+            local_values=local_values,
+            step_name=provider_step_name,
+        )
+    else:
+        binding_steps, binding_terminal = _lower_expression(
+            TypedExpr(
+                expr=binding_expr,
+                type_ref=binding_type,
+                span=binding_expr.span,
+                form_path=binding_expr.form_path,
+            ),
+            context=_copy_context_with_step_prefix(context, step_name_prefix=provider_step_name),
+            local_values=local_values,
+        )
     local_bindings = dict(local_values)
     if isinstance(binding_type, RecordTypeRef):
         local_bindings[binding_name] = _build_record_step_local_value(
             binding_type,
-            step_name=provider_step_name,
+            step_name=binding_terminal.step_name,
         )
 
     if isinstance(expr.body, MatchExpr):
@@ -749,7 +1854,7 @@ def _lower_let_star(
             expr.body,
             context=context,
             binding_name=binding_name,
-            provider_step_name=provider_step_name,
+            provider_step_name=binding_terminal.step_name,
             local_values=local_bindings,
         )
     else:
@@ -763,9 +1868,9 @@ def _lower_let_star(
             context=context,
             local_values=local_bindings,
         )
-    hidden_inputs = dict(provider_terminal.hidden_inputs)
+    hidden_inputs = dict(binding_terminal.hidden_inputs)
     hidden_inputs.update(terminal.hidden_inputs)
-    return [*provider_steps, *lowered_steps], _TerminalResult(
+    return [*binding_steps, *lowered_steps], _TerminalResult(
         step_name=terminal.step_name,
         step_id=terminal.step_id,
         output_refs=terminal.output_refs,
@@ -1069,8 +2174,9 @@ def _build_phase_prompt_input_prelude(
     values: list[dict[str, Any]] = []
     publishes: list[dict[str, str]] = []
     for artifact_name, input_expr in phase_prompt_inputs:
-        raw_source_node = _resolve_phase_prompt_input_source(
+        raw_source_node, _ = _resolve_phase_prompt_input_source(
             input_expr,
+            artifact_name=artifact_name,
             context=context,
             local_values=local_values,
         )
@@ -1134,12 +2240,167 @@ def _build_phase_prompt_input_prelude(
     ]
 
 
-def _resolve_phase_prompt_input_source(
-    expr: Any,
+def _build_phase_stdlib_prompt_input_prelude(
+    prompt_input_specs: tuple[tuple[str, Any], ...],
     *,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
-) -> dict[str, str]:
+    source_expr: Any,
+) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[str], dict[str, LoweringOrigin]]:
+    phase_scope = context.phase_scope
+    if phase_scope is None:
+        return [], [], [], {}
+
+    flattened_inputs: list[tuple[str, Any]] = []
+    for base_name, prompt_input in prompt_input_specs:
+        flattened_inputs.extend(
+            _flatten_phase_stdlib_prompt_inputs(
+                prompt_input,
+                base_name=base_name,
+                local_values=local_values,
+            )
+        )
+
+    values: list[dict[str, Any]] = []
+    publishes: list[dict[str, str]] = []
+    artifact_names: list[str] = []
+    hidden_inputs: dict[str, LoweringOrigin] = {}
+    for artifact_name, input_expr in flattened_inputs:
+        raw_source_node, extra_hidden_inputs = _resolve_phase_prompt_input_source(
+            input_expr,
+            artifact_name=artifact_name,
+            context=context,
+            local_values=local_values,
+        )
+        hidden_inputs.update(extra_hidden_inputs)
+        contract_input_name = _materialize_contract_input_name(raw_source_node)
+        pointer_path = _phase_prompt_input_pointer_path(context.workflow_name, artifact_name)
+        if contract_input_name is None or contract_input_name.startswith("__phase_prompt__"):
+            if not isinstance(input_expr, PhaseTargetExpr):
+                raise _compile_error(
+                    code="phase_translation_body_invalid",
+                    message="phase stdlib prompt inputs must lower from flattened workflow inputs or approved phase targets",
+                    span=source_expr.span,
+                    form_path=source_expr.form_path,
+                )
+            value_contract = _phase_target_prompt_input_contract(input_expr)
+        else:
+            value_contract = (
+                {"inherit": "source"}
+                if raw_source_node.get("input") == contract_input_name
+                else _authored_input_contract(
+                    contract_input_name,
+                    context=context,
+                    span=source_expr.span,
+                    form_path=source_expr.form_path,
+                )
+            )
+        values.append(
+            {
+                "name": artifact_name,
+                "source": raw_source_node,
+                "contract": value_contract,
+                "pointer": {"path": pointer_path},
+            }
+        )
+        context.top_level_artifacts[artifact_name] = _phase_prompt_artifact_definition(
+            contract=value_contract,
+            input_name=contract_input_name,
+            context=context,
+            pointer_path=pointer_path,
+            span=source_expr.span,
+            form_path=source_expr.form_path,
+        )
+        context.generated_path_spans[pointer_path] = _origin_from_context_source(context, source_expr)
+        publishes.append({"artifact": artifact_name, "from": artifact_name})
+        artifact_names.append(artifact_name)
+
+    step_name = f"{context.step_name_prefix}__prompt_inputs"
+    step_id = _normalize_generated_step_id(step_name)
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=source_expr)
+    return (
+        [
+            {
+                "name": step_name,
+                "id": step_id,
+                "materialize_artifacts": {"values": values},
+                "publishes": publishes,
+            }
+        ],
+        [
+            {
+                "artifact": artifact_name,
+                "policy": "latest_successful",
+                "freshness": "any",
+            }
+            for artifact_name in artifact_names
+        ],
+        artifact_names,
+        hidden_inputs,
+    )
+
+
+def _flatten_phase_stdlib_prompt_inputs(
+    expr: Any,
+    *,
+    base_name: str,
+    local_values: Mapping[str, Any],
+) -> list[tuple[str, Any]]:
+    if isinstance(expr, tuple):
+        flattened: list[tuple[str, Any]] = []
+        for item in expr:
+            item_value = _resolve_inline_expr_value(item, local_values=local_values)
+            child_name = base_name
+            if isinstance(item, FieldAccessExpr) and item.fields:
+                child_name = item.fields[-1]
+            elif isinstance(item, NameExpr):
+                child_name = item.name
+            elif isinstance(item_value, str) and item_value.startswith("inputs."):
+                child_name = item_value.removeprefix("inputs.").split("__")[-1]
+            flattened.extend(
+                _flatten_phase_stdlib_prompt_inputs(
+                    item,
+                    base_name=child_name,
+                    local_values=local_values,
+                )
+            )
+        return flattened
+
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if isinstance(value, Mapping):
+        flattened = []
+        for field_name, field_value in value.items():
+            child_name = field_name if base_name in {"inputs", "producer"} else f"{base_name}__{field_name}"
+            flattened.extend(
+                _flatten_phase_stdlib_prompt_inputs(
+                    field_value,
+                    base_name=child_name,
+                    local_values=local_values,
+                )
+            )
+        return flattened
+    if isinstance(value, RecordExpr):
+        flattened = []
+        for field_name, field_expr in value.fields:
+            child_name = field_name if base_name in {"inputs", "producer"} else f"{base_name}__{field_name}"
+            flattened.extend(
+                _flatten_phase_stdlib_prompt_inputs(
+                    field_expr,
+                    base_name=child_name,
+                    local_values=local_values,
+                )
+            )
+        return flattened
+    return [(base_name, value if value is not None else expr)]
+
+
+def _resolve_phase_prompt_input_source(
+    expr: Any,
+    *,
+    artifact_name: str,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[dict[str, str], dict[str, LoweringOrigin]]:
     if isinstance(expr, PhaseTargetExpr):
         phase_scope = context.phase_scope
         if phase_scope is None:
@@ -1157,11 +2418,22 @@ def _resolve_phase_prompt_input_source(
                 span=expr.span,
                 form_path=expr.form_path,
             )
-        return _materialize_source_from_ref(target_ref)
+        if (
+            target_ref.startswith("inputs.")
+            or target_ref.startswith("root.steps.")
+            or target_ref.startswith("self.steps.")
+            or target_ref.startswith("parent.steps.")
+        ):
+            return _materialize_source_from_ref(target_ref), {}
+        hidden_input_name = f"__phase_prompt__{context.step_name_prefix}__{artifact_name}"
+        return (
+            {"input": hidden_input_name},
+            {hidden_input_name: _origin_from_context_source(context, expr)},
+        )
 
     value = _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(value, str):
-        return _materialize_source_from_ref(value)
+        return _materialize_source_from_ref(value), {}
     raise _compile_error(
         code="phase_translation_body_invalid",
         message="phase-scoped provider-result inputs must lower from workflow inputs or approved phase targets",
@@ -1242,6 +2514,52 @@ def _materialize_source_input_name(source: Mapping[str, str]) -> str | None:
     if isinstance(input_name, str):
         return input_name
     return None
+
+
+def _materialize_contract_input_name(source: Mapping[str, str]) -> str | None:
+    input_name = _materialize_source_input_name(source)
+    if input_name is not None:
+        return input_name
+    ref = source.get("ref")
+    if isinstance(ref, str) and ref.startswith("inputs."):
+        return ref.removeprefix("inputs.")
+    return None
+
+
+def _authored_input_contract(
+    input_name: str,
+    *,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    input_contract = context.authored_input_contracts.get(input_name)
+    if input_contract is None:
+        raise _compile_error(
+            code="phase_translation_body_invalid",
+            message=f"missing flattened workflow input contract for `{input_name}`",
+            span=span,
+            form_path=form_path,
+        )
+    return dict(input_contract)
+
+
+def _phase_target_prompt_input_contract(target_expr: PhaseTargetExpr) -> dict[str, Any]:
+    spec = PHASE_TARGET_SPECS.get(target_expr.target_name)
+    if spec is None:
+        raise _compile_error(
+            code="phase_target_unknown",
+            message=f"`phase-target` does not support `{target_expr.target_name}` in this slice",
+            span=target_expr.span,
+            form_path=target_expr.form_path,
+        )
+    _, under_root, _ = spec
+    return {
+        "kind": "relpath",
+        "type": "relpath",
+        "under": under_root,
+        "must_exist_target": False,
+    }
 
 
 def _phase_prompt_input_contract(
@@ -1480,6 +2798,199 @@ def _first_case_output_ref(case_outputs: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _surface_contract_from_structured_field(field: Mapping[str, Any]) -> dict[str, Any]:
+    definition = {
+        key: value
+        for key, value in field.items()
+        if key in {"type", "allowed", "under", "must_exist_target"}
+    }
+    definition["kind"] = "relpath" if definition.get("type") == "relpath" else "scalar"
+    return definition
+
+
+def _union_case_contract_definitions(
+    type_ref: UnionTypeRef,
+    *,
+    variant_name: str,
+    workflow_name: str,
+    step_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    contract = derive_structured_result_contract(
+        type_ref,
+        workflow_name=workflow_name,
+        step_id=step_name,
+        span=span,
+        form_path=form_path,
+    )
+    payload = contract.payload
+    outputs = {
+        "variant": _surface_contract_from_structured_field(payload["discriminant"]),
+    }
+    for field in payload["shared_fields"]:
+        outputs[field["name"]] = _surface_contract_from_structured_field(field)
+    variant_payload = payload["variants"][variant_name]
+    for field in variant_payload["fields"]:
+        outputs[field["name"]] = _surface_contract_from_structured_field(field)
+    return outputs
+
+
+def _review_loop_result_case_outputs(
+    type_ref: Any,
+    *,
+    variant_name: str,
+    source_step_name: str,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    if not isinstance(type_ref, UnionTypeRef):
+        raise _compile_error(
+            code="review_loop_result_contract_invalid",
+            message="`review-revise-loop` lowering requires a union return type",
+            span=span,
+            form_path=form_path,
+        )
+    contracts = _union_case_contract_definitions(
+        type_ref,
+        variant_name=variant_name,
+        workflow_name=context.workflow_name,
+        step_name=context.step_name_prefix,
+        span=span,
+        form_path=form_path,
+    )
+    return {
+        field_name: {
+            **definition,
+            "from": {"ref": f"root.steps.{source_step_name}.artifacts.{field_name}"},
+        }
+        for field_name, definition in contracts.items()
+    }
+
+
+def _review_loop_result_output_contracts(
+    type_ref: Any,
+    *,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    return _union_output_contracts(
+        type_ref,
+        payload=derive_structured_result_contract(
+            type_ref,
+            workflow_name=context.workflow_name,
+            step_id=context.step_name_prefix,
+            span=span,
+            form_path=form_path,
+        ).payload,
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _union_output_contracts(
+    type_ref: Any,
+    *,
+    payload: Mapping[str, Any],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    if not isinstance(type_ref, UnionTypeRef):
+        raise _compile_error(
+            code="review_loop_result_contract_invalid",
+            message="`review-revise-loop` lowering requires a union return type",
+            span=span,
+            form_path=form_path,
+        )
+    outputs = {
+        "variant": _surface_contract_from_structured_field(payload["discriminant"]),
+    }
+    for field in payload["shared_fields"]:
+        outputs[field["name"]] = _surface_contract_from_structured_field(field)
+    for variant_payload in payload["variants"].values():
+        for field in variant_payload["fields"]:
+            outputs.setdefault(field["name"], _surface_contract_from_structured_field(field))
+    return outputs
+
+
+def _resume_start_bundle_ref(
+    start_expr: Any,
+    *,
+    start_terminal: _TerminalResult,
+    context: _LoweringContext,
+) -> str:
+    if isinstance(start_expr, CommandResultExpr):
+        return f"inputs.__write_root__{start_terminal.step_id}__result_bundle"
+    if isinstance(start_expr, (RunProviderPhaseExpr, ProduceOneOfExpr)):
+        if context.phase_scope is None:
+            raise _compile_error(
+                code="phase_translation_body_invalid",
+                message="phase-scoped resume start lowering requires an active phase scope",
+                span=start_expr.span,
+                form_path=start_expr.form_path,
+            )
+        return context.phase_scope.bundle_path_ref
+    if isinstance(start_expr, ProviderResultExpr):
+        if context.phase_scope is None:
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` provider results must lower inside an active phase scope",
+                span=start_expr.span,
+                form_path=start_expr.form_path,
+            )
+        return context.phase_scope.bundle_path_ref
+    raise _compile_error(
+        code="resume_or_start_contract_invalid",
+        message="`resume-or-start :start` must lower to one canonical bundle path in this slice",
+        span=start_expr.span,
+        form_path=start_expr.form_path,
+    )
+
+
+def _resume_required_artifact_fields(
+    type_ref: Any,
+    *,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> Mapping[str, tuple[str, ...]]:
+    if isinstance(type_ref, RecordTypeRef):
+        fields = derive_structured_result_contract(
+            type_ref,
+            workflow_name=context.workflow_name,
+            step_id=context.step_name_prefix,
+            span=span,
+            form_path=form_path,
+        ).payload["fields"]
+        return {
+            type_ref.name: tuple(
+                field.name
+                for index, field in enumerate(type_ref.definition.fields)
+                if _surface_contract_from_structured_field(fields[index])["kind"] == "relpath"
+            )
+        }
+    if not isinstance(type_ref, UnionTypeRef):
+        return {}
+    required: dict[str, tuple[str, ...]] = {}
+    for variant in type_ref.definition.variants:
+        contracts = _union_case_contract_definitions(
+            type_ref,
+            variant_name=variant.name,
+            workflow_name=context.workflow_name,
+            step_name=context.step_name_prefix,
+            span=span,
+            form_path=form_path,
+        )
+        required[variant.name] = tuple(
+            field_name
+            for field_name, definition in contracts.items()
+            if field_name != "variant" and definition.get("kind") == "relpath"
+        )
+    return required
+
+
 def _origin_for_workflow(
     typed_workflow: TypedWorkflowDef,
     *,
@@ -1594,6 +3105,8 @@ def _render_existing_output_ref(expr: Any, *, local_values: Mapping[str, Any]) -
 
 
 def _template_for_ref(ref: str) -> str:
+    if ref.startswith("${"):
+        return ref
     return "${" + ref + "}"
 
 
@@ -1602,13 +3115,6 @@ def _resolve_active_phase_scope(
     *,
     local_values: Mapping[str, Any],
 ) -> _ActivePhaseScope:
-    if expr.phase_name != IMPLEMENTATION_ATTEMPT_PHASE_NAME:
-        raise _compile_error(
-            code="phase_context_invalid",
-            message="`with-phase` supports only the `implementation` phase in this bounded slice",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
     context_value = _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values)
     if not isinstance(context_value, Mapping):
         raise _compile_error(
@@ -1616,6 +3122,41 @@ def _resolve_active_phase_scope(
             message="`with-phase` lowering requires the phase context to resolve from workflow inputs",
             span=expr.ctx_expr.span,
             form_path=expr.ctx_expr.form_path,
+        )
+    if "implementation_state_bundle_path" not in context_value:
+        state_root_ref = context_value.get("state-root")
+        artifact_root_ref = context_value.get("artifact-root")
+        runtime_phase_name_ref = context_value.get("phase-name")
+        if not isinstance(state_root_ref, str) or not isinstance(artifact_root_ref, str):
+            raise _compile_error(
+                code="phase_translation_body_invalid",
+                message="`with-phase` lowering requires generic phase roots to resolve from workflow inputs",
+                span=expr.ctx_expr.span,
+                form_path=expr.ctx_expr.form_path,
+            )
+        target_refs = {
+            target_name: _join_ref_path(artifact_root_ref, f"{expr.phase_name}/{suffix}")
+            for target_name, (_, _, suffix) in PHASE_TARGET_SPECS.items()
+        }
+        return _ActivePhaseScope(
+            scope=PhaseScope(
+                context_record_name="PhaseCtx",
+                phase_name=expr.phase_name,
+                target_types={},
+            ),
+            bundle_path_ref=_join_ref_path(state_root_ref, f"phases/{expr.phase_name}/state.json"),
+            temp_bundle_path_ref=_join_ref_path(state_root_ref, f"phases/{expr.phase_name}/state.tmp.json"),
+            snapshot_root_ref=_join_ref_path(state_root_ref, f"phases/{expr.phase_name}/snapshots"),
+            candidate_root_ref=_join_ref_path(state_root_ref, f"phases/{expr.phase_name}/candidates"),
+            target_refs=target_refs,
+            runtime_phase_name_ref=runtime_phase_name_ref if isinstance(runtime_phase_name_ref, str) else None,
+        )
+    if expr.phase_name != IMPLEMENTATION_ATTEMPT_PHASE_NAME:
+        raise _compile_error(
+            code="phase_context_invalid",
+            message="`with-phase` supports only the `implementation` phase in the legacy bridge",
+            span=expr.span,
+            form_path=expr.form_path,
         )
     bundle_ref = context_value.get("implementation_state_bundle_path")
     execution_ref = context_value.get("execution_report_target")
@@ -1672,6 +3213,30 @@ def _copy_context_with_phase_scope(
     )
 
 
+def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefix: str) -> _LoweringContext:
+    return _LoweringContext(
+        workflow_name=context.workflow_name,
+        step_name_prefix=step_name_prefix,
+        workflow_path=context.workflow_path,
+        signature=context.signature,
+        authored_input_contracts=context.authored_input_contracts,
+        extern_environment=context.extern_environment,
+        command_boundary_environment=context.command_boundary_environment,
+        lowered_callees=context.lowered_callees,
+        typed_procedures=context.typed_procedures,
+        type_env=context.type_env,
+        step_spans=context.step_spans,
+        generated_input_spans=context.generated_input_spans,
+        generated_output_spans=context.generated_output_spans,
+        generated_path_spans=context.generated_path_spans,
+        top_level_artifacts=context.top_level_artifacts,
+        inline_call_counters=context.inline_call_counters,
+        origin_notes=context.origin_notes,
+        return_output_contracts=context.return_output_contracts,
+        phase_scope=context.phase_scope,
+    )
+
+
 def _record_field_value(record_expr: RecordExpr, field_name: str) -> Any:
     for name, value in record_expr.fields:
         if name == field_name:
@@ -1682,6 +3247,71 @@ def _record_field_value(record_expr: RecordExpr, field_name: str) -> Any:
         span=record_expr.span,
         form_path=record_expr.form_path,
     )
+
+
+def _binding_type_for_expr(expr: Any, *, context: _LoweringContext) -> TypeRef:
+    if isinstance(
+        expr,
+        (
+            ProviderResultExpr,
+            CommandResultExpr,
+            RunProviderPhaseExpr,
+            ProduceOneOfExpr,
+            ReviewReviseLoopExpr,
+            ResumeOrStartExpr,
+        ),
+    ):
+        return context.type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    raise _compile_error(
+        code="workflow_return_not_exportable",
+        message=f"Stage 3 lowering does not support let* binding `{type(expr).__name__}`",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+def _render_candidate_target(candidate: Any, *, context: _LoweringContext) -> str:
+    for field_spec in candidate.fields:
+        target_expr = getattr(field_spec, "target_expr", None)
+        if isinstance(target_expr, PhaseTargetExpr):
+            target_ref = context.phase_scope.target_refs.get(target_expr.target_name) if context.phase_scope is not None else None
+            if isinstance(target_ref, str):
+                return target_ref
+    raise _compile_error(
+        code="produce_one_of_candidate_invalid",
+        message=f"`produce-one-of` candidate `{candidate.variant_name}` requires a phase-target path",
+        span=context.signature.span,
+        form_path=context.signature.form_path,
+    )
+
+
+def _render_candidate_target_artifact_name(candidate: Any) -> str:
+    for field_spec in candidate.fields:
+        target_expr = getattr(field_spec, "target_expr", None)
+        if isinstance(target_expr, PhaseTargetExpr):
+            return _phase_prompt_artifact_name_for_target(target_expr)
+    fallback_target = next(
+        (getattr(field_spec, "target_expr", None) for field_spec in candidate.fields if getattr(field_spec, "target_expr", None) is not None),
+        None,
+    )
+    if fallback_target is None:
+        raise ValueError(f"`produce-one-of` candidate `{candidate.variant_name}` requires a phase-target path")
+    raise _compile_error(
+        code="produce_one_of_candidate_invalid",
+        message=f"`produce-one-of` candidate `{candidate.variant_name}` requires a phase-target path",
+        span=fallback_target.span,
+        form_path=fallback_target.form_path,
+    )
+
+
+def _join_ref_path(base_ref: str, suffix: str) -> str:
+    if base_ref.startswith("${"):
+        return f"{base_ref}/{suffix}"
+    return "${" + base_ref + "}/" + suffix
 
 
 def _resolve_procedure_lowering(
@@ -2207,6 +3837,24 @@ def _shared_validation_diagnostic_code(message: str) -> str:
     if "parent directory traversal" in message or "absolute paths not allowed" in message:
         return "path_definition_invalid"
     return "workflow_boundary_type_invalid"
+
+
+def _require_phase_scope_name_match(
+    phase_scope: _ActivePhaseScope,
+    *,
+    authored_name: str,
+    form_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if phase_scope.scope.phase_name == authored_name:
+        return
+    raise _compile_error(
+        code="phase_scope_name_mismatch",
+        message=f"`{form_name}` name `{authored_name}` must match the active `with-phase` scope `{phase_scope.scope.phase_name}`",
+        span=span,
+        form_path=form_path,
+    )
 
 
 def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tuple[str, ...]) -> LispFrontendCompileError:

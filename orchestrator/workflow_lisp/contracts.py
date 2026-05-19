@@ -64,7 +64,11 @@ def derive_structured_result_contract(
             "type": "enum",
             "allowed": [variant.name for variant in type_ref.definition.variants],
         },
-        "shared_fields": [],
+        "shared_fields": _shared_variant_structured_result_fields(
+            type_ref,
+            span=span,
+            form_path=form_path,
+        ),
         "variants": {
             variant.name: {
                 "fields": _flatten_variant_structured_result_fields(
@@ -253,18 +257,73 @@ def _flatten_variant_structured_result_fields(
     span: SourceSpan | None,
     form_path: tuple[str, ...],
 ) -> list[dict[str, Any]]:
+    shared_field_names = {
+        field["name"]
+        for field in _shared_variant_structured_result_fields(
+            type_ref,
+            span=span,
+            form_path=form_path,
+        )
+    }
     flattened: list[dict[str, Any]] = []
     for field in next(variant for variant in type_ref.definition.variants if variant.name == variant_name).fields:
         field_type = _resolve_variant_field_type(type_ref, variant_name, field.name)
-        flattened.extend(
-            _flatten_structured_result_field(
+        for flattened_field in _flatten_structured_result_field(
+            field_type,
+            field_path=(field.name,),
+            span=span,
+            form_path=form_path,
+        ):
+            if flattened_field["name"] not in shared_field_names:
+                flattened.append(flattened_field)
+    return flattened
+
+
+def _shared_variant_structured_result_fields(
+    type_ref: UnionTypeRef,
+    *,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> list[dict[str, Any]]:
+    if not type_ref.definition.variants:
+        return []
+
+    variant_field_maps: list[dict[str, dict[str, Any]]] = []
+    for variant in type_ref.definition.variants:
+        flattened_fields: dict[str, dict[str, Any]] = {}
+        for field in variant.fields:
+            field_type = _resolve_variant_field_type(type_ref, variant.name, field.name)
+            for flattened_field in _flatten_structured_result_field(
                 field_type,
                 field_path=(field.name,),
                 span=span,
                 form_path=form_path,
-            )
-        )
-    return flattened
+            ):
+                flattened_fields[flattened_field["name"]] = flattened_field
+        variant_field_maps.append(flattened_fields)
+
+    common_names = set(variant_field_maps[0])
+    for field_map in variant_field_maps[1:]:
+        common_names &= set(field_map)
+    if not common_names:
+        return []
+
+    shared: list[dict[str, Any]] = []
+    first_variant = type_ref.definition.variants[0]
+    for field in first_variant.fields:
+        field_type = _resolve_variant_field_type(type_ref, first_variant.name, field.name)
+        for flattened_field in _flatten_structured_result_field(
+            field_type,
+            field_path=(field.name,),
+            span=span,
+            form_path=form_path,
+        ):
+            field_name = flattened_field["name"]
+            if field_name not in common_names:
+                continue
+            if all(field_map.get(field_name) == flattened_field for field_map in variant_field_maps[1:]):
+                shared.append(flattened_field)
+    return shared
 
 
 def _flatten_structured_result_field(

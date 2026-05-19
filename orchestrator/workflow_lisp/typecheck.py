@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -27,20 +27,28 @@ from .expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProduceOneOfExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
     RecordExpr,
+    ResumeOrStartExpr,
+    ReviewReviseLoopExpr,
+    RunProviderPhaseExpr,
     WithPhaseExpr,
 )
 from .phase import (
     PhaseScope,
-    build_implementation_attempt_phase_scope,
+    PHASE_CONTEXT_NAME,
+    build_phase_scope,
+    IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME,
     is_implementation_attempt_result_type,
     resolve_phase_target_type,
 )
+from .phase_stdlib import ResumeValidationSpec
 from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
+    PathTypeRef,
     PrimitiveTypeRef,
     RecordTypeRef,
     TypeRef,
@@ -534,7 +542,7 @@ def _typecheck(
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
         )
-        phase_scope = build_implementation_attempt_phase_scope(
+        phase_scope = build_phase_scope(
             typed_context.type_ref,
             phase_name=expr.phase_name,
             type_env=type_env,
@@ -566,7 +574,7 @@ def _typecheck(
                 code="phase_target_outside_with_phase",
                 span=expr.span,
                 form_path=expr.form_path,
-            )
+        )
         target_type = resolve_phase_target_type(
             active_phase_scope,
             expr.target_name,
@@ -575,6 +583,547 @@ def _typecheck(
             form_path=expr.form_path,
         )
         return _typed(expr=expr, type_ref=target_type, effect=EMPTY_EFFECT_SUMMARY)
+    if isinstance(expr, RunProviderPhaseExpr):
+        return_type = type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(return_type, UnionTypeRef):
+            _raise_error(
+                "`run-provider-phase` requires a union `:returns` type",
+                code="run_provider_phase_return_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_ctx = _typecheck(
+            expr.ctx_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        _require_normative_phase_ctx_type(
+            typed_ctx.type_ref,
+            span=expr.ctx_expr.span,
+            form_path=expr.ctx_expr.form_path,
+        )
+        _require_phase_scope_name_match(
+            active_phase_scope,
+            authored_name=expr.phase_name,
+            form_name="run-provider-phase",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        typed_inputs = _typecheck(
+            expr.inputs_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_provider = _typecheck_expected_extern_operand(
+            expr.provider,
+            expected_primitive="Provider",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_prompt = _typecheck_expected_extern_operand(
+            expr.prompt,
+            expected_primitive="Prompt",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
+            _raise_error(
+                "`run-provider-phase` provider operand must resolve to `Provider`",
+                code="provider_result_provider_invalid",
+                span=expr.provider.span,
+                form_path=expr.provider.form_path,
+            )
+        if typed_prompt.type_ref != PrimitiveTypeRef(name="Prompt"):
+            _raise_error(
+                "`run-provider-phase` prompt operand must resolve to `Prompt`",
+                code="provider_result_prompt_invalid",
+                span=expr.prompt.span,
+                form_path=expr.prompt.form_path,
+            )
+        return _typed(
+            expr=expr,
+            type_ref=return_type,
+            effect=merge_effect_summaries(
+                typed_ctx.effect_summary,
+                typed_inputs.effect_summary,
+                typed_provider.effect_summary,
+                typed_prompt.effect_summary,
+                effect_summary_from_direct(
+                    direct_effects=(UsesProviderEffect(subject=(expr.phase_name,)),),
+                ),
+            ),
+        )
+    if isinstance(expr, ProduceOneOfExpr):
+        return_type = type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(return_type, UnionTypeRef):
+            _raise_error(
+                "`produce-one-of` requires a union return type",
+                code="produce_one_of_candidate_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_ctx = _typecheck(
+            expr.ctx_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        _require_normative_phase_ctx_type(
+            typed_ctx.type_ref,
+            span=expr.ctx_expr.span,
+            form_path=expr.ctx_expr.form_path,
+        )
+        candidate_variants = {candidate.variant_name for candidate in expr.candidates}
+        declared_variants = {variant.name for variant in return_type.definition.variants}
+        if candidate_variants != declared_variants:
+            _raise_error(
+                "`produce-one-of` candidates must cover the declared union variants exactly",
+                code="produce_one_of_candidate_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        input_summaries: list[EffectSummary] = [typed_ctx.effect_summary]
+        if expr.producer.provider_expr is None or expr.producer.prompt_expr is None:
+            _raise_error(
+                "`produce-one-of` currently requires a provider producer",
+                code="produce_one_of_candidate_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_provider = _typecheck_expected_extern_operand(
+            expr.producer.provider_expr,
+            expected_primitive="Provider",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_prompt = _typecheck_expected_extern_operand(
+            expr.producer.prompt_expr,
+            expected_primitive="Prompt",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        input_summaries.extend((typed_provider.effect_summary, typed_prompt.effect_summary))
+        for producer_input in expr.producer.inputs:
+            typed_input = _typecheck(
+                producer_input,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+            )
+            input_summaries.append(typed_input.effect_summary)
+        for candidate in expr.candidates:
+            variant = type_env.union_variant(
+                return_type,
+                candidate.variant_name,
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+            variant_field_names = {field.name for field in variant.definition.fields}
+            for field_spec in candidate.fields:
+                if field_spec.field_name not in variant_field_names:
+                    _raise_error(
+                        f"`produce-one-of` field `{field_spec.field_name}` is not part of variant `{candidate.variant_name}`",
+                        code="produce_one_of_candidate_invalid",
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+                if field_spec.target_expr is not None:
+                    typed_target = _typecheck(
+                        field_spec.target_expr,
+                        type_env=type_env,
+                        value_env=value_env,
+                        proof_scope=proof_scope,
+                        workflow_catalog=workflow_catalog,
+                        procedure_catalog=procedure_catalog,
+                        extern_environment=extern_environment,
+                        command_boundary_environment=command_boundary_environment,
+                        active_phase_scope=active_phase_scope,
+                            procedure_effects_by_name=procedure_effects_by_name,
+                            workflow_effects_by_name=workflow_effects_by_name,
+                        )
+                    if not isinstance(typed_target.type_ref, PathTypeRef):
+                        _raise_error(
+                            f"`produce-one-of` target `{field_spec.field_name}` must resolve to a relpath contract",
+                            code="produce_one_of_candidate_invalid",
+                            span=expr.span,
+                            form_path=expr.form_path,
+                        )
+                    if field_spec.schema_type_name is not None:
+                        schema_type = type_env.resolve_type(
+                            field_spec.schema_type_name,
+                            span=expr.span,
+                            form_path=expr.form_path,
+                        )
+                        if not isinstance(schema_type, PathTypeRef):
+                            _raise_error(
+                                f"`produce-one-of` schema `{field_spec.schema_type_name}` must be a relpath contract",
+                                code="produce_one_of_candidate_invalid",
+                                span=expr.span,
+                                form_path=expr.form_path,
+                            )
+        return _typed(
+            expr=expr,
+            type_ref=return_type,
+            effect=merge_effect_summaries(*input_summaries),
+        )
+    if isinstance(expr, ReviewReviseLoopExpr):
+        return_type = type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(return_type, UnionTypeRef):
+            _raise_error(
+                "`review-revise-loop` requires a union `:returns` type",
+                code="review_loop_result_contract_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_ctx = _typecheck(
+            expr.ctx_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        _require_normative_phase_ctx_type(
+            typed_ctx.type_ref,
+            span=expr.ctx_expr.span,
+            form_path=expr.ctx_expr.form_path,
+        )
+        _require_phase_scope_name_match(
+            active_phase_scope,
+            authored_name=expr.loop_name,
+            form_name="review-revise-loop",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        typed_completed = _typecheck(
+            expr.completed_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_inputs = _typecheck(
+            expr.inputs_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_review_provider = _typecheck_expected_extern_operand(
+            expr.review_provider,
+            expected_primitive="Provider",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_fix_provider = _typecheck_expected_extern_operand(
+            expr.fix_provider,
+            expected_primitive="Provider",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_review_prompt = _typecheck_expected_extern_operand(
+            expr.review_prompt,
+            expected_primitive="Prompt",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_fix_prompt = _typecheck_expected_extern_operand(
+            expr.fix_prompt,
+            expected_primitive="Prompt",
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_max = _typecheck(
+            expr.max_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
+            _raise_error(
+                "`review-revise-loop :max` must resolve to `Int`",
+                code="type_mismatch",
+                span=expr.max_expr.span,
+                form_path=expr.max_expr.form_path,
+            )
+        _validate_review_loop_result_contract(return_type, type_env=type_env, span=expr.span, form_path=expr.form_path)
+        return _typed(
+            expr=expr,
+            type_ref=return_type,
+            effect=merge_effect_summaries(
+                typed_ctx.effect_summary,
+                typed_completed.effect_summary,
+                typed_inputs.effect_summary,
+                typed_review_provider.effect_summary,
+                typed_fix_provider.effect_summary,
+                typed_review_prompt.effect_summary,
+                typed_fix_prompt.effect_summary,
+                typed_max.effect_summary,
+            ),
+        )
+    if isinstance(expr, ResumeOrStartExpr):
+        return_type = type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        if not isinstance(return_type, (RecordTypeRef, UnionTypeRef)):
+            _raise_error(
+                "`resume-or-start :returns` must resolve to a record or union",
+                code="resume_or_start_contract_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        typed_ctx = _typecheck(
+            expr.ctx_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        _require_normative_phase_ctx_type(
+            typed_ctx.type_ref,
+            span=expr.ctx_expr.span,
+            form_path=expr.ctx_expr.form_path,
+        )
+        _require_phase_scope_name_match(
+            active_phase_scope,
+            authored_name=expr.resume_name,
+            form_name="resume-or-start",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        typed_resume_from = _typecheck(
+            expr.resume_from_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if not isinstance(typed_resume_from.type_ref, PathTypeRef) or typed_resume_from.type_ref.definition.under != "state":
+            _raise_error(
+                "`resume-or-start :resume-from` must be a canonical state relpath",
+                code="resume_or_start_contract_invalid",
+                span=expr.resume_from_expr.span,
+                form_path=expr.resume_from_expr.form_path,
+            )
+        if isinstance(expr.start_expr, CallExpr):
+            start_signature = workflow_catalog.signatures_by_name.get(expr.start_expr.callee_name) if workflow_catalog is not None else None
+            if start_signature is not None and isinstance(start_signature.return_type_ref, UnionTypeRef):
+                _raise_error(
+                    "`resume-or-start :start` may not use a union-returning workflow call in this slice",
+                    code="resume_or_start_contract_invalid",
+                    span=expr.start_expr.span,
+                    form_path=expr.start_expr.form_path,
+                )
+        typed_start = _typecheck(
+            expr.start_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if typed_start.type_ref != return_type:
+            _raise_error(
+                "`resume-or-start :start` must typecheck to the declared `:returns` type",
+                code="resume_or_start_contract_invalid",
+                span=expr.start_expr.span,
+                form_path=expr.start_expr.form_path,
+            )
+        valid_variants = expr.valid_when
+        if isinstance(return_type, UnionTypeRef):
+            declared_variants = {variant.name for variant in return_type.definition.variants}
+            for variant_name in valid_variants:
+                if variant_name not in declared_variants:
+                    _raise_error(
+                        f"`resume-or-start :valid-when` includes unknown variant `{variant_name}`",
+                        code="resume_or_start_reusable_variant_invalid",
+                        span=expr.span,
+                        form_path=expr.form_path,
+                    )
+        elif valid_variants:
+            _raise_error(
+                "`resume-or-start :valid-when` is valid only for union return types",
+                code="resume_or_start_contract_invalid",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        if isinstance(expr.start_expr, CommandResultExpr) and expr.start_expr.step_name.startswith("load_canonical_phase_result__"):
+            _raise_error(
+                "`resume-or-start` may not author loader adapter calls directly",
+                code="resume_or_start_contract_invalid",
+                span=expr.start_expr.span,
+                form_path=expr.start_expr.form_path,
+            )
+        validation_spec = ResumeValidationSpec(
+            resume_from_expr=expr.resume_from_expr,
+            return_type_ref=return_type,
+            valid_variants=valid_variants,
+            required_artifact_fields=_required_resume_artifact_fields(return_type, type_env=type_env, span=expr.span, form_path=expr.form_path),
+            validator_adapter_name="validate_reusable_phase_state",
+            decision_type_name="ResumeReuseDecision",
+            source_map_behavior="step",
+        )
+        return _typed(
+            expr=replace(expr, validation_spec=validation_spec),
+            type_ref=return_type,
+            effect=merge_effect_summaries(
+                typed_ctx.effect_summary,
+                typed_resume_from.effect_summary,
+                typed_start.effect_summary,
+                effect_summary_from_direct(
+                    direct_effects=(UsesCommandEffect(subject=("validate_reusable_phase_state",)),),
+                ),
+            ),
+        )
     if isinstance(expr, ProviderResultExpr):
         return_type = type_env.resolve_type(
             expr.returns_type_name,
@@ -774,6 +1323,105 @@ def _typecheck(
             effect=merge_effect_summaries(*arg_summaries, command_summary),
         )
     raise TypeError(f"unsupported expression node: {type(expr)!r}")
+
+
+def _require_normative_phase_ctx_type(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if isinstance(type_ref, RecordTypeRef) and type_ref.name == IMPLEMENTATION_ATTEMPT_PHASE_CONTEXT_NAME:
+        _raise_error(
+            "generic phase stdlib forms require `PhaseCtx`; the legacy bridge is reserved for the Stage 4 implementation-attempt regression",
+            code="phase_ctx_legacy_bridge_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    if not isinstance(type_ref, RecordTypeRef) or type_ref.name != PHASE_CONTEXT_NAME:
+        _raise_error(
+            "generic phase stdlib forms require `PhaseCtx`",
+            code="phase_context_invalid",
+            span=span,
+            form_path=form_path,
+        )
+
+
+def _require_phase_scope_name_match(
+    active_phase_scope: PhaseScope | None,
+    *,
+    authored_name: str,
+    form_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    if active_phase_scope is None or active_phase_scope.phase_name == authored_name:
+        return
+    _raise_error(
+        f"`{form_name}` name `{authored_name}` must match the active `with-phase` scope `{active_phase_scope.phase_name}`",
+        code="phase_scope_name_mismatch",
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _validate_review_loop_result_contract(
+    return_type: UnionTypeRef,
+    *,
+    type_env: FrontendTypeEnvironment,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    required_variants = {
+        "APPROVED": {"checks_report", "review_report", "review_decision"},
+        "BLOCKED": {"progress_report", "blocker_class"},
+        "EXHAUSTED": {"last_review_report", "reason"},
+    }
+    declared_variants = {variant.name for variant in return_type.definition.variants}
+    if set(required_variants) != declared_variants:
+        _raise_error(
+            "`review-revise-loop` requires `APPROVED`, `BLOCKED`, and `EXHAUSTED` variants exactly",
+            code="review_loop_result_contract_invalid",
+            span=span,
+            form_path=form_path,
+        )
+    for variant_name, required_fields in required_variants.items():
+        variant_type = type_env.union_variant(return_type, variant_name, span=span, form_path=form_path)
+        declared_fields = {field.name for field in variant_type.definition.fields}
+        missing = sorted(required_fields - declared_fields)
+        if missing:
+            _raise_error(
+                f"`review-revise-loop` variant `{variant_name}` is missing `{missing[0]}`",
+                code="review_loop_result_contract_invalid",
+                span=span,
+                form_path=form_path,
+            )
+
+
+def _required_resume_artifact_fields(
+    return_type: RecordTypeRef | UnionTypeRef,
+    *,
+    type_env: FrontendTypeEnvironment,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> Mapping[str, tuple[str, ...]]:
+    if isinstance(return_type, RecordTypeRef):
+        return {
+            return_type.name: tuple(
+                field.name
+                for field in return_type.definition.fields
+                if isinstance(type_env.record_field(return_type, field.name, span=span, form_path=form_path), PathTypeRef)
+            )
+        }
+    required: dict[str, tuple[str, ...]] = {}
+    for variant in return_type.definition.variants:
+        variant_type = type_env.union_variant(return_type, variant.name, span=span, form_path=form_path)
+        required[variant.name] = tuple(
+            field.name
+            for field in variant.fields
+            if isinstance(type_env.record_field(variant_type, field.name, span=span, form_path=form_path), PathTypeRef)
+        )
+    return required
 
 
 def _typed(*, expr: ExprNode, type_ref: TypeRef, effect: EffectSummary) -> TypedExpr:
