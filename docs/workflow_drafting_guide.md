@@ -452,6 +452,8 @@ Add at least one hard closure assertion step if "looks done" is not good enough.
 
 For a top-authority revision phase with no higher escalation target, prefer deterministic validation plus one advisory review over a review/revise loop. If the candidate is structurally valid, carry review findings forward as metadata and let the workflow continue from the revised artifact. Reserve hard failure for invalid artifacts or runtime errors.
 
+When a loop step consumes an artifact produced immediately earlier in the same ordered loop body, prefer `freshness: any` unless the consumer must reject reuse of the same artifact value across visits. The workflow order already proves the producer step ran before the consumer. This is common for checks reports that are regenerated at a stable target path before each review step.
+
 When a review step publishes a report and the immediately selected revise/fix step consumes that same report, prefer `freshness: any` for the report consume. The route decision already proves the report is the current iteration's review output, and a killed or retried provider step can otherwise mark the report version as consumed before the revise/fix step finishes. Use `freshness: since_last_consume` only when the same consumer must require a genuinely newer publication before each visit.
 
 For raw-graph review/fix loops, add an explicit cycle cap:
@@ -566,8 +568,14 @@ If behavior differs from prompt file content, inspect the composed `.prompt.txt`
 
 Observability controls are intentionally runtime flags, not workflow syntax.
 
-`--step-summaries` enables advisory per-step summaries. `--summary-mode async|sync` selects behavior (`async` is default and non-blocking; `sync` blocks step completion until summary output/error is written). `--summary-provider <provider>` selects the summarizer template.
+`--step-summaries` enables advisory per-step summaries. `--summary-mode async|sync` selects behavior (`async` is default and non-blocking; `sync` blocks step completion until summary output/error is written). `--summary-provider <provider>` selects the summarizer template. `--summary-timeout-sec` defaults to 300 seconds per summary request.
 
 Use `--summary-profile phase-performance` when a long workflow needs human-readable phase and provider-step judgments. Do not encode prompt instructions that ask the summarizer to decide routing or write workflow state; summaries are post-step observability.
+
+`--live-agent-notes` adds a throttled current-step note generated from a bounded
+tail of the workflow's tmux pane output. Live notes use the built-in
+`claude_haiku_summary` provider by default and write only observability files
+under `.orchestrate/runs/<run_id>/summaries/`; they must not drive routing,
+assertions, retries, or artifact lineage.
 
 Use `.orchestrate/runs/<run_id>/summaries/` as the user-facing entrypoint for a run's summaries. Detailed records may live beside nested call-frame state under `call_frames/<frame>/summaries/`, but the root summary hub contains the aggregate `index.json`, `README.md`, and `run-summary.md` links. These files are not part of artifact contracts and must never gate workflow control flow.

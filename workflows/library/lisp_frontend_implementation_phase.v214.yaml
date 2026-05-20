@@ -101,6 +101,11 @@ artifacts:
     pointer: ${inputs.state_root}/check_commands_path.txt
     under: state
     must_exist_target: true
+  execution_report_target:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/execution_report_target_path.txt
+    under: artifacts/work
   execution_report:
     kind: relpath
     type: relpath
@@ -192,6 +197,8 @@ steps:
         from: plan_path
       - artifact: check_commands
         from: check_commands_path
+      - artifact: execution_report_target
+        from: execution_report_target_path
 
   - name: ExecuteImplementation
     id: execute_implementation
@@ -211,7 +218,10 @@ steps:
       - artifact: check_commands
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["full_design", "mvp_design", "plan", "check_commands"]
+      - artifact: execution_report_target
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["full_design", "mvp_design", "plan", "check_commands", "execution_report_target"]
     variant_output:
       path: ${inputs.state_root}/implementation_state.json
       discriminant:
@@ -395,7 +405,7 @@ steps:
                         freshness: any
                       - artifact: checks_report
                         policy: latest_successful
-                        freshness: since_last_consume
+                        freshness: any
                     prompt_consumes: ["full_design", "mvp_design", "plan", "execution_report", "checks_report"]
                     expected_outputs:
                       - name: implementation_review_report_path
@@ -437,13 +447,16 @@ steps:
                       - artifact: execution_report
                         policy: latest_successful
                         freshness: any
+                      - artifact: execution_report_target
+                        policy: latest_successful
+                        freshness: any
                       - artifact: checks_report
                         policy: latest_successful
                         freshness: any
                       - artifact: implementation_review_report
                         policy: latest_successful
                         freshness: since_last_consume
-                    prompt_consumes: ["full_design", "mvp_design", "plan", "execution_report", "checks_report", "implementation_review_report"]
+                    prompt_consumes: ["full_design", "mvp_design", "plan", "execution_report", "execution_report_target", "checks_report", "implementation_review_report"]
 
                   - name: PublishUpdatedExecutionReport
                     id: publish_updated_execution_report
@@ -458,14 +471,30 @@ steps:
                       - -c
                       - |
                         import pathlib
+                        import shutil
                         import sys
 
                         target = pathlib.Path(sys.argv[1])
                         pointer = pathlib.Path(sys.argv[2])
-                        if not target.is_file():
-                            raise SystemExit(f"Execution report target does not exist: {target}")
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        if target.is_file():
+                            source = target
+                        else:
+                            if not pointer.is_file():
+                                raise SystemExit(
+                                    f"Execution report target does not exist and no prior pointer is available: {target}"
+                                )
+                            current = pathlib.Path(pointer.read_text(encoding="utf-8").strip())
+                            if not current.is_file():
+                                raise SystemExit(
+                                    "Execution report target does not exist and prior execution report is missing: "
+                                    f"{current}"
+                                )
+                            if current.resolve() != target.resolve():
+                                shutil.copyfile(current, target)
+                            source = target
                         pointer.parent.mkdir(parents=True, exist_ok=True)
-                        pointer.write_text(target.as_posix() + "\n", encoding="utf-8")
+                        pointer.write_text(source.as_posix() + "\n", encoding="utf-8")
                       - ${inputs.execution_report_target_path}
                       - ${inputs.state_root}/execution_report_path.txt
                     expected_outputs:

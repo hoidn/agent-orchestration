@@ -146,6 +146,8 @@ steps:
         path.write_text(str(time.time_ns()) + "\n", encoding="utf-8")
         PY
         rm -f \
+          "${inputs.execution_report_target_path}" \
+          "$progress_report_target_path" \
           "${inputs.state_root}/implementation_state.json" \
           "${inputs.state_root}/implementation_state.txt" \
           "${inputs.state_root}/loop_review_decision.txt" \
@@ -249,74 +251,14 @@ steps:
     id: materialize_implementation_state
     command:
       - python
-      - -c
-      - |
-        import json
-        import pathlib
-        import sys
-
-        bundle_path = pathlib.Path(sys.argv[1])
-        execution_report_target = pathlib.Path(sys.argv[2])
-        progress_report_target = pathlib.Path(sys.argv[3])
-        phase_started_at_ns = int(pathlib.Path(sys.argv[4]).read_text(encoding="utf-8").strip())
-
-        allowed_blockers = {
-            "missing_resource",
-            "unavailable_hardware",
-            "roadmap_conflict",
-            "external_dependency_outside_authority",
-            "user_decision_required",
-            "unrecoverable_after_fix_attempt",
-        }
-
-        def is_fresh_report(path: pathlib.Path) -> bool:
-            return path.is_file() and path.stat().st_mtime_ns >= phase_started_at_ns
-
-        def parse_blocker_class(path: pathlib.Path) -> str:
-            lines = path.read_text(encoding="utf-8").splitlines()
-            for index, raw_line in enumerate(lines):
-                line = raw_line.strip()
-                lowered = line.lower()
-                if lowered.startswith("blocker class:"):
-                    value = line.split(":", 1)[1].strip().strip("`")
-                    if value in allowed_blockers:
-                        return value
-                    raise SystemExit(f"Invalid Blocker Class: {value}")
-                if lowered in {"blocker class", "blocker class:"}:
-                    for next_line in lines[index + 1 :]:
-                        value = next_line.strip().strip("-").strip().strip("`")
-                        if not value:
-                            continue
-                        if value in allowed_blockers:
-                            return value
-                        raise SystemExit(f"Invalid Blocker Class: {value}")
-            raise SystemExit("Blocked progress report is missing Blocker Class")
-
-        has_execution_report = is_fresh_report(execution_report_target)
-        has_progress_report = is_fresh_report(progress_report_target)
-        if has_execution_report and has_progress_report:
-            raise SystemExit("Current pass produced both execution and blocker reports")
-        if has_execution_report:
-            payload = {
-                "implementation_state": "COMPLETED",
-                "execution_report_path": execution_report_target.as_posix(),
-            }
-        elif has_progress_report:
-            payload = {
-                "implementation_state": "BLOCKED",
-                "progress_report_path": progress_report_target.as_posix(),
-                "blocker_class": parse_blocker_class(progress_report_target),
-            }
-        else:
-            raise SystemExit(
-                "Current implementation pass produced neither execution report nor blocker report"
-            )
-
-        bundle_path.parent.mkdir(parents=True, exist_ok=True)
-        bundle_path.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+      - workflows/library/scripts/materialize_neurips_implementation_state.py
+      - --bundle-path
       - ${inputs.state_root}/implementation_state.json
+      - --execution-report-target
       - ${inputs.execution_report_target_path}
+      - --progress-report-target
       - ${steps.InitializeImplementationPhasePaths.artifacts.progress_report_target_path}
+      - --phase-started-at-ns-path
       - ${inputs.state_root}/phase_started_at_ns.txt
     output_bundle:
       path: ${inputs.state_root}/implementation_state.json
@@ -512,7 +454,7 @@ steps:
                     freshness: any
                   - artifact: checks_report
                     policy: latest_successful
-                    freshness: since_last_consume
+                    freshness: any
                 prompt_consumes: ["design", "plan", "execution_report", "checks_report"]
                 expected_outputs:
                   - name: implementation_review_report_path

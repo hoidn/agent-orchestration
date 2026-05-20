@@ -1,23 +1,28 @@
 Read the consumed steering, full design, MVP design, backlog manifest, progress
 ledger, and run state before acting.
 
-Select exactly one next Lisp frontend work item.
+Select exactly one next Lisp frontend MVP implementation work item.
+
+Use the MVP design as the target contract. Use the full design only as
+background for terminology, boundaries, and later compatibility. Do not select
+full-design-only work unless the MVP design requires it.
 
 Decision rules:
 
 - Return `SELECT_BACKLOG_ITEM` when an active backlog item directly covers the
-  next useful Lisp frontend MVP/full-design implementation task.
+  next useful Lisp frontend MVP implementation task.
 - Return `DRAFT_DESIGN_GAP` when no active backlog item is the right next task
-  but the design docs clearly contain an unimplemented component that should be
+  but the MVP design clearly contains an unimplemented component that should be
   turned into an implementation architecture.
 - Return `DONE` only when there are no active backlog items and no unimplemented
-  design gaps remain.
-- Return `BLOCKED` only when work remains but the available docs are
+  MVP design gaps remain.
+- Return `BLOCKED` only when MVP work remains but the available docs are
   insufficient or contradictory.
 
-The selector chooses and explains. It must not edit files, move backlog items,
-or draft architecture content. For design gaps, identify one bounded component
-and let the architect step draft the implementation architecture.
+Make only this step's local selection judgment and explain it. Do not edit
+files, move backlog items, or draft architecture content. For design gaps,
+identify one bounded MVP component for the architect step to turn into an
+implementation architecture.
 
 Write the output bundle JSON to the output-contract path.
 

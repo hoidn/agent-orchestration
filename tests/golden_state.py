@@ -104,13 +104,11 @@ def run_neurips_v214_workspace_workflow(
 
     scenario = json.loads((fixture_root / "scenarios" / f"{scenario_name}.json").read_text(encoding="utf-8"))
     _write_provider_scenario(workspace, scenario["provider"])
-    inputs = _prepare_neurips_v214_selected_item_inputs(workspace, scenario)
-
     with _codex_shim_on_path(workspace):
         state = _execute_workflow(
             workspace=workspace,
-            workflow_relpath="workflows/examples/neurips_selected_backlog_drain_wrapper.v214.yaml",
-            inputs=inputs,
+            workflow_relpath="workflows/examples/neurips_steered_backlog_drain.yaml",
+            inputs=scenario["workflow_inputs"],
         )
     return _build_observation(workspace, state)
 
@@ -126,7 +124,7 @@ def run_neurips_equivalence_observation(
         observation = run_neurips_workspace_workflow(
             fixture_root=fixture_root,
             workspace=workspace,
-            workflow_relpath="workflows/examples/neurips_steered_backlog_drain.yaml",
+            workflow_relpath="workflows/examples/neurips_steered_backlog_drain.legacy.yaml",
             scenario_name=scenario_name,
         )
     elif stack == "v214":
@@ -150,8 +148,11 @@ def _write_provider_scenario(workspace: Path, scenario: dict[str, Any]) -> None:
 def _copy_neurips_runtime_files(workspace: Path) -> None:
     relpaths = [
         "workflows/examples/neurips_steered_backlog_drain.yaml",
+        "workflows/examples/neurips_steered_backlog_drain.legacy.yaml",
         "workflows/library/neurips_backlog_selector.yaml",
+        "workflows/library/neurips_backlog_selector.v214.yaml",
         "workflows/library/neurips_backlog_gap_drafter.yaml",
+        "workflows/library/neurips_backlog_gap_drafter.v214.yaml",
         "workflows/library/neurips_backlog_roadmap_sync_phase.yaml",
         "workflows/library/neurips_backlog_seeded_plan_phase.yaml",
         "workflows/library/neurips_backlog_implementation_phase.yaml",

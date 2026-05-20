@@ -68,7 +68,8 @@ def main() -> int:
     complete.add_argument("--summary-pointer-path")
     complete.add_argument("--drain-status-path")
     blocked = sub.add_parser("blocked")
-    blocked.add_argument("--item-id", required=True)
+    blocked.add_argument("--item-id")
+    blocked.add_argument("--selection-path")
     blocked.add_argument("--source", required=True, choices=["BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"])
     blocked.add_argument("--reason", required=True)
     blocked.add_argument("--summary-path")
@@ -109,14 +110,23 @@ def main() -> int:
             status_path.parent.mkdir(parents=True, exist_ok=True)
             status_path.write_text("CONTINUE\n", encoding="utf-8")
     elif args.command == "blocked":
-        _record_blocked(state, item_id=args.item_id, source=args.source, reason=args.reason)
+        item_id = args.item_id
+        if not item_id and args.selection_path:
+            selection = json.loads(Path(args.selection_path).read_text(encoding="utf-8"))
+            if args.source == "DESIGN_GAP":
+                item_id = str(selection.get("design_gap_id") or "").strip()
+            else:
+                item_id = str(selection.get("selected_item_id") or "").strip()
+        if not item_id:
+            raise SystemExit("blocked requires --item-id or --selection-path with an item id")
+        _record_blocked(state, item_id=item_id, source=args.source, reason=args.reason)
         if args.summary_path:
             summary_path = Path(args.summary_path)
             summary_path.parent.mkdir(parents=True, exist_ok=True)
             summary_path.write_text(
                 json.dumps(
                     {
-                        "work_item_id": args.item_id,
+                        "work_item_id": item_id,
                         "work_item_source": args.source,
                         "item_status": "BLOCKED",
                         "reason": args.reason,

@@ -4,11 +4,12 @@ Status: design draft
 
 ## Problem
 
-The Lisp frontend autonomous drain currently uses single-pass plan and
-implementation phases. The plan phase drafts once and reviews once. The
-implementation phase executes once and reviews once. A review provider can
-write `REVISE`, but there is no deterministic workflow path that invokes
-`RevisePlan` or `FixImplementation`.
+The Lisp frontend autonomous drain originally used single-pass architecture,
+plan, and implementation phases. The architecture phase drafted once and then
+structurally validated the bundle. The plan phase drafted once and reviewed
+once. The implementation phase executed once and reviewed once. A review
+provider could write `REVISE`, but there was no deterministic workflow path that
+invoked `ReviseDesignGapArchitecture`, `RevisePlan`, or `FixImplementation`.
 
 That makes review decisions advisory text instead of control-flow authority.
 It also lets the work-item layer record a selected item or design gap as
@@ -26,11 +27,13 @@ completed even when the phase review decision is `REVISE`.
    loop, branch, publication, and final state transitions.
 
 3. Completion requires approval.
-   A work item may be recorded as completed only after the plan and
+   A design gap may enter the plan/implementation stack only after architecture
+   approval. A work item may be recorded as completed only after the plan and
    implementation phases have terminal approved states. A `REVISE` terminal
    state is not completion.
 
 4. Updated artifacts must be republished before the next review.
+   `ReviseDesignGapArchitecture` rewrites the architecture/work-item context.
    `RevisePlan` republishes `plan`. `FixImplementation` republishes
    `execution_report`, and checks are rerun before the next implementation
    review.
@@ -38,8 +41,40 @@ completed even when the phase review decision is `REVISE`.
 5. Exhaustion is explicit.
    If the loop reaches `max_iterations` without approval, the phase finalizer
    records `REVISE`, and the work-item workflow records a blocked item with a
-   reason such as `plan_review_exhausted` or
+   reason such as `architecture_review_exhausted`, `plan_review_exhausted`, or
    `implementation_review_exhausted`.
+
+## Architecture Phase Shape
+
+`workflows/library/lisp_frontend_design_gap_architect.v214.yaml` should draft an
+implementation architecture, review it, and revise it until approved before
+emitting a work-item bundle for the downstream plan/implementation stack.
+
+The target shape is narrower than the NeurIPS plan/implementation loops:
+
+```text
+PrepareArchitectureTargets
+BuildExistingArchitectureIndex
+DraftDesignGapArchitecture
+ArchitectureReviewLoop repeat_until review_decision == APPROVE
+  ReviewDesignGapArchitecture
+  RouteArchitectureReviewDecision match architecture_review_decision
+    APPROVE:
+      WriteApprovedArchitectureDecision
+    REVISE:
+      ReviseDesignGapArchitecture
+      WriteRevisedArchitectureDecision
+RouteArchitectureTerminal
+  APPROVE:
+    ValidateDesignGapArchitecture
+  REVISE:
+    WriteArchitectureReviewBlocked
+```
+
+Architecture review exhaustion returns `architecture_validation_status =
+BLOCKED`. The top-level drain records the selected design gap as blocked with
+reason `architecture_review_exhausted` and must not call the plan or
+implementation phases.
 
 ## Plan Phase Shape
 
@@ -151,7 +186,21 @@ The phase output `implementation_review_decision` must come from
 
 ## Work-Item Terminal Routing
 
-`workflows/library/lisp_frontend_work_item.v214.yaml` must stop treating a
+`workflows/examples/lisp_frontend_autonomous_drain.yaml` must route the
+design-gap architecture result before invoking the work-item stack:
+
+```text
+DraftDesignGapArchitecture
+RouteArchitectureStatus
+  VALID:
+    RunDesignGapWorkItem
+  BLOCKED:
+    RecordBlockedDesignGapArchitecture reason=architecture_review_exhausted
+  INVALID:
+    RecordInvalidDesignGapArchitecture reason=architecture_validation_invalid
+```
+
+`workflows/library/lisp_frontend_work_item.v214.yaml` must also stop treating a
 returned implementation phase as automatically complete.
 
 The work-item workflow should route terminal state as follows:
@@ -176,9 +225,25 @@ The existing `update_lisp_frontend_run_state.py blocked` command can record
 blocked items and design gaps. The work-item workflow should expose
 `drain_status` from whichever terminal record step actually ran.
 
+## Acceptance Criteria
+
+- Architecture review `APPROVE` validates the drafted architecture and then
+  allows the plan/implementation stack to run.
+- Architecture review `REVISE` invokes `ReviseDesignGapArchitecture`, then
+  reviews the revised architecture again.
+- Architecture review exhaustion records the selected design gap as blocked and
+  does not run plan or implementation.
+- Plan review `REVISE` invokes `RevisePlan`, then reviews the revised plan
+  again.
+- Implementation review `REVISE` invokes `FixImplementation`, republishes the
+  execution report, reruns checks, and reviews again.
+- Work-item completion is recorded only after architecture, plan, and
+  implementation have terminal approved states.
+
 ## Prompt Impact
 
-The existing prompts are sufficient for the first implementation:
+The plan and implementation prompts are sufficient for the first
+implementation:
 
 - `workflows/library/prompts/lisp_frontend_plan_phase/revise_plan.md`
 - `workflows/library/prompts/lisp_frontend_implementation_phase/fix_implementation.md`

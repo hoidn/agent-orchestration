@@ -1,6 +1,6 @@
-Read the injected steering, full design, MVP design, command-adapter contract,
+Read the listed steering, full design, MVP design, command-adapter contract,
 progress ledger, selector bundle, architecture target contract, and existing
-implementation architecture index before acting.
+implementation architecture index from the checkout before acting.
 
 Draft a single implementation-architecture document for exactly the selected
 Lisp frontend design gap. This is an implementation architecture, not a
@@ -9,7 +9,7 @@ Do not draft multiple alternative architectures, do not cover multiple design
 gaps, and do not broaden the scope beyond the selected gap.
 
 Preserve coherence with prior implementation architecture documents listed in
-the injected architecture index:
+the architecture index:
 
 - review the listed architecture documents before drafting;
 - reuse established package/module names, data types, and ownership boundaries

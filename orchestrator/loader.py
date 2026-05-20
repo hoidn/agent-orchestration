@@ -1507,7 +1507,7 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': if/else requires version '{STRUCTURED_IF_VERSION}'")
             return
 
-        allowed_fields = {'name', 'id', 'if', 'then', 'else'}
+        allowed_fields = {'name', 'id', 'if', 'then', 'else', 'when'}
         for field_name in step.keys():
             if field_name not in allowed_fields:
                 self._add_error(
@@ -1519,6 +1519,19 @@ class WorkflowLoader:
         else:
             self._validate_when_condition(
                 step['if'],
+                step_name,
+                version,
+                root_catalog,
+                scope_artifacts,
+                scope_multi_visit,
+                parent_artifacts,
+                parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
+            )
+        if 'when' in step:
+            self._validate_when_condition(
+                step['when'],
                 step_name,
                 version,
                 root_catalog,
@@ -1720,7 +1733,7 @@ class WorkflowLoader:
             self._add_error(f"Step '{step_name}': match requires version '{STRUCTURED_MATCH_VERSION}'")
             return
 
-        allowed_fields = {'name', 'id', 'match'}
+        allowed_fields = {'name', 'id', 'match', 'when'}
         for field_name in step.keys():
             if field_name not in allowed_fields:
                 self._add_error(
@@ -1731,6 +1744,19 @@ class WorkflowLoader:
         if not isinstance(match_node, dict):
             self._add_error(f"Step '{step_name}': match must be a dictionary")
             return
+        if 'when' in step:
+            self._validate_when_condition(
+                step['when'],
+                step_name,
+                version,
+                root_catalog,
+                scope_artifacts,
+                scope_multi_visit,
+                parent_artifacts,
+                parent_multi_visit,
+                scope_non_step_results,
+                parent_non_step_results,
+            )
 
         ref_contract = self._resolve_structured_ref_contract(
             match_node.get('ref'),
@@ -2828,6 +2854,10 @@ class WorkflowLoader:
         if isinstance(output_bundle, dict) and 'path' in output_bundle:
             paths.append(('output_bundle.path', output_bundle.get('path')))
 
+        variant_output = step.get('variant_output')
+        if isinstance(variant_output, dict) and 'path' in variant_output:
+            paths.append(('variant_output.path', variant_output.get('path')))
+
         consume_bundle = step.get('consume_bundle')
         if isinstance(consume_bundle, dict) and 'path' in consume_bundle:
             paths.append(('consume_bundle.path', consume_bundle.get('path')))
@@ -2898,12 +2928,16 @@ class WorkflowLoader:
                 ref.startswith('root.')
                 or ref.startswith('inputs.')
             )
+        if isinstance(binding, str) and "${loop.index}" in binding:
+            return False
         return self._call_write_root_collision_key(binding) is not None
 
     def _call_write_root_collision_key(self, binding: Any) -> Optional[Any]:
         """Return a deterministic comparable key for a call write-root binding."""
         if isinstance(binding, dict) and set(binding.keys()) == {'ref'}:
             return ('ref', binding.get('ref'))
+        if isinstance(binding, str) and "${loop.index}" in binding:
+            return None
         if isinstance(binding, (str, int, float, bool)):
             return ('literal', binding)
         return None
