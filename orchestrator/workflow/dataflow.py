@@ -280,6 +280,10 @@ class DataflowManager:
         if not isinstance(artifact_consumes, dict):
             artifact_consumes = {}
             state["artifact_consumes"] = artifact_consumes
+        pending_consumes = state.setdefault("_pending_artifact_consumes", {})
+        if not isinstance(pending_consumes, dict):
+            pending_consumes = {}
+            state["_pending_artifact_consumes"] = pending_consumes
         resolved_consumes = state.setdefault("_resolved_consumes", {})
         if not isinstance(resolved_consumes, dict):
             resolved_consumes = {}
@@ -298,6 +302,7 @@ class DataflowManager:
             global_consumes = {}
             artifact_consumes["__global__"] = global_consumes
         step_resolved_consumes: Dict[str, Any] = {}
+        pending_step_consumes: Dict[str, int] = {}
         resolved_consumes[consumer_identity] = step_resolved_consumes
         materialize_relpath_consume_pointer = self.workflow_version in {"1.2", "1.3"}
         freshness_uses_step_scope = self.workflow_version_at_least("1.4")
@@ -451,8 +456,7 @@ class DataflowManager:
                     },
                 )
 
-            step_consumes[artifact_name] = selected_version
-            global_consumes[artifact_name] = selected_version
+            pending_step_consumes[artifact_name] = selected_version
             step_resolved_consumes[artifact_name] = selected_value
 
         consume_bundle = step.get("consume_bundle")
@@ -473,8 +477,57 @@ class DataflowManager:
             if write_error is not None:
                 return write_error
 
-        self.persist_state(state)
+        pending_consumes[consumer_identity] = pending_step_consumes
         return None
+
+    def finalize_consumes(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        state: Dict[str, Any],
+        *,
+        runtime_step_id: Optional[str] = None,
+        succeeded: bool,
+    ) -> None:
+        """Commit or discard pending consume bookkeeping after the step settles."""
+        pending_consumes = state.get("_pending_artifact_consumes", {})
+        if not isinstance(pending_consumes, dict):
+            return
+        resolved_consumes = state.get("_resolved_consumes", {})
+        if not isinstance(resolved_consumes, dict):
+            resolved_consumes = {}
+            state["_resolved_consumes"] = resolved_consumes
+
+        consumer_identity = runtime_step_id or self.step_id_resolver(step)
+        if not self.uses_qualified_identities():
+            consumer_identity = step_name
+
+        pending_step_consumes = pending_consumes.pop(consumer_identity, None)
+        resolved_consumes.pop(consumer_identity, None)
+        if not succeeded or not isinstance(pending_step_consumes, dict) or not pending_step_consumes:
+            return
+
+        artifact_consumes = state.setdefault("artifact_consumes", {})
+        if not isinstance(artifact_consumes, dict):
+            artifact_consumes = {}
+            state["artifact_consumes"] = artifact_consumes
+
+        step_consumes = artifact_consumes.setdefault(consumer_identity, {})
+        if not isinstance(step_consumes, dict):
+            step_consumes = {}
+            artifact_consumes[consumer_identity] = step_consumes
+        global_consumes = artifact_consumes.setdefault("__global__", {})
+        if not isinstance(global_consumes, dict):
+            global_consumes = {}
+            artifact_consumes["__global__"] = global_consumes
+
+        for artifact_name, selected_version in pending_step_consumes.items():
+            if not isinstance(artifact_name, str) or not isinstance(selected_version, int):
+                continue
+            step_consumes[artifact_name] = selected_version
+            global_consumes[artifact_name] = selected_version
+
+        self.persist_state(state)
 
     def write_consume_bundle(
         self,

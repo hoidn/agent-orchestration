@@ -920,6 +920,13 @@ class LoopExecutor:
                                     outcome=result.get("outcome"),
                                 ),
                             )
+                            self.executor._finalize_consumes(
+                                nested_step,
+                                nested_name,
+                                state,
+                                succeeded=False,
+                                runtime_step_id=nested_runtime_step_id,
+                            )
 
                         if result.get("exit_code", 0) != 0 and not result.get("skipped", False):
                             failure_name, failure_result = nested_name, result

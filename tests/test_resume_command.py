@@ -544,6 +544,57 @@ def _build_call_resume_caller_workflow() -> dict:
     }
 
 
+def _build_since_last_consume_resume_workflow() -> dict:
+    return {
+        "version": "2.14",
+        "name": "resume-since-last-consume-workflow",
+        "artifacts": {
+            "review_feedback": {
+                "kind": "scalar",
+                "type": "string",
+            }
+        },
+        "steps": [
+            {
+                "name": "PublishReview",
+                "id": "publish_review",
+                "set_scalar": {
+                    "artifact": "review_feedback",
+                    "value": "revise the implementation",
+                },
+                "publishes": [{"artifact": "review_feedback", "from": "review_feedback"}],
+            },
+            {
+                "name": "FixImplementation",
+                "id": "fix_implementation",
+                "consumes": [
+                    {
+                        "artifact": "review_feedback",
+                        "policy": "latest_successful",
+                        "freshness": "since_last_consume",
+                    }
+                ],
+                "consume_bundle": {"path": "state/fix_bundle.json"},
+                "command": [
+                    "bash",
+                    "-lc",
+                    "\n".join(
+                        [
+                            "mkdir -p state",
+                            "if [ ! -f state/resume_ready.txt ]; then",
+                            "  printf 'attempted\\n' >> state/history.log",
+                            "  exit 1",
+                            "fi",
+                            "cat state/fix_bundle.json > state/consumed.json",
+                            "printf 'resumed\\n' >> state/history.log",
+                        ]
+                    ),
+                ],
+            },
+        ],
+    }
+
+
 def _build_repeat_until_call_resume_library_workflow() -> dict:
     return {
         "version": "2.7",
@@ -1433,6 +1484,45 @@ def test_call_subworkflow_resume_rejects_imported_workflow_checksum_mismatch(tem
     assert frame["state"]["steps"]["WriteHistory"]["status"] == "completed"
     assert frame["state"]["steps"]["ResumeGate"]["status"] == "failed"
     assert "SetApproved" not in frame["state"]["steps"]
+
+
+def test_resume_retries_since_last_consume_step_after_failed_attempt(temp_workspace):
+    run_id = "since-last-consume-resume-run"
+    workflow_path = temp_workspace / "resume_since_last_consume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_since_last_consume_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    loader = WorkflowLoader(temp_workspace)
+    loaded = loader.load(workflow_path)
+    state_manager = StateManager(workspace=temp_workspace, run_id=run_id)
+    state_manager.initialize(str(workflow_path), context=bundle_context_dict(loaded))
+
+    first_run = WorkflowExecutor(loaded, temp_workspace, state_manager).execute()
+
+    history_path = temp_workspace / "state" / "history.log"
+    assert first_run["status"] == "failed"
+    assert history_path.read_text(encoding="utf-8").splitlines() == ["attempted"]
+
+    (temp_workspace / "state" / "resume_ready.txt").write_text("ready\n", encoding="utf-8")
+
+    with patch('os.getcwd', return_value=str(temp_workspace)):
+        result = resume_workflow(
+            run_id=run_id,
+            repair=False,
+            force_restart=False,
+        )
+
+    assert result == 0
+    assert history_path.read_text(encoding="utf-8").splitlines() == ["attempted", "resumed"]
+    assert json.loads((temp_workspace / "state" / "consumed.json").read_text(encoding="utf-8")) == {
+        "review_feedback": "revise the implementation",
+    }
+
+    loaded_state = StateManager(temp_workspace, run_id=run_id).load()
+    assert loaded_state.status == "completed"
+    assert loaded_state.steps["FixImplementation"]["status"] == "completed"
 
 
 @patch('orchestrator.cli.commands.resume.WorkflowExecutor')
