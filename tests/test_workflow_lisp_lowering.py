@@ -370,6 +370,17 @@ def test_lower_compiled_module_limits_defmodule_outputs_to_exported_callable_clo
     assert lowered["private_helper"]["imports"] == {"build_status": "./build_status.yaml"}
 
 
+def test_lower_compiled_module_omits_defmodule_callables_when_exports_are_type_only() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = _definition_fixture_path("valid_module_type_only_exports.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    assert lowered == {}
+
+
 def test_lower_compiled_module_emits_call_step_for_zero_argument_call_expression(tmp_path: Path) -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()

@@ -388,6 +388,8 @@ def _select_callables_to_lower(
     ordered_callable_names = tuple(name for name, _, _ in checked_callables)
     if not _is_defmodule_header(compiled):
         return frozenset(ordered_callable_names)
+    if not compiled.definition_module.exported_names:
+        return frozenset(ordered_callable_names)
 
     exported_callable_roots = tuple(
         exported_name
@@ -395,7 +397,7 @@ def _select_callables_to_lower(
         if exported_name in callable_signatures
     )
     if not exported_callable_roots:
-        return frozenset(ordered_callable_names)
+        return frozenset()
 
     local_callable_names = frozenset(callable_signatures)
     selected: set[str] = set()
