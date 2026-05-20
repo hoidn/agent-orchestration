@@ -903,7 +903,7 @@ def _inline_expression(
             context=_inline_expression(expression.context, env, current_phase_name),
             target_name=expression.target_name,
             target_span=expression.target_span,
-            phase_name=current_phase_name,
+            phase_name=expression.phase_name or current_phase_name,
             span=expression.span,
         )
 

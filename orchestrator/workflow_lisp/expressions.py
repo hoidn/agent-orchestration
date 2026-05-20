@@ -353,14 +353,27 @@ def _shape_with_phase(form: SyntaxList) -> WithPhaseExpression:
 
 
 def _shape_phase_target(form: SyntaxList) -> PhaseTargetExpression:
-    if len(form.items) != 3:
+    if len(form.items) not in {3, 4}:
         _raise_expression_error(
             code="frontend_parse_error",
-            message="phase-target requires context and target name",
+            message="phase-target requires context and target name, with optional phase name",
             span=form.span,
             enclosing_form_name="phase-target",
         )
-    target_node = form.items[2]
+    phase_name: str | None = None
+    if len(form.items) == 4:
+        phase_node = form.items[2]
+        if not isinstance(phase_node, SyntaxAtom) or phase_node.kind is not AtomKind.SYMBOL:
+            _raise_expression_error(
+                code="frontend_parse_error",
+                message="phase-target phase name must be a symbol",
+                span=phase_node.span,
+                enclosing_form_name="phase-target",
+            )
+        phase_name = str(phase_node.value)
+        target_node = form.items[3]
+    else:
+        target_node = form.items[2]
     if not isinstance(target_node, SyntaxAtom) or target_node.kind is not AtomKind.SYMBOL:
         _raise_expression_error(
             code="frontend_parse_error",
@@ -372,7 +385,7 @@ def _shape_phase_target(form: SyntaxList) -> PhaseTargetExpression:
         context=shape_expression(form.items[1]),
         target_name=str(target_node.value),
         target_span=target_node.span,
-        phase_name=None,
+        phase_name=phase_name,
         span=form.span,
     )
 

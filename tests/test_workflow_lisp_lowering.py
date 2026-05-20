@@ -927,6 +927,46 @@ def test_lower_compiled_module_supports_reference_root_expression(tmp_path: Path
     assert loaded.surface.name == "read_name"
 
 
+def test_lower_compiled_module_supports_phase_target_with_explicit_phase_name(tmp_path: Path) -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = str(_fixture_path("inline_phase_target_with_phase.orc"))
+    compiled = compiler.compile_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_target ((phase_ctx PathRel)) -> PathRel
+  (phase-target phase_ctx implementation progress-report))
+""",
+        source_path=source_path,
+    )
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    workflow = lowered["emit_target"]
+    assert workflow["steps"] == [
+        {
+            "name": "ScalarResult",
+            "id": "scalar_result",
+            "materialize_artifacts": {
+                "values": [
+                    {
+                        "name": "result",
+                        "source": {"literal": "${inputs.phase_ctx}/implementation/progress-report"},
+                        "contract": {"type": "relpath"},
+                    }
+                ]
+            },
+        }
+    ]
+
+    path = tmp_path / "emit_target.yaml"
+    path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
+    loaded = WorkflowLoader(tmp_path).load(path)
+    assert loaded.surface.name == "emit_target"
+
+
 def test_lower_compiled_module_supports_nil_scalar_root_expression(tmp_path: Path) -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()

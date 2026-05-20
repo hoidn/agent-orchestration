@@ -261,6 +261,30 @@ def test_shape_expression_parses_phase_target_expression() -> None:
     assert isinstance(shaped, expressions.PhaseTargetExpression)
     assert isinstance(shaped.context, expressions.ReferenceExpression)
     assert shaped.context.name == "phase_ctx"
+    assert shaped.phase_name is None
+    assert shaped.target_name == "progress-report"
+
+
+def test_shape_expression_parses_phase_target_expression_with_explicit_phase_name() -> None:
+    expressions = _expressions_module()
+    body_node = _workflow_body_expression_from_source(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_target ((phase_ctx PathRel)) -> PathRel
+  (phase-target phase_ctx implementation progress-report))
+""",
+        source_name="inline_valid_phase_target_with_phase.orc",
+    )
+
+    shaped = expressions.shape_expression(body_node)
+
+    assert isinstance(shaped, expressions.PhaseTargetExpression)
+    assert isinstance(shaped.context, expressions.ReferenceExpression)
+    assert shaped.context.name == "phase_ctx"
+    assert shaped.phase_name == "implementation"
     assert shaped.target_name == "progress-report"
 
 
