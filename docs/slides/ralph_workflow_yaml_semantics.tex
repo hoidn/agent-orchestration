@@ -245,9 +245,9 @@ Existing workflow executor
 Workflows are not just one-way task graphs. Steps can branch, retry, pause/resume, repair saved state, and commit outputs. Ralph is the simplest example: on success, it sends itself around again.
 \end{block}
 \vspace{0.25em}
-\begin{block}{Boundary}
+\begin{block}{What the compiler produces}
 \scriptsize
-The compiler does not produce machine code or YAML text. It produces checked internal workflow objects for the existing executor.
+It does not emit machine code or rewrite the workflow as YAML. It builds checked workflow objects that the existing executor runs.
 \end{block}
 \end{column}
 \end{columns}
