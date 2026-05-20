@@ -263,6 +263,33 @@ def test_shape_expression_parses_with_phase_expression() -> None:
     assert isinstance(shaped.body, expressions.ProviderResultExpression)
 
 
+def test_shape_expression_parses_with_phase_expression_with_quoted_phase_name() -> None:
+    expressions = _expressions_module()
+    body_node = _workflow_body_expression_from_source(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow run_phase ((phase_ctx PathRel) (execute_provider Provider) (execute_prompt Prompt)) -> String
+  (with-phase phase_ctx 'implementation
+    (provider-result execute_provider
+      :prompt execute_prompt
+      :inputs (phase_ctx)
+      :returns AttemptResult)))
+
+(defrecord AttemptResult
+  (status String))
+""",
+        source_name="inline_valid_with_phase_quoted_phase.orc",
+    )
+
+    shaped = expressions.shape_expression(body_node)
+
+    assert isinstance(shaped, expressions.WithPhaseExpression)
+    assert shaped.phase_name == "implementation"
+
+
 def test_shape_expression_parses_phase_target_expression() -> None:
     expressions = _expressions_module()
     body_node = _workflow_body_expression_from_source(
@@ -305,6 +332,27 @@ def test_shape_expression_parses_phase_target_expression_with_explicit_phase_nam
     assert isinstance(shaped, expressions.PhaseTargetExpression)
     assert isinstance(shaped.context, expressions.ReferenceExpression)
     assert shaped.context.name == "phase_ctx"
+    assert shaped.phase_name == "implementation"
+    assert shaped.target_name == "progress-report"
+
+
+def test_shape_expression_parses_phase_target_expression_with_quoted_symbols() -> None:
+    expressions = _expressions_module()
+    body_node = _workflow_body_expression_from_source(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_target ((phase_ctx PathRel)) -> PathRel
+  (phase-target phase_ctx 'implementation 'progress-report))
+""",
+        source_name="inline_valid_phase_target_quoted_symbols.orc",
+    )
+
+    shaped = expressions.shape_expression(body_node)
+
+    assert isinstance(shaped, expressions.PhaseTargetExpression)
     assert shaped.phase_name == "implementation"
     assert shaped.target_name == "progress-report"
 
@@ -353,12 +401,12 @@ def test_shape_expression_parses_phase_target_expression_with_explicit_phase_nam
         ),
         (
             "invalid_with_phase_bad_phase_name.orc",
-            "with-phase phase name must be a symbol",
+            "with-phase phase name must be a symbol or quoted symbol",
             "expression.with-phase",
         ),
         (
             "inline_invalid_phase_target_bad_target.orc",
-            "phase-target target name must be a symbol",
+            "phase-target target name must be a symbol or quoted symbol",
             "expression.phase-target",
         ),
         ("invalid_unsupported_expression_form.orc", "Unsupported expression form: if", "expression.if"),

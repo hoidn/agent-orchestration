@@ -456,6 +456,30 @@ def test_validate_expression_module_accepts_phase_target_expression() -> None:
     assert result.workflows[0].inferred_return_type == "PathRel"
 
 
+def test_validate_expression_module_accepts_phase_target_with_quoted_symbols() -> None:
+    parser = _parser_module()
+    definition_validation = _definition_validation_module()
+    expression_validation = _expression_validation_module()
+    source_path = str(_fixture_path("inline_phase_target_quoted.orc"))
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_target ((phase_ctx PathRel)) -> PathRel
+  (phase-target phase_ctx 'implementation 'progress-report))
+""",
+        source_path=source_path,
+    )
+    checked = definition_validation.validate_definition_module(module)
+
+    result = expression_validation.validate_expression_module(checked)
+
+    assert tuple(workflow.name for workflow in result.workflows) == ("emit_target",)
+    assert result.workflows[0].inferred_return_type == "PathRel"
+
+
 def test_validate_expression_module_phase_target_errors_include_generated_node_id() -> None:
     parser = _parser_module()
     definition_validation = _definition_validation_module()

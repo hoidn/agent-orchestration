@@ -297,6 +297,24 @@ def _shape_symbol_expression(node: SyntaxAtom) -> ExpressionNode:
     return current
 
 
+def _symbol_like_atom_value(
+    node: SyntaxNode,
+    *,
+    message: str,
+    enclosing_form_name: str,
+    generated_core_node_id: str | None = None,
+) -> tuple[str, SourceSpan]:
+    if not isinstance(node, SyntaxAtom) or node.kind not in {AtomKind.SYMBOL, AtomKind.QUOTED_SYMBOL}:
+        _raise_expression_error(
+            code="frontend_parse_error",
+            message=message,
+            span=node.span,
+            enclosing_form_name=enclosing_form_name,
+            generated_core_node_id=generated_core_node_id,
+        )
+    return str(node.value), node.span
+
+
 def _shape_let_star(form: SyntaxList) -> LetStarExpression:
     let_node_id = "expression.let-star"
     if len(form.items) != 3:
@@ -375,19 +393,16 @@ def _shape_with_phase(form: SyntaxList) -> WithPhaseExpression:
             enclosing_form_name="with-phase",
             generated_core_node_id=with_phase_node_id,
         )
-    phase_node = form.items[2]
-    if not isinstance(phase_node, SyntaxAtom) or phase_node.kind is not AtomKind.SYMBOL:
-        _raise_expression_error(
-            code="frontend_parse_error",
-            message="with-phase phase name must be a symbol",
-            span=phase_node.span,
-            enclosing_form_name="with-phase",
-            generated_core_node_id=with_phase_node_id,
-        )
+    phase_name, phase_span = _symbol_like_atom_value(
+        form.items[2],
+        message="with-phase phase name must be a symbol or quoted symbol",
+        enclosing_form_name="with-phase",
+        generated_core_node_id=with_phase_node_id,
+    )
     return WithPhaseExpression(
         context=shape_expression(form.items[1]),
-        phase_name=str(phase_node.value),
-        phase_span=phase_node.span,
+        phase_name=phase_name,
+        phase_span=phase_span,
         body=shape_expression(form.items[3]),
         span=form.span,
     )
@@ -417,31 +432,25 @@ def _shape_phase_target(form: SyntaxList) -> PhaseTargetExpression:
         )
     phase_name: str | None = None
     if len(form.items) == 4:
-        phase_node = form.items[2]
-        if not isinstance(phase_node, SyntaxAtom) or phase_node.kind is not AtomKind.SYMBOL:
-            _raise_expression_error(
-                code="frontend_parse_error",
-                message="phase-target phase name must be a symbol",
-                span=phase_node.span,
-                enclosing_form_name="phase-target",
-                generated_core_node_id=phase_target_node_id,
-            )
-        phase_name = str(phase_node.value)
-        target_node = form.items[3]
-    else:
-        target_node = form.items[2]
-    if not isinstance(target_node, SyntaxAtom) or target_node.kind is not AtomKind.SYMBOL:
-        _raise_expression_error(
-            code="frontend_parse_error",
-            message="phase-target target name must be a symbol",
-            span=target_node.span,
+        phase_name, _ = _symbol_like_atom_value(
+            form.items[2],
+            message="phase-target phase name must be a symbol or quoted symbol",
             enclosing_form_name="phase-target",
             generated_core_node_id=phase_target_node_id,
         )
+        target_node = form.items[3]
+    else:
+        target_node = form.items[2]
+    target_name, target_span = _symbol_like_atom_value(
+        target_node,
+        message="phase-target target name must be a symbol or quoted symbol",
+        enclosing_form_name="phase-target",
+        generated_core_node_id=phase_target_node_id,
+    )
     return PhaseTargetExpression(
         context=shape_expression(form.items[1]),
-        target_name=str(target_node.value),
-        target_span=target_node.span,
+        target_name=target_name,
+        target_span=target_span,
         phase_name=phase_name,
         span=form.span,
     )
