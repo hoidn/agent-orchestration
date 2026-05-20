@@ -2,6 +2,8 @@
 
 from .compiler import (
     CompiledWorkflowModule,
+    compile_and_lower_workflow_module_file,
+    compile_and_lower_workflow_module_text,
     compile_workflow_module_file,
     compile_workflow_module_text,
 )
@@ -111,6 +113,8 @@ __all__ = [
     "WorkflowParameter",
     "compile_workflow_module_file",
     "compile_workflow_module_text",
+    "compile_and_lower_workflow_module_file",
+    "compile_and_lower_workflow_module_text",
     "parse_workflow_module_file",
     "parse_workflow_module_text",
     "read_syntax_forms",

@@ -25,7 +25,7 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_managed_write_root_inputs,
     workflow_output_contracts,
 )
-from orchestrator.workflow_lisp import compile_workflow_module_file, lower_compiled_module
+from orchestrator.workflow_lisp import compile_and_lower_workflow_module_file
 from orchestrator.workflow_lisp.parser import WorkflowLispSyntaxError
 from orchestrator.workflow.lowering import lower_surface_workflow
 from orchestrator.workflow.predicates import (
@@ -290,8 +290,7 @@ class WorkflowLoader:
             return _LoadedWorkflowSource(workflow=loaded)
 
         try:
-            compiled = compile_workflow_module_file(resolved_workflow_path)
-            lowered_module = lower_compiled_module(compiled)
+            lowered_module = compile_and_lower_workflow_module_file(resolved_workflow_path)
         except WorkflowLispSyntaxError as error:
             diagnostic = error.diagnostic
             location = f"{diagnostic.source_file}:{diagnostic.line}:{diagnostic.column}"
