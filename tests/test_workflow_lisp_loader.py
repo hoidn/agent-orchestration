@@ -130,6 +130,72 @@ steps:
     assert imported_leaf.surface.name == "build_status"
 
 
+def test_loader_reports_module_not_found_for_missing_orc_import(tmp_path: Path) -> None:
+    wrapper = tmp_path / "wrapper.yaml"
+    wrapper.write_text(
+        """
+version: "2.14"
+name: wrapper
+imports:
+  missing: "./missing_module.orc#run_phase"
+inputs:
+  prompt:
+    kind: scalar
+    type: string
+outputs:
+  status:
+    kind: scalar
+    type: string
+    from:
+      ref: root.steps.CallMissing.artifacts.status
+steps:
+  - name: CallMissing
+    id: call_missing
+    call: missing
+    with:
+      inputs__prompt:
+        ref: inputs.prompt
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        WorkflowLoader(tmp_path).load(wrapper)
+
+    assert any("[module_not_found]" in str(error.message) for error in exc_info.value.errors)
+
+
+def test_loader_reports_module_cycle_for_cyclic_orc_fragment_imports(tmp_path: Path) -> None:
+    source_path = tmp_path / "cyclic_module.orc"
+    source_path.write_text(
+        """
+(defmodule cyclic.module
+  (:language workflow-lisp "0.1")
+  (:target-dsl "2.14")
+
+  (export
+    run_a
+    run_b)
+
+  (defworkflow run_a ((prompt String)) -> String
+    (call run_b :prompt prompt))
+
+  (defworkflow run_b ((prompt String)) -> String
+    (call run_a :prompt prompt)))
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        WorkflowLoader(tmp_path).load(f"{source_path}#run_a")
+
+    messages = [str(error.message) for error in exc_info.value.errors]
+    assert any("[module_cycle]" in message for message in messages)
+    assert any("cyclic_module.orc#run_a" in message for message in messages)
+
+
 def test_loader_records_frontend_source_map_for_orc_workflow_fragment(tmp_path: Path) -> None:
     source_path = _fixture_path("valid_provider_command_result_expressions.orc")
 

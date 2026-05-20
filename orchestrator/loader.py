@@ -177,7 +177,27 @@ class WorkflowLoader:
                 display_path = str(resolved_workflow_path)
             if selected_workflow_name:
                 display_path = f"{display_path}#{selected_workflow_name}"
-            self._add_error(f"Circular import detected while loading '{display_path}'")
+            self._add_error(f"[module_cycle] Circular import detected while loading '{display_path}'")
+            return {}
+
+        if not resolved_workflow_path.exists():
+            try:
+                display_path = str(resolved_workflow_path.relative_to(self.workspace))
+            except ValueError:
+                display_path = str(resolved_workflow_path)
+            if selected_workflow_name:
+                display_path = f"{display_path}#{selected_workflow_name}"
+            self._add_error(f"[module_not_found] Workflow module not found: '{display_path}'")
+            return {}
+
+        if not resolved_workflow_path.is_file():
+            try:
+                display_path = str(resolved_workflow_path.relative_to(self.workspace))
+            except ValueError:
+                display_path = str(resolved_workflow_path)
+            if selected_workflow_name:
+                display_path = f"{display_path}#{selected_workflow_name}"
+            self._add_error(f"[module_not_found] Workflow module path is not a file: '{display_path}'")
             return {}
 
         previous_input_specs = self._workflow_input_specs
