@@ -251,3 +251,29 @@ def test_read_syntax_forms_rejects_bad_escape_sequences() -> None:
     assert diagnostic.span.line_start == 1
     assert diagnostic.span.column_start == 14
     assert diagnostic.enclosing_form_name is None
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_generated_core_node_id"),
+    [
+        ("invalid_unknown_header_clause.orc", "module.header.unknown"),
+        ("invalid_defmodule_unsupported_language_name.orc", "module.header.language"),
+    ],
+)
+def test_parse_workflow_module_text_emits_generated_node_ids_for_header_diagnostics(
+    fixture_name: str,
+    expected_generated_core_node_id: str,
+) -> None:
+    parser = _parser_module()
+    source_path = _fixture_path(fixture_name)
+
+    with pytest.raises(Exception) as exc_info:
+        parser.parse_workflow_module_text(
+            source_path.read_text(encoding="utf-8"),
+            source_path=str(source_path),
+        )
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "frontend_parse_error"
+    assert diagnostic.source_file == str(source_path)
+    assert diagnostic.generated_core_node_id == expected_generated_core_node_id

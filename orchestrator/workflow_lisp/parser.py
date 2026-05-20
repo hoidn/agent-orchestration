@@ -515,6 +515,7 @@ def _collect_header_clauses(
             message=f"Unsupported clause in {enclosing_form_name} header: {key.value}",
             span=key.span,
             enclosing_form_name=enclosing_form_name,
+            generated_core_node_id=_module_header_clause_node_id(str(key.value)),
         )
 
     if language_clause is None:
@@ -619,6 +620,7 @@ def _extract_defmodule_language_version(clause: SyntaxList) -> SyntaxAtom:
             message=":language clause in defmodule must be (:language workflow-lisp \"0.1\")",
             span=clause.span,
             enclosing_form_name="defmodule",
+            generated_core_node_id=_module_header_clause_node_id(":language"),
         )
     key_node, language_node, version_node = clause.items
     if not isinstance(key_node, SyntaxAtom) or key_node.value != ":language":
@@ -627,6 +629,7 @@ def _extract_defmodule_language_version(clause: SyntaxList) -> SyntaxAtom:
             message="Malformed :language clause in defmodule header",
             span=clause.span,
             enclosing_form_name="defmodule",
+            generated_core_node_id=_module_header_clause_node_id(":language"),
         )
     if (
         not isinstance(language_node, SyntaxAtom)
@@ -638,6 +641,7 @@ def _extract_defmodule_language_version(clause: SyntaxList) -> SyntaxAtom:
             message="defmodule :language must name workflow-lisp",
             span=language_node.span,
             enclosing_form_name="defmodule",
+            generated_core_node_id=_module_header_clause_node_id(":language"),
         )
     if not isinstance(version_node, SyntaxAtom) or version_node.kind is not AtomKind.STRING:
         _raise_syntax_error(
@@ -645,6 +649,7 @@ def _extract_defmodule_language_version(clause: SyntaxList) -> SyntaxAtom:
             message="defmodule :language version must be a string literal",
             span=version_node.span,
             enclosing_form_name="defmodule",
+            generated_core_node_id=_module_header_clause_node_id(":language"),
         )
     return version_node
 
