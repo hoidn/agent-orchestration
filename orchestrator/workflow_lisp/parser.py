@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 
 from .syntax import (
     AtomKind,
@@ -111,11 +112,16 @@ def _raise_syntax_error(
 
 
 def _module_header_clause_node_id(clause_key: str) -> str:
+    if clause_key == ":name":
+        return "module.header.name"
     if clause_key == ":language":
         return "module.header.language"
     if clause_key == ":target-dsl":
         return "module.header.target_dsl"
     return f"module.header.{clause_key.removeprefix(':').replace('-', '_')}"
+
+
+_MODULE_NAME_SEGMENT_PATTERN = re.compile(r"^[A-Za-z0-9_-]+$")
 
 
 def _is_symbol_boundary(char: str | None) -> bool:
@@ -552,6 +558,14 @@ def _shape_defmodule_header(header_form: SyntaxList) -> tuple[str, SyntaxList, S
             span=name_node.span,
             enclosing_form_name="defmodule",
         )
+    if not _is_valid_module_name(str(name_node.value)):
+        _raise_syntax_error(
+            code="frontend_parse_error",
+            message="defmodule name must use non-empty dot/slash-separated symbol segments",
+            span=name_node.span,
+            enclosing_form_name="defmodule",
+            generated_core_node_id=_module_header_clause_node_id(":name"),
+        )
 
     remaining = header_form.items[2:]
     clause_count = 0
@@ -579,6 +593,15 @@ def _shape_defmodule_header(header_form: SyntaxList) -> tuple[str, SyntaxList, S
         enclosing_form_name="defmodule",
     )
     return str(name_node.value), language_clause, target_clause, body_forms
+
+
+def _is_valid_module_name(module_name: str) -> bool:
+    if not module_name:
+        return False
+    segments = re.split(r"[./]", module_name)
+    if any(not segment for segment in segments):
+        return False
+    return all(_MODULE_NAME_SEGMENT_PATTERN.fullmatch(segment) for segment in segments)
 
 
 def _extract_header_string(

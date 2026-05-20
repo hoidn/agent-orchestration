@@ -277,3 +277,25 @@ def test_parse_workflow_module_text_emits_generated_node_ids_for_header_diagnost
     assert diagnostic.code == "frontend_parse_error"
     assert diagnostic.source_file == str(source_path)
     assert diagnostic.generated_core_node_id == expected_generated_core_node_id
+
+
+@pytest.mark.parametrize("module_name", ["neurips..implementation", "neurips/implementation.", "neurips#impl"])
+def test_parse_workflow_module_text_rejects_invalid_defmodule_name(module_name: str) -> None:
+    parser = _parser_module()
+
+    with pytest.raises(Exception) as exc_info:
+        parser.parse_workflow_module_text(
+            f"""
+(defmodule {module_name}
+  (:language workflow-lisp "0.1")
+  (:target-dsl "2.14")
+  (defrecord Inputs (path String)))
+""",
+            source_path="inline_invalid_defmodule_name.orc",
+        )
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "frontend_parse_error"
+    assert "defmodule name must use non-empty dot/slash-separated symbol segments" in diagnostic.message
+    assert diagnostic.enclosing_form_name == "defmodule"
+    assert diagnostic.generated_core_node_id == "module.header.name"
