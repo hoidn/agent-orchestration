@@ -1,4 +1,15 @@
-"""Pure Stage 1 compiler pipeline for the workflow Lisp frontend."""
+"""Compile Workflow Lisp modules through definition, type, effect, and lowering.
+
+This module coordinates the frontend pipeline rather than owning any one
+semantic layer. It resolves a module graph, expands macros, validates type
+definitions, registers procedure/workflow signatures, computes effect
+summaries, lowers typed workflows to ordinary workflow dictionaries, and then
+optionally validates those dictionaries through the existing workflow loader.
+
+See `README.md` for the package map and
+`../../docs/design/workflow_lisp_frontend_mvp_specification.md` for the implemented
+scope this compiler coordinates.
+"""
 
 from __future__ import annotations
 
@@ -75,6 +86,13 @@ from .workflows import (
 
 @dataclass(frozen=True)
 class LinkedStage1CompileResult:
+    """Definition-only compile result for an entry module graph.
+
+    This early pass proves that module headers, imports, exports, and type
+    definitions are coherent before expression typechecking, effect checking,
+    or lowering begins.
+    """
+
     graph: LinkedModuleGraph
     entry_module: WorkflowLispModule
     compiled_modules_by_name: Mapping[str, WorkflowLispModule]
@@ -82,6 +100,13 @@ class LinkedStage1CompileResult:
 
 @dataclass(frozen=True)
 class LinkedStage3CompileResult:
+    """Executable compile result for an entry module graph.
+
+    This result includes expanded syntax, typechecked procedures/workflows,
+    lowered workflow dictionaries, and optionally bundles validated by the
+    existing workflow loader.
+    """
+
     graph: LinkedModuleGraph
     entry_result: Stage3CompileResult
     compiled_results_by_name: Mapping[str, Stage3CompileResult]
@@ -93,6 +118,13 @@ def compile_stage1_entrypoint(
     *,
     source_roots: tuple[Path, ...] | None = None,
 ) -> LinkedStage1CompileResult:
+    """Compile an entrypoint through module and type-definition validation.
+
+    This pass intentionally ignores executable bodies. It exists so callers can
+    validate reusable type surfaces and import/export wiring without requiring
+    provider externs, prompt externs, command adapters, or imported workflows.
+    """
+
     graph = resolve_module_graph(path, source_roots=source_roots)
     compiled_modules_by_name: dict[str, WorkflowLispModule] = {}
     export_surfaces = dict(graph.export_surfaces_by_name)
@@ -130,6 +162,14 @@ def compile_stage3_entrypoint(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
 ) -> LinkedStage3CompileResult:
+    """Compile an entrypoint and imports through the executable frontend path.
+
+    The function resolves the module graph once, then runs macro expansion,
+    definition validation, procedure/workflow signature registration, expression
+    typechecking, effect inference, lowering to ordinary workflow dictionaries,
+    and optional shared validation for every reachable module.
+    """
+
     graph = resolve_module_graph(path, source_roots=source_roots)
     return _compile_stage3_graph(
         graph,
@@ -151,7 +191,7 @@ def compile_stage3_module(
     validate_shared: bool = True,
     workspace_root: Path | None = None,
 ) -> Stage3CompileResult:
-    """Compile one `.orc` file through the additive Stage 3 pipeline."""
+    """Compile one `.orc` file through the executable frontend pipeline."""
 
     syntax_module = _expanded_syntax_module(path)
     module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
@@ -223,7 +263,7 @@ def compile_stage3_module(
 
 
 def compile_stage1_module(path: Path) -> WorkflowLispModule:
-    """Compile one `.orc` file through the Stage 1 frontend pipeline."""
+    """Compile one `.orc` file through the definition-only frontend pipeline."""
 
     syntax_module = _expanded_syntax_module(path)
     _validate_stage1_top_level_forms(syntax_module)
@@ -242,6 +282,14 @@ def _compile_stage3_graph(
     validate_shared: bool,
     workspace_root: Path,
 ) -> LinkedStage3CompileResult:
+    """Compile a resolved module graph in dependency order.
+
+    Each module is expanded and typechecked after its imports have published
+    type refs, macro definitions, procedure signatures, workflow signatures,
+    and validated workflow bundles. Exported workflows are validated as needed
+    so downstream modules can call them through the existing workflow loader.
+    """
+
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_macro_defs_by_module: dict[str, dict[str, object]] = {}
@@ -459,6 +507,8 @@ def _compile_stage3_graph(
 def _definition_only_from_expanded_syntax_module(
     module_syntax: WorkflowLispSyntaxModule,
 ) -> WorkflowLispSyntaxModule:
+    """Strip executable forms from expanded syntax for type-definition passes."""
+
     definition_forms = []
     for form in module_syntax.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
@@ -481,6 +531,8 @@ def _canonicalize_procedure_defs(
     module_name: str,
     procedure_defs: tuple[ProcedureDef, ...],
 ) -> tuple[ProcedureDef, ...]:
+    """Qualify local procedure names with their module name."""
+
     return tuple(
         replace(procedure_def, name=canonical_callable_key(module_name, procedure_def.name))
         for procedure_def in procedure_defs
@@ -491,6 +543,8 @@ def _canonicalize_workflow_defs(
     module_name: str,
     workflow_defs: tuple[WorkflowDef, ...],
 ) -> tuple[WorkflowDef, ...]:
+    """Qualify local workflow names with their module name."""
+
     return tuple(
         replace(workflow_def, name=canonical_callable_key(module_name, workflow_def.name))
         for workflow_def in workflow_defs
@@ -503,6 +557,8 @@ def _local_callable_lookup_aliases(
     raw_names: tuple[str, ...],
     imported_bindings: Mapping[str, ModuleMemberBinding],
 ) -> dict[str, str]:
+    """Build call-name aliases for local and imported procedures/workflows."""
+
     aliases = {
         alias_name: binding.canonical_name
         for alias_name, binding in imported_bindings.items()
@@ -516,6 +572,8 @@ def _imported_type_refs(
     import_scope: ModuleImportScope,
     exported_type_refs_by_module: Mapping[str, Mapping[str, TypeRef]],
 ) -> dict[str, TypeRef]:
+    """Collect concrete type refs made visible by the import scope."""
+
     imported: dict[str, TypeRef] = {}
     seen_bindings = {
         **dict(import_scope.type_bindings),
@@ -533,6 +591,8 @@ def _exported_type_refs(
     export_surface: ModuleExportSurface,
     type_env: FrontendTypeEnvironment,
 ) -> dict[str, TypeRef]:
+    """Resolve exported type names into the refs downstream modules import."""
+
     exported: dict[str, TypeRef] = {}
     for binding in export_surface.types_by_name.values():
         exported[binding.member_name] = type_env.resolve_type(
@@ -547,6 +607,8 @@ def _imported_procedure_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, ProcedureSignature]],
 ) -> dict[str, ProcedureSignature]:
+    """Collect procedure signatures visible through imports."""
+
     imported: dict[str, ProcedureSignature] = {}
     for binding in import_scope.procedure_bindings.values():
         signature = exported_by_module.get(binding.module_name, {}).get(binding.member_name)
@@ -559,6 +621,8 @@ def _imported_workflow_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, WorkflowSignature]],
 ) -> dict[str, WorkflowSignature]:
+    """Collect workflow signatures visible through imports."""
+
     imported: dict[str, WorkflowSignature] = {}
     for binding in import_scope.workflow_bindings.values():
         signature = exported_by_module.get(binding.module_name, {}).get(binding.member_name)
@@ -573,6 +637,8 @@ def _effective_imported_workflow_bundles(
     explicit_imported_bundles: Mapping[str, LoadedWorkflowBundle],
     exported_validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle],
     ) -> dict[str, LoadedWorkflowBundle]:
+    """Merge explicit imported bundles with validated bundles from imports."""
+
     effective = dict(explicit_imported_bundles)
     seen_canonical_names: set[str] = set()
     for binding in import_scope.workflow_bindings.values():
@@ -603,6 +669,8 @@ def _procedure_name_resolver(
     *,
     local_raw_names: frozenset[str],
 ):
+    """Return a resolver that maps procedure call syntax to canonical names."""
+
     local_names: dict[str, str] = {}
 
     def resolve(name: str, span, form_path):
@@ -627,6 +695,8 @@ def _workflow_name_resolver(
     local_raw_names: frozenset[str],
     external_workflow_names: frozenset[str] = frozenset(),
 ):
+    """Return a resolver that maps workflow call syntax to canonical names."""
+
     local_names: dict[str, str] = {}
 
     def resolve(name: str, span, form_path):
@@ -648,6 +718,8 @@ def _workflow_name_resolver(
 
 
 def _bundle_span(bundle: LoadedWorkflowBundle):
+    """Create a source span pointing at an imported workflow bundle file."""
+
     from .spans import SourcePosition, SourceSpan
 
     workflow_path = bundle.provenance.workflow_path
@@ -658,6 +730,8 @@ def _bundle_span(bundle: LoadedWorkflowBundle):
 
 
 def _expanded_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
+    """Read, wrap, and macro-expand one Workflow Lisp source file."""
+
     parse_tree = read_sexpr_file(path)
     syntax_module = build_syntax_module(parse_tree)
     catalog = collect_macro_catalog(syntax_module)
@@ -669,6 +743,8 @@ def _augment_resume_command_boundaries(
     typed_procedures,
     typed_workflows,
 ):
+    """Install resume/state-reuse adapters only when code uses `resume-or-start`."""
+
     bindings = dict(command_boundary_environment.bindings_by_name)
     resume_exprs = [workflow.typed_body.expr for workflow in typed_workflows]
     resume_exprs.extend(procedure.typed_body.expr for procedure in typed_procedures)
@@ -708,6 +784,14 @@ def _augment_resume_command_boundaries(
 
 
 def _augment_resource_transition_command_boundaries(command_boundary_environment):
+    """Register the default adapter used by `resource-transition`.
+
+    The frontend form lowers through a named command boundary. This helper adds
+    the repository's built-in adapter when the caller did not provide an
+    override, including the declared output type, effects, path-safety policy,
+    and fixture ids required for certification.
+    """
+
     bindings = dict(command_boundary_environment.bindings_by_name)
     if "apply_resource_transition" in bindings:
         return command_boundary_environment
@@ -726,6 +810,8 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
 
 
 def _workflow_contains_resume_or_start(expr) -> bool:
+    """Return whether an expression tree contains a `resume-or-start` form."""
+
     if isinstance(expr, ResumeOrStartExpr):
         return True
     if isinstance(expr, LetStarExpr):
@@ -738,6 +824,8 @@ def _workflow_contains_resume_or_start(expr) -> bool:
 
 
 def _resume_return_type_names(expr) -> tuple[str, ...]:
+    """Collect result types that require resume-state loader adapters."""
+
     if isinstance(expr, ResumeOrStartExpr):
         return (expr.returns_type_name,)
     if isinstance(expr, LetStarExpr):
@@ -757,6 +845,8 @@ def _resume_return_type_names(expr) -> tuple[str, ...]:
 
 
 def _validate_definition_module(module: WorkflowLispModule) -> None:
+    """Validate definition names and type references for one module."""
+
     diagnostics: list[LispFrontendDiagnostic] = []
     definition_names: dict[str, object] = {}
     for definition in module.definitions:
@@ -788,6 +878,8 @@ def _validate_union_definition(
     definition: UnionDef,
     available_type_names: frozenset[str],
 ) -> list[LispFrontendDiagnostic]:
+    """Validate one union's variant names and variant field types."""
+
     diagnostics: list[LispFrontendDiagnostic] = []
     seen_variants: set[str] = set()
     form_path = _definition_form_path(definition)
@@ -820,6 +912,8 @@ def _validate_field_list(
     *,
     scope_label: str = "record",
 ) -> list[LispFrontendDiagnostic]:
+    """Validate duplicate field names for a record-like field list."""
+
     diagnostics: list[LispFrontendDiagnostic] = []
     seen_fields: set[str] = set()
     for field in fields:
@@ -842,6 +936,8 @@ def _validate_field_types(
     form_path: tuple[str, ...],
     available_type_names: frozenset[str],
 ) -> list[LispFrontendDiagnostic]:
+    """Validate that each field references a known type name."""
+
     diagnostics: list[LispFrontendDiagnostic] = []
     for field in fields:
         if field.type_name not in available_type_names:
@@ -857,6 +953,8 @@ def _validate_field_types(
 
 
 def _definition_form_path(definition: EnumDef | PathDef | RecordDef | UnionDef) -> tuple[str, ...]:
+    """Return a stable frontend form path for a type definition."""
+
     if isinstance(definition, EnumDef):
         return ("workflow-lisp", "defenum", definition.name)
     if isinstance(definition, PathDef):
@@ -867,6 +965,8 @@ def _definition_form_path(definition: EnumDef | PathDef | RecordDef | UnionDef) 
 
 
 def _validate_stage1_top_level_forms(module_syntax: WorkflowLispSyntaxModule) -> None:
+    """Reject executable top-level forms in definition-only compilation."""
+
     allowed_heads = {"defenum", "defpath", "defrecord", "defunion", "defworkflow", "defproc"}
     for form in module_syntax.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
@@ -886,6 +986,8 @@ def _validate_stage1_top_level_forms(module_syntax: WorkflowLispSyntaxModule) ->
 
 
 def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> WorkflowLispSyntaxModule:
+    """Expand syntax and keep only forms used by definition elaboration."""
+
     expanded_module = expand_module_forms(
         module_syntax,
         catalog=collect_macro_catalog(module_syntax),
@@ -921,6 +1023,8 @@ def _typecheck_procedure_definitions(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
 ) -> tuple[TypedProcedureDef, ...]:
+    """Typecheck procedure bodies against signatures, externs, and call catalogs."""
+
     from .workflows import ExternEnvironment, ProviderExtern
 
     externs = extern_environment or ExternEnvironment(bindings_by_name={})
@@ -1000,6 +1104,8 @@ def _infer_stage3_effect_summaries(
     procedure_name_resolver=None,
     workflow_name_resolver=None,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
+    """Compute procedure/workflow effect summaries to a fixpoint."""
+
     procedure_effects_by_name = dict(procedure_effects_by_name or {})
     workflow_effects_by_name = dict(workflow_effects_by_name or {})
     typed_procedures: tuple[TypedProcedureDef, ...] = ()
@@ -1080,6 +1186,8 @@ def _validate_procedure_effects_and_cycles(
     procedure_catalog: ProcedureCatalog,
     validate_declared: bool = True,
 ) -> tuple[tuple[TypedProcedureDef, ...], ProcedureCatalog]:
+    """Resolve transitive procedure effects and reject recursive proc cycles."""
+
     typed_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
     call_graph = {name: frozenset(_procedure_dependencies(procedure.typed_body.expr)) for name, procedure in typed_by_name.items()}
     procedure_catalog = with_call_graph(procedure_catalog, call_graph)
@@ -1142,6 +1250,8 @@ def _validate_procedure_effects_and_cycles(
 
 
 def _procedure_dependencies(expr: object) -> set[str]:
+    """Find direct procedure-call dependencies inside an expression tree."""
+
     from .expressions import LetStarExpr, MatchExpr, ProcedureCallExpr, RecordExpr, CallExpr, ProviderResultExpr, CommandResultExpr, WithPhaseExpr
 
     dependencies: set[str] = set()

@@ -1,4 +1,30 @@
-"""Lower typed Workflow Lisp workflows into authored workflow mappings."""
+"""Lower typed Workflow Lisp workflows into ordinary workflow dictionaries.
+
+This module is the bridge from frontend semantics to the existing workflow
+runtime. It takes typechecked frontend expressions and emits the same
+dictionary shape produced by YAML loading, so the shared loader, elaborator,
+semantic IR builder, and executable IR pipeline can handle the result.
+
+The important rule is that lowering must not make the generated workflow mean
+something weaker than the `.orc` source. Provider and command results must be
+checked before later steps read them. Fields that exist only for one union case
+must be readable only in the branch that proved that case was selected. Every
+generated step must still point back to the `.orc` form that caused it.
+
+Terminology used in this module:
+
+- an ordinary workflow dictionary is the Python mapping shape the YAML loader
+  produces before shared validation;
+- a provider step asks an LLM/provider to produce outputs under a declared
+  contract;
+- a command step runs a deterministic command or certified adapter;
+- a structured bundle is a JSON file validated by `output_bundle` or
+  `variant_output`, used as semantic state instead of parsing markdown reports.
+
+For the intended lowering contracts, see
+`../../docs/design/workflow_lisp_stdlib_lowering.md`. For the broader architecture
+and diagrams, see `../../docs/design/workflow_lisp_frontend_specification.md`.
+"""
 
 from __future__ import annotations
 
@@ -79,6 +105,15 @@ _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
 
 @dataclass(frozen=True)
 class LoweringOrigin:
+    """Frontend source location for generated workflow dictionary entries.
+
+    Shared loader and semantic-IR diagnostics are usually phrased in terms of
+    generated step names, flattened input names, or generated artifact paths.
+    A `LoweringOrigin` is the source-map payload used to translate those
+    generated names back to the `.orc` span, form path, macro expansion stack,
+    and any procedure-lowering notes that explain why the node exists.
+    """
+
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: tuple[object, ...] = ()
@@ -87,6 +122,15 @@ class LoweringOrigin:
 
 @dataclass(frozen=True)
 class LoweringOriginMap:
+    """Complete source-map index for one lowered workflow.
+
+    Lowering creates more than steps: it also synthesizes boundary inputs,
+    internal write roots, projected outputs, and artifact/pointer paths. This
+    map records an origin for each generated surface so validation failures
+    from the shared YAML-shaped pipeline can be reported against frontend
+    source instead of opaque generated names.
+    """
+
     workflow_origin: LoweringOrigin
     step_spans: Mapping[str, LoweringOrigin]
     authored_input_spans: Mapping[str, LoweringOrigin]
@@ -96,15 +140,28 @@ class LoweringOriginMap:
 
     @property
     def workflow_span(self) -> SourceSpan:
+        """Return the source span for the workflow definition itself."""
+
         return self.workflow_origin.span
 
     @property
     def generated_input_spans(self) -> Mapping[str, LoweringOrigin]:
+        """Return authored and synthetic input origins as one mapping."""
+
         return MappingProxyType({**dict(self.authored_input_spans), **dict(self.internal_input_spans)})
 
 
 @dataclass(frozen=True)
 class LoweredWorkflow:
+    """Boundary object between Workflow Lisp and the shared runtime pipeline.
+
+    `typed_workflow` preserves the checked frontend definition, while
+    `authored_mapping` is the ordinary workflow dictionary consumed by the
+    existing loader, semantic IR builder, and executor. `origin_map` and
+    `boundary_projection` keep that generated mapping explainable and connect
+    frontend record/union fields to flattened workflow contracts.
+    """
+
     typed_workflow: TypedWorkflowDef
     authored_mapping: Mapping[str, object]
     origin_map: LoweringOriginMap
@@ -123,7 +180,13 @@ def lower_workflow_definitions(
     command_boundary_environment: CommandBoundaryEnvironment,
     type_env: FrontendTypeEnvironment | None = None,
 ) -> tuple[LoweredWorkflow, ...]:
-    """Lower typed workflows into authored workflow mappings."""
+    """Lower typechecked frontend workflows into shared workflow dictionaries.
+
+    This is the frontend's main lowering entrypoint. It first decides how each
+    `defproc` lowers, synthesizes private workflow boundaries where needed,
+    topologically lowers same-file workflow dependencies, and returns mappings
+    that can be passed directly into the shared workflow validation pipeline.
+    """
 
     typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
     resolved_procedures = _resolve_procedure_lowering(
@@ -147,6 +210,8 @@ def lower_workflow_definitions(
     visiting: set[str] = set()
 
     def lower_one(workflow_name: str) -> LoweredWorkflow:
+        """Lower one workflow after recursively lowering local callees."""
+
         existing = lowered_by_name.get(workflow_name)
         if existing is not None:
             return existing
@@ -213,7 +278,13 @@ def validate_lowered_workflows(
     workspace_root: Path,
     imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
 ) -> Mapping[str, LoadedWorkflowBundle]:
-    """Validate authored mappings through the shared elaboration and lowering seam."""
+    """Run lowered workflow dictionaries through the existing validation path.
+
+    Lowering is not allowed to be authoritative by itself. This function feeds
+    generated mappings into the same loader/elaboration/lowering path used by
+    authored YAML and remaps shared validation failures back through
+    `LoweringOriginMap`.
+    """
 
     lowered_by_name = {workflow.typed_workflow.definition.name: workflow for workflow in lowered_workflows}
     imported_names = {
@@ -226,6 +297,8 @@ def validate_lowered_workflows(
     visiting: set[str] = set()
 
     def validate_one(workflow_name: str) -> LoadedWorkflowBundle:
+        """Validate one lowered workflow after validating local dependencies."""
+
         existing = validated.get(workflow_name)
         if existing is not None:
             return existing
@@ -274,6 +347,14 @@ def _lower_one_workflow(
     type_env: FrontendTypeEnvironment,
     typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> LoweredWorkflow:
+    """Lower one typed workflow body and assemble its shared mapping.
+
+    The function derives flattened boundary contracts, creates the mutable
+    lowering context used by expression visitors, collects hidden managed-write
+    inputs, verifies source-map coverage, and returns the final `LoweredWorkflow`
+    object consumed by shared validation.
+    """
+
     inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
@@ -399,6 +480,13 @@ def _lower_one_workflow(
 
 @dataclass
 class _TerminalResult:
+    """Outputs produced by the last lowered expression in a workflow fragment.
+
+    `output_refs` maps frontend return field names to shared workflow refs.
+    `hidden_inputs` records generated write roots that must be added to the
+    workflow boundary after expression lowering.
+    """
+
     step_name: str
     step_id: str
     output_refs: Mapping[str, str]
@@ -408,6 +496,13 @@ class _TerminalResult:
 
 @dataclass
 class _LoweringContext:
+    """Mutable state threaded through expression lowering.
+
+    The context owns generated step names, source-map origins, top-level
+    artifacts, hidden inputs, active phase scope, and lookup tables for external
+    providers, command adapters, procedures, workflows, and imported bundles.
+    """
+
     workflow_name: str
     step_name_prefix: str
     workflow_path: Path
@@ -436,6 +531,14 @@ class _LoweringContext:
 
 @dataclass(frozen=True)
 class _ActivePhaseScope:
+    """Derived state and artifact refs installed by `with-phase`.
+
+    Phase stdlib forms such as `run-provider-phase` and `produce-one-of` use
+    this scope to find canonical bundle paths, temporary bundle paths, snapshot
+    roots, candidate roots, and named artifact targets. Keeping those refs here
+    prevents high-level frontend code from hand-constructing state paths.
+    """
+
     scope: PhaseScope
     bundle_path_ref: str
     target_refs: Mapping[str, str]
@@ -455,6 +558,13 @@ def _validate_projection_origin_coverage(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
+    """Ensure every flattened boundary field has a source-map origin.
+
+    Missing origins make diagnostics and build artifacts misleading, so lowering
+    fails before exposing a workflow whose generated inputs or outputs cannot be
+    traced back to frontend source.
+    """
+
     missing = next(
         (
             field.generated_name
@@ -496,6 +606,8 @@ def _validate_projection_origin_coverage(
 
 
 def _normalize_generated_step_id(raw_name: str) -> str:
+    """Convert generated step names into stable shared-workflow step ids."""
+
     normalized = _GENERATED_STEP_ID_RE.sub("_", raw_name).strip("_")
     if not normalized:
         return "generated_step"
@@ -505,6 +617,8 @@ def _normalize_generated_step_id(raw_name: str) -> str:
 
 
 def _origin_from_source(source: object, *, span: SourceSpan | None = None) -> LoweringOrigin:
+    """Build a source-map origin from any typed frontend node-like object."""
+
     origin_span = span or getattr(source, "span")
     return LoweringOrigin(
         span=origin_span,
@@ -514,6 +628,8 @@ def _origin_from_source(source: object, *, span: SourceSpan | None = None) -> Lo
 
 
 def _origin_from_context_source(context: _LoweringContext, source: object, *, span: SourceSpan | None = None) -> LoweringOrigin:
+    """Build an origin and attach active procedure/lowering provenance notes."""
+
     base = _origin_from_source(source, span=span)
     if not context.origin_notes:
         return base
@@ -526,6 +642,8 @@ def _origin_from_context_source(context: _LoweringContext, source: object, *, sp
 
 
 def _record_step_origin(context: _LoweringContext, *, step_name: str, step_id: str, source: object) -> None:
+    """Record both human step name and stable id as aliases to one origin."""
+
     origin = _origin_from_context_source(context, source)
     context.step_spans[step_name] = origin
     context.step_spans[step_id] = origin
@@ -537,6 +655,12 @@ def _lower_expression(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Dispatch one typed frontend expression to its concrete lowering routine.
+
+    Every branch returns generated shared workflow steps plus the terminal output
+    references that represent the frontend expression value for enclosing forms.
+    """
+
     expr = typed_expr.expr
     if isinstance(expr, CommandResultExpr):
         return _lower_command_result(typed_expr, context=context, local_values=local_values)
@@ -585,6 +709,15 @@ def _lower_command_result(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower a typed command call to a validating workflow command step.
+
+    In `.orc`, `command-result` means "run this named command boundary and
+    treat its JSON output as a typed result." Lowering turns that into an
+    ordinary workflow `command` step, appends rendered frontend arguments,
+    attaches an `output_bundle` or `variant_output` contract, and exposes refs
+    only to fields from the validated JSON bundle.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, CommandResultExpr)
     step_name = f"{context.step_name_prefix}__{expr.step_name}"
@@ -626,6 +759,14 @@ def _lower_resource_transition(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower a resource move into a typed certified-adapter command.
+
+    `resource-transition` is the frontend form for queue/item movement plus
+    any associated ledger update. The current backend is a named Python adapter
+    with declared inputs, outputs, and effects, so workflow source does not need
+    inline Python to move files or reconstruct run state.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, ResourceTransitionExpr)
     binding = context.command_boundary_environment.bindings_by_name["apply_resource_transition"]
@@ -670,6 +811,15 @@ def _lower_provider_result(
     local_values: Mapping[str, Any],
     step_name: str | None = None,
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower a typed provider call to a validating workflow provider step.
+
+    In `.orc`, `provider-result` means "ask a configured provider to produce a
+    typed record or union." Lowering emits a provider step, points it at the
+    prompt asset, injects the expected JSON contract, and stores the semantic
+    result in a generated structured bundle. Reports may be artifacts, but the
+    validated bundle is what later steps read.
+    """
+
     provider_step_name = step_name or f"{context.step_name_prefix}__result"
     provider_step_id = _normalize_generated_step_id(provider_step_name)
     hidden_input_name = f"__write_root__{provider_step_id}__result_bundle"
@@ -758,6 +908,14 @@ def _lower_run_provider_phase(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower the phase helper that runs one provider-backed phase.
+
+    `run-provider-phase` is a convenience form over `provider-result` for phase
+    code that has a `with-phase` context. It derives prompt-input
+    materializations, consumed-artifact metadata, and the phase result JSON path
+    from that context instead of making the `.orc` author spell those paths.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, RunProviderPhaseExpr)
     if context.phase_scope is None:
@@ -837,6 +995,15 @@ def _lower_produce_one_of(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower candidate-file production to evidence-backed variant selection.
+
+    `produce-one-of` is used when a producer may create exactly one of several
+    candidate outputs, such as a completed report or blocked-progress report.
+    Lowering records file state before the producer runs, runs the producer,
+    uses `select_variant_output` to prove which candidate changed, and exposes
+    only the fields for the selected variant.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, ProduceOneOfExpr)
     if context.phase_scope is None or context.phase_scope.snapshot_root_ref is None:
@@ -1082,6 +1249,13 @@ def _lower_review_revise_loop(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower `review-revise-loop` to a generated `repeat_until` review workflow.
+
+    The helper builds review, fix, and terminal projection steps while keeping
+    the public result as a typed union. Markdown reports stay artifacts; the
+    structured provider result is the authority for the review decision.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, ReviewReviseLoopExpr)
     if context.phase_scope is None:
@@ -1612,6 +1786,15 @@ def _lower_resume_or_start(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower reusable-state logic into validate, branch, and load steps.
+
+    `resume-or-start` means "reuse a prior validated result when it is still
+    complete, otherwise run the supplied start expression." A certified adapter
+    checks whether the previous JSON bundle and referenced artifacts are still
+    valid; a workflow `match` chooses reuse or fresh execution; both branches
+    return the same typed result shape.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, ResumeOrStartExpr)
     validator_binding = context.command_boundary_environment.bindings_by_name.get("validate_reusable_phase_state")
@@ -1846,6 +2029,14 @@ def _lower_call_expr(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower a typed workflow call to the runtime call-step shape.
+
+    Frontend calls pass records and unions as typed values. The current runtime
+    call step receives flattened scalar/path inputs, so lowering maps each
+    structured argument field to the callee input name. It also adds generated
+    write-root inputs used by callees for their result-bundle paths.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, CallExpr)
     signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
@@ -1917,6 +2108,13 @@ def _lower_procedure_call_expr(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower a reusable procedure call without adding a second runtime model.
+
+    A `defproc` is reusable workflow behavior, not just syntax. Lowering either
+    inlines its body into the caller or emits a hidden workflow and calls it
+    through the same runtime call step used for authored workflows.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, ProcedureCallExpr)
     procedure = context.typed_procedures.get(expr.callee_name)
@@ -2006,6 +2204,13 @@ def _lower_let_star(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower sequential bindings into ordered workflow steps and local refs.
+
+    Each binding contributes steps and a structured local value for later
+    bindings. The special match-after-binding path preserves the proof that a
+    matched union value is the same value just produced by the binding.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, LetStarExpr)
     binding_name, binding_expr = expr.bindings[0]
@@ -2081,6 +2286,14 @@ def _lower_match_expr(
     binding_terminal: _TerminalResult,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower a tagged-union branch to the runtime `match` step form.
+
+    A frontend union has a discriminant plus fields that exist only for some
+    variants. The runtime `match` step checks the discriminant. Inside each
+    branch, lowering exposes refs only for the proven variant, then projects all
+    branches back into one result for enclosing code.
+    """
+
     match_step_name = f"{context.step_name_prefix}__match_{binding_name}"
     match_step_id = _normalize_generated_step_id(match_step_name)
     cases: dict[str, Any] = {}
@@ -2154,6 +2367,15 @@ def _lower_finalize_selected_item(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower selected-item finalization into typed routing steps.
+
+    The selected-item workflow has several possible terminal causes: completed
+    implementation, selection rejection, roadmap block, plan block, or
+    implementation block. This helper emits the branch logic and state
+    materialization needed to return one `SelectedItemResult` union instead of
+    scattering that logic across handwritten scripts.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, FinalizeSelectedItemExpr)
     roadmap_value = _resolve_inline_expr_value(expr.spec.roadmap_expr, local_values=local_values)
@@ -2475,6 +2697,15 @@ def _lower_backlog_drain(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower the autonomous backlog loop to a runtime repeat-until workflow.
+
+    `backlog-drain` is the frontend form for "keep selecting work until there
+    is no work, a block occurs, or the iteration cap is reached." Lowering emits
+    the loop, calls the selector/runner/gap-drafter workflows through checked
+    workflow refs, carries loop state, and normalizes the final result with a
+    certified adapter.
+    """
+
     expr = typed_expr.expr
     assert isinstance(expr, BacklogDrainExpr)
     step_name = context.step_name_prefix
@@ -3319,6 +3550,8 @@ def _required_output_contract(
     field_name: str,
     source_expr: Any,
 ) -> Mapping[str, Any]:
+    """Return a declared workflow output contract or raise a frontend error."""
+
     contract = context.return_output_contracts.get(field_name)
     if contract is None:
         raise _compile_error(
@@ -3331,6 +3564,8 @@ def _required_output_contract(
 
 
 def _selected_item_summary_pointer_path(workflow_name: str) -> str:
+    """Return the compatibility pointer path for selected-item summaries."""
+
     return f".orchestrate/workflow_lisp/{workflow_name}/selected_item_summary.txt"
 
 
@@ -3346,6 +3581,8 @@ def _validate_backlog_drain_provider_metadata(
     run_item_imported: LoadedWorkflowBundle | None,
     gap_drafter_imported: LoadedWorkflowBundle | None,
 ) -> None:
+    """Verify backlog-drain provider metadata covers callee requirements."""
+
     required_provider_names = set()
     required_prompt_names = set()
     for role_name, workflow in (
@@ -3396,6 +3633,8 @@ def _validate_backlog_drain_provider_metadata(
 
 
 def _imported_bundle_provider_requirements(bundle: LoadedWorkflowBundle | None) -> tuple[int, int]:
+    """Count provider/prompt use inside an imported workflow bundle."""
+
     if bundle is None:
         return 0, 0
     provider_count = 0
@@ -3407,18 +3646,24 @@ def _imported_bundle_provider_requirements(bundle: LoadedWorkflowBundle | None) 
 
 
 def _count_surface_provider_steps(step: Any) -> int:
+    """Count provider steps recursively in an elaborated workflow step tree."""
+
     total = 1 if getattr(step, "kind", None) == SurfaceStepKind.PROVIDER else 0
     total += sum(_count_surface_provider_steps(nested) for nested in _surface_nested_steps(step))
     return total
 
 
 def _count_surface_prompt_steps(step: Any) -> int:
+    """Count provider steps with prompt assets in an elaborated step tree."""
+
     total = 1 if getattr(step, "kind", None) == SurfaceStepKind.PROVIDER and getattr(step, "asset_file", None) else 0
     total += sum(_count_surface_prompt_steps(nested) for nested in _surface_nested_steps(step))
     return total
 
 
 def _surface_nested_steps(step: Any) -> tuple[Any, ...]:
+    """Return child steps nested under structured control-flow nodes."""
+
     nested: list[Any] = []
     then_branch = getattr(step, "then_branch", None)
     else_branch = getattr(step, "else_branch", None)
@@ -3446,6 +3691,8 @@ def _specialize_backlog_drain_call_target(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> str:
+    """Create a provider/prompt-rebound call target for a drain role if needed."""
+
     same_file_callee = context.lowered_callees.get(workflow_name)
     if (imported_bundle is None and same_file_callee is None) or providers_expr is None:
         return workflow_name
@@ -3490,6 +3737,8 @@ def _provider_role_binding_names(
     role_name: str,
     local_values: Mapping[str, Any],
 ) -> tuple[str | None, str | None]:
+    """Extract provider and prompt binding names for one drain role."""
+
     resolved = _resolve_inline_expr_value(expr, local_values=local_values)
     role_value = _mapping_field(resolved, role_name)
     if role_value is None:
@@ -3498,6 +3747,8 @@ def _provider_role_binding_names(
 
 
 def _mapping_field(value: Any, field_name: str) -> Any | None:
+    """Read a field from a resolved mapping or frontend record expression."""
+
     if isinstance(value, Mapping):
         return value.get(field_name)
     if isinstance(value, RecordExpr):
@@ -3509,6 +3760,8 @@ def _mapping_field(value: Any, field_name: str) -> Any | None:
 
 
 def _find_first_nameexpr(value: Any, *, prefix: str) -> str | None:
+    """Find the first nested name expression with the requested prefix."""
+
     if isinstance(value, NameExpr):
         return value.name if value.name.startswith(prefix) else None
     if isinstance(value, RecordExpr):
@@ -3537,6 +3790,8 @@ def _specialize_imported_bundle_provider_metadata(
     prompt_path: str | None,
     alias: str,
 ) -> LoadedWorkflowBundle:
+    """Clone an imported bundle with provider or prompt metadata rebound."""
+
     if provider_id is None and prompt_path is None:
         return bundle
 
@@ -3614,6 +3869,8 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
     prompt_path: str | None,
     alias: str,
 ) -> LoweredWorkflow:
+    """Clone a same-file lowered workflow with provider/prompt metadata rebound."""
+
     if provider_id is None and prompt_path is None:
         return lowered_workflow
 
@@ -3654,6 +3911,8 @@ def _workflow_extern_requirements(
     *,
     typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> tuple[set[str], set[str]]:
+    """Collect provider and prompt extern names required by a typed workflow."""
+
     provider_names: set[str] = set()
     prompt_names: set[str] = set()
     visiting_procedures: set[str] = set()
@@ -3736,6 +3995,8 @@ def _same_file_workflow_provider_requirements(
     *,
     typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> tuple[int, int]:
+    """Return provider and prompt requirement counts for a same-file workflow."""
+
     if typed_workflow is None:
         return 0, 0
     provider_names, prompt_names = _workflow_extern_requirements(
@@ -3746,6 +4007,8 @@ def _same_file_workflow_provider_requirements(
 
 
 def _provider_metadata_names(expr: Any, *, local_values: Mapping[str, Any]) -> set[str]:
+    """Collect provider/prompt name expressions reachable from a metadata value."""
+
     resolved = _resolve_inline_expr_value(expr, local_values=local_values)
     names: set[str] = set()
 
@@ -3775,6 +4038,8 @@ def _lower_with_phase(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Enter a derived phase scope and lower the body inside it."""
+
     expr = typed_expr.expr
     assert isinstance(expr, WithPhaseExpr)
     lowering_phase_scope = _resolve_active_phase_scope(expr, local_values=local_values)
@@ -3797,6 +4062,8 @@ def _lower_workflow_outputs(
     authored_outputs: Mapping[str, dict[str, Any]],
     terminal: _TerminalResult,
 ) -> dict[str, Any]:
+    """Connect terminal expression refs to the workflow's declared outputs."""
+
     lowered_outputs: dict[str, Any] = {}
     for output_name, definition in authored_outputs.items():
         source_ref = terminal.output_refs.get(output_name)
@@ -3815,6 +4082,8 @@ def _lower_workflow_outputs(
     return lowered_outputs
 
 def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tuple[str, ...]:
+    """Return generated write-root inputs declared by a lowered mapping."""
+
     inputs = authored_mapping.get("inputs")
     if not isinstance(inputs, Mapping):
         return ()
@@ -3824,6 +4093,8 @@ def _managed_inputs_from_mapping(authored_mapping: Mapping[str, object]) -> tupl
 
 
 def _managed_inputs_from_bundle(bundle: LoadedWorkflowBundle | None) -> tuple[str, ...]:
+    """Return generated write-root inputs declared by an imported bundle."""
+
     if bundle is None:
         return ()
     inputs = getattr(bundle.surface, "inputs", {})
@@ -3835,6 +4106,8 @@ def _managed_inputs_from_bundle(bundle: LoadedWorkflowBundle | None) -> tuple[st
 
 
 def _signature_local_values(typed_workflow: TypedWorkflowDef | _LoweringContext) -> dict[str, Any]:
+    """Seed local value refs from a workflow signature."""
+
     if isinstance(typed_workflow, _LoweringContext):
         signature = typed_workflow.signature
     else:
@@ -3849,6 +4122,8 @@ def _signature_local_values(typed_workflow: TypedWorkflowDef | _LoweringContext)
 
 
 def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str, Any]:
+    """Seed local value refs from a private workflow procedure signature."""
+
     local_values: dict[str, Any] = {}
     for param_name, param_type in procedure.signature.params:
         if isinstance(param_type, RecordTypeRef):
@@ -3862,6 +4137,8 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
 
 
 def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> list[str]:
+    """Render frontend command arguments after a stable command prefix."""
+
     rendered: list[str] = []
     for expr in argv:
         rendered.append(_render_scalar_expr(expr, local_values=local_values))
@@ -3869,6 +4146,8 @@ def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> li
 
 
 def _render_scalar_expr(expr: Any, *, local_values: Mapping[str, Any]) -> str:
+    """Render a scalar expression as a literal or workflow substitution."""
+
     if isinstance(expr, LiteralExpr):
         return str(expr.value)
     value = _resolve_inline_expr_value(expr, local_values=local_values)
@@ -3885,6 +4164,8 @@ def _render_scalar_expr(expr: Any, *, local_values: Mapping[str, Any]) -> str:
 
 
 def _render_repeat_until_max_iterations(expr: Any, *, local_values: Mapping[str, Any]) -> int:
+    """Render a repeat limit expression; currently this must be a literal int."""
+
     value = _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(value, LiteralExpr):
         return int(value.value)
@@ -3897,6 +4178,8 @@ def _render_repeat_until_max_iterations(expr: Any, *, local_values: Mapping[str,
 
 
 def _render_boolean_predicate(expr: Any | None, *, local_values: Mapping[str, Any]) -> dict[str, Any] | None:
+    """Render an optional boolean frontend expression as a shared predicate."""
+
     if expr is None:
         return None
     value = _resolve_inline_expr_value(expr, local_values=local_values)
@@ -3926,6 +4209,12 @@ def _render_call_binding_ref(
     local_values: Mapping[str, Any],
     field_path: tuple[str, ...] = (),
 ) -> Any:
+    """Render one frontend expression as a `call.with` binding value.
+
+    Structured records are flattened at workflow boundaries, so `field_path`
+    selects the specific leaf needed for one generated `with` entry.
+    """
+
     value = _resolve_expr_local_value(expr, local_values=local_values)
     if field_path:
         value = _resolve_nested_local_value(value, field_path)
@@ -3946,6 +4235,8 @@ def _build_call_bindings_from_record_value(
     *,
     source_expr: Any,
 ) -> dict[str, Any]:
+    """Flatten a record value into `call.with` bindings for one parameter."""
+
     if not isinstance(param_type, RecordTypeRef):
         raise _compile_error(
             code="workflow_signature_mismatch",
@@ -3968,6 +4259,8 @@ def _build_call_bindings_from_record_value(
 
 
 def _resolve_expr_local_value(expr: Any, *, local_values: Mapping[str, Any]) -> Any:
+    """Resolve simple name, field, and phase-target expressions from locals."""
+
     if isinstance(expr, NameExpr):
         return local_values.get(expr.name)
     if isinstance(expr, FieldAccessExpr):
@@ -3984,6 +4277,8 @@ def _resource_transition_payload(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> dict[str, Any]:
+    """Build the JSON payload sent to the resource-transition adapter."""
+
     payload: dict[str, Any] = {
         "transition_name": expr.spec.transition_name,
         "from": expr.spec.from_queue_name.rsplit(".", 1)[-1],
@@ -4036,6 +4331,8 @@ def _resource_transition_payload(
 
 
 def _resolve_signature_expr_type(expr: Any, *, context: _LoweringContext) -> TypeRef | None:
+    """Resolve the frontend type of a signature-rooted expression."""
+
     if isinstance(expr, NameExpr):
         return _signature_param_type(expr.name, context=context)
     if isinstance(expr, FieldAccessExpr):
@@ -4055,6 +4352,8 @@ def _resolve_signature_expr_type(expr: Any, *, context: _LoweringContext) -> Typ
 
 
 def _signature_param_type(name: str, *, context: _LoweringContext) -> TypeRef | None:
+    """Return the type of a workflow parameter in the active context."""
+
     for param_name, param_type in context.signature.params:
         if param_name == name:
             return param_type
@@ -4062,6 +4361,8 @@ def _signature_param_type(name: str, *, context: _LoweringContext) -> TypeRef | 
 
 
 def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) -> Any:
+    """Resolve literals, names, fields, and record expressions for inline use."""
+
     if isinstance(expr, LiteralExpr):
         return expr
     resolved = _resolve_expr_local_value(expr, local_values=local_values)
@@ -4095,6 +4396,8 @@ def _resolve_inline_field_value(
     field_path: tuple[str, ...],
     local_values: Mapping[str, Any],
 ) -> Any:
+    """Resolve a nested field path through inline mappings or record expressions."""
+
     current = value
     for field_name in field_path:
         if current is not None and not isinstance(current, (Mapping, RecordExpr)):
@@ -4119,6 +4422,8 @@ def _build_phase_prompt_input_prelude(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> list[dict[str, Any]]:
+    """Build legacy implementation-phase prompt materialization steps."""
+
     phase_scope = context.phase_scope
     if phase_scope is None:
         return []
@@ -4220,6 +4525,8 @@ def _build_phase_stdlib_prompt_input_prelude(
     local_values: Mapping[str, Any],
     source_expr: Any,
 ) -> tuple[list[dict[str, Any]], list[dict[str, str]], list[str], dict[str, LoweringOrigin]]:
+    """Build phase-stdlib prompt materialization, consumes, and hidden inputs."""
+
     phase_scope = context.phase_scope
     if phase_scope is None:
         return [], [], [], {}
@@ -4321,6 +4628,8 @@ def _flatten_phase_stdlib_prompt_inputs(
     base_name: str,
     local_values: Mapping[str, Any],
 ) -> list[tuple[str, Any]]:
+    """Flatten record/tuple prompt inputs into materializable artifact inputs."""
+
     if isinstance(expr, tuple):
         flattened: list[tuple[str, Any]] = []
         for item in expr:
@@ -4376,6 +4685,8 @@ def _resolve_phase_prompt_input_source(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[dict[str, str], dict[str, LoweringOrigin]]:
+    """Resolve a phase prompt input to a materialize_artifacts source node."""
+
     if isinstance(expr, PhaseTargetExpr):
         phase_scope = context.phase_scope
         if phase_scope is None:
@@ -4418,6 +4729,8 @@ def _resolve_phase_prompt_input_source(
 
 
 def _materialize_source_from_ref(ref: str) -> dict[str, str]:
+    """Convert a workflow ref into a materialize_artifacts source mapping."""
+
     if ref.startswith("inputs."):
         return {"input": ref.removeprefix("inputs.")}
     return {"ref": ref}
@@ -4429,6 +4742,8 @@ def _phase_prompt_report_target_inputs(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, PhaseTargetExpr]:
+    """Validate and classify execution/progress report target expressions."""
+
     if len(exprs) != 2:
         raise _compile_error(
             code="phase_translation_body_invalid",
@@ -4472,6 +4787,8 @@ def _phase_prompt_report_target_inputs(
 
 
 def _phase_prompt_artifact_name_for_target(expr: PhaseTargetExpr) -> str:
+    """Map approved phase targets to prompt artifact names."""
+
     if expr.target_name == "execution-report":
         return "execution_report_target"
     if expr.target_name == "progress-report":
@@ -4485,6 +4802,8 @@ def _phase_prompt_artifact_name_for_target(expr: PhaseTargetExpr) -> str:
 
 
 def _materialize_source_input_name(source: Mapping[str, str]) -> str | None:
+    """Return the direct input name used by a materialization source."""
+
     input_name = source.get("input")
     if isinstance(input_name, str):
         return input_name
@@ -4492,6 +4811,8 @@ def _materialize_source_input_name(source: Mapping[str, str]) -> str | None:
 
 
 def _materialize_contract_input_name(source: Mapping[str, str]) -> str | None:
+    """Return the input whose contract should govern a materialized source."""
+
     input_name = _materialize_source_input_name(source)
     if input_name is not None:
         return input_name
@@ -4508,6 +4829,8 @@ def _authored_input_contract(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, Any]:
+    """Return a flattened workflow input contract by generated input name."""
+
     input_contract = context.authored_input_contracts.get(input_name)
     if input_contract is None:
         raise _compile_error(
@@ -4520,6 +4843,8 @@ def _authored_input_contract(
 
 
 def _phase_target_prompt_input_contract(target_expr: PhaseTargetExpr) -> dict[str, Any]:
+    """Build the contract for an approved generated phase target."""
+
     spec = PHASE_TARGET_SPECS.get(target_expr.target_name)
     if spec is None:
         raise _compile_error(
@@ -4545,6 +4870,8 @@ def _phase_prompt_input_contract(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, Any]:
+    """Choose the contract for one phase prompt materialization artifact."""
+
     if artifact_name in {"design", "plan"}:
         return {"inherit": "source"}
     if input_name is None:
@@ -4574,6 +4901,8 @@ def _phase_prompt_artifact_definition(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, Any]:
+    """Build the top-level artifact entry for a phase prompt input."""
+
     artifact_contract = dict(contract)
     if artifact_contract.get("inherit") == "source":
         if input_name is None:
@@ -4597,10 +4926,14 @@ def _phase_prompt_artifact_definition(
 
 
 def _phase_prompt_input_pointer_path(workflow_name: str, artifact_name: str) -> str:
+    """Return the compatibility pointer path for a phase prompt artifact."""
+
     return f".orchestrate/workflow_lisp/{workflow_name}/materialized/{artifact_name}.txt"
 
 
 def _resolve_nested_local_value(value: Any, field_path: tuple[str, ...]) -> Any:
+    """Follow a flattened field path through a nested local-value mapping."""
+
     current = value
     for field_name in field_path:
         if not isinstance(current, Mapping):
@@ -4610,6 +4943,8 @@ def _resolve_nested_local_value(value: Any, field_path: tuple[str, ...]) -> Any:
 
 
 def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str) -> dict[str, Any]:
+    """Represent a record parameter as nested refs to flattened inputs."""
+
     local_value: dict[str, Any] = {}
     for field in type_ref.definition.fields:
         field_type = type_ref.field_types[field.name]
@@ -4622,6 +4957,8 @@ def _build_record_local_value(type_ref: RecordTypeRef, *, generated_name: str) -
 
 
 def _build_record_step_local_value(type_ref: RecordTypeRef, *, step_name: str) -> dict[str, Any]:
+    """Represent a record result as nested refs to one step's artifacts."""
+
     local_value: dict[str, Any] = {}
     for field in type_ref.definition.fields:
         field_type = type_ref.field_types[field.name]
@@ -4638,6 +4975,8 @@ def _build_record_step_local_value(type_ref: RecordTypeRef, *, step_name: str) -
 
 
 def _build_output_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
+    """Convert flattened terminal output refs into nested local-value shape."""
+
     local_value: dict[str, Any] = {}
     for output_name, ref in output_refs.items():
         field_path = output_name.removeprefix("return__").split("__")
@@ -4653,6 +4992,8 @@ def _build_output_step_local_value(output_refs: Mapping[str, str]) -> dict[str, 
 
 
 def _build_union_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
+    """Represent union outputs with the same nested mapping as records."""
+
     return _build_output_step_local_value(output_refs)
 
 
@@ -4662,6 +5003,8 @@ def _build_nested_record_step_local_value(
     step_name: str,
     artifact_prefix: tuple[str, ...],
 ) -> dict[str, Any]:
+    """Represent a nested record result from step artifact refs."""
+
     local_value: dict[str, Any] = {}
     for field in type_ref.definition.fields:
         field_type = type_ref.field_types[field.name]
@@ -4678,6 +5021,8 @@ def _build_nested_record_step_local_value(
 
 
 def _assign_nested_local_value(target: dict[str, Any], field_path: tuple[str, ...], ref: str) -> None:
+    """Assign a flattened ref into a nested local-value mapping."""
+
     current = target
     for field_name in field_path[:-1]:
         nested = current.get(field_name)
@@ -4694,6 +5039,8 @@ def _flatten_boundary_leaf_paths(
     generated_name: str,
     field_path: tuple[str, ...] = (),
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+    """Return generated boundary names paired with frontend field paths."""
+
     if isinstance(type_ref, UnionTypeRef):
         return tuple(
             (field.generated_name, field.source_path[1:])
@@ -4724,6 +5071,8 @@ def _flatten_boundary_leaf_paths(
 
 
 def _flatten_record_output_refs(step_name: str, type_ref: RecordTypeRef) -> dict[str, str]:
+    """Build flattened workflow return refs for a record-producing step."""
+
     return {
         f"return__{'__'.join(field_path)}": f"root.steps.{step_name}.artifacts.{'__'.join(field_path)}"
         for _, field_path in _flatten_boundary_leaf_paths(type_ref, generated_name="return")
@@ -4731,6 +5080,8 @@ def _flatten_record_output_refs(step_name: str, type_ref: RecordTypeRef) -> dict
 
 
 def _record_expr_value_at_path(record_expr: RecordExpr, field_path: tuple[str, ...]) -> Any:
+    """Read a nested field from an authored `record` expression."""
+
     current: Any = record_expr
     for field_name in field_path:
         if not isinstance(current, RecordExpr):
@@ -4748,12 +5099,16 @@ def _record_expr_value_at_path(record_expr: RecordExpr, field_path: tuple[str, .
 
 
 def _render_provider_artifact_ref(provider_step_name: str, field_access: FieldAccessExpr) -> str | None:
+    """Render a provider result field access as a step artifact ref."""
+
     if not field_access.fields:
         return None
     return f"root.steps.{provider_step_name}.artifacts.{'__'.join(field_access.fields)}"
 
 
 def _record_output_refs(step_name: str, type_ref: Any) -> dict[str, str]:
+    """Return flattened output refs for a record or union result type."""
+
     if isinstance(type_ref, RecordTypeRef):
         return _flatten_record_output_refs(step_name, type_ref)
     if isinstance(type_ref, UnionTypeRef):
@@ -4765,10 +5120,14 @@ def _record_output_refs(step_name: str, type_ref: Any) -> dict[str, str]:
 
 
 def _flatten_return_output_names(context: _LoweringContext) -> tuple[str, ...]:
+    """Return flattened output names for the active workflow return contract."""
+
     return tuple(f"return__{field_name}" for field_name in context.return_output_contracts)
 
 
 def _return_field_path(field_name: str) -> tuple[str, ...]:
+    """Convert a flattened return field name into a nested field path."""
+
     return tuple(field_name.split("__"))
 
 
@@ -4780,6 +5139,8 @@ def _build_match_projection_anchor_step(
     context: _LoweringContext,
     span: SourceSpan,
 ) -> dict[str, Any]:
+    """Build a small step that gives a match branch stable output refs."""
+
     anchor_ref = _first_case_output_ref(case_outputs)
     if anchor_ref is None:
         raise _compile_error(
@@ -4810,6 +5171,8 @@ def _build_match_projection_anchor_step(
 
 
 def _first_case_output_ref(case_outputs: Mapping[str, Any]) -> str | None:
+    """Find any output ref suitable for a match projection anchor assert."""
+
     for output in case_outputs.values():
         if not isinstance(output, Mapping):
             continue
@@ -4820,6 +5183,14 @@ def _first_case_output_ref(case_outputs: Mapping[str, Any]) -> str | None:
 
 
 def _surface_contract_from_structured_field(field: Mapping[str, Any]) -> dict[str, Any]:
+    """Convert one JSON-bundle field contract to a workflow output contract.
+
+    Structured-result contracts describe fields inside provider/command JSON
+    bundles. Workflow outputs use the same basic scalar/path keys but omit
+    bundle-only metadata, so this helper keeps just the fields the runtime
+    output-contract validator understands.
+    """
+
     definition = {
         key: value
         for key, value in field.items()
@@ -4838,6 +5209,8 @@ def _union_case_contract_definitions(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, dict[str, Any]]:
+    """Build the output contracts visible inside one union match case."""
+
     contract = derive_structured_result_contract(
         type_ref,
         workflow_name=workflow_name,
@@ -4866,6 +5239,8 @@ def _review_loop_result_case_outputs(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, Any]:
+    """Build branch outputs for one review-loop terminal variant."""
+
     if not isinstance(type_ref, UnionTypeRef):
         raise _compile_error(
             code="review_loop_result_contract_invalid",
@@ -4897,6 +5272,8 @@ def _review_loop_result_output_contracts(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, dict[str, Any]]:
+    """Build all flattened output contracts for a review-loop result union."""
+
     return _union_output_contracts(
         type_ref,
         payload=derive_structured_result_contract(
@@ -4918,6 +5295,8 @@ def _union_output_contracts(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> dict[str, dict[str, Any]]:
+    """Flatten all shared and variant-specific union output contracts."""
+
     if not isinstance(type_ref, UnionTypeRef):
         raise _compile_error(
             code="review_loop_result_contract_invalid",
@@ -4942,6 +5321,8 @@ def _resume_start_bundle_ref(
     start_terminal: _TerminalResult,
     context: _LoweringContext,
 ) -> str:
+    """Find the canonical bundle path produced by a `resume-or-start` start arm."""
+
     if isinstance(start_expr, CommandResultExpr):
         return f"inputs.__write_root__{start_terminal.step_id}__result_bundle"
     if isinstance(start_expr, CallExpr):
@@ -4988,6 +5369,8 @@ def _call_result_bundle_input_name(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> str:
+    """Find the generated bundle input name for a structured workflow call."""
+
     lowered_callee = context.lowered_callees.get(callee_name)
     if lowered_callee is None:
         raise _compile_error(
@@ -5009,6 +5392,8 @@ def _workflow_result_bundle_input_name(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> str:
+    """Inspect a lowered callee and recover its terminal result-bundle input."""
+
     outputs = authored_mapping.get("outputs")
     if not isinstance(outputs, Mapping):
         raise _compile_error(
@@ -5072,6 +5457,8 @@ def _workflow_result_bundle_input_name(
 
 
 def _find_authored_step_by_name(steps: Any, step_name: str) -> Mapping[str, object] | None:
+    """Find a generated step by name, recursing through match/repeat bodies."""
+
     if not isinstance(steps, list):
         return None
     for step in steps:
@@ -5102,6 +5489,8 @@ def _resume_required_artifact_fields(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> Mapping[str, tuple[str, ...]]:
+    """Compute artifact fields that must still exist for reusable state."""
+
     if isinstance(type_ref, RecordTypeRef):
         fields = derive_structured_result_contract(
             type_ref,
@@ -5142,6 +5531,8 @@ def _origin_for_workflow(
     *,
     typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> LoweringOrigin:
+    """Choose the source-map origin for an authored workflow mapping."""
+
     body_expr = typed_workflow.typed_body.expr
     if isinstance(body_expr, ProcedureCallExpr):
         procedure = typed_procedures.get(body_expr.callee_name)
@@ -5156,6 +5547,8 @@ def _origin_for_workflow(
 
 
 def _procedure_provenance_notes(call_expr: ProcedureCallExpr, procedure: TypedProcedureDef) -> tuple[str, ...]:
+    """Describe the call site and definition behind an inlined procedure."""
+
     call_start = call_expr.span.start
     definition_start = procedure.definition.span.start
     return (
@@ -5177,6 +5570,8 @@ def _lower_match_output_field(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> dict[str, Any]:
+    """Lower one matched record field into a branch-local output projection."""
+
     value = _record_expr_value_at_path(record_expr, _return_field_path(field_name))
     if isinstance(value, FieldAccessExpr) and value.base.name == binding_name:
         bound_ref = binding_terminal.output_refs.get(f"return__{'__'.join(value.fields)}")
@@ -5214,6 +5609,8 @@ def _lower_record_expr(
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Project a record return expression from existing step-backed refs."""
+
     record_expr = typed_expr.expr
     assert isinstance(record_expr, RecordExpr)
     output_refs: dict[str, str] = {}
@@ -5242,6 +5639,8 @@ def _lower_record_expr(
 
 
 def _render_existing_output_ref(expr: Any, *, local_values: Mapping[str, Any]) -> str | None:
+    """Return a shared runtime ref when an expression already names one."""
+
     value = _resolve_inline_expr_value(expr, local_values=local_values)
     if not isinstance(value, str):
         return None
@@ -5251,6 +5650,8 @@ def _render_existing_output_ref(expr: Any, *, local_values: Mapping[str, Any]) -
 
 
 def _template_for_ref(ref: str) -> str:
+    """Wrap a shared ref in substitution syntax when a YAML field needs it."""
+
     if ref.startswith("${"):
         return ref
     return "${" + ref + "}"
@@ -5261,6 +5662,8 @@ def _resolve_active_phase_scope(
     *,
     local_values: Mapping[str, Any],
 ) -> _ActivePhaseScope:
+    """Resolve derived phase paths and targets for a `with-phase` body."""
+
     context_value = _resolve_inline_expr_value(expr.ctx_expr, local_values=local_values)
     if not isinstance(context_value, Mapping):
         raise _compile_error(
@@ -5336,6 +5739,8 @@ def _copy_context_with_phase_scope(
     context: _LoweringContext,
     phase_scope: _ActivePhaseScope,
 ) -> _LoweringContext:
+    """Clone lowering context while installing the active phase scope."""
+
     return _LoweringContext(
         workflow_name=context.workflow_name,
         step_name_prefix=context.step_name_prefix,
@@ -5365,6 +5770,8 @@ def _copy_context_with_phase_scope(
 
 
 def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefix: str) -> _LoweringContext:
+    """Clone context state while changing the generated step-name prefix."""
+
     return _LoweringContext(
         workflow_name=context.workflow_name,
         step_name_prefix=step_name_prefix,
@@ -5394,6 +5801,8 @@ def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefi
 
 
 def _record_field_value(record_expr: RecordExpr, field_name: str) -> Any:
+    """Return one field expression from a frontend record literal."""
+
     for name, value in record_expr.fields:
         if name == field_name:
             return value
@@ -5406,6 +5815,8 @@ def _record_field_value(record_expr: RecordExpr, field_name: str) -> Any:
 
 
 def _binding_type_for_expr(expr: Any, *, context: _LoweringContext) -> TypeRef:
+    """Infer the type of an effectful `let*` binding for later lowering."""
+
     if isinstance(
         expr,
         (
@@ -5472,6 +5883,8 @@ def _binding_type_for_expr(expr: Any, *, context: _LoweringContext) -> TypeRef:
 
 
 def _render_candidate_target(candidate: Any, *, context: _LoweringContext) -> str:
+    """Render the output target for a `produce-one-of` candidate."""
+
     for field_spec in candidate.fields:
         target_expr = getattr(field_spec, "target_expr", None)
         if isinstance(target_expr, PhaseTargetExpr):
@@ -5487,6 +5900,8 @@ def _render_candidate_target(candidate: Any, *, context: _LoweringContext) -> st
 
 
 def _render_candidate_target_artifact_name(candidate: Any) -> str:
+    """Choose the artifact name exposed for a `produce-one-of` candidate."""
+
     for field_spec in candidate.fields:
         target_expr = getattr(field_spec, "target_expr", None)
         if isinstance(target_expr, PhaseTargetExpr):
@@ -5506,6 +5921,8 @@ def _render_candidate_target_artifact_name(candidate: Any) -> str:
 
 
 def _join_ref_path(base_ref: str, suffix: str) -> str:
+    """Append a path suffix to a substitution ref without losing templating."""
+
     if base_ref.startswith("${"):
         return f"{base_ref}/{suffix}"
     return "${" + base_ref + "}/" + suffix
@@ -5518,6 +5935,8 @@ def _resolve_procedure_lowering(
     workflow_path: Path,
     type_env: FrontendTypeEnvironment,
 ) -> Mapping[str, TypedProcedureDef]:
+    """Decide inline versus private-workflow lowering for each procedure."""
+
     call_counts, lowerable_call_sites = _procedure_private_call_site_analysis(
         typed_procedures,
         typed_workflows=typed_workflows,
@@ -5585,6 +6004,8 @@ def _procedure_private_call_site_analysis(
     typed_workflows: tuple[TypedWorkflowDef, ...],
     type_env: FrontendTypeEnvironment,
 ) -> tuple[Mapping[str, int], Mapping[str, bool]]:
+    """Count procedure call sites and whether each can cross a workflow boundary."""
+
     typed_procedures_by_name = {
         procedure.definition.name: procedure for procedure in typed_procedures
     }
@@ -5665,6 +6086,8 @@ def _procedure_private_call_site_analysis(
 
 
 def _procedure_private_boundary_valid(procedure: TypedProcedureDef) -> bool:
+    """Return whether a procedure signature can become a private workflow."""
+
     if not isinstance(procedure.signature.return_type_ref, RecordTypeRef):
         return False
     if not analyze_workflow_boundary_type(procedure.signature.return_type_ref, source_path=("return",)).lowerable:
@@ -5681,6 +6104,8 @@ def _procedure_private_body_valid(
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
 ) -> bool:
+    """Return whether a procedure body exports only workflow-boundary values."""
+
     return _private_workflow_body_exports_step_backed_outputs(
         procedure.typed_body.expr,
         return_type_ref=procedure.signature.return_type_ref,
@@ -5700,6 +6125,8 @@ def _private_workflow_body_exports_step_backed_outputs(
     type_env: FrontendTypeEnvironment,
     active_procedures: frozenset[str],
 ) -> bool:
+    """Check that a private workflow body returns step-backed outputs."""
+
     if isinstance(expr, (CommandResultExpr, ProviderResultExpr, CallExpr)):
         return True
     if isinstance(expr, WithPhaseExpr):
@@ -5770,6 +6197,8 @@ def _match_outputs_are_step_backed(
     return_type_ref: TypeRef,
     local_values: Mapping[str, Any],
 ) -> bool:
+    """Return whether every match arm projects step-backed record outputs."""
+
     return all(
         isinstance(arm.body, RecordExpr)
         and _record_outputs_are_step_backed(
@@ -5787,6 +6216,8 @@ def _record_outputs_are_step_backed(
     return_type_ref: TypeRef,
     local_values: Mapping[str, Any],
 ) -> bool:
+    """Return whether all record return fields resolve to existing step refs."""
+
     if not isinstance(return_type_ref, RecordTypeRef):
         return False
     for _, field_path in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
@@ -5798,6 +6229,8 @@ def _record_outputs_are_step_backed(
 
 
 def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkflowDef:
+    """Synthesize a typed private workflow wrapper for a procedure body."""
+
     assert procedure.generated_workflow_name is not None
     assert isinstance(procedure.signature.return_type_ref, RecordTypeRef)
     definition = WorkflowDef(
@@ -5834,6 +6267,8 @@ def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkf
 
 
 def _procedure_provenance_notes(expr: ProcedureCallExpr, procedure: TypedProcedureDef) -> tuple[str, ...]:
+    """Describe the source locations behind generated procedure code."""
+
     call = expr.span.start
     definition = procedure.definition.span.start
     return (
@@ -5847,6 +6282,8 @@ def _origin_for_workflow(
     *,
     typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> LoweringOrigin:
+    """Choose workflow-level provenance for authored and generated workflows."""
+
     notes: tuple[str, ...] = ()
     body_expr = typed_workflow.typed_body.expr
     if isinstance(body_expr, ProcedureCallExpr):
@@ -5872,6 +6309,8 @@ def _typed_workflow_dependencies(
     *,
     typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> set[str]:
+    """Find same-file workflow dependencies required before lowering."""
+
     dependencies: set[str] = set()
     visiting_procedures: set[str] = set()
 
@@ -5931,6 +6370,8 @@ def _typed_workflow_dependencies(
 
 
 def _lowered_workflow_dependencies(lowered_workflow: LoweredWorkflow) -> set[str]:
+    """Find workflow-call dependencies from an already lowered mapping."""
+
     dependencies: set[str] = set()
     steps = lowered_workflow.authored_mapping.get("steps")
 
@@ -5962,6 +6403,8 @@ def _validate_one_lowered_workflow(
     imported_bundles: Mapping[str, LoadedWorkflowBundle],
     workflow_is_imported: bool,
 ) -> LoadedWorkflowBundle:
+    """Validate one lowered workflow mapping through the shared loader path."""
+
     loader = WorkflowLoader(workspace_root)
     workflow = dict(lowered_workflow.authored_mapping)
     loader.errors = []
@@ -5999,6 +6442,8 @@ def _raise_remapped_validation_error(
     lowered_workflow: LoweredWorkflow,
     errors: list[Any],
 ) -> None:
+    """Convert shared validation errors into frontend diagnostics when possible."""
+
     diagnostics: list[LispFrontendDiagnostic] = []
     for error in errors:
         message = str(error.message)
@@ -6028,6 +6473,8 @@ def _raise_remapped_validation_error(
 
 
 def _remap_validation_message(origin_map: LoweringOriginMap, message: str) -> LoweringOrigin | None:
+    """Best-effort map a shared validation message back to frontend origin."""
+
     for key, origin in origin_map.step_spans.items():
         if key in message:
             return origin
@@ -6046,6 +6493,8 @@ def _remap_validation_message(origin_map: LoweringOriginMap, message: str) -> Lo
 
 
 def _shared_validation_diagnostic_code(message: str) -> str:
+    """Classify a shared validation message as a frontend diagnostic code."""
+
     if "parent directory traversal" in message or "absolute paths not allowed" in message:
         return "path_definition_invalid"
     return "workflow_boundary_type_invalid"
@@ -6059,6 +6508,8 @@ def _require_phase_scope_name_match(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
+    """Require stdlib phase forms to use the enclosing `with-phase` name."""
+
     if phase_scope.scope.phase_name == authored_name:
         return
     raise _compile_error(
@@ -6070,6 +6521,8 @@ def _require_phase_scope_name_match(
 
 
 def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tuple[str, ...]) -> LispFrontendCompileError:
+    """Create a single lowering-phase frontend compile error."""
+
     return LispFrontendCompileError(
         (
             LispFrontendDiagnostic(
@@ -6084,12 +6537,16 @@ def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tupl
 
 
 def _definition_only_module(workflow_path: Path):
+    """Load only type/procedure definitions from a workflow source file."""
+
     return elaborate_definition_module(
         _definition_only_syntax_module(build_syntax_module(read_sexpr_file(workflow_path)))
     )
 
 
 def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> WorkflowLispSyntaxModule:
+    """Drop `defworkflow` forms so imports can contribute definitions only."""
+
     expanded = expand_module_forms(
         module_syntax,
         catalog=collect_macro_catalog(module_syntax),
@@ -6112,5 +6569,7 @@ def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> W
 
 
 def _definition_only_module(workflow_path: Path):
+    """Load only definitions from a source path using the current syntax path."""
+
     syntax_module = build_syntax_module(read_sexpr_file(workflow_path))
     return elaborate_definition_module(_definition_only_syntax_module(syntax_module))

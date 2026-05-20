@@ -1,4 +1,4 @@
-"""Apply one bounded resource transition and emit a structured result."""
+"""Apply one supported resource transition and emit a structured result."""
 
 from __future__ import annotations
 
@@ -62,6 +62,8 @@ def _emit_error(error_type: str) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the adapter and emit a typed resource-transition result as JSON."""
+
     args = argv or sys.argv
     try:
         payload = _load_payload(args)

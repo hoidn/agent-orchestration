@@ -1,4 +1,9 @@
-"""Frontend-local effect atoms and summary helpers for Workflow Lisp."""
+"""Effect atoms and summary helpers for Workflow Lisp.
+
+See `../../docs/design/workflow_lisp_effect_graph.md` for the intended effect graph
+model and `../../docs/design/workflow_lisp_frontend_mvp_specification.md` for the
+current implemented scope.
+"""
 
 from __future__ import annotations
 
@@ -19,36 +24,50 @@ def _normalize_subject(subject: str) -> tuple[str, ...]:
 
 @dataclass(frozen=True)
 class ReadEffect:
+    """Declared or inferred read of a workflow value, path, or artifact."""
+
     subject: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class WriteEffect:
+    """Declared or inferred write to a path, contract, or generated output."""
+
     subject: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class PublishEffect:
+    """Declared publication of an artifact name."""
+
     subject: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class UsesProviderEffect:
+    """Declared provider invocation dependency."""
+
     subject: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class UsesCommandEffect:
+    """Declared command or adapter invocation dependency."""
+
     subject: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class CallsWorkflowEffect:
+    """Declared call into another workflow boundary."""
+
     subject: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class UpdatesStateEffect:
+    """Declared mutation of workflow-owned state."""
+
     subject: tuple[str, ...]
 
 
@@ -65,17 +84,23 @@ EffectAtom = (
 
 @dataclass(frozen=True)
 class ProcedureCallEdge:
+    """Procedure call edge used to compute transitive effects."""
+
     callee_name: str
 
 
 @dataclass(frozen=True)
 class EffectSummary:
+    """Direct effects, transitive effects, and procedure edges for a form."""
+
     direct_effects: frozenset[EffectAtom]
     transitive_effects: frozenset[EffectAtom]
     procedure_edges: frozenset[ProcedureCallEdge]
 
 
 def empty_effect_summary() -> EffectSummary:
+    """Return the identity summary for effect aggregation."""
+
     return EffectSummary(
         direct_effects=frozenset(),
         transitive_effects=frozenset(),
@@ -92,6 +117,8 @@ def effect_summary(
     transitive_effects: Iterable[EffectAtom] | None = None,
     procedure_edges: Iterable[ProcedureCallEdge] = (),
 ) -> EffectSummary:
+    """Build an effect summary from explicit direct and transitive sets."""
+
     direct = frozenset(direct_effects)
     transitive = direct if transitive_effects is None else frozenset(transitive_effects)
     return EffectSummary(
@@ -106,6 +133,8 @@ def effect_summary_from_direct(
     direct_effects: Iterable[EffectAtom] = (),
     procedure_edges: Iterable[ProcedureCallEdge] = (),
 ) -> EffectSummary:
+    """Build a summary whose transitive effects initially equal direct effects."""
+
     return effect_summary(
         direct_effects=direct_effects,
         procedure_edges=procedure_edges,
@@ -113,6 +142,8 @@ def effect_summary_from_direct(
 
 
 def merge_effect_summaries(*summaries: EffectSummary) -> EffectSummary:
+    """Union multiple effect summaries for sequential or nested forms."""
+
     direct_effects: set[EffectAtom] = set()
     transitive_effects: set[EffectAtom] = set()
     procedure_edges: set[ProcedureCallEdge] = set()
@@ -128,6 +159,8 @@ def merge_effect_summaries(*summaries: EffectSummary) -> EffectSummary:
 
 
 def with_transitive_effects(summary: EffectSummary, effects: Iterable[EffectAtom]) -> EffectSummary:
+    """Return a summary with additional transitive effects attached."""
+
     transitive = set(summary.transitive_effects)
     transitive.update(effects)
     return EffectSummary(
@@ -144,6 +177,8 @@ def parse_declared_effects(
     form_path: tuple[str, ...],
     expansion_stack: "ExpansionStack" = (),
 ) -> frozenset[EffectAtom]:
+    """Parse a `:effects` syntax list into Workflow Lisp effect atoms."""
+
     return parse_effect_clause(
         raw_effects,
         span=span,
@@ -159,6 +194,8 @@ def parse_effect_clause(
     form_path: tuple[str, ...],
     expansion_stack: "ExpansionStack" = (),
 ) -> frozenset[EffectAtom]:
+    """Parse one effect clause and validate supported effect group heads."""
+
     from .syntax import SyntaxIdentifier, SyntaxList
 
     effects: set[EffectAtom] = set()
@@ -191,6 +228,8 @@ def parse_effect_clause(
 
 
 def render_effect_atom(effect: EffectAtom) -> str:
+    """Render one effect atom for diagnostics."""
+
     if isinstance(effect, ReadEffect):
         label = "reads"
     elif isinstance(effect, WriteEffect):
@@ -211,6 +250,8 @@ def render_effect_atom(effect: EffectAtom) -> str:
 
 
 def render_effect_set(effects: Iterable[EffectAtom]) -> str:
+    """Render a stable effect-set label for diagnostics."""
+
     ordered = sorted(render_effect_atom(effect) for effect in effects)
     if not ordered:
         return "()"

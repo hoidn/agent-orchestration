@@ -36,6 +36,8 @@ def _load_bundle(bundle_path: Path) -> dict[str, object] | None:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Load a reusable phase bundle and mirror it to stdout as JSON."""
+
     args = argv or sys.argv
     payload = _load_payload(args)
     bundle_path_value = payload.get("bundle_path")

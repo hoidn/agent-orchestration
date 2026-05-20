@@ -12,6 +12,8 @@ from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, Uni
 
 @dataclass(frozen=True)
 class ItemLayout:
+    """Derived state and artifact paths for one selected backlog item."""
+
     item_state_bundle_path: str
     item_temp_bundle_path: str
     outcome_bundle_path: str
@@ -21,6 +23,8 @@ class ItemLayout:
 
 @dataclass(frozen=True)
 class DrainLayout:
+    """Derived state and artifact paths for a backlog-drain workflow."""
+
     run_state_bundle_path: str
     run_state_temp_bundle_path: str
     iteration_root_prefix: str
@@ -30,12 +34,16 @@ class DrainLayout:
 
 @dataclass(frozen=True)
 class WorkflowRefAuthoritySource:
+    """Where a checked higher-order workflow reference came from."""
+
     kind: str
     workflow_name: str
 
 
 @dataclass(frozen=True)
 class WorkflowRefRequirement:
+    """Required signature shape for a stdlib workflow-reference role."""
+
     role_name: str
     required_param_types: tuple[TypeRef, ...]
     required_return_type: TypeRef
@@ -43,12 +51,16 @@ class WorkflowRefRequirement:
 
 @dataclass(frozen=True)
 class WorkflowExternRebindingPlan:
+    """Provider and prompt externs that must be rebound at a call boundary."""
+
     provider_bindings: Mapping[str, tuple[str, ...]]
     prompt_bindings: Mapping[str, tuple[str, ...]]
 
 
 @dataclass(frozen=True)
 class ResolvedWorkflowRef:
+    """Signature-checked workflow reference available to drain lowering."""
+
     role_name: str
     workflow_name: str
     signature_params: tuple[tuple[str, TypeRef], ...]
@@ -59,6 +71,8 @@ class ResolvedWorkflowRef:
 
 @dataclass(frozen=True)
 class WorkflowRefCallPlan:
+    """Concrete call target and bindings for one higher-order workflow role."""
+
     role_name: str
     workflow_name: str
     binding_names: tuple[str, ...]
@@ -68,11 +82,15 @@ class WorkflowRefCallPlan:
 
 @dataclass(frozen=True)
 class WorkflowRefEnvironment:
+    """Collection of resolved workflow references by authored role name."""
+
     refs_by_name: Mapping[str, ResolvedWorkflowRef]
 
 
 @dataclass(frozen=True)
 class DrainLoopPlan:
+    """Resolved selector, runner, and gap-drafter calls for a drain loop."""
+
     drain_name: str
     selector_call: WorkflowRefCallPlan
     run_item_call: WorkflowRefCallPlan
@@ -81,6 +99,8 @@ class DrainLoopPlan:
 
 @dataclass(frozen=True)
 class DrainAccumulator:
+    """Runtime accumulator fields projected through the generated drain loop."""
+
     items_processed: int
     last_run_state_path: str | None = None
     blocked_stage: str | None = None
@@ -93,6 +113,8 @@ def ensure_item_context_type(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
+    """Validate the record shape required for item-scoped stdlib forms."""
+
     if not isinstance(type_ref, RecordTypeRef):
         _raise_context_error(
             code="item_context_invalid",
@@ -120,6 +142,8 @@ def ensure_drain_context_type(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
+    """Validate the record shape required for `backlog-drain` contexts."""
+
     if not isinstance(type_ref, RecordTypeRef):
         _raise_context_error(
             code="drain_context_invalid",
@@ -156,6 +180,8 @@ def ensure_resource_transition_members(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
+    """Validate queue enum members used by a resource transition result."""
+
     if not isinstance(resource_result_type, RecordTypeRef):
         _raise_context_error(
             code="resource_transition_contract_invalid",
@@ -214,6 +240,8 @@ def ensure_resource_transition_resource_type(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
+    """Validate the resource operand type accepted by `resource-transition`."""
+
     if isinstance(resource_type, PathTypeRef):
         return
     if isinstance(resource_type, PrimitiveTypeRef) and resource_type.name == "String":
@@ -236,6 +264,8 @@ def ensure_finalize_selected_item_inputs(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
+    """Validate typed inputs expected by `finalize-selected-item` lowering."""
+
     if not isinstance(selected_type, RecordTypeRef):
         _raise_context_error(
             code="finalize_selected_item_contract_invalid",
@@ -306,6 +336,8 @@ def ensure_finalize_selected_item_inputs(
 
 
 def item_layout_for_ref(ctx_ref: str) -> ItemLayout:
+    """Derive item-scoped generated field names from a context reference."""
+
     return ItemLayout(
         item_state_bundle_path=f"{ctx_ref}__item_state_bundle_path",
         item_temp_bundle_path=f"{ctx_ref}__item_temp_bundle_path",
@@ -316,6 +348,8 @@ def item_layout_for_ref(ctx_ref: str) -> ItemLayout:
 
 
 def drain_layout_for_ref(ctx_ref: str) -> DrainLayout:
+    """Derive drain-scoped generated field names from a context reference."""
+
     return DrainLayout(
         run_state_bundle_path=f"{ctx_ref}__run_state_bundle_path",
         run_state_temp_bundle_path=f"{ctx_ref}__run_state_temp_bundle_path",

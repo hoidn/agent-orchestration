@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ResourceTransitionSpec:
+    """Authored arguments for a `resource-transition` stdlib call."""
+
     transition_name: str
     ctx_expr: "ExprNode"
     when_expr: "ExprNode | None"
@@ -23,6 +25,8 @@ class ResourceTransitionSpec:
 
 @dataclass(frozen=True)
 class FinalizeSelectedItemSpec:
+    """Authored fan-in inputs for `finalize-selected-item`."""
+
     ctx_expr: "ExprNode"
     selected_expr: "ExprNode"
     queue_transition_expr: "ExprNode"

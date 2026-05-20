@@ -1,3 +1,5 @@
+"""Measure the Lisp migration experiment against YAML baselines."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -125,6 +127,8 @@ BEHAVIORAL_COMMANDS = (
 
 @dataclass(frozen=True)
 class BehavioralEvidence:
+    """Result summary for optional behavioral-equivalence test commands."""
+
     status: str
     commands: tuple[dict[str, Any], ...]
 
@@ -254,6 +258,8 @@ def _remaining_yaml_dependencies() -> tuple[dict[str, str], ...]:
 
 
 def measure_stage7_metrics(*, run_behavioral_suite: bool = True) -> dict[str, Any]:
+    """Collect LOC, brittleness, YAML-dependency, and behavior metrics."""
+
     baseline_paths = YAML_BASELINES
     orc_paths = ORC_FIXTURES
     remaining_yaml_dependencies = _remaining_yaml_dependencies()
@@ -364,6 +370,8 @@ def measure_stage7_metrics(*, run_behavioral_suite: bool = True) -> dict[str, An
 
 
 def write_stage7_recommendation_report(measurement: dict[str, Any]) -> Path:
+    """Write the migration recommendation report from collected metrics."""
+
     report_path = Path(measurement["report_path"])
     metrics = measurement["metrics"]
     remaining_yaml_dependencies = measurement.get("remaining_yaml_dependencies", [])

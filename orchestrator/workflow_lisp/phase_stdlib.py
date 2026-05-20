@@ -1,4 +1,4 @@
-"""Helper records for the bounded phase/context standard-library slice."""
+"""Helper records for currently supported phase/context library forms."""
 
 from __future__ import annotations
 
@@ -14,6 +14,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ProduceOneOfProducerSpec:
+    """Producer clause for `produce-one-of` variant selection."""
+
     kind: str
     provider_expr: "ExprNode | None" = None
     prompt_expr: "ExprNode | None" = None
@@ -22,6 +24,8 @@ class ProduceOneOfProducerSpec:
 
 @dataclass(frozen=True)
 class ProduceOneOfCandidateFieldSpec:
+    """One candidate artifact or structured sidecar field."""
+
     field_name: str
     schema_type_name: str | None = None
     target_expr: "ExprNode | None" = None
@@ -31,12 +35,16 @@ class ProduceOneOfCandidateFieldSpec:
 
 @dataclass(frozen=True)
 class ProduceOneOfCandidateSpec:
+    """One variant candidate and the fields it may produce."""
+
     variant_name: str
     fields: tuple[ProduceOneOfCandidateFieldSpec, ...]
 
 
 @dataclass(frozen=True)
 class ResumeValidationSpec:
+    """Compiled validation contract for `resume-or-start` reusable state."""
+
     resume_from_expr: "ExprNode"
     return_type_ref: RecordTypeRef | UnionTypeRef
     valid_variants: tuple[str, ...]

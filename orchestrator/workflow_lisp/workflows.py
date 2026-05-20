@@ -1,4 +1,15 @@
-"""Stage 3 workflow-definition elaboration and signature registration."""
+"""Elaborate `defworkflow` forms and register callable workflow boundaries.
+
+This module turns syntax-layer workflow definitions into typed call signatures,
+checks that frontend record/union boundaries can be represented by current
+workflow contracts, imports signatures from validated workflow bundles, and
+typechecks workflow bodies against local procedures, externs, and command
+boundaries.
+
+See `../../docs/design/workflow_lisp_frontend_mvp_specification.md` for the supported
+`defworkflow` scope and `../../docs/design/workflow_lisp_core_workflow_ast.md` for
+the planned syntax-neutral workflow representation.
+"""
 
 from __future__ import annotations
 
@@ -38,29 +49,55 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class ProviderExtern:
+    """Provider alias supplied from the build environment."""
+
     name: str
     provider_id: str
 
 
 @dataclass(frozen=True)
 class PromptExtern:
+    """Prompt asset binding supplied from the build environment."""
+
     name: str
     asset_file: str
 
 
 @dataclass(frozen=True)
 class ExternEnvironment:
+    """Provider and prompt bindings supplied by the build caller.
+
+    `.orc` source refers to providers and prompt assets by name. The build
+    environment resolves those names to provider ids and prompt file paths
+    before typechecking and lowering.
+    """
+
     bindings_by_name: Mapping[str, ProviderExtern | PromptExtern]
 
 
 @dataclass(frozen=True)
 class ExternalToolBinding:
+    """Named command that can be invoked from Workflow Lisp.
+
+    This is for deterministic tools whose behavior is outside the frontend but
+    whose command prefix is stable. Unlike a certified adapter, it does not
+    declare typed workflow semantics beyond the command invocation itself.
+    """
+
     name: str
     stable_command: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class CertifiedAdapterBinding:
+    """Command boundary with explicit typed workflow semantics.
+
+    A certified adapter is still a command, but it declares input/output
+    contracts, effects, path-safety rules, and fixtures. That makes it suitable
+    for temporary legacy behavior such as resource movement without hiding that
+    behavior inside inline Python or shell.
+    """
+
     name: str
     stable_command: tuple[str, ...]
     input_contract: Mapping[str, object]
@@ -74,11 +111,19 @@ class CertifiedAdapterBinding:
 
 @dataclass(frozen=True)
 class CommandBoundaryEnvironment:
+    """Named commands available to `command-result` forms.
+
+    The frontend resolves a command name in `.orc` source through this mapping
+    before lowering it to an ordinary workflow command step.
+    """
+
     bindings_by_name: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding]
 
 
 @dataclass(frozen=True)
 class WorkflowParam:
+    """Authored `defworkflow` parameter before type resolution."""
+
     name: str
     type_name: str
     span: SourceSpan
@@ -88,6 +133,8 @@ class WorkflowParam:
 
 @dataclass(frozen=True)
 class WorkflowDef:
+    """Parsed workflow definition with signature text and body syntax."""
+
     name: str
     params: tuple[WorkflowParam, ...]
     return_type_name: str
@@ -99,6 +146,8 @@ class WorkflowDef:
 
 @dataclass(frozen=True)
 class WorkflowSignature:
+    """Type-resolved workflow call boundary."""
+
     name: str
     params: tuple[tuple[str, TypeRef], ...]
     return_type_ref: RecordTypeRef | UnionTypeRef
@@ -108,6 +157,8 @@ class WorkflowSignature:
 
 @dataclass(frozen=True)
 class TypedWorkflowDef:
+    """Workflow definition after body typechecking and effect analysis."""
+
     definition: WorkflowDef
     signature: WorkflowSignature
     typed_body: TypedExpr
@@ -116,6 +167,8 @@ class TypedWorkflowDef:
 
 @dataclass(frozen=True)
 class WorkflowCatalog:
+    """Lookup table for local and imported workflow call signatures."""
+
     signatures_by_name: Mapping[str, WorkflowSignature]
     definitions_by_name: Mapping[str, WorkflowDef]
     imported_bundles_by_name: Mapping[str, "LoadedWorkflowBundle"]
@@ -123,6 +176,8 @@ class WorkflowCatalog:
 
 @dataclass(frozen=True)
 class Stage3CompileResult:
+    """Compiled module result after typecheck, lowering, and shared validation."""
+
     module: WorkflowLispModule
     workflow_catalog: WorkflowCatalog
     procedure_catalog: ProcedureCatalog
@@ -136,6 +191,8 @@ class Stage3CompileResult:
 
 @dataclass(frozen=True)
 class WorkflowBoundaryAnalysis:
+    """Whether a frontend type can be represented by current workflow contracts."""
+
     lowerable: bool
     contains_json: bool
     contains_provider_or_prompt: bool
@@ -379,6 +436,8 @@ def _signature_from_imported_bundle(
     *,
     type_env: FrontendTypeEnvironment,
 ) -> WorkflowSignature:
+    """Reconstruct a frontend workflow signature from a validated bundle."""
+
     input_contracts = workflow_input_contracts(bundle)
     grouped_inputs: dict[str, dict[str, Mapping[str, object]]] = {}
     param_order: list[str] = []
@@ -450,6 +509,8 @@ def _match_boundary_type_from_contracts(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> TypeRef:
+    """Find the authored type whose flattened contracts match a bundle boundary."""
+
     normalized_contracts = {
         name: _normalize_boundary_contract_definition(definition)
         for name, definition in contracts.items()
@@ -506,6 +567,8 @@ def _flattened_boundary_contracts(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> Mapping[str, Mapping[str, object]]:
+    """Flatten a frontend boundary type into shared workflow contract fields."""
+
     from .contracts import derive_workflow_boundary_fields
 
     return {
@@ -521,6 +584,8 @@ def _flattened_boundary_contracts(
 
 
 def _normalize_boundary_contract_definition(definition: Mapping[str, object]) -> Mapping[str, object]:
+    """Normalize a contract shape for structural boundary comparison."""
+
     return {
         str(key): value
         for key, value in dict(definition).items()
@@ -529,6 +594,8 @@ def _normalize_boundary_contract_definition(definition: Mapping[str, object]) ->
 
 
 def _bundle_source_span(bundle: "LoadedWorkflowBundle") -> SourceSpan:
+    """Create a diagnostic span for an imported workflow bundle."""
+
     workflow_path = bundle.provenance.workflow_path
     return SourceSpan(
         start=SourcePosition(path=str(workflow_path), line=1, column=1, offset=0),
@@ -633,6 +700,8 @@ def _boundary_diagnostic(
     form_path: tuple[str, ...],
     expansion_stack: ExpansionStack = (),
 ) -> LispFrontendDiagnostic | None:
+    """Translate workflow-boundary analysis into a frontend diagnostic."""
+
     if analysis.lowerable:
         return None
 
@@ -677,6 +746,8 @@ def _boundary_diagnostic(
 
 
 def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
+    """Parse one `defworkflow` form into a workflow definition object."""
+
     datum = syntax_node_datum(form)
     if not isinstance(datum, SyntaxList) or len(datum.items) < 6:
         _raise_error(
@@ -746,6 +817,8 @@ def _elaborate_workflow_definition(form: SyntaxNode) -> WorkflowDef:
 
 
 def _elaborate_param(raw_param: object, form_path: tuple[str, ...]) -> WorkflowParam:
+    """Parse one `(name Type)` workflow parameter."""
+
     if not isinstance(raw_param, SyntaxList) or len(raw_param.items) != 2:
         span = raw_param.span if hasattr(raw_param, "span") else None
         if span is None:
@@ -790,6 +863,8 @@ def _raise_error(
     form_path: tuple[str, ...],
     expansion_stack: ExpansionStack = (),
 ) -> None:
+    """Raise one workflow-elaboration diagnostic."""
+
     raise LispFrontendCompileError(
         (
             LispFrontendDiagnostic(
@@ -808,6 +883,8 @@ def build_extern_environment(
     provider_externs: Mapping[str, str] | None = None,
     prompt_externs: Mapping[str, str] | None = None,
 ) -> ExternEnvironment:
+    """Validate build-supplied provider and prompt bindings."""
+
     diagnostics: list[LispFrontendDiagnostic] = []
     bindings: dict[str, ProviderExtern | PromptExtern] = {}
 
@@ -843,6 +920,8 @@ def build_extern_environment(
 def build_command_boundary_environment(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
 ) -> CommandBoundaryEnvironment:
+    """Validate named command bindings supplied by the build caller."""
+
     diagnostics: list[LispFrontendDiagnostic] = []
     bindings: dict[str, ExternalToolBinding | CertifiedAdapterBinding] = {}
 
@@ -902,6 +981,8 @@ def build_command_boundary_environment(
 
 
 def _environment_span() -> SourceSpan:
+    """Return a synthetic span for build-environment validation errors."""
+
     from .spans import SourcePosition
 
     position = SourcePosition(path="<stage3-environment>", line=1, column=1, offset=0)

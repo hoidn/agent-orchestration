@@ -25,6 +25,8 @@ from .type_env import FrontendTypeEnvironment, TypeRef
 
 @dataclass(frozen=True)
 class ProcedureParam:
+    """Authored `defproc` parameter before type resolution."""
+
     name: str
     type_name: str
     span: SourceSpan
@@ -33,6 +35,8 @@ class ProcedureParam:
 
 
 class ProcedureLoweringMode(StrEnum):
+    """Allowed lowering strategies for reusable workflow procedures."""
+
     INLINE = "inline"
     PRIVATE_WORKFLOW = "private-workflow"
     AUTO = "auto"
@@ -40,6 +44,8 @@ class ProcedureLoweringMode(StrEnum):
 
 @dataclass(frozen=True)
 class ProcedureDef:
+    """Parsed `defproc` body, signature text, effects, and lowering request."""
+
     name: str
     params: tuple[ProcedureParam, ...]
     return_type_name: str
@@ -53,6 +59,8 @@ class ProcedureDef:
 
 @dataclass(frozen=True)
 class ProcedureSignature:
+    """Type-resolved procedure signature used by call sites and lowering."""
+
     name: str
     params: tuple[tuple[str, TypeRef], ...]
     return_type_ref: TypeRef
@@ -64,6 +72,8 @@ class ProcedureSignature:
 
 @dataclass(frozen=True)
 class TypedProcedureDef:
+    """Procedure definition after body typechecking and effect analysis."""
+
     definition: ProcedureDef
     signature: ProcedureSignature
     typed_body: object
@@ -75,12 +85,16 @@ class TypedProcedureDef:
 
 @dataclass(frozen=True)
 class ProcedureCatalog:
+    """Lookup table for procedure signatures, definitions, and call graph."""
+
     signatures_by_name: Mapping[str, ProcedureSignature]
     definitions_by_name: Mapping[str, ProcedureDef]
     call_graph: Mapping[str, frozenset[str]]
 
 
 def elaborate_procedure_definitions(module_syntax: WorkflowLispSyntaxModule) -> tuple[ProcedureDef, ...]:
+    """Extract and parse every `defproc` form in a syntax module."""
+
     definitions: list[ProcedureDef] = []
     for form in module_syntax.forms:
         if syntax_resolved_name(syntax_head(form)) == "defproc":
@@ -95,6 +109,8 @@ def build_procedure_catalog(
     imported_signatures: Mapping[str, ProcedureSignature] | None = None,
     lookup_aliases: Mapping[str, str] | None = None,
 ) -> ProcedureCatalog:
+    """Build procedure signatures and detect duplicate local definitions."""
+
     signatures_by_name: dict[str, ProcedureSignature] = dict(imported_signatures or {})
     definitions_by_name: dict[str, ProcedureDef] = {}
     diagnostics: list[LispFrontendDiagnostic] = []
@@ -153,6 +169,8 @@ def build_procedure_catalog(
 
 
 def with_call_graph(catalog: ProcedureCatalog, call_graph: Mapping[str, frozenset[str]]) -> ProcedureCatalog:
+    """Return a catalog copy with resolved procedure dependencies attached."""
+
     return replace(catalog, call_graph=call_graph)
 
 
@@ -162,6 +180,8 @@ def validate_procedure_effects(
     declared_effects: frozenset[EffectAtom],
     inferred_effects: frozenset[EffectAtom],
 ) -> None:
+    """Reject a procedure whose declared effects differ from inferred effects."""
+
     if declared_effects == inferred_effects:
         return
     raise LispFrontendCompileError(

@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class BacklogDrainSpec:
+    """Authored arguments for the `backlog-drain` stdlib form."""
+
     drain_name: str
     ctx_expr: "ExprNode"
     selector_name: str

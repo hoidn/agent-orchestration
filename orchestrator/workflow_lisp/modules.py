@@ -16,6 +16,13 @@ from .syntax import ImportDirective, WorkflowLispSyntaxModule, build_syntax_modu
 
 @dataclass(frozen=True)
 class ResolvedModuleSource:
+    """Parsed module source as discovered in the import graph.
+
+    `source_root` records which configured root produced the file so later
+    imports can report ambiguity and path mismatches against the same search
+    model the compiler used.
+    """
+
     module_name: str
     path: Path
     source_root: Path
@@ -25,6 +32,13 @@ class ResolvedModuleSource:
 
 @dataclass(frozen=True)
 class ModuleMemberBinding:
+    """Binding from an imported name to a module-qualified member.
+
+    The `kind` keeps type, macro, procedure, and workflow namespaces separate;
+    `canonical_name` is the stable name downstream catalogs use after import
+    resolution.
+    """
+
     kind: str
     module_name: str
     member_name: str
@@ -33,6 +47,13 @@ class ModuleMemberBinding:
 
 @dataclass(frozen=True)
 class ModuleExportSurface:
+    """Public types, macros, procedures, and workflows visible to importers.
+
+    This object is derived before dependent modules compile so import
+    resolution can reject missing exports, ambiguous imports, and
+    cross-namespace mistakes without reading executable bodies.
+    """
+
     module_name: str
     types_by_name: Mapping[str, ModuleMemberBinding]
     macros_by_name: Mapping[str, ModuleMemberBinding]
@@ -40,6 +61,8 @@ class ModuleExportSurface:
     workflows_by_name: Mapping[str, ModuleMemberBinding]
 
     def binding_for(self, name: str) -> ModuleMemberBinding | None:
+        """Return the exported binding for a name across all member namespaces."""
+
         for bindings in (
             self.types_by_name,
             self.macros_by_name,
@@ -54,6 +77,13 @@ class ModuleExportSurface:
 
 @dataclass(frozen=True)
 class ModuleImportScope:
+    """All imported names visible while compiling one module.
+
+    Type names support `:only` unqualified imports because they appear in type
+    signatures; procedures and workflows remain canonicalized through explicit
+    bindings so call expressions carry stable module-qualified identities.
+    """
+
     module_name: str
     alias_to_module: Mapping[str, str]
     explicitly_imported_modules: frozenset[str]
@@ -64,6 +94,8 @@ class ModuleImportScope:
     unqualified_type_bindings: Mapping[str, ModuleMemberBinding]
 
     def resolve_type_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
+        """Resolve a type reference or leave it local when no import matches."""
+
         if name in self.unqualified_type_bindings:
             return self.unqualified_type_bindings[name].canonical_name
         qualified = _resolve_qualified_binding(
@@ -80,6 +112,8 @@ class ModuleImportScope:
         return name
 
     def resolve_procedure_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
+        """Resolve a procedure call head to the canonical callable key."""
+
         binding = self.procedure_bindings.get(name)
         if binding is not None:
             return binding.canonical_name
@@ -97,6 +131,8 @@ class ModuleImportScope:
         return name
 
     def resolve_workflow_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
+        """Resolve a workflow call target to the canonical callable key."""
+
         binding = self.workflow_bindings.get(name)
         if binding is not None:
             return binding.canonical_name
@@ -116,6 +152,8 @@ class ModuleImportScope:
 
 @dataclass(frozen=True)
 class LinkedModuleGraph:
+    """Reachable module graph ordered so imports compile before importers."""
+
     entry_module_name: str
     modules_by_name: Mapping[str, ResolvedModuleSource]
     topological_order: tuple[str, ...]
@@ -123,6 +161,8 @@ class LinkedModuleGraph:
 
 
 def canonical_callable_key(module_name: str, member_name: str) -> str:
+    """Return the stable module-qualified key for a procedure or workflow."""
+
     return f"{module_name}::{member_name}"
 
 
@@ -131,6 +171,13 @@ def resolve_module_graph(
     *,
     source_roots: tuple[Path, ...] | None = None,
 ) -> LinkedModuleGraph:
+    """Discover, parse, and topologically order modules reachable from `path`.
+
+    Import paths are resolved against `source_roots`; duplicate module names from
+    different roots are rejected so later call/type resolution has one authority
+    for each module name.
+    """
+
     resolved_roots = tuple(source_roots or (path.parent,))
     modules_by_name: dict[str, ResolvedModuleSource] = {}
     visiting: list[str] = []
@@ -236,6 +283,14 @@ def derive_export_surface(
     workflow_names: tuple[str, ...] = (),
     allow_unknown_exports: bool = False,
 ) -> ModuleExportSurface:
+    """Build and validate the public names exported by one module.
+
+    During graph discovery `allow_unknown_exports` lets the compiler sketch the
+    export list before all bodies are elaborated. During real compilation the
+    same function tightens the check so exports must name a local type, macro,
+    procedure, or workflow.
+    """
+
     module_name = syntax_module.module_name
     assert module_name is not None
     type_names = {
@@ -334,6 +389,13 @@ def build_import_scope(
     *,
     export_surfaces_by_name: Mapping[str, ModuleExportSurface],
 ) -> ModuleImportScope:
+    """Resolve import directives into module-qualified lookup tables.
+
+    This is where aliases, `:only` names, qualified module paths, and ambiguous
+    unqualified imports become explicit bindings used by definitions, macros,
+    procedure calls, and workflow calls.
+    """
+
     alias_to_module: dict[str, str] = {}
     type_bindings: dict[str, ModuleMemberBinding] = {}
     macro_bindings: dict[str, ModuleMemberBinding] = {}
@@ -431,6 +493,8 @@ def imported_macro_catalog(
     *,
     exported_macros_by_module: Mapping[str, Mapping[str, MacroDef]],
 ) -> Mapping[str, MacroDef]:
+    """Collect imported macro definitions under their accessible local names."""
+
     imported: dict[str, MacroDef] = {}
     for accessible_name, binding in scope.macro_bindings.items():
         module_macros = exported_macros_by_module.get(binding.module_name, {})

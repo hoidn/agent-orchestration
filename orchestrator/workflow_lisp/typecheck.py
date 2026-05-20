@@ -1,4 +1,8 @@
-"""Frontend-local type and proof checking for Workflow Lisp expressions."""
+"""Type and proof checking for Workflow Lisp expressions.
+
+See `../../docs/design/workflow_lisp_type_catalog.md` for the type model and
+`../../docs/design/workflow_lisp_proof_graph.md` for the planned variant-proof model.
+"""
 
 from __future__ import annotations
 
@@ -79,7 +83,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class TypedExpr:
-    """One expression paired with its resolved frontend-local type."""
+    """One expression paired with its resolved Workflow Lisp type."""
 
     expr: ExprNode
     type_ref: TypeRef
@@ -121,7 +125,7 @@ def typecheck_expression(
     procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
 ) -> TypedExpr:
-    """Typecheck one bounded Stage 2 expression."""
+    """Typecheck one supported Workflow Lisp expression."""
 
     active_proof = proof_scope or ProofScope(facts={})
     return _typecheck(

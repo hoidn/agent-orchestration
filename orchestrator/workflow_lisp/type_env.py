@@ -1,4 +1,4 @@
-"""Resolved frontend-local type references for Workflow Lisp expressions."""
+"""Resolved type references used while checking Workflow Lisp expressions."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ TypeRef = PrimitiveTypeRef | PathTypeRef | RecordTypeRef | UnionTypeRef | Varian
 
 
 class FrontendTypeEnvironment:
-    """Resolved type lookup helpers derived from a Stage 1 module."""
+    """Resolved type lookup helpers derived from module type definitions."""
 
     def __init__(
         self,

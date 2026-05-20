@@ -1,4 +1,9 @@
-"""Bounded Stage 2 expression AST and elaboration helpers."""
+"""Elaborate supported Workflow Lisp expression forms into typed AST nodes.
+
+See `../../docs/design/workflow_lisp_frontend_mvp_specification.md` for the current
+expression scope and `../../docs/design/workflow_lisp_frontend_specification.md` for
+the full intended language surface.
+"""
 
 from __future__ import annotations
 
@@ -204,7 +209,7 @@ class ProduceOneOfExpr:
 
 @dataclass(frozen=True)
 class ReviewReviseLoopExpr:
-    """One bounded review/revise loop form."""
+    """One supported review/revise loop form."""
 
     loop_name: str
     ctx_expr: "ExprNode"
@@ -239,7 +244,7 @@ class ResumeOrStartExpr:
 
 @dataclass(frozen=True)
 class ResourceTransitionExpr:
-    """One bounded resource movement form."""
+    """One supported resource movement form."""
 
     spec: ResourceTransitionSpec
     span: SourceSpan
@@ -249,7 +254,7 @@ class ResourceTransitionExpr:
 
 @dataclass(frozen=True)
 class FinalizeSelectedItemExpr:
-    """One bounded selected-item terminalization form."""
+    """One selected-item final result routing form."""
 
     spec: FinalizeSelectedItemSpec
     span: SourceSpan
@@ -259,7 +264,7 @@ class FinalizeSelectedItemExpr:
 
 @dataclass(frozen=True)
 class BacklogDrainExpr:
-    """One bounded compile-time drain loop form."""
+    """One supported compile-time drain loop form."""
 
     spec: BacklogDrainSpec
     span: SourceSpan
@@ -296,7 +301,7 @@ def elaborate_expression(
     bound_names: frozenset[str],
     procedure_names: frozenset[str] = frozenset(),
 ) -> ExprNode:
-    """Elaborate one syntax node into the bounded Stage 2 expression AST."""
+    """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
     return _elaborate(
         syntax_node_datum(node),

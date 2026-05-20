@@ -23,7 +23,7 @@ class LispFrontendDiagnostic:
 
 
 class LispFrontendCompileError(Exception):
-    """Raised when Stage 1 frontend compilation fails."""
+    """Raised when Workflow Lisp compilation accumulates diagnostics."""
 
     def __init__(self, diagnostics: tuple[LispFrontendDiagnostic, ...]):
         self.diagnostics = diagnostics

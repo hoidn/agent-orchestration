@@ -1,4 +1,9 @@
-"""Stage 3 contract derivation helpers for structured results and workflow boundaries."""
+"""Derive shared workflow contracts from Workflow Lisp structured types.
+
+See `../../docs/design/workflow_lisp_type_catalog.md` for the type-to-contract model
+and `../../docs/design/workflow_lisp_stdlib_lowering.md` for how generated contracts
+are attached to provider and command steps.
+"""
 
 from __future__ import annotations
 
@@ -16,6 +21,15 @@ from .workflows import WorkflowSignature
 
 @dataclass(frozen=True)
 class GeneratedBundleContract:
+    """Workflow output contract generated from a frontend record or union type.
+
+    The runtime validates provider and command outputs by reading a JSON file
+    and checking it against a declared contract. Records use `output_bundle`
+    because every field is present. Unions use `variant_output` because the
+    discriminant chooses which fields are allowed or required. `type_ref` keeps
+    that generated runtime contract tied to the original frontend type.
+    """
+
     contract_kind: str
     path: str
     payload: Mapping[str, Any]
@@ -24,6 +38,8 @@ class GeneratedBundleContract:
 
 @dataclass(frozen=True)
 class FlattenedContractField:
+    """One leaf contract produced by flattening a structured frontend type."""
+
     generated_name: str
     source_path: tuple[str, ...]
     contract_definition: Mapping[str, Any]
@@ -31,18 +47,34 @@ class FlattenedContractField:
 
 @dataclass(frozen=True)
 class WorkflowBoundaryParamSummary:
+    """Small build-manifest summary of an authored workflow parameter."""
+
     name: str
     type_kind: str
 
 
 @dataclass(frozen=True)
 class GeneratedInternalInput:
+    """Hidden workflow input added for generated state paths.
+
+    The `.orc` author does not pass these explicitly. Lowering adds them when a
+    generated step needs a stable path, such as the JSON bundle path for a
+    provider or command result.
+    """
+
     generated_name: str
     reason: str
 
 
 @dataclass(frozen=True)
 class UnionWorkflowBoundaryProjection:
+    """Flattened workflow-boundary view of a tagged union return value.
+
+    The discriminant is always exported; variant-specific fields are represented
+    separately so callers and source maps can distinguish global availability
+    from fields that require variant proof.
+    """
+
     discriminant_field: FlattenedContractField
     shared_fields: tuple[FlattenedContractField, ...]
     variant_fields: Mapping[str, tuple[FlattenedContractField, ...]]
@@ -50,6 +82,14 @@ class UnionWorkflowBoundaryProjection:
 
 @dataclass(frozen=True)
 class WorkflowBoundaryProjection:
+    """Bridge from typed frontend signature to workflow input/output contracts.
+
+    The runtime boundary currently exposes flat input and output names. A
+    frontend workflow can use nested records or unions. This projection records
+    how each frontend field was flattened so call lowering, source maps, and
+    diagnostics can translate between the two shapes.
+    """
+
     workflow_name: str
     display_name: str
     params: tuple[WorkflowBoundaryParamSummary, ...]
@@ -67,7 +107,13 @@ def derive_structured_result_contract(
     span: SourceSpan | None = None,
     form_path: tuple[str, ...] = (),
 ) -> GeneratedBundleContract:
-    """Derive one deterministic structured step-result contract from a frontend type."""
+    """Derive the runtime-validated result contract for a provider/command form.
+
+    Provider and command forms produce semantic state by writing a JSON file,
+    not by emitting prose. This helper chooses the generated bundle path and the
+    runtime contract that will validate that JSON before later steps can refer
+    to its fields.
+    """
 
     path = _bundle_path(workflow_name=workflow_name, step_id=step_id)
     if isinstance(type_ref, RecordTypeRef):
@@ -122,7 +168,7 @@ def derive_structured_result_contract(
 def derive_workflow_signature_contracts(
     signature: WorkflowSignature,
 ) -> tuple[Mapping[str, SurfaceContract], Mapping[str, SurfaceContract], WorkflowBoundaryProjection]:
-    """Flatten workflow-boundary contracts into the current shared surface vocabulary."""
+    """Flatten workflow-boundary contracts into loader-accepted field specs."""
 
     inputs: dict[str, SurfaceContract] = {}
     outputs: dict[str, SurfaceContract] = {}
@@ -186,6 +232,13 @@ def derive_union_workflow_boundary_projection(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> UnionWorkflowBoundaryProjection:
+    """Project a frontend union into flattened output-contract metadata.
+
+    This keeps the discriminant, shared fields, and variant fields explicit so
+    downstream validation can preserve variant availability instead of treating
+    every field as globally present.
+    """
+
     discriminant_field = FlattenedContractField(
         generated_name="return__variant",
         source_path=("return", "variant"),
@@ -237,6 +290,13 @@ def derive_workflow_boundary_fields(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> tuple[FlattenedContractField, ...]:
+    """Flatten one frontend boundary type into concrete shared contract fields.
+
+    Current workflow signatures expose only scalar/path leaves to the shared
+    runtime. Nested frontend records are recursively flattened while preserving
+    their original source path for source-map diagnostics.
+    """
+
     if isinstance(type_ref, UnionTypeRef):
         return _union_projection_fields(
             derive_union_workflow_boundary_projection(

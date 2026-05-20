@@ -1,4 +1,4 @@
-"""Typed Stage 1 definition AST and elaboration helpers."""
+"""Elaborate type definitions from syntax objects into typed module records."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ class UnionVariant:
 
 @dataclass(frozen=True)
 class EnumDef:
-    """One Stage 1 enum definition."""
+    """One enum type definition."""
 
     name: str
     values: tuple[EnumValue, ...]
@@ -58,7 +58,7 @@ class EnumDef:
 
 @dataclass(frozen=True)
 class PathDef:
-    """One Stage 1 path-contract definition."""
+    """One path-contract type definition."""
 
     name: str
     kind: str
@@ -69,7 +69,7 @@ class PathDef:
 
 @dataclass(frozen=True)
 class RecordDef:
-    """One Stage 1 record definition."""
+    """One record type definition."""
 
     name: str
     fields: tuple[RecordField, ...]
@@ -78,7 +78,7 @@ class RecordDef:
 
 @dataclass(frozen=True)
 class UnionDef:
-    """One Stage 1 union definition."""
+    """One tagged-union type definition."""
 
     name: str
     variants: tuple[UnionVariant, ...]
@@ -90,7 +90,7 @@ DefinitionNode = EnumDef | PathDef | RecordDef | UnionDef
 
 @dataclass(frozen=True)
 class WorkflowLispModule:
-    """Typed Stage 1 module after syntax elaboration."""
+    """Module header, imports, exports, and type definitions after elaboration."""
 
     language_version: str
     target_dsl_version: str
@@ -102,7 +102,7 @@ class WorkflowLispModule:
 
 
 def elaborate_definition_module(module: WorkflowLispSyntaxModule) -> WorkflowLispModule:
-    """Elaborate syntax-layer top-level forms into typed Stage 1 definitions."""
+    """Elaborate syntax-layer top-level forms into typed definitions."""
 
     definitions: list[DefinitionNode] = []
     for form in module.forms:

@@ -1,4 +1,14 @@
-"""Syntax-object layer for the workflow Lisp frontend."""
+"""Build source-mapped syntax objects for the Workflow Lisp frontend.
+
+The reader produces raw S-expressions; this layer wraps them with module paths,
+form paths, spans, and macro-expansion provenance. Later compiler stages rely
+on these syntax objects for name resolution, hygienic macro expansion, and
+diagnostics that point back to the original `.orc` source.
+
+See `README.md` for the frontend pipeline map and
+`../../docs/design/workflow_lisp_source_map.md` for the source-map contract this
+module feeds.
+"""
 
 from __future__ import annotations
 
@@ -122,6 +132,8 @@ class SyntaxNode:
 
 @dataclass(frozen=True)
 class ModuleDirective:
+    """Parsed `defmodule` declaration."""
+
     name: str
     span: SourceSpan
     form_path: tuple[str, ...]
@@ -129,6 +141,8 @@ class ModuleDirective:
 
 @dataclass(frozen=True)
 class ImportDirective:
+    """Parsed import declaration with optional alias and import list."""
+
     module_name: str
     alias: str
     only: tuple[str, ...]
@@ -138,6 +152,8 @@ class ImportDirective:
 
 @dataclass(frozen=True)
 class ExportDirective:
+    """Parsed export declaration for public module members."""
+
     names: tuple[str, ...]
     span: SourceSpan
     form_path: tuple[str, ...]
@@ -493,6 +509,8 @@ def top_level_form_path(datum: SyntaxDatum) -> tuple[str, ...]:
 
 
 def _parse_header_value(form: ListExpr) -> StringAtom:
+    """Parse a root header form such as `(:language "0.1")`."""
+
     if len(form.items) != 2:
         _raise_error("module header forms must contain one keyword and one string value", span=form.span)
     value = form.items[1]
@@ -502,6 +520,8 @@ def _parse_header_value(form: ListExpr) -> StringAtom:
 
 
 def _build_top_level_syntax_node(item: SExpr, module_path: str) -> SyntaxNode:
+    """Wrap one top-level list with a stable frontend form path."""
+
     if not isinstance(item, ListExpr) or not item.items:
         _raise_error("top-level module entries must be non-empty lists", span=item.span)
     head = item.items[0]
@@ -525,6 +545,8 @@ def normalize_module_name(
     span: SourceSpan,
     code: str = "module_name_invalid",
 ) -> str:
+    """Normalize a module symbol into the slash-separated import convention."""
+
     if not raw_name or raw_name.startswith(("/", ".")) or raw_name.endswith(("/", ".")):
         _raise_error(f"invalid module name `{raw_name}`", span=span, code=code)
     if "/" in raw_name and "." in raw_name:
@@ -537,6 +559,8 @@ def normalize_module_name(
 
 
 def _parse_module_directive(node: SyntaxNode, datum: SyntaxDatum) -> ModuleDirective:
+    """Parse the optional module namespace declaration."""
+
     if not isinstance(datum, SyntaxList) or len(datum.items) != 2:
         _raise_error("`defmodule` requires exactly one module name", span=node.span)
     name_identifier = syntax_identifier(datum.items[1])
@@ -550,6 +574,8 @@ def _parse_module_directive(node: SyntaxNode, datum: SyntaxDatum) -> ModuleDirec
 
 
 def _parse_import_directive(node: SyntaxNode, datum: SyntaxDatum) -> ImportDirective:
+    """Parse an import directive, including `:as` and `:only` options."""
+
     if not isinstance(datum, SyntaxList) or len(datum.items) < 2:
         _raise_error("`import` requires a module name", span=node.span)
     module_identifier = syntax_identifier(datum.items[1])
@@ -598,6 +624,8 @@ def _parse_import_directive(node: SyntaxNode, datum: SyntaxDatum) -> ImportDirec
 
 
 def _parse_export_directive(node: SyntaxNode, datum: SyntaxDatum) -> ExportDirective:
+    """Parse the public member list for a module export directive."""
+
     if not isinstance(datum, SyntaxList) or len(datum.items) < 2:
         _raise_error("`export` requires at least one member name", span=node.span)
     names: list[str] = []
@@ -610,6 +638,8 @@ def _parse_export_directive(node: SyntaxNode, datum: SyntaxDatum) -> ExportDirec
 
 
 def _raise_error(message: str, *, span: SourceSpan, code: str = "frontend_parse_error") -> None:
+    """Raise one syntax-layer diagnostic with the supplied source span."""
+
     raise LispFrontendCompileError(
         (
             LispFrontendDiagnostic(

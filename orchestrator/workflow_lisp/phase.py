@@ -41,6 +41,8 @@ PHASE_TARGET_SPECS = {
 
 @dataclass(frozen=True)
 class PhaseLayout:
+    """Derived paths and target refs for one scoped workflow phase."""
+
     phase_name: str
     state_root_ref: str
     artifact_root_ref: str
@@ -53,6 +55,8 @@ class PhaseLayout:
 
 @dataclass(frozen=True)
 class PhaseScope:
+    """Validated phase context plus target names available inside `with-phase`."""
+
     context_record_name: str
     phase_name: str
     bundle_path_field: str | None = None
@@ -62,7 +66,7 @@ class PhaseScope:
 
 
 def is_implementation_attempt_result_type(type_ref: TypeRef) -> bool:
-    """Return whether the type is the bounded phase-scoped implementation-attempt union."""
+    """Return whether the type is the supported implementation-attempt union."""
 
     return isinstance(type_ref, UnionTypeRef) and type_ref.name == IMPLEMENTATION_ATTEMPT_RESULT_NAME
 
@@ -175,7 +179,7 @@ def build_implementation_attempt_phase_scope(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> PhaseScope:
-    """Validate the bounded implementation-attempt phase context and build its scope."""
+    """Validate the legacy implementation-attempt phase context and build its scope."""
 
     if phase_name != IMPLEMENTATION_ATTEMPT_PHASE_NAME:
         _raise_error(

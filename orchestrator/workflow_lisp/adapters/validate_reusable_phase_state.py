@@ -53,6 +53,8 @@ def _load_bundle(bundle_path: Path) -> dict[str, object]:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Validate whether a prior canonical phase bundle may be reused."""
+
     args = argv or sys.argv
     try:
         payload = _load_payload(args)

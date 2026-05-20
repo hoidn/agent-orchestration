@@ -1,4 +1,4 @@
-"""Workflow Lisp Stage 1 reader."""
+"""Read Workflow Lisp source text into source-spanned S-expressions."""
 
 from __future__ import annotations
 

@@ -26,6 +26,13 @@ BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
 
 @dataclass(frozen=True)
 class FrontendBuildRequest:
+    """Operator-facing compile request for one `.orc` entrypoint.
+
+    The request keeps source discovery, extern manifests, imported YAML bundle
+    bindings, and optional debug emission together so the build fingerprint can
+    reflect every input that affects the lowered workflow bundle.
+    """
+
     source_path: Path
     source_roots: tuple[Path, ...] = ()
     entry_workflow: str | None = None
@@ -39,6 +46,12 @@ class FrontendBuildRequest:
 
 @dataclass(frozen=True)
 class FrontendEntrySelection:
+    """Chosen exported workflow after resolving an optional CLI selection.
+
+    `selected_name` is the user-facing export name while `canonical_name` is the
+    module-qualified key used by the compiler and validated bundle maps.
+    """
+
     requested_name: str | None
     selected_name: str
     canonical_name: str
@@ -47,6 +60,12 @@ class FrontendEntrySelection:
 
 @dataclass(frozen=True)
 class ImportedWorkflowBundleBinding:
+    """One existing workflow bundle linked into Lisp as a callable boundary.
+
+    This is the compatibility bridge that lets a Lisp workflow call a validated
+    YAML workflow without treating YAML as the frontend compiler target.
+    """
+
     canonical_key: str
     manifest_entry_path: str
     resolved_bundle_path: Path
@@ -59,6 +78,12 @@ class ImportedWorkflowBundleBinding:
 
 @dataclass(frozen=True)
 class FrontendBuildManifest:
+    """Serializable index for the artifacts emitted by one frontend build.
+
+    The manifest is the durable audit surface for source inputs, imported
+    bundles, selected entrypoint, validation status, and emitted debug files.
+    """
+
     schema_version: str
     fingerprint: str
     source_path: str
@@ -78,6 +103,12 @@ class FrontendBuildManifest:
 
 @dataclass(frozen=True)
 class FrontendSourceTrace:
+    """Source-map projection for generated workflow nodes and artifacts.
+
+    Runtime diagnostics and dashboard views use this compact projection to walk
+    from shared workflow steps back to the `.orc` form that produced them.
+    """
+
     workflow_name: str
     step_ids: Mapping[str, dict[str, object]]
     generated_inputs: Mapping[str, dict[str, object]]
@@ -87,6 +118,12 @@ class FrontendSourceTrace:
 
 @dataclass(frozen=True)
 class FrontendBuildResult:
+    """In-memory and on-disk result of compiling one entry workflow.
+
+    The validated bundle is what the runtime executes; the surrounding manifest,
+    source trace, and optional debug YAML are inspection artifacts.
+    """
+
     build_root: Path
     manifest_path: Path
     selected_workflow_name: str
@@ -100,7 +137,14 @@ class FrontendBuildResult:
 
 
 def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
-    """Compile one `.orc` entrypoint and emit deterministic frontend artifacts."""
+    """Compile one `.orc` entrypoint, validate it, and write build artifacts.
+
+    This is the CLI/dashboard boundary for the frontend. It loads extern and
+    imported-bundle manifests, runs the executable compile path, selects the
+    requested exported workflow, reattaches source-map data to the validated
+    bundle, and writes the manifest/source-map/debug artifacts under
+    `.orchestrate/build`.
+    """
 
     resolved_request = _resolve_request(request)
     provider_externs = _load_string_mapping(

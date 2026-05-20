@@ -1,4 +1,8 @@
-"""Workflow Lisp frontend public symbols."""
+"""Workflow Lisp frontend public symbols.
+
+For the package map and links to the design diagrams/specs, see
+`README.md`.
+"""
 
 from .compiler import PRELUDE_TYPE_NAMES, compile_stage1_module, compile_stage3_module
 from .definitions import (

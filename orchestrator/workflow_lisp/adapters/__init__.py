@@ -1,1 +1,1 @@
-"""Certified adapter entrypoints for the bounded Workflow Lisp stdlib slice."""
+"""Certified command adapters used by the current Workflow Lisp helpers."""
