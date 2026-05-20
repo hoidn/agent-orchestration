@@ -527,3 +527,53 @@ def test_validate_expression_module_match_errors_include_generated_node_id(
     assert diagnostic.code == expected_code
     assert diagnostic.enclosing_form_name == "match"
     assert diagnostic.generated_core_node_id == expected_generated_node_id
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_generated_node_id"),
+    [
+        (
+            "invalid_let_star_binding_unknown_reference.orc",
+            "bad_binding.let.binding.design",
+        ),
+        (
+            "invalid_let_star_body_unknown_reference.orc",
+            "bad_body.let.body",
+        ),
+    ],
+)
+def test_validate_expression_module_let_star_errors_include_scoped_generated_node_id(
+    fixture_name: str,
+    expected_generated_node_id: str,
+) -> None:
+    expression_validation = _expression_validation_module()
+    checked = _checked_module_from_fixture(fixture_name)
+
+    with pytest.raises(Exception) as exc_info:
+        expression_validation.validate_expression_module(checked)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "type_unknown"
+    assert diagnostic.generated_core_node_id == expected_generated_node_id
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_generated_node_id"),
+    [
+        ("invalid_with_phase_context_unknown_reference.orc", "bad_context.with-phase.context"),
+        ("invalid_with_phase_body_unknown_reference.orc", "bad_body.with-phase.body"),
+    ],
+)
+def test_validate_expression_module_with_phase_errors_include_scoped_generated_node_id(
+    fixture_name: str,
+    expected_generated_node_id: str,
+) -> None:
+    expression_validation = _expression_validation_module()
+    checked = _checked_module_from_fixture(fixture_name)
+
+    with pytest.raises(Exception) as exc_info:
+        expression_validation.validate_expression_module(checked)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "type_unknown"
+    assert diagnostic.generated_core_node_id == expected_generated_node_id

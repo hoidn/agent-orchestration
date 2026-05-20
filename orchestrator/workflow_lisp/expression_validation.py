@@ -812,8 +812,13 @@ def _infer_expression_type(
         return returns_type
 
     if isinstance(expression, LetStarExpression):
+        let_node_id = _let_star_generated_node_id(parent_node_id=generated_core_node_id)
         local_env = dict(env)
         for binding in expression.bindings:
+            binding_node_id = _let_star_binding_generated_node_id(
+                let_node_id=let_node_id,
+                binding_name=binding.name,
+            )
             local_env[binding.name] = _infer_expression_type(
                 binding.value,
                 local_env,
@@ -823,8 +828,9 @@ def _infer_expression_type(
                 import_aliases=import_aliases,
                 imported_workflow_targets=imported_workflow_targets,
                 imported_workflow_qualifiers=imported_workflow_qualifiers,
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=binding_node_id,
             )
+        let_body_node_id = _let_star_body_generated_node_id(let_node_id=let_node_id)
         return _infer_expression_type(
             expression.body,
             local_env,
@@ -834,10 +840,14 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             imported_workflow_targets=imported_workflow_targets,
             imported_workflow_qualifiers=imported_workflow_qualifiers,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=let_body_node_id,
         )
 
     if isinstance(expression, WithPhaseExpression):
+        with_phase_node_id = _with_phase_generated_node_id(parent_node_id=generated_core_node_id)
+        with_phase_context_node_id = _with_phase_context_generated_node_id(
+            with_phase_node_id=with_phase_node_id
+        )
         _infer_expression_type(
             expression.context,
             env,
@@ -847,8 +857,9 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             imported_workflow_targets=imported_workflow_targets,
             imported_workflow_qualifiers=imported_workflow_qualifiers,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=with_phase_context_node_id,
         )
+        with_phase_body_node_id = _with_phase_body_generated_node_id(with_phase_node_id=with_phase_node_id)
         return _infer_expression_type(
             expression.body,
             env,
@@ -858,7 +869,7 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             imported_workflow_targets=imported_workflow_targets,
             imported_workflow_qualifiers=imported_workflow_qualifiers,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=with_phase_body_node_id,
         )
 
     if isinstance(expression, PhaseTargetExpression):
@@ -1041,6 +1052,48 @@ def _phase_target_generated_node_id(*, workflow_result_node_id: str | None, targ
     if workflow_node_prefix is None:
         return None
     return f"{workflow_node_prefix}.phase-target.{target_name}"
+
+
+def _let_star_generated_node_id(*, parent_node_id: str | None) -> str | None:
+    if parent_node_id is None:
+        return None
+    workflow_node_prefix = _workflow_node_prefix(workflow_result_node_id=parent_node_id)
+    if workflow_node_prefix is None:
+        return None
+    return f"{workflow_node_prefix}.let"
+
+
+def _let_star_binding_generated_node_id(*, let_node_id: str | None, binding_name: str) -> str | None:
+    if let_node_id is None:
+        return None
+    return f"{let_node_id}.binding.{binding_name}"
+
+
+def _let_star_body_generated_node_id(*, let_node_id: str | None) -> str | None:
+    if let_node_id is None:
+        return None
+    return f"{let_node_id}.body"
+
+
+def _with_phase_generated_node_id(*, parent_node_id: str | None) -> str | None:
+    if parent_node_id is None:
+        return None
+    workflow_node_prefix = _workflow_node_prefix(workflow_result_node_id=parent_node_id)
+    if workflow_node_prefix is None:
+        return None
+    return f"{workflow_node_prefix}.with-phase"
+
+
+def _with_phase_context_generated_node_id(*, with_phase_node_id: str | None) -> str | None:
+    if with_phase_node_id is None:
+        return None
+    return f"{with_phase_node_id}.context"
+
+
+def _with_phase_body_generated_node_id(*, with_phase_node_id: str | None) -> str | None:
+    if with_phase_node_id is None:
+        return None
+    return f"{with_phase_node_id}.body"
 
 
 def _record_generated_node_id(*, parent_node_id: str | None, type_name: str) -> str | None:
