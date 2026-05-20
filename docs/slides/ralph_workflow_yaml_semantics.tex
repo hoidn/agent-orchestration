@@ -1,0 +1,436 @@
+\documentclass[aspectratio=169]{beamer}
+
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{xcolor}
+\usepackage{listings}
+
+\definecolor{aoBlue}{RGB}{34,88,153}
+\definecolor{aoGreen}{RGB}{40,125,84}
+\definecolor{aoGray}{RGB}{246,247,249}
+\definecolor{aoInk}{RGB}{38,43,51}
+
+\usetheme{default}
+\setbeamertemplate{navigation symbols}{}
+\setbeamercolor{title}{fg=aoBlue}
+\setbeamercolor{frametitle}{fg=aoBlue}
+\setbeamercolor{normal text}{fg=aoInk}
+\setbeamercolor{block title}{bg=aoBlue,fg=white}
+\setbeamercolor{block body}{bg=aoGray,fg=aoInk}
+
+\lstdefinelanguage{yaml}{
+  keywords={version,name,context,providers,command,input_mode,defaults,steps,provider,depends_on,required,inject,mode,position,instruction,input_file,timeout_sec,on,success,goto},
+  keywordstyle=\color{aoBlue}\bfseries,
+  sensitive=true,
+  comment=[l]{\#},
+  commentstyle=\color{gray},
+  morestring=[b]",
+}
+
+\lstset{
+  basicstyle=\ttfamily\scriptsize,
+  columns=fullflexible,
+  keepspaces=true,
+  showstringspaces=false,
+  breaklines=true,
+  backgroundcolor=\color{aoGray},
+  frame=single,
+  rulecolor=\color{aoGray},
+}
+
+\title{Workflow Lisp Frontend}
+\subtitle{Full drain vs. Ralph loop: implementation quality, throughput, churn, and DSL semantics}
+\author{agent-orchestration}
+\date{}
+
+\begin{document}
+
+\begin{frame}[plain]
+\vspace{0.35cm}
+{\Large\color{aoBlue}\textbf{Workflow Lisp Frontend}\par}
+\vspace{0.12cm}
+{\huge\textbf{Full Drain vs. Ralph Loop}\par}
+\vspace{0.2cm}
+{\large Implementation quality, throughput, churn, and DSL semantics\par}
+\vspace{0.55cm}
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.32\textwidth}
+\begin{block}{PL frontend}
+\footnotesize
+Parsing, ASTs, type checks, macro/module semantics, and lowering into the existing workflow runtime.
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{Performance}
+\footnotesize
+Static comparison of full workflow drain coverage against the faster Ralph iteration loop.
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{Next semantics}
+\footnotesize
+Adjudicated providers as a step toward workflow-native judging and search loops.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Workflow DSL vocabulary}
+\small
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.32\textwidth}
+\begin{block}{Workflow}
+\footnotesize
+A named graph of work. It declares shared context, available providers, and ordered or routed steps.
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{Step}
+\footnotesize
+One executable node in the workflow. A step may run a provider, command, assertion, call, loop, branch, or other DSL operation.
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{Provider}
+\footnotesize
+A reusable command template for an external worker, such as \texttt{codex exec}. Steps bind to providers and pass them prompts, files, and params.
+\end{block}
+\end{column}
+\end{columns}
+\vspace{0.55em}
+\begin{block}{In the Ralph loop}
+\footnotesize
+\texttt{Ralph} is the step. \texttt{codex} is the provider. The workflow routes successful Ralph executions back to Ralph again.
+\end{block}
+\end{frame}
+
+\begin{frame}[fragile]{Ralph resolves to one Codex command}
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.56\textwidth}
+\begin{lstlisting}[language=yaml]
+context:
+  workflow_model: gpt-5.4
+  workflow_effort: high
+
+providers:
+  codex:
+    command:
+      - codex
+      - exec
+      - --model
+      - "${model}"
+      - --config
+      - "reasoning_effort=${reasoning_effort}"
+    input_mode: stdin
+    defaults:
+      model: "${context.workflow_model}"
+      reasoning_effort: "${context.workflow_effort}"
+\end{lstlisting}
+\end{column}
+\begin{column}{0.40\textwidth}
+\begin{block}{What this YAML does}
+\begin{itemize}
+  \item \texttt{provider: codex} selects this command template.
+  \item \texttt{context} fills in model and reasoning effort.
+  \item The composed prompt is sent to the child process on \texttt{stdin}.
+\end{itemize}
+\end{block}
+\vspace{0.3em}
+\begin{block}{Resolved command shape}
+\scriptsize
+\texttt{codex exec ... --model gpt-5.4 --config reasoning\_effort=high}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{The step validates docs and injects paths}
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.52\textwidth}
+\begin{lstlisting}[language=yaml,basicstyle=\ttfamily\tiny]
+- name: Ralph
+  provider: codex
+  depends_on:
+    required:
+      - docs/design/workflow_lisp_frontend_specification.md
+      - docs/design/workflow_lisp_frontend_mvp_specification.md
+    inject:
+      mode: list
+      position: prepend
+      instruction: "Use these design documents as the contract for this iteration:"
+  input_file: workflows/examples/prompts/ralph_lisp_forever/ralph.md
+\end{lstlisting}
+\end{column}
+\begin{column}{0.44\textwidth}
+\begin{block}{Runtime dependency contract}
+\begin{itemize}
+  \item Both docs must exist before the step runs.
+  \item Paths resolve relative to the workspace.
+  \item \texttt{mode: list} injects filenames only.
+  \item The docs are not copied into the prompt.
+  \item Codex can read the files on demand from the checkout.
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Small prompt, unbounded loop}
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.58\textwidth}
+\begin{block}{Final stdin prompt}
+\begin{lstlisting}[basicstyle=\ttfamily\tiny]
+Use these design documents as the contract for this iteration:
+  - docs/design/workflow_lisp_frontend_mvp_specification.md
+  - docs/design/workflow_lisp_frontend_specification.md
+
+review the lisp mvp and full design docs in context of the progress on its implementation in this repository. Select a non-implemented section of suitable size and draft an implementation plan for it. Then, execute the plan.
+\end{lstlisting}
+\end{block}
+\end{column}
+\begin{column}{0.38\textwidth}
+\begin{lstlisting}[language=yaml]
+  on:
+    success:
+      goto: Ralph
+\end{lstlisting}
+\vspace{0.3em}
+\begin{block}{Routing}
+\small
+On success, \texttt{goto: Ralph} loops back to the same step with no iteration cap.
+\end{block}
+\vspace{0.3em}
+\begin{block}{No hidden suffix}
+\small
+No output contract is appended: Ralph declares no \texttt{expected\_outputs}, \texttt{output\_bundle}, or \texttt{variant\_output}.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]{Workflow Lisp as a PL frontend}
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.58\textwidth}
+\begin{lstlisting}[basicstyle=\ttfamily\tiny,frame=none,backgroundcolor=\color{white}]
+Workflow Lisp file
+(.orc)
+   |
+   v
+Compiler
+   - parses the text
+   - checks names and types
+   - expands macros/procedures
+   - translates Lisp forms
+     into workflow operations
+   |
+   v
+Internal workflow representation
+   - Core Workflow AST
+   - Semantic / executable IR
+        ^
+        |
+YAML workflow (.yaml)
+   loads into the same layer
+   |
+   v
+Existing workflow executor
+   - runs steps
+   - handles loops and resume
+   - writes state, ledgers, artifacts
+\end{lstlisting}
+\end{column}
+\begin{column}{0.38\textwidth}
+\begin{block}{Why not just a DAG?}
+\scriptsize
+Workflows are not just one-way task graphs. Steps can branch, retry, pause/resume, repair saved state, and commit outputs. Ralph is the simplest example: on success, it sends itself around again.
+\end{block}
+\vspace{0.25em}
+\begin{block}{Boundary}
+\scriptsize
+The compiler does not produce machine code or YAML text. It produces checked internal workflow objects for the existing executor.
+\end{block}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}{Compiler terms in plain language}
+\small
+\begin{tabular}{p{0.22\textwidth}p{0.70\textwidth}}
+\textbf{Term} & \textbf{Meaning in this workflow frontend} \\
+\hline
+Syntax forms & Parsed source shapes with enough structure to say what was written and where errors should point. \\
+Frontend AST & The Lisp-specific tree after names and forms are understood as workflow concepts. \\
+Typed AST & The frontend tree after the compiler checks records, unions, workflow inputs, return values, and allowed operations. \\
+Lowering & The translation from Lisp-specific concepts into the shared workflow representation. \\
+IR & Intermediate representation: the validated meaning the runtime can execute, resume, and persist. \\
+\end{tabular}
+\vspace{0.8em}
+\begin{block}{Short version}
+\footnotesize
+The compiler turns human-authored Lisp into a checked workflow meaning. The executor then runs that meaning with the same state, ledger, artifact, and recovery machinery used by YAML workflows.
+\end{block}
+\end{frame}
+
+\begin{frame}[fragile]{What the AST means}
+\small
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.46\textwidth}
+\begin{block}{Authored Lisp shape}
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+(defworkflow RalphDrain
+  (step Ralph
+    (provider codex)
+    (on success Ralph)))
+\end{lstlisting}
+\end{block}
+\end{column}
+\begin{column}{0.50\textwidth}
+\begin{block}{Simplified tree shape}
+\begin{lstlisting}[basicstyle=\ttfamily\scriptsize]
+Workflow
+  name: RalphDrain
+  steps:
+    Step
+      name: Ralph
+      run: Provider(codex)
+      on_success: Goto(Ralph)
+\end{lstlisting}
+\end{block}
+\end{column}
+\end{columns}
+\vspace{0.4em}
+\begin{block}{Point}
+\footnotesize
+The AST is not text to execute directly. It is the workflow split into named parts so the compiler can check it, transform it, and lower it into the runtime's workflow representation.
+\end{block}
+\end{frame}
+
+\begin{frame}{Full drain vs. Ralph loop: throughput}
+\small
+\begin{tabular}{p{0.31\textwidth}p{0.29\textwidth}p{0.29\textwidth}}
+\textbf{Metric} & \textbf{Full Lisp drain} & \textbf{Ralph loop} \\
+\hline
+Elapsed wall time inspected & 31.45 hours & 9.31 hours \\
+Completed units & 12 design gaps & 75 Ralph iterations \\
+Raw rate & 0.38 design gaps/hour & 8.06 iterations/hour \\
+Approx. unique work items & 12 & 46 \\
+Functional MVP completion & about 95\% & about 74\% \\
+Functional full-design completion & about 82\% & about 24\% \\
+\end{tabular}
+\vspace{0.8em}
+\begin{block}{Read the units carefully}
+The Ralph loop is much faster in raw iteration count, but the units are smaller. The full drain produces larger reviewed design-gap bundles and reaches much deeper into the full Workflow Lisp design.
+\end{block}
+\vspace{0.3em}
+\footnotesize
+Source: static inspection of run state, summaries, ledgers, artifacts, source, fixtures, and tests. No tests were run for this comparison.
+\par\medskip
+Generating prompt: \href{https://github.com/hoidn/prompts/blob/1cc09c05ba70869ac7a4860c143776bb37de2d4b/lisp-frontend-comparison-metrics-prompt.txt}{comparison metrics prompt}.
+\end{frame}
+
+\begin{frame}[shrink=8]{Progress quality: speed vs. churn}
+\small
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.48\textwidth}
+\begin{block}{Full Lisp drain}
+\begin{itemize}
+  \item Slower but more complete.
+  \item Covers parser, typing, lowering, macros, modules, procedures, stdlib, build artifacts, diagnostics, and migration pieces.
+  \item Hottest implementation file appears in 9 execution reports; hottest test appears in 4 reports.
+  \item File-repeat evidence is a report-mention proxy; this run has no per-iteration changed-file ledger.
+\end{itemize}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{Ralph loop}
+\begin{itemize}
+  \item Faster early iteration velocity.
+  \item Best suited to small MVP slices and focused regression additions.
+  \item Changed-file ledger: 231 touches over 83 unique files; 18 files repeat.
+  \item Hot spots: \texttt{test\_workflow\_lisp\_lowering.py} 42/60 iterations; \texttt{lowering.py} 40/60.
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\vspace{0.6em}
+\begin{block}{Repeated-file disparity}
+Ralph's hottest source file concentration is about 4.4x the full-drain report-mention proxy: 40 changed-file touches versus 9 mentions. Repeat surplus is 148 non-unique Ralph touches versus 48 full-drain repeated report mentions.
+\end{block}
+\end{frame}
+
+\begin{frame}[fragile,shrink=6]{Concept: adjudicated provider}
+\scriptsize
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.48\textwidth}
+\textbf{Current YAML surface}
+\begin{lstlisting}[language=yaml,basicstyle=\ttfamily\tiny]
+- name: DraftDocument
+  adjudicated_provider:
+    candidates:
+      - id: candidate_a
+        provider: demo_candidate_a
+      - id: candidate_b
+        provider: demo_candidate_b
+    evaluator:
+      provider: demo_evaluator
+      input_file: prompts/evaluate_candidate.md
+      evidence_confidentiality: same_trust_boundary
+    selection:
+      tie_break: candidate_order
+    score_ledger_path: artifacts/evaluations/scores.jsonl
+  expected_outputs:
+    - name: selected_document
+      type: relpath
+\end{lstlisting}
+\end{column}
+\begin{column}{0.48\textwidth}
+\textbf{Conceptual Lisp surface}
+\par{\scriptsize This form would live inside a surrounding \texttt{defworkflow} or \texttt{defproc}; it is not itself a top-level definition.}
+\vspace{0.15em}
+\begin{lstlisting}[basicstyle=\ttfamily\tiny]
+(adjudicated-provider draft-document
+  :candidates
+    ((candidate-a :provider providers.candidate-a)
+     (candidate-b :provider providers.candidate-b))
+  :evaluator providers.evaluator
+  :evidence same-trust-boundary
+  :tie-break candidate-order
+  :returns SelectedDocument)
+\end{lstlisting}
+\end{column}
+\end{columns}
+\vspace{0.45em}
+\begin{block}{Runtime meaning}
+\footnotesize
+One baseline -> candidate workspaces -> output validation -> evaluator scores -> selected output promotion -> score ledger.
+\end{block}
+\vspace{0.2em}
+\footnotesize
+YAML exposes the protocol. A Lisp frontend can name the operation once and lower to the same validated candidate/evaluator/promotion machinery.
+\par\medskip
+This is an early DSL-semantic step toward LLM-as-a-judge workflows: once judging is a typed operation, later search loops can evolve candidates and use adjudication as the fitness signal.
+\end{frame}
+
+\begin{frame}{Toward self-hosted adjudication}
+\small
+\begin{block}{Current v2.11 semantics}
+\begin{itemize}
+  \item The evaluator is a provider template plus evaluator prompt/rubric source.
+  \item It returns strict score JSON: candidate id, finite score, and summary.
+  \item It is not itself a nested workflow, \texttt{call}, \texttt{defproc}, or general DSL expression.
+\end{itemize}
+\end{block}
+\vspace{0.35em}
+\begin{block}{Self-hosted direction}
+\begin{itemize}
+  \item Treat the judge as a typed DSL unit: evidence packet in, score decision out.
+  \item Candidate generation, judging, promotion, and score-ledger writing then live in one semantic layer.
+  \item Genetic or search-style loops can evolve candidates while adjudication supplies the fitness function.
+\end{itemize}
+\end{block}
+\vspace{0.25em}
+\footnotesize
+This keeps today's contract honest while showing the path from provider-level adjudication to workflow-native LLM-as-a-judge semantics.
+\end{frame}
+
+\end{document}
