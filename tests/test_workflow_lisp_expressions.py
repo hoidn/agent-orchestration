@@ -310,39 +310,60 @@ def test_shape_expression_parses_phase_target_expression_with_explicit_phase_nam
 
 
 @pytest.mark.parametrize(
-    ("fixture_name", "expected_message"),
+    ("fixture_name", "expected_message", "expected_generated_core_node_id"),
     [
-        ("invalid_let_star_duplicate_binding.orc", "Duplicate let* binding name"),
-        ("invalid_let_star_bad_binding_shape.orc", "let* bindings must be (name expression) pairs"),
-        ("invalid_match_duplicate_variant.orc", "Duplicate match arm variant"),
-        ("invalid_match_bad_arm_shape.orc", "match arms must have shape ((VARIANT binding) expression)"),
-        ("invalid_match_partial_non_bool.orc", "match :partial value must be a boolean"),
-        ("invalid_record_duplicate_field.orc", "Duplicate record field"),
-        ("invalid_record_bad_clause_shape.orc", "record fields must be keyword/expression pairs"),
-        ("invalid_call_duplicate_argument.orc", "Duplicate call argument"),
-        ("invalid_call_bad_clause_shape.orc", "call arguments must be keyword/expression pairs"),
+        ("invalid_let_star_duplicate_binding.orc", "Duplicate let* binding name", None),
+        (
+            "invalid_let_star_bad_binding_shape.orc",
+            "let* bindings must be (name expression) pairs",
+            None,
+        ),
+        ("invalid_match_duplicate_variant.orc", "Duplicate match arm variant", None),
+        (
+            "invalid_match_bad_arm_shape.orc",
+            "match arms must have shape ((VARIANT binding) expression)",
+            None,
+        ),
+        ("invalid_match_partial_non_bool.orc", "match :partial value must be a boolean", None),
+        ("invalid_record_duplicate_field.orc", "Duplicate record field", None),
+        ("invalid_record_bad_clause_shape.orc", "record fields must be keyword/expression pairs", None),
+        (
+            "invalid_call_duplicate_argument.orc",
+            "Duplicate call argument",
+            "expression.call.build_plan",
+        ),
+        (
+            "invalid_call_bad_clause_shape.orc",
+            "call arguments must be keyword/expression pairs",
+            "expression.call.build_plan",
+        ),
         (
             "invalid_provider_result_bad_clause_shape.orc",
             "provider-result :inputs value must be an expression list",
+            None,
         ),
         (
             "invalid_command_result_bad_argv_shape.orc",
             "command-result :argv value must be an expression list",
+            None,
         ),
         (
             "invalid_with_phase_bad_phase_name.orc",
             "with-phase phase name must be a symbol",
+            None,
         ),
         (
             "inline_invalid_phase_target_bad_target.orc",
             "phase-target target name must be a symbol",
+            None,
         ),
-        ("invalid_unsupported_expression_form.orc", "Unsupported expression form: if"),
+        ("invalid_unsupported_expression_form.orc", "Unsupported expression form: if", None),
     ],
 )
 def test_shape_expression_rejects_invalid_let_star_or_unsupported_forms(
     fixture_name: str,
     expected_message: str,
+    expected_generated_core_node_id: str | None,
 ) -> None:
     expressions = _expressions_module()
     if fixture_name.startswith("inline_invalid_phase_target"):
@@ -369,3 +390,4 @@ def test_shape_expression_rejects_invalid_let_star_or_unsupported_forms(
     assert diagnostic.code == "frontend_parse_error"
     assert expected_message in diagnostic.message
     assert diagnostic.source_file == str(source_path)
+    assert diagnostic.generated_core_node_id == expected_generated_core_node_id

@@ -184,6 +184,7 @@ def _raise_expression_error(
     message: str,
     span: SourceSpan,
     enclosing_form_name: str | None = None,
+    generated_core_node_id: str | None = None,
 ) -> None:
     raise WorkflowLispSyntaxError(
         SyntaxDiagnostic(
@@ -194,6 +195,7 @@ def _raise_expression_error(
             line=span.line_start,
             column=span.column_start,
             enclosing_form_name=enclosing_form_name,
+            generated_core_node_id=generated_core_node_id,
         )
     )
 
@@ -469,12 +471,19 @@ def _shape_record(form: SyntaxList) -> RecordExpression:
 
 
 def _shape_call(form: SyntaxList) -> CallExpression:
+    call_node_id = "expression.call"
+    if len(form.items) >= 2:
+        maybe_callee = form.items[1]
+        if isinstance(maybe_callee, SyntaxAtom) and maybe_callee.kind is AtomKind.SYMBOL:
+            call_node_id = f"expression.call.{maybe_callee.value}"
+
     if len(form.items) < 2:
         _raise_expression_error(
             code="frontend_parse_error",
             message="call requires a workflow symbol",
             span=form.span,
             enclosing_form_name="call",
+            generated_core_node_id=call_node_id,
         )
     callee_node = form.items[1]
     if not isinstance(callee_node, SyntaxAtom) or callee_node.kind is not AtomKind.SYMBOL:
@@ -483,6 +492,7 @@ def _shape_call(form: SyntaxList) -> CallExpression:
             message="call workflow reference must be a symbol",
             span=callee_node.span,
             enclosing_form_name="call",
+            generated_core_node_id=call_node_id,
         )
 
     raw_arguments = form.items[2:]
@@ -492,6 +502,7 @@ def _shape_call(form: SyntaxList) -> CallExpression:
             message="call arguments must be keyword/expression pairs",
             span=form.span,
             enclosing_form_name="call",
+            generated_core_node_id=call_node_id,
         )
 
     arguments: list[CallArgumentExpression] = []
@@ -507,6 +518,7 @@ def _shape_call(form: SyntaxList) -> CallExpression:
                 message="call arguments must be keyword/expression pairs",
                 span=key_node.span,
                 enclosing_form_name="call",
+                generated_core_node_id=call_node_id,
             )
         parameter_name = str(key_node.value)[1:]
         if not parameter_name:
@@ -515,6 +527,7 @@ def _shape_call(form: SyntaxList) -> CallExpression:
                 message="call argument keywords must include a parameter name",
                 span=key_node.span,
                 enclosing_form_name="call",
+                generated_core_node_id=call_node_id,
             )
         if parameter_name == "returns":
             if returns_type_name is not None:
@@ -523,6 +536,7 @@ def _shape_call(form: SyntaxList) -> CallExpression:
                     message="Duplicate call :returns clause",
                     span=key_node.span,
                     enclosing_form_name="call",
+                    generated_core_node_id=call_node_id,
                 )
             if not isinstance(value_node, SyntaxAtom) or value_node.kind is not AtomKind.SYMBOL:
                 _raise_expression_error(
@@ -530,6 +544,7 @@ def _shape_call(form: SyntaxList) -> CallExpression:
                     message="call :returns value must be a type symbol",
                     span=value_node.span,
                     enclosing_form_name="call",
+                    generated_core_node_id=call_node_id,
                 )
             returns_type_name = str(value_node.value)
             returns_type_span = value_node.span
@@ -540,6 +555,7 @@ def _shape_call(form: SyntaxList) -> CallExpression:
                 message=f"Duplicate call argument: {parameter_name}",
                 span=key_node.span,
                 enclosing_form_name="call",
+                generated_core_node_id=call_node_id,
             )
         seen_parameters.add(parameter_name)
         arguments.append(
