@@ -57,6 +57,17 @@ class _WorkflowInputLowering:
     source_spans: dict[str, SourceSpan]
 
 
+@dataclass(frozen=True)
+class _FlattenedRecordLeafField:
+    """One flattened leaf field for nested record output contracts."""
+
+    flattened_name: str
+    json_pointer: str
+    type_name: str
+    type_span: SourceSpan
+    source_span: SourceSpan
+
+
 def _raise_lowering_error(
     *,
     code: str,
@@ -1701,11 +1712,16 @@ def _workflow_outputs_for_structured_return(
     definition = definitions.get(type_name)
     if isinstance(definition, RecordDefinition):
         outputs: dict[str, Any] = {}
-        for field in definition.fields:
-            contract = _bundle_field_contract_for_type(field.type_ref.name, field.type_ref.span, definitions)
+        for field in _flatten_record_leaf_fields(
+            record_definition=definition,
+            definitions=definitions,
+        ):
+            contract = _bundle_field_contract_for_type(field.type_name, field.type_span, definitions)
             contract = _output_contract_from_bundle_contract(contract)
-            contract["from"] = {"ref": f"root.steps.{root_step_name}.artifacts.{field.name}"}
-            outputs[field.name] = contract
+            contract["from"] = {
+                "ref": f"root.steps.{root_step_name}.artifacts.{field.flattened_name}"
+            }
+            outputs[field.flattened_name] = contract
         return outputs
     if isinstance(definition, UnionDefinition):
         return _workflow_outputs_for_union(
@@ -1764,8 +1780,11 @@ def _workflow_output_source_map_entries(
     definition = definitions.get(type_name)
     if isinstance(definition, RecordDefinition):
         return {
-            _output_node_id(workflow_name, field.name): field.name_span
-            for field in definition.fields
+            _output_node_id(workflow_name, field.flattened_name): field.source_span
+            for field in _flatten_record_leaf_fields(
+                record_definition=definition,
+                definitions=definitions,
+            )
         }
     if isinstance(definition, UnionDefinition):
         discriminant_name = f"{_snake_case(definition.name)}_variant"
@@ -1789,14 +1808,17 @@ def _step_contract_source_map_entries(
     definition = definitions.get(type_name)
     if isinstance(definition, RecordDefinition):
         entries: dict[str, SourceSpan] = {}
-        for field in definition.fields:
+        for field in _flatten_record_leaf_fields(
+            record_definition=definition,
+            definitions=definitions,
+        ):
             entries[
                 _step_bundle_field_node_id(
                     workflow_name=workflow_name,
                     step_name=step_name,
-                    field_name=field.name,
+                    field_name=field.flattened_name,
                 )
-            ] = field.name_span
+            ] = field.source_span
         return entries
 
     if isinstance(definition, UnionDefinition):
@@ -1805,6 +1827,22 @@ def _step_contract_source_map_entries(
         }
         for variant in definition.variants:
             for field in variant.fields:
+                nested_definition = definitions.get(field.type_ref.name)
+                if isinstance(nested_definition, RecordDefinition):
+                    for nested_field in _flatten_record_leaf_fields(
+                        record_definition=nested_definition,
+                        definitions=definitions,
+                        path=(field.name,),
+                    ):
+                        entries[
+                            _step_variant_field_node_id(
+                                workflow_name=workflow_name,
+                                step_name=step_name,
+                                variant_name=variant.name,
+                                field_name=nested_field.flattened_name,
+                            )
+                        ] = nested_field.source_span
+                    continue
                 entries[
                     _step_variant_field_node_id(
                         workflow_name=workflow_name,
@@ -2104,15 +2142,18 @@ def _output_bundle_for_record(
         )
 
     fields = []
-    for field in definition.fields:
+    for field in _flatten_record_leaf_fields(
+        record_definition=definition,
+        definitions=definitions,
+    ):
         field_contract = _bundle_field_contract_for_type(
-            field.type_ref.name,
-            field.type_ref.span,
+            field.type_name,
+            field.type_span,
             definitions,
             generated_core_node_id=generated_core_node_id,
         )
-        field_contract["name"] = field.name
-        field_contract["json_pointer"] = f"/{field.name}"
+        field_contract["name"] = field.flattened_name
+        field_contract["json_pointer"] = field.json_pointer
         fields.append(field_contract)
 
     return {
@@ -2144,6 +2185,23 @@ def _variant_output_for_union(
     for variant in definition.variants:
         fields = []
         for field in variant.fields:
+            nested_definition = definitions.get(field.type_ref.name)
+            if isinstance(nested_definition, RecordDefinition):
+                for nested_field in _flatten_record_leaf_fields(
+                    record_definition=nested_definition,
+                    definitions=definitions,
+                    path=(field.name,),
+                ):
+                    field_contract = _bundle_field_contract_for_type(
+                        nested_field.type_name,
+                        nested_field.type_span,
+                        definitions,
+                        generated_core_node_id=generated_core_node_id,
+                    )
+                    field_contract["name"] = nested_field.flattened_name
+                    field_contract["json_pointer"] = nested_field.json_pointer
+                    fields.append(field_contract)
+                continue
             field_contract = _bundle_field_contract_for_type(
                 field.type_ref.name,
                 field.type_ref.span,
@@ -2385,16 +2443,19 @@ def _match_case_step_contract_source_map_entries(
     definition = definitions.get(type_name)
     if isinstance(definition, RecordDefinition):
         entries: dict[str, SourceSpan] = {}
-        for field in definition.fields:
+        for field in _flatten_record_leaf_fields(
+            record_definition=definition,
+            definitions=definitions,
+        ):
             entries[
                 _match_case_step_bundle_field_node_id(
                     workflow_name=workflow_name,
                     match_step_name=match_step_name,
                     case_variant_name=case_variant_name,
                     case_step_name=case_step_name,
-                    field_name=field.name,
+                    field_name=field.flattened_name,
                 )
-            ] = field.name_span
+            ] = field.source_span
         return entries
 
     if isinstance(definition, UnionDefinition):
@@ -2408,6 +2469,24 @@ def _match_case_step_contract_source_map_entries(
         }
         for variant in definition.variants:
             for field in variant.fields:
+                nested_definition = definitions.get(field.type_ref.name)
+                if isinstance(nested_definition, RecordDefinition):
+                    for nested_field in _flatten_record_leaf_fields(
+                        record_definition=nested_definition,
+                        definitions=definitions,
+                        path=(field.name,),
+                    ):
+                        entries[
+                            _match_case_step_variant_field_node_id(
+                                workflow_name=workflow_name,
+                                match_step_name=match_step_name,
+                                case_variant_name=case_variant_name,
+                                case_step_name=case_step_name,
+                                variant_name=variant.name,
+                                field_name=nested_field.flattened_name,
+                            )
+                        ] = nested_field.source_span
+                    continue
                 entries[
                     _match_case_step_variant_field_node_id(
                         workflow_name=workflow_name,
@@ -2480,9 +2559,12 @@ def _match_case_output_source_map_entries(
                 workflow_name=workflow_name,
                 match_step_name=match_step_name,
                 case_variant_name=case_variant_name,
-                output_name=field.name,
-            ): field.name_span
-            for field in definition.fields
+                output_name=field.flattened_name,
+            ): field.source_span
+            for field in _flatten_record_leaf_fields(
+                record_definition=definition,
+                definitions=definitions,
+            )
         }
     if isinstance(definition, UnionDefinition):
         discriminant_name = f"{_snake_case(definition.name)}_variant"
@@ -2592,6 +2674,37 @@ def _match_case_step_variant_field_node_id(
 
 def _import_alias_node_id(*, workflow_name: str, alias: str) -> str:
     return f"{workflow_name}.import.{alias}"
+
+
+def _flatten_record_leaf_fields(
+    *,
+    record_definition: RecordDefinition,
+    definitions: dict[str, DefinitionNode],
+    path: tuple[str, ...] = (),
+) -> tuple[_FlattenedRecordLeafField, ...]:
+    fields: list[_FlattenedRecordLeafField] = []
+    for field in record_definition.fields:
+        nested_path = path + (field.name,)
+        nested_definition = definitions.get(field.type_ref.name)
+        if isinstance(nested_definition, RecordDefinition):
+            fields.extend(
+                _flatten_record_leaf_fields(
+                    record_definition=nested_definition,
+                    definitions=definitions,
+                    path=nested_path,
+                )
+            )
+            continue
+        fields.append(
+            _FlattenedRecordLeafField(
+                flattened_name="__".join(nested_path),
+                json_pointer="/" + "/".join(nested_path),
+                type_name=field.type_ref.name,
+                type_span=field.type_ref.span,
+                source_span=field.name_span,
+            )
+        )
+    return tuple(fields)
 
 
 def _lower_field_access_reference_path(

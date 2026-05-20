@@ -1716,6 +1716,68 @@ def test_lower_compiled_module_supports_defschema_outputs() -> None:
     }
 
 
+def test_lower_compiled_module_flattens_nested_record_output_contracts() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_text = """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defrecord ReportPayload
+  (path PathRel)
+  (status String))
+
+(defrecord AttemptSummary
+  (report ReportPayload)
+  (note String))
+
+(defworkflow run_checks ((report_path PathRel) (note String)) -> AttemptSummary
+  (command-result emit-summary
+    :argv (report_path note)
+    :returns AttemptSummary))
+"""
+
+    compiled = compiler.compile_workflow_module_text(
+        source_text,
+        source_path=str(Path("inline-nested-record-output-contracts.orc")),
+    )
+    lowered_module = lowering.lower_compiled_module(compiled)
+    workflow = lowered_module.workflows["run_checks"]
+    step = workflow["steps"][0]
+
+    assert workflow["outputs"] == {
+        "report__path": {
+            "type": "relpath",
+            "from": {"ref": "root.steps.CommandResult.artifacts.report__path"},
+        },
+        "report__status": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "root.steps.CommandResult.artifacts.report__status"},
+        },
+        "note": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "root.steps.CommandResult.artifacts.note"},
+        },
+    }
+    assert step["output_bundle"] == {
+        "path": "state/run_checks_result.json",
+        "fields": [
+            {"name": "report__path", "json_pointer": "/report/path", "type": "relpath"},
+            {"name": "report__status", "json_pointer": "/report/status", "type": "string"},
+            {"name": "note", "json_pointer": "/note", "type": "string"},
+        ],
+    }
+
+    source_map = lowered_module.source_map["run_checks"]
+    assert "run_checks.output.report__path" in source_map
+    assert "run_checks.output.report__status" in source_map
+    assert "run_checks.step.CommandResult.contract.output_bundle.field.report__path" in source_map
+    assert "run_checks.step.CommandResult.contract.output_bundle.field.report__status" in source_map
+
+
 def test_lower_compiled_module_supports_phase_target_root_expression() -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()
