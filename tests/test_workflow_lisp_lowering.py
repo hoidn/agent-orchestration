@@ -699,6 +699,8 @@ def test_lower_compiled_module_reports_generated_node_for_unresolved_import_targ
     assert diagnostic.code == "frontend_lowering_error"
     assert "Unable to resolve imported call target for lowering" in diagnostic.message
     assert diagnostic.generated_core_node_id == "run.import.remote/run_phase"
+    assert diagnostic.span.source_file == str(source_path)
+    assert diagnostic.span.line_start == 11
 
 
 def test_lower_compiled_module_supports_record_root_expression(tmp_path: Path) -> None:

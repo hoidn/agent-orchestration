@@ -177,6 +177,7 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
             ),
             "steps": lowered_steps,
         }
+        call_target_spans = _collect_call_target_spans_from_expression(lowered_root_expression)
         call_targets = _collect_call_targets(lowered_steps)
         lowered_imports: dict[str, str] = {}
         for call_target in call_targets:
@@ -191,7 +192,7 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
                 _raise_lowering_error(
                     code="frontend_lowering_error",
                     message=f"Unable to resolve imported call target for lowering: {call_target}",
-                    span=signature.form_span,
+                    span=call_target_spans.get(call_target, signature.form_span),
                     enclosing_form_name=form_name,
                     generated_core_node_id=_import_alias_node_id(
                         workflow_name=callable_name,
@@ -482,6 +483,56 @@ def _collect_local_call_targets_from_expression(
 
     visit(expression)
     return frozenset(targets)
+
+
+def _collect_call_target_spans_from_expression(expression: ExpressionNode) -> dict[str, SourceSpan]:
+    """Collect first-seen call target spans for precise import-resolution diagnostics."""
+
+    target_spans: dict[str, SourceSpan] = {}
+
+    def visit(node: ExpressionNode) -> None:
+        if isinstance(node, CallExpression):
+            target_spans.setdefault(node.callee_name, node.callee_span)
+            for argument in node.arguments:
+                visit(argument.value)
+            return
+        if isinstance(node, LetStarExpression):
+            for binding in node.bindings:
+                visit(binding.value)
+            visit(node.body)
+            return
+        if isinstance(node, MatchExpression):
+            visit(node.subject)
+            for arm in node.arms:
+                visit(arm.body)
+            return
+        if isinstance(node, RecordExpression):
+            for field in node.fields:
+                visit(field.value)
+            return
+        if isinstance(node, ProviderResultExpression):
+            for provider_input in node.inputs:
+                visit(provider_input)
+            return
+        if isinstance(node, CommandResultExpression):
+            for argument in node.argv:
+                visit(argument)
+            return
+        if isinstance(node, WithPhaseExpression):
+            visit(node.context)
+            visit(node.body)
+            return
+        if isinstance(node, PhaseTargetExpression):
+            visit(node.context)
+            return
+        if isinstance(node, FieldAccessExpression):
+            visit(node.base)
+            return
+        if isinstance(node, (LiteralExpression, ReferenceExpression)):
+            return
+
+    visit(expression)
+    return target_spans
 
 
 def _lower_root_expression(
