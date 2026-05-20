@@ -483,6 +483,10 @@ def _infer_expression_type(
         )
 
     if isinstance(expression, RecordExpression):
+        record_node_id = _record_generated_node_id(
+            parent_node_id=generated_core_node_id,
+            type_name=expression.type_name,
+        )
         resolved_record = catalog.get(expression.type_name)
         if resolved_record is None:
             _raise_expression_error(
@@ -490,7 +494,7 @@ def _infer_expression_type(
                 message=f"Unknown record type: {expression.type_name}",
                 span=expression.type_span,
                 enclosing_form_name="record",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=record_node_id,
             )
         if not isinstance(resolved_record, _RecordType):
             _raise_expression_error(
@@ -498,7 +502,7 @@ def _infer_expression_type(
                 message=f"record constructor requires a record type; got {resolved_record.name}",
                 span=expression.type_span,
                 enclosing_form_name="record",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=record_node_id,
             )
 
         provided_fields = {field.field_name for field in expression.fields}
@@ -513,7 +517,7 @@ def _infer_expression_type(
                 ),
                 span=expression.span,
                 enclosing_form_name="record",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=record_node_id,
             )
 
         unexpected_fields = sorted(provided_fields - expected_fields)
@@ -526,10 +530,14 @@ def _infer_expression_type(
                 ),
                 span=expression.span,
                 enclosing_form_name="record",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=record_node_id,
             )
 
         for field in expression.fields:
+            record_field_node_id = _record_field_generated_node_id(
+                record_node_id=record_node_id,
+                field_name=field.field_name,
+            )
             expected_type_name = resolved_record.fields[field.field_name]
             value_type = _infer_expression_type(
                 field.value,
@@ -540,7 +548,7 @@ def _infer_expression_type(
                 import_aliases=import_aliases,
                 imported_workflow_targets=imported_workflow_targets,
                 imported_workflow_qualifiers=imported_workflow_qualifiers,
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=record_field_node_id,
             )
             actual_type_name = _type_name(value_type)
             if actual_type_name != expected_type_name:
@@ -552,7 +560,7 @@ def _infer_expression_type(
                     ),
                     span=field.form_span,
                     enclosing_form_name="record",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=record_field_node_id,
                 )
         return resolved_record
 
@@ -1026,6 +1034,18 @@ def _phase_target_generated_node_id(*, workflow_result_node_id: str | None, targ
     if workflow_node_prefix is None:
         return None
     return f"{workflow_node_prefix}.phase-target.{target_name}"
+
+
+def _record_generated_node_id(*, parent_node_id: str | None, type_name: str) -> str | None:
+    if parent_node_id is None:
+        return None
+    return f"{parent_node_id}.record.{type_name}"
+
+
+def _record_field_generated_node_id(*, record_node_id: str | None, field_name: str) -> str | None:
+    if record_node_id is None:
+        return None
+    return f"{record_node_id}.field.{field_name}"
 
 
 def _match_case_generated_node_id(*, workflow_result_node_id: str | None, variant_name: str) -> str | None:

@@ -431,6 +431,34 @@ def test_validate_expression_module_execution_form_errors_include_generated_node
 @pytest.mark.parametrize(
     ("fixture_name", "expected_code", "expected_generated_node_id"),
     [
+        ("invalid_record_missing_field.orc", "type_mismatch", "build_plan.result.record.Plan"),
+        (
+            "invalid_record_field_type_mismatch.orc",
+            "type_mismatch",
+            "build_plan.result.record.Plan.field.status",
+        ),
+    ],
+)
+def test_validate_expression_module_record_errors_include_record_scoped_generated_node_id(
+    fixture_name: str,
+    expected_code: str,
+    expected_generated_node_id: str,
+) -> None:
+    expression_validation = _expression_validation_module()
+    checked = _checked_module_from_fixture(fixture_name)
+
+    with pytest.raises(Exception) as exc_info:
+        expression_validation.validate_expression_module(checked)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == expected_code
+    assert diagnostic.enclosing_form_name == "record"
+    assert diagnostic.generated_core_node_id == expected_generated_node_id
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_code", "expected_generated_node_id"),
+    [
         ("invalid_match_subject_not_union.orc", "type_mismatch", "bad.match"),
         ("invalid_match_non_exhaustive.orc", "union_match_non_exhaustive", "bad.match"),
         ("invalid_match_unknown_variant.orc", "union_variant_unknown", "bad.match.case.FAILED"),
