@@ -28,7 +28,7 @@
   - `--debug`, `--stream-output`, `--progress` (post-MVP), `--trace` (post-MVP), `--dry-run`
   - Runtime observability: `--step-summaries`, `--summary-mode async|sync`, `--summary-provider <name>`, `--summary-timeout-sec <n>`, `--summary-max-input-chars <n>`, `--summary-profile basic|phase-performance`, `--live-agent-notes`, `--live-agent-note-provider <name>`, `--live-agent-note-interval-sec <n>`, `--live-agent-note-timeout-sec <n>`, `--live-agent-note-max-tail-chars <n>`
     - `--summary-profile phase-performance` enables advisory provider-step and phase-boundary summaries with performance judgments. It implies step summaries if `--step-summaries` was not otherwise provided.
-    - `--live-agent-notes` enables advisory live notes from bounded session-provider transport tails. It implies step summaries if `--step-summaries` was not otherwise provided.
+    - `--live-agent-notes` enables advisory live notes from bounded tmux pane tails, using `claude_haiku_summary` by default. Provider-session transport may be used as a fallback when tmux pane capture is unavailable. It implies step summaries if `--step-summaries` was not otherwise provided.
   - `--force-restart`, `--repair`, `--backup-state`, `--state-dir <path>`
   - Error handling: `--on-error stop|continue|interactive` (interactive optional/post-MVP)
   - Retries: `--max-retries <n>`, `--retry-delay <ms>`
@@ -89,7 +89,7 @@ orchestrate watch workflows/demo.yaml
 --step-summaries
 --summary-mode async|sync
 --summary-provider <name>
---summary-timeout-sec <n>
+--summary-timeout-sec <n>        # Default: 300
 --summary-max-input-chars <n>
 --summary-profile basic|phase-performance
 

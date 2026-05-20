@@ -26,3 +26,13 @@ def test_summary_provider_alias_uses_prompt_transport():
     assert provider is not None
     assert provider.input_mode == InputMode.ARGV
     assert "${PROMPT}" in provider.command
+
+
+def test_haiku_summary_provider_alias_exists_for_live_notes():
+    registry = ProviderRegistry()
+    provider = registry.get("claude_haiku_summary")
+
+    assert provider is not None
+    assert provider.input_mode == InputMode.ARGV
+    assert "${PROMPT}" in provider.command
+    assert provider.defaults.get("model") == "haiku"

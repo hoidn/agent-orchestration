@@ -12,6 +12,9 @@ from typing import Any, Dict
 from orchestrator.providers.types import ProviderParams
 
 
+DEFAULT_SUMMARY_TIMEOUT_SEC = 300
+
+
 class SummaryObserver:
     """Runs optional per-step summarization without altering workflow semantics."""
 
@@ -23,7 +26,7 @@ class SummaryObserver:
         provider_executor: Any,
         provider_name: str,
         mode: str = "async",
-        timeout_sec: int = 120,
+        timeout_sec: int = DEFAULT_SUMMARY_TIMEOUT_SEC,
         best_effort: bool = True,
         max_input_chars: int = 12000,
         profile: str = "basic",
@@ -51,11 +54,13 @@ class SummaryObserver:
         if summary_kind not in {"step", "provider", "phase"}:
             summary_kind = "step"
         safe = self._safe_name(step_name)
-        stem = self._file_stem(safe, summary_kind)
+        stem = self._file_stem(safe, summary_kind, snapshot)
         snapshot_path = self.summaries_dir / f"{stem}.snapshot.json"
         snapshot_path.write_text(json.dumps(snapshot, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
         prompt = self._build_prompt(snapshot, summary_kind=summary_kind)
+        step_id = self._snapshot_step_id(snapshot)
+        visit_count = self._snapshot_visit_count(snapshot)
         entry = {
             "step_name": step_name,
             "kind": summary_kind,
@@ -66,6 +71,10 @@ class SummaryObserver:
             "summary_path": str((self.summaries_dir / f"{stem}.summary.md").relative_to(self.run_root)),
             "error_path": None,
         }
+        if step_id is not None:
+            entry["step_id"] = step_id
+        if visit_count is not None:
+            entry["visit_count"] = visit_count
 
         if self.mode == "async":
             thread = threading.Thread(
@@ -313,10 +322,43 @@ class SummaryObserver:
         except OSError:
             return left == right
 
-    def _file_stem(self, safe_step_name: str, summary_kind: str) -> str:
+    def _file_stem(self, safe_step_name: str, summary_kind: str, snapshot: Dict[str, Any]) -> str:
         if self.profile == "basic" and summary_kind == "step":
-            return safe_step_name
-        return f"{safe_step_name}.{summary_kind}"
+            base = safe_step_name
+        else:
+            base = f"{safe_step_name}.{summary_kind}"
+        step_id = self._snapshot_step_id(snapshot)
+        visit_count = self._snapshot_visit_count(snapshot)
+        if not self._needs_identity_suffix(step_id, visit_count):
+            return base
+        parts = [base]
+        if step_id is not None:
+            parts.append(self._safe_name(step_id))
+        if visit_count is not None:
+            parts.append(f"visit-{visit_count}")
+        return ".".join(parts)
+
+    @staticmethod
+    def _needs_identity_suffix(step_id: str | None, visit_count: int | None) -> bool:
+        if isinstance(visit_count, int) and visit_count > 1:
+            return True
+        if isinstance(step_id, str) and "#" in step_id:
+            return True
+        return False
+
+    @staticmethod
+    def _snapshot_step_id(snapshot: Dict[str, Any]) -> str | None:
+        step = snapshot.get("step") if isinstance(snapshot, dict) else None
+        output = step.get("output") if isinstance(step, dict) else None
+        step_id = output.get("step_id") if isinstance(output, dict) else None
+        return step_id if isinstance(step_id, str) and step_id else None
+
+    @staticmethod
+    def _snapshot_visit_count(snapshot: Dict[str, Any]) -> int | None:
+        step = snapshot.get("step") if isinstance(snapshot, dict) else None
+        output = step.get("output") if isinstance(step, dict) else None
+        visit_count = output.get("visit_count") if isinstance(output, dict) else None
+        return visit_count if isinstance(visit_count, int) else None
 
     @staticmethod
     def _snapshot_status(snapshot: Dict[str, Any]) -> Any:

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import html
 import json
+import posixpath
 import re
 import secrets
 import shlex
 import subprocess
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -193,31 +194,66 @@ class _ProviderFlowBuilder:
         if not items:
             return ""
         parts = ["<div class=\"provider-flow-strip\">"]
-        for index, item in enumerate(items):
-            if index > 0:
-                parts.append("<span class=\"provider-flow-arrow\" aria-hidden=\"true\">&#8594;</span>")
-            if item["kind"] == "loop_group":
-                providers = [str(provider) for provider in item.get("providers", []) if provider]
-                parts.append("<div class=\"provider-flow-loop-card\">")
-                parts.append(f"<div class=\"provider-flow-loop-title\">{html.escape(str(item['label']))}</div>")
-                parts.append("<div class=\"provider-flow-loop-body\">")
-                for provider_index, provider in enumerate(providers[:2]):
-                    if provider_index > 0:
-                        parts.append("<span class=\"provider-flow-mini-arrow\" aria-hidden=\"true\">&#8594;</span>")
-                    parts.append(
-                        "<span class=\"provider-flow-mini-provider\">"
-                        f"{html.escape(provider)}</span>"
-                    )
+        rows = self._flow_rows(items)
+        for row_index, row in enumerate(rows):
+            reverse_row = row_index % 2 == 1
+            display_row = list(reversed(row)) if reverse_row else row
+            direction_class = " reverse" if reverse_row else ""
+            parts.append(
+                f"<div class=\"provider-flow-row{direction_class}\" "
+                f"style=\"--flow-columns:{len(row)}\">"
+            )
+            for item_index, item in enumerate(display_row):
+                stage_classes = ["provider-flow-stage"]
+                if item_index < len(row) - 1:
+                    stage_classes.append("has-prev" if reverse_row else "has-next")
+                elif row_index < len(rows) - 1:
+                    stage_classes.append("turn-next")
+                parts.append(f"<div class=\"{' '.join(stage_classes)}\">")
+                parts.append(self._flow_item_html(item))
                 parts.append("</div>")
-                parts.append("<div class=\"provider-flow-loop-note\">loops until approved</div>")
-                parts.append("</div>")
-            else:
-                parts.append(
-                    "<div class=\"provider-flow-provider-card\">"
-                    f"{html.escape(str(item['label']))}</div>"
-                )
+            parts.append("</div>")
         parts.append("</div>")
         return "".join(parts)
+
+    def _flow_rows(self, items: list[dict[str, object]]) -> list[list[dict[str, object]]]:
+        if len(items) <= 4:
+            return [items]
+        per_row = min(4, max(2, (len(items) + 1) // 2))
+        return [items[index : index + per_row] for index in range(0, len(items), per_row)]
+
+    def _flow_item_html(self, item: dict[str, object]) -> str:
+        if item["kind"] == "loop_group":
+            providers = [str(provider) for provider in item.get("providers", []) if provider]
+            parts = [
+                "<div class=\"provider-flow-card provider-flow-loop-card\">",
+                f"<div class=\"provider-flow-loop-title\">"
+                f"{self._flow_label_html(str(item['label']))}</div>",
+                "<div class=\"provider-flow-loop-body\">",
+            ]
+            for provider_index, provider in enumerate(providers[:2]):
+                if provider_index > 0:
+                    parts.append("<span class=\"provider-flow-mini-arrow\" aria-hidden=\"true\">&#8594;</span>")
+                parts.append(
+                    "<span class=\"provider-flow-mini-provider\">"
+                    f"{self._flow_label_html(provider)}</span>"
+                )
+            parts.extend(
+                [
+                    "</div>",
+                    "<div class=\"provider-flow-loop-note\">loops until approved</div>",
+                    "</div>",
+                ]
+            )
+            return "".join(parts)
+        return (
+            "<div class=\"provider-flow-card provider-flow-provider-card\">"
+            f"{self._flow_label_html(str(item['label']))}</div>"
+        )
+
+    def _flow_label_html(self, label: str) -> str:
+        escaped = html.escape(label)
+        return re.sub(r"(?<=[a-z0-9])(?=[A-Z])", "<wbr>", escaped)
 
     def _render_loop_group_svg(
         self,
@@ -752,6 +788,8 @@ class DashboardApp:
             lines.append(f"<p>{self._e(warning)}</p>")
         lines.append("</section>")
 
+        lines.append(self._summary_provider_visit_stats_html(row, resolver, entries))
+
         lines.extend(
             [
                 "<section><h2>Summary Entries</h2>",
@@ -796,7 +834,16 @@ class DashboardApp:
                     lines.append(
                         f"<p>Preview truncated at dashboard cap; file size {self._e(size)} bytes.</p>"
                     )
-                lines.append(f"<pre>{preview.display_text}</pre>")
+                lines.extend(
+                    [
+                        '<article class="markdown-preview run-summary-preview">',
+                        self._render_markdown_preview(
+                            preview.display_text,
+                            link_mapper=self._run_summary_preview_link_mapper(row, resolver),
+                        ),
+                        "</article>",
+                    ]
+                )
             else:
                 lines.append(f"<p>{self._e(preview.status)}</p>")
             lines.append(f"<p><a href=\"{self._file_href(row, summary_ref)}\">Open run-summary.md</a></p>")
@@ -808,6 +855,93 @@ class DashboardApp:
             "</main></body></html>",
         ])
         return self._html_response("\n".join(lines), script_nonce=script_nonce)
+
+    def _summary_provider_visit_stats_html(
+        self,
+        row,
+        resolver: FileReferenceResolver,
+        entries: Sequence[object],
+    ) -> str:
+        stats: dict[str, dict[str, object]] = {}
+        for entry in entries:
+            if not isinstance(entry, Mapping):
+                continue
+            if entry.get("kind") != "provider":
+                continue
+            step_name = self._str_or_none(entry.get("step_name")) or "(unnamed provider)"
+            stat = stats.setdefault(
+                step_name,
+                {
+                    "visits": 0,
+                    "statuses": {},
+                    "latest_context": "",
+                    "first_href": "",
+                    "error_href": "",
+                },
+            )
+            stat["visits"] = int(stat["visits"]) + 1
+            status = self._str_or_none(entry.get("status")) or "unknown"
+            statuses = stat["statuses"]
+            if isinstance(statuses, dict):
+                statuses[status] = int(statuses.get(status, 0)) + 1
+            stat["latest_context"] = self._summary_entry_context_label(entry)
+            for key in ("summary_path", "error_path", "snapshot_path"):
+                path = entry.get(key)
+                if not isinstance(path, str) or not path:
+                    continue
+                try:
+                    file_ref = resolver.run_ref(path, label=key)
+                except UnsafePathError:
+                    continue
+                href = self._file_href(row, file_ref)
+                if not stat["first_href"]:
+                    stat["first_href"] = href
+                if key == "error_path" and not stat["error_href"]:
+                    stat["error_href"] = href
+
+        lines = ["<section class=\"provider-visit-stats\"><h2>Provider Visit Stats</h2>"]
+        if not stats:
+            lines.append("<p class=\"muted\">No provider summary visits recorded yet.</p></section>")
+            return "\n".join(lines)
+
+        lines.extend(
+            [
+                "<table>",
+                "<thead><tr><th>Provider step</th><th>Visits</th><th>Status counts</th><th>Latest context</th><th>Files</th></tr></thead>",
+                "<tbody>",
+            ]
+        )
+        for step_name, stat in sorted(
+            stats.items(),
+            key=lambda item: (-int(item[1]["visits"]), item[0].lower()),
+        ):
+            visits = int(stat["visits"])
+            statuses = stat["statuses"] if isinstance(stat["statuses"], dict) else {}
+            status_text = ", ".join(
+                f"{count} {name}" for name, count in sorted(statuses.items())
+            )
+            latest_context = self._str_or_none(stat.get("latest_context")) or ""
+            first_href = self._str_or_none(stat.get("first_href"))
+            error_href = self._str_or_none(stat.get("error_href"))
+            name_html = self._e(step_name)
+            if first_href:
+                name_html = f"<a href=\"{first_href}\">{name_html}</a>"
+            file_links = []
+            if first_href:
+                file_links.append(f"<a href=\"{first_href}\">first artifact</a>")
+            if error_href and error_href != first_href:
+                file_links.append(f"<a href=\"{error_href}\">first error</a>")
+            lines.append(
+                "<tr>"
+                f"<td>{name_html}</td>"
+                f"<td>{visits} {'visit' if visits == 1 else 'visits'}</td>"
+                f"<td>{self._e(status_text)}</td>"
+                f"<td>{self._e(latest_context)}</td>"
+                f"<td>{' '.join(file_links)}</td>"
+                "</tr>"
+            )
+        lines.extend(["</tbody></table>", "</section>"])
+        return "\n".join(lines)
 
     def _summary_hub_style(self) -> str:
         return (
@@ -861,21 +995,32 @@ class DashboardApp:
             ".workflow-link-group a{display:inline-block;margin:0 .35rem .2rem 0}"
             ".workflow-summary-meta{margin:.1rem 0 .35rem;color:#52616b;font-size:.9rem}"
             ".summary-context{color:#52616b;font-size:.85rem}"
+            ".provider-visit-stats table{margin-top:.45rem}"
+            ".provider-visit-stats td:nth-child(2),.provider-visit-stats td:nth-child(3){white-space:nowrap}"
+            ".markdown-preview{max-width:60rem}"
+            ".markdown-preview code{background:#edf2f5;padding:.08rem .2rem;border-radius:3px}"
+            ".markdown-preview pre code{background:transparent;padding:0}"
+            ".run-summary-preview{background:#fff;border:1px solid #d8e0e6;border-radius:8px;padding:.75rem .9rem}"
+            ".run-summary-preview h1:first-child,.run-summary-preview h2:first-child{margin-top:0}"
             ".workflow-invocations{display:grid;gap:.35rem}"
             ".workflow-invocation{border:1px solid #d8e0e6;border-radius:6px;background:#fff;padding:.3rem .45rem}"
             ".workflow-invocation>summary{cursor:pointer;font-weight:600;color:#243b53}"
             ".workflow-invocation-body{margin-top:.35rem;padding-top:.35rem;border-top:1px solid #edf2f5}"
             ".provider-flow{border:1px solid #d8e0e6;border-radius:8px;background:#f8fafc;margin:.75rem 0 1rem;padding:.75rem;overflow:hidden}"
             ".provider-flow h3{margin:.1rem 0 .35rem}"
-            ".provider-flow-strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(15rem,1fr));gap:.55rem;margin:.65rem 0 .35rem;align-items:start}"
+            ".provider-flow-strip{display:grid;gap:.75rem;margin:.65rem 0 .35rem}"
+            ".provider-flow-row{display:grid;grid-template-columns:repeat(var(--flow-columns),minmax(0,1fr));gap:.7rem .8rem;align-items:start}"
             ".provider-flow-provider-card,.provider-flow-loop-card{border-radius:6px;border:1px solid #9fc6e8;background:#edf6ff;color:#102a43;box-sizing:border-box}"
-            ".provider-flow-provider-card{min-width:0;padding:.55rem .65rem;font-weight:700;text-align:center;display:flex;align-items:center;justify-content:center;line-height:1.15}"
-            ".provider-flow-loop-card{min-width:0;padding:.48rem .55rem;background:#fffaf3;border-color:#d98b54;overflow:hidden}"
-            ".provider-flow-loop-title{font-weight:700;color:#8a330d;text-align:center;font-size:.88rem;line-height:1.15;margin-bottom:.35rem}"
-            ".provider-flow-loop-body{display:flex;align-items:center;justify-content:center;gap:.35rem;flex-wrap:wrap}"
-            ".provider-flow-mini-provider{background:#edf6ff;border:1px solid #9fc6e8;border-radius:5px;padding:.28rem .38rem;font-weight:700;font-size:.84rem;line-height:1.1;text-align:center;min-width:0;overflow-wrap:anywhere}"
-            ".provider-flow-arrow{display:none}"
-            ".provider-flow-mini-arrow{align-self:center;color:#52616b;font-weight:700}"
+            ".provider-flow-stage{position:relative;min-width:0;max-width:100%}"
+            ".provider-flow-stage.has-next::after{content:'\\279C';position:absolute;right:-.62rem;top:50%;transform:translateY(-50%);color:#334155;font-weight:900;font-size:1.08rem;line-height:1;z-index:1}"
+            ".provider-flow-stage.has-prev::after{content:'\\279C';position:absolute;right:-.62rem;top:50%;transform:translateY(-50%) rotate(180deg);color:#334155;font-weight:900;font-size:1.08rem;line-height:1;z-index:1}"
+            ".provider-flow-stage.turn-next::after{content:'\\279C';position:absolute;left:50%;bottom:-.68rem;transform:translateX(-50%) rotate(90deg);color:#334155;font-weight:900;font-size:1.08rem;line-height:1;z-index:1}"
+            ".provider-flow-provider-card{width:100%;min-height:2.7rem;padding:.48rem .6rem;font-weight:700;text-align:center;display:flex;align-items:center;justify-content:center;line-height:1.15;overflow-wrap:anywhere;word-break:normal}"
+            ".provider-flow-loop-card{width:100%;min-height:7.2rem;padding:.44rem .5rem;background:#fffaf3;border-color:#d98b54;overflow:hidden}"
+            ".provider-flow-loop-title{font-weight:700;color:#8a330d;text-align:center;font-size:.82rem;line-height:1.12;margin-bottom:.34rem}"
+            ".provider-flow-loop-body{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:.16rem;flex-wrap:nowrap}"
+            ".provider-flow-mini-provider{width:100%;background:#edf6ff;border:1px solid #9fc6e8;border-radius:5px;padding:.24rem .32rem;font-weight:700;font-size:.76rem;line-height:1.08;text-align:center;min-width:0;overflow-wrap:anywhere;word-break:normal}"
+            ".provider-flow-mini-arrow{align-self:center;color:#52616b;font-weight:700;line-height:.8;transform:rotate(90deg)}"
             ".provider-flow-loop-note{text-align:center;color:#a4410c;font-size:.78rem;margin-top:.3rem}"
             ".provider-flow-source{margin-top:.6rem}"
             ".provider-flow-mermaid{white-space:pre-wrap;overflow-wrap:break-word;margin:.5rem 0 0}"
@@ -890,7 +1035,7 @@ class DashboardApp:
             ".tmux-session p{margin:.2rem 0 .55rem}"
             ".tmux-session details{margin-top:.4rem}"
             ".tmux-session pre{font-size:.78rem;white-space:pre-wrap}"
-            "@media (max-width: 900px){main{padding:.85rem}.summary-hero{align-items:flex-start;flex-direction:column}.summary-top-grid{grid-template-columns:1fr}.provider-flow-strip{grid-template-columns:1fr}.live-grid{grid-template-columns:1fr}.live-grid dt{margin-top:.3rem}}"
+            "@media (max-width: 900px){main{padding:.85rem}.summary-hero{align-items:flex-start;flex-direction:column}.summary-top-grid{grid-template-columns:1fr}.provider-flow-row{grid-template-columns:1fr}.provider-flow-stage::after{display:none}.live-grid{grid-template-columns:1fr}.live-grid dt{margin-top:.3rem}}"
             "</style>"
         )
 
@@ -3158,7 +3303,36 @@ class DashboardApp:
             headers={**self._html_headers(), **dict(preview.headers)},
         )
 
-    def _render_markdown_preview(self, escaped_text: str) -> str:
+    def _run_summary_preview_link_mapper(
+        self,
+        row,
+        resolver: FileReferenceResolver,
+    ) -> Callable[[str], Optional[str]]:
+        def map_href(href: str) -> Optional[str]:
+            href_text = html.unescape(href).strip()
+            if re.match(r"^[A-Za-z][A-Za-z0-9+.-]*:", href_text):
+                return None
+            if href_text.startswith("//"):
+                return None
+            if href_text.startswith("/"):
+                return None
+            route_path = posixpath.normpath(posixpath.join("summaries", href_text))
+            if route_path == "." or route_path.startswith("../") or route_path == "..":
+                return None
+            try:
+                file_ref = resolver.run_ref(route_path)
+            except UnsafePathError:
+                return None
+            return self._file_href(row, file_ref)
+
+        return map_href
+
+    def _render_markdown_preview(
+        self,
+        escaped_text: str,
+        *,
+        link_mapper: Optional[Callable[[str], Optional[str]]] = None,
+    ) -> str:
         lines = escaped_text.splitlines()
         rendered: list[str] = []
         paragraph: list[str] = []
@@ -3206,7 +3380,7 @@ class DashboardApp:
                 close_list()
                 level = len(heading_match.group(1))
                 rendered.append(
-                    f"<h{level}>{self._markdown_inline(heading_match.group(2))}</h{level}>"
+                    f"<h{level}>{self._markdown_inline(heading_match.group(2), link_mapper=link_mapper)}</h{level}>"
                 )
                 continue
             if stripped.startswith("- ") or stripped.startswith("* "):
@@ -3214,9 +3388,11 @@ class DashboardApp:
                 if not in_list:
                     rendered.append("<ul>")
                     in_list = True
-                rendered.append(f"<li>{self._markdown_inline(stripped[2:].strip())}</li>")
+                rendered.append(
+                    f"<li>{self._markdown_inline(stripped[2:].strip(), link_mapper=link_mapper)}</li>"
+                )
                 continue
-            paragraph.append(self._markdown_inline(stripped))
+            paragraph.append(self._markdown_inline(stripped, link_mapper=link_mapper))
 
         close_paragraph()
         close_list()
@@ -3224,10 +3400,27 @@ class DashboardApp:
             close_code()
         return "\n".join(rendered)
 
-    def _markdown_inline(self, escaped_text: str) -> str:
+    def _markdown_inline(
+        self,
+        escaped_text: str,
+        *,
+        link_mapper: Optional[Callable[[str], Optional[str]]] = None,
+    ) -> str:
         text = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped_text)
         text = re.sub(r"\*\*([^*\n]+)\*\*", r"<strong>\1</strong>", text)
-        return re.sub(r"\*([^*\n]+)\*", r"<em>\1</em>", text)
+        text = re.sub(r"\*([^*\n]+)\*", r"<em>\1</em>", text)
+
+        if link_mapper is None:
+            return text
+
+        def replace_link(match: re.Match[str]) -> str:
+            label = match.group(1)
+            mapped_href = link_mapper(match.group(2))
+            if not mapped_href:
+                return match.group(0)
+            return f'<a href="{self._e(mapped_href)}">{label}</a>'
+
+        return re.sub(r"\[([^\]\n]+)\]\(([^)\s]+)\)", replace_link, text)
 
     def _file_href(self, row, file_ref) -> str:
         return (

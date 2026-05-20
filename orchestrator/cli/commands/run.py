@@ -21,6 +21,7 @@ from orchestrator.workflow.loaded_bundle import (
 )
 from orchestrator.workflow.linting import lint_workflow
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
+from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
 from orchestrator.runtime_observability import record_compiled_frontend_provenance
 from orchestrator.workflow.signatures import bind_workflow_inputs
@@ -57,7 +58,7 @@ def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
     if not step_summaries_enabled:
         return None
 
-    summary_timeout_sec = int(getattr(args, 'summary_timeout_sec', 120))
+    summary_timeout_sec = int(getattr(args, 'summary_timeout_sec', DEFAULT_SUMMARY_TIMEOUT_SEC))
     summary_max_input_chars = int(getattr(args, 'summary_max_input_chars', 12000))
     if summary_timeout_sec <= 0:
         raise ValueError("--summary-timeout-sec must be > 0")
@@ -87,10 +88,11 @@ def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
         step_summaries["live_agent_notes"] = {
             "enabled": True,
             "provider": getattr(args, 'live_agent_note_provider', None)
-            or step_summaries["provider"],
+            or "claude_haiku_summary",
             "interval_sec": interval_sec,
             "timeout_sec": live_timeout_sec,
             "max_tail_chars": max_tail_chars,
+            "source": "tmux",
         }
 
     return {

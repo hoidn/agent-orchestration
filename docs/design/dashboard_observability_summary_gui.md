@@ -32,15 +32,28 @@ It does not scan arbitrary summary files as semantic authority. If the aggregate
 index is missing, the page reports that no summary hub is available and points
 users back to the run detail page.
 
+Summary entries are visit records, not unique logical steps. A provider inside a
+review loop may have several entries with the same `step_name` and distinct
+`step_id`, `visit_count`, `frame_root`, or summary path. The dashboard may group
+or collapse them for readability, but it must not deduplicate them by step name.
+For looped body steps, the loop iteration encoded in `step_id` is the meaningful
+context. A per-step `visit_count: 1` should not be displayed as if it were a
+workflow-level visit number for every loop iteration.
+
 ## Page Shape
 
 The page renders:
 
 - a run header and back link;
+- a terminal section with a tmux attach link and copyable command when run
+  process metadata records a tmux context;
+- an ASCII workflow structure panel derived from the authored workflow file when
+  available;
 - a live current-step panel that updates while the page is open;
 - a compact status strip with total summaries and counts by kind;
-- a table of summary entries with step name, kind, profile, status, duration,
-  frame root, and links to summary, snapshot, and error files;
+- a table of summary visit entries with step name, kind, profile, status,
+  duration, frame root, runtime step id or visit label, and links to summary,
+  snapshot, and error files;
 - an escaped preview of `run-summary.md` when present.
 
 All file links use the existing dashboard file route:
@@ -51,6 +64,92 @@ All file links use the existing dashboard file route:
 
 The page must not expose absolute filesystem paths. Markdown summary content is
 rendered as escaped text in a `<pre>` block, not interpreted as HTML.
+
+## Terminal Link
+
+If `RUN_ROOT/monitor_process.json` includes a `tmux` value, the Summary Hub
+renders a small `Terminal` section near the top of the page. The dashboard uses
+the recorded tmux socket and run PID to resolve the pane target when possible.
+The primary link stays inside the dashboard and opens a read-only tmux pane
+viewer that refreshes by capturing the recent pane tail. The section also shows
+a copyable manual attach command.
+
+If the exact pane cannot be resolved, the page falls back to a socket-level
+attach command. The viewer is read-only capture, not a control channel: it does
+not send keys, kill panes, mutate run state, or invoke workflow commands.
+
+## Workflow Structure Panel
+
+The Summary Hub should open with a compact structural map of the authored
+workflow so users can understand where summaries fit in the overall execution.
+The first implementation used escaped ASCII. The richer version renders the same
+tree as dashboard-native HTML cards so each step can expose useful links without
+requiring Mermaid or client-side diagram rendering.
+
+Primary source:
+
+```text
+state.workflow_file -> workspace-relative workflow YAML
+```
+
+The dashboard reads the workflow file through the existing workspace-scoped path
+resolver, parses the top-level YAML, and renders the ordered `steps` list. The
+renderer recognizes common execution/control forms such as provider, command,
+call, match, if/else, and repeat-until. Nested branch and loop bodies are shown
+as indented children.
+
+Each authored step card may show links for:
+
+- prompt files: `asset_file`, `input_file`, `asset_depends_on`, and common
+  adjudicated-provider candidate/evaluator prompt fields;
+- input files declared through `depends_on.required` after resolving bound
+  workflow inputs;
+- deterministic output files declared through `output_bundle.path`,
+  `expected_outputs[*].path`, and relpath values inside output bundles;
+- semantic expected-output targets when a pointer file contains a relpath value
+  that resolves to an existing file;
+- published artifacts declared through `publishes` when the current run state
+  has an existing file for the artifact value;
+- consumed artifacts declared through `consumes` when the current run state has
+  an existing file for the consumed artifact value.
+
+The link policy is strict: show links only for files that resolve inside the
+workspace or run root and currently exist. Missing, unsafe, or non-file values
+are omitted rather than guessed.
+
+Provider-like steps (`provider` and `adjudicated_provider`) are visually
+distinguished from deterministic command/control/materialization steps. Workflow
+nodes use native collapsed `<details>` cards by default so the whole workflow
+remains scannable on one page. Opening a card reveals linked summary artifacts,
+prompt files, outputs, published artifacts, and consumed artifacts for that
+step.
+
+When one authored step has summaries from multiple run invocations, the card
+renders those visits as numbered collapsed invocation panels. Each panel is
+self-contained: summary, prompt, input, output, published, and consumed links
+are resolved from the same call-frame state as the summary entry. This prevents
+the common repeated-step failure where Invocation 1's summary is shown beside
+Invocation 2's expected-output pointer or target report.
+
+Invocation selection is lineage-scoped. The current implementation avoids
+independent JavaScript tabs by using native panels, but the invariant is the
+same: if a future UI lets users select Invocation 2 inside a child provider
+step, the enclosing call/repeat context must resolve to the same invocation
+lineage rather than keeping stale links from another visit.
+
+Fallback source:
+
+```text
+RUN_ROOT/summaries/index.json entries[*].step_name
+```
+
+If the workflow file is missing, unsafe, or unreadable, the page shows a styled
+observed summary sequence built from unique step names in the summary index.
+This fallback is explicitly labeled as observed summaries, not authored workflow
+structure.
+
+The panel is informational only. It does not affect run state, routing, summary
+selection, or artifact authority.
 
 ## Live Current-Step View
 
@@ -64,6 +163,7 @@ The endpoint returns a run-scoped read model containing:
 
 - run status and display status;
 - current step name, step id, started time, heartbeat, and age fields;
+- the specific provider step inferred from provider prompt/log artifacts;
 - latest summary counts;
 - the newest summary entry for the current step when one exists.
 
@@ -73,18 +173,41 @@ without turning the dashboard into a separate frontend application. The
 JavaScript renders text with `textContent` and builds only run-local links
 returned by the endpoint.
 
+The provider-step field is intentionally best-effort. Runtime `current_step`
+can point at a loop, call frame, or deterministic routing step while a nested
+provider is active, so the dashboard separately scans run-local provider prompt
+logs. A prompt without a completed stderr log is shown as `in_progress`; if no
+such prompt exists, the newest provider prompt is shown as `most_recent`. This
+is an observability hint only and does not affect run state or workflow routing.
+
+Iteration and visit labels are scoped, not workflow-global. A loop iteration
+number belongs to the repeat/call-frame that produced it, so the dashboard must
+render labels such as:
+
+```text
+DrainLispFrontendWork iteration 0 / visit 1
+drain_lisp_frontend_work iteration 0 / visit 1 / run_implementation_phase visit 1
+```
+
+It must not present a bare `iter 0` as if it were a global workflow iteration.
+If a future runtime adds a separate monotonic event or attempt counter, the
+dashboard can show it as a distinct field rather than overloading loop
+iteration.
+
 If JavaScript is disabled, the static summary hub remains useful and the page
 can still be refreshed manually.
 
 ## Live Agent-Output Notes
 
 The current-step panel should not treat raw streamed agent output as workflow
-state. Raw provider transport is high-volume, provider-specific, and may contain
-partial or redundant text. When live narration over agent output is needed, a
-runtime-side observer or sidecar should:
+state. Raw tmux pane output and provider transport are high-volume,
+provider-specific, and may contain partial or redundant text. When live
+narration over agent output is needed, a runtime-side observer or sidecar
+should:
 
-- read a bounded tail of the current provider transport spool;
-- call a configured cheap summary provider at a throttled interval;
+- read a bounded tail of the current tmux pane output, falling back to
+  provider-session transport only when pane capture is unavailable;
+- call a configured low-cost summary provider at a throttled interval;
 - write the result as a run-local observability artifact;
 - leave `state.json` current-step metadata as the authority for what is running.
 
@@ -103,8 +226,9 @@ Initial runtime surface:
 ```
 
 These flags configure an optional observer under the existing
-`step_summaries` runtime observability block. The observer runs only while a
-session-enabled provider step has a retained transport spool. It writes:
+`step_summaries` runtime observability block. The default live-note provider is
+`claude_haiku_summary`. The observer runs while provider steps execute and uses
+tmux pane tails as its primary input. It writes:
 
 ```text
 RUN_ROOT/summaries/live-current-step.md
@@ -148,6 +272,10 @@ Add dashboard server tests for:
 
 - run detail links the summary hub when the aggregate index exists;
 - `/summaries` renders grouped entries and safe run-file links;
+- `/summaries` renders an escaped ASCII workflow structure panel from the
+  authored workflow file;
+- `/summaries` falls back to an observed summary sequence when authored workflow
+  structure is unavailable;
 - markdown preview is escaped;
 - invalid or missing index files produce safe, non-crashing pages;
 - traversal paths in index entries are not linked.

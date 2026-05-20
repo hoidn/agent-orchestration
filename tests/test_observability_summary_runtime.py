@@ -121,6 +121,106 @@ steps:
     assert (summaries_dir / "run-summary.md").exists()
 
 
+def test_phase_performance_profile_summarizes_nested_provider_visits(tmp_path: Path):
+    prompt_file = tmp_path / "prompt.md"
+    prompt_file.write_text("Decide whether the loop should stop.\n", encoding="utf-8")
+
+    workflow_file = tmp_path / "workflow.yaml"
+    workflow_file.write_text(
+        """
+version: "2.7"
+name: nested-summary-runtime
+providers:
+  fake_provider:
+    command:
+      - bash
+      - -lc
+      - |
+        cat >/dev/null
+        mkdir -p state
+        count=$(cat state/review-count.txt 2>/dev/null || printf '0')
+        count=$((count + 1))
+        printf '%s\\n' "$count" > state/review-count.txt
+        if [ "$count" -lt 2 ]; then decision=REVISE; else decision=APPROVE; fi
+        printf '{"review_decision":"%s"}\\n' "$decision" > state/review-decision.json
+    input_mode: "stdin"
+  fake_summary:
+    command: ["bash", "-lc", "cat >/dev/null; printf 'summary ok\\n'"]
+    input_mode: "stdin"
+steps:
+  - name: ReviewLoop
+    id: review_loop
+    repeat_until:
+      id: review_iteration
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: [APPROVE, REVISE]
+          from:
+            ref: self.steps.ReviewProvider.artifacts.review_decision
+      condition:
+        compare:
+          left:
+            ref: self.outputs.review_decision
+          op: eq
+          right: APPROVE
+      max_iterations: 3
+      steps:
+        - name: ReviewProvider
+          id: review_provider
+          provider: fake_provider
+          input_file: prompt.md
+          output_bundle:
+            path: state/review-decision.json
+            fields:
+              - name: review_decision
+                json_pointer: /review_decision
+                type: enum
+                allowed: [APPROVE, REVISE]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    workflow = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(tmp_path, run_id="run-nested-summary-runtime")
+    state_manager.initialize("workflow.yaml", {})
+
+    executor = WorkflowExecutor(
+        workflow=workflow,
+        workspace=tmp_path,
+        state_manager=state_manager,
+        debug=False,
+        observability={
+            "step_summaries": {
+                "enabled": True,
+                "mode": "sync",
+                "provider": "fake_summary",
+                "timeout_sec": 30,
+                "best_effort": True,
+                "max_input_chars": 12000,
+                "profile": "phase-performance",
+            }
+        },
+    )
+
+    final_state = executor.execute(on_error="stop")
+
+    summaries_dir = state_manager.run_root / "summaries"
+    index = json.loads((summaries_dir / "index.json").read_text(encoding="utf-8"))
+    provider_entries = [
+        entry
+        for entry in index["entries"]
+        if entry["kind"] == "provider" and entry["step_name"] == "ReviewProvider"
+    ]
+    assert final_state["status"] == "completed"
+    assert len(provider_entries) == 2
+    assert provider_entries[0]["summary_path"] != provider_entries[1]["summary_path"]
+    for entry in provider_entries:
+        assert (state_manager.run_root / entry["summary_path"]).read_text() == "summary ok\n"
+
+
 def test_live_agent_notes_summarize_session_transport_during_provider_step(tmp_path: Path):
     workflow_file = tmp_path / "workflow.yaml"
     session_script = textwrap.dedent(

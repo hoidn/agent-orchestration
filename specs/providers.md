@@ -193,6 +193,7 @@ steps:
 | --- | --- | --- | --- |
 | claude | `claude -p ${PROMPT} --model ${model}` | argv | Default model via provider defaults (e.g., `claude-opus-4-6`) or CLI config/env. |
 | claude_sonnet_summary | `claude -p ${PROMPT} --model ${model}` | argv | Built-in observability summary alias. Default model: `claude-sonnet-4-6`. Advisory only; not for control-flow gates. |
+| claude_haiku_summary | `claude -p ${PROMPT} --model ${model}` | argv | Built-in low-cost observability summary alias. Default model: `claude-3-5-haiku-20241022`. Advisory only; not for control-flow gates. |
 | gemini | `gemini -p ${PROMPT}` | argv | Model selection may not be supported via CLI; rely on CLI configuration if applicable. |
 | codex | `codex exec --dangerously-bypass-approvals-and-sandbox --model ${model} --config reasoning_effort=${reasoning_effort}` (prompt via stdin) | stdin | Reads prompt from stdin; `${PROMPT}` must not appear in template. Built-in defaults are `model: gpt-5.3-codex`, `reasoning_effort: high` (can be overridden in workflow/defaults/provider_params). Use only for trusted workflow workspaces because it disables Codex's own approval and sandbox layer. |
 

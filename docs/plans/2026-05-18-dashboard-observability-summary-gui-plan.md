@@ -6,6 +6,10 @@
 
 **Architecture:** Extend the existing stdlib dashboard with a `/summaries` route backed by `RUN_ROOT/summaries/index.json` plus a `/summaries/live.json` polling endpoint backed by request-time state projection. Reuse existing run-scoped file preview links and CSP/escaping behavior; allow only a nonce-protected inline updater on the summary hub page. Keep the route read-only and advisory-only.
 
+**Structure panel extension:** Render an escaped ASCII workflow map near the top of the Summary Hub. Prefer the authored `state.workflow_file` YAML as the source; fall back to the observed unique step sequence from `summaries/index.json` when the workflow file cannot be read.
+
+**Linked map extension:** Replace the ASCII-only map with a dashboard-native nested HTML tree. Step cards show kind badges plus safe links to existing prompt files and to published/consumed artifact files that the current run state can resolve.
+
 **Tech Stack:** Python stdlib HTTP server, existing `orchestrator.dashboard` modules, pytest.
 
 ---
@@ -66,3 +70,55 @@
 - [ ] Implement the JSON endpoint by reusing the existing request-time `DashboardRunDetail` projection.
 - [ ] Add a small inline updater that polls every few seconds, writes via `textContent`, and leaves the static page useful without JavaScript.
 - [ ] Verify existing missing-index, invalid-index, and unsafe-path behavior still works.
+
+## Task 6: Add Workflow Structure Panel
+
+- [ ] Add a failing test that creates a workflow YAML with provider, command,
+  repeat-until, and match-shaped nested steps.
+- [ ] Assert `/runs/w0/run1/summaries` includes a "Workflow Structure" section
+  before summary entries and renders the ordered ASCII tree without absolute
+  paths.
+- [ ] Add a failing fallback test where `state.workflow_file` is absent but
+  `summaries/index.json` has entries, and assert the panel is labeled as an
+  observed summary sequence.
+- [ ] Implement a small dashboard-local workflow structure renderer in
+  `orchestrator/dashboard/server.py`.
+- [ ] Parse workflow YAML with `yaml.safe_load` through the existing
+  workspace-scoped file resolver; do not execute or load workflow semantics for
+  this display-only panel.
+- [ ] Escape all rendered diagram text in the `<pre>` block.
+- [ ] Run `python -m pytest tests/test_dashboard_server.py -q`.
+
+## Task 7: Make Workflow Structure Linked And Readable
+
+- [ ] Add a failing test with a workflow step that has `asset_file`,
+  `asset_depends_on`, `publishes`, and `consumes`, plus run state containing
+  existing artifact files for the published and consumed artifacts.
+- [ ] Assert the Summary Hub renders a styled workflow tree rather than only a
+  `<pre>` dump.
+- [ ] Assert prompt links use workspace-scoped file routes and only appear when
+  the prompt files exist.
+- [ ] Assert published and consumed artifact links use run-scoped file routes
+  and only appear when the resolved artifact values exist.
+- [ ] Keep the observed-summary fallback, but render it as the same styled tree.
+- [ ] Implement a small dashboard-local view model for workflow nodes and link
+  groups in `orchestrator/dashboard/server.py`.
+- [ ] Use the existing `FileReferenceResolver` for all links; never expose
+  absolute paths.
+- [ ] Run `python -m pytest tests/test_dashboard_server.py -q` and the focused
+  dashboard/observability regression selectors.
+
+## Task 8: Distinguish Provider Steps And Collapse Details
+
+- [ ] Add failing tests that provider nodes render with a provider-specific
+  class while deterministic nodes use the deterministic class.
+- [ ] Add failing tests that workflow cards are native `<details>` controls and
+  are collapsed by default.
+- [ ] Add failing tests that summary entries appear inside the expanded card as
+  step summary artifact links.
+- [ ] Implement provider-specific visual styling and collapsed details cards in
+  `orchestrator/dashboard/server.py`.
+- [ ] Keep the one-line summary readable when collapsed: step name, kind badge,
+  summary count, and link count.
+- [ ] Run the focused dashboard/observability regression selectors and restart
+  the dashboard.

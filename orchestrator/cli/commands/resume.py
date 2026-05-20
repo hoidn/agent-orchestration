@@ -14,6 +14,7 @@ from orchestrator.workflow.loaded_bundle import workflow_context, workflow_input
 from orchestrator.workflow.signatures import bind_workflow_inputs
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
+from orchestrator.observability.summary import DEFAULT_SUMMARY_TIMEOUT_SEC
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
 
 
@@ -34,7 +35,7 @@ def _merge_observability_overrides(base: Optional[Dict[str, Any]], **overrides: 
             "enabled": True,
             "mode": "async",
             "provider": "claude_sonnet_summary",
-            "timeout_sec": 120,
+            "timeout_sec": DEFAULT_SUMMARY_TIMEOUT_SEC,
             "max_input_chars": 12000,
             "best_effort": True,
         }
@@ -85,10 +86,11 @@ def _merge_observability_overrides(base: Optional[Dict[str, Any]], **overrides: 
                 raise ValueError("--live-agent-note-max-tail-chars must be > 0")
             live_cfg["max_tail_chars"] = max_tail_chars
         live_cfg.setdefault("enabled", True)
-        live_cfg.setdefault("provider", step_cfg.get("provider", "claude_sonnet_summary"))
+        live_cfg.setdefault("provider", "claude_haiku_summary")
         live_cfg.setdefault("interval_sec", 15.0)
         live_cfg.setdefault("timeout_sec", 30)
         live_cfg.setdefault("max_tail_chars", 6000)
+        live_cfg.setdefault("source", "tmux")
         step_cfg["live_agent_notes"] = live_cfg
 
     step_cfg["enabled"] = True

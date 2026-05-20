@@ -51,6 +51,12 @@ class ProviderRegistry:
                 defaults={"model": "claude-sonnet-4-6"},
                 input_mode=InputMode.ARGV
             ),
+            "claude_haiku_summary": ProviderTemplate(
+                name="claude_haiku_summary",
+                command=["claude", "-p", "${PROMPT}", "--model", "${model}"],
+                defaults={"model": "haiku"},
+                input_mode=InputMode.ARGV
+            ),
             "gemini": ProviderTemplate(
                 name="gemini",
                 command=["gemini", "-p", "${PROMPT}"],

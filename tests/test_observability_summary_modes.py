@@ -24,9 +24,11 @@ class _FakeProviderExecutor:
         self.delay_sec = delay_sec
         self.result = result or _FakeProviderResult()
         self.prepare_contexts = []
+        self.prepare_kwargs = []
 
     def prepare_invocation(self, *args, **kwargs):
         self.prepare_contexts.append(kwargs.get("context"))
+        self.prepare_kwargs.append(kwargs)
         return object(), None
 
     def execute(self, invocation):
@@ -42,6 +44,21 @@ def _wait_for(path: Path, timeout_sec: float = 2.0) -> bool:
             return True
         time.sleep(0.02)
     return False
+
+
+def test_summary_observer_default_timeout_allows_longer_generated_summaries(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-default-timeout"
+    provider_executor = _FakeProviderExecutor()
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=provider_executor,
+        provider_name="summary_provider",
+        mode="sync",
+    )
+
+    observer.emit("StepA", {"step": "StepA", "status": "completed"})
+
+    assert provider_executor.prepare_kwargs[0]["timeout_sec"] == 300
 
 
 def test_summary_observer_async_dispatch_non_blocking(tmp_path: Path):
@@ -166,6 +183,61 @@ def test_phase_performance_provider_summary_uses_kind_specific_files(tmp_path: P
 
     assert (run_root / "summaries" / "ExecuteImplementation.provider.snapshot.json").exists()
     assert (run_root / "summaries" / "ExecuteImplementation.provider.summary.md").read_text() == "profile summary\n"
+
+
+def test_summary_observer_uses_visit_identity_for_distinct_files(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run-visit-identity"
+    observer = SummaryObserver(
+        run_root=run_root,
+        provider_executor=_FakeProviderExecutor(result=_FakeProviderResult(stdout=b"profile summary")),
+        provider_name="summary_provider",
+        mode="sync",
+        timeout_sec=30,
+        best_effort=True,
+        max_input_chars=12000,
+        profile="phase-performance",
+    )
+
+    observer.emit(
+        "ReviewImplementation",
+        {
+            "step": {
+                "name": "ReviewImplementation",
+                "summary_kind": "provider",
+                "output": {
+                    "status": "completed",
+                    "step_id": "root.review_loop#0.review_implementation",
+                    "visit_count": 1,
+                },
+            }
+        },
+        summary_kind="provider",
+    )
+    observer.emit(
+        "ReviewImplementation",
+        {
+            "step": {
+                "name": "ReviewImplementation",
+                "summary_kind": "provider",
+                "output": {
+                    "status": "completed",
+                    "step_id": "root.review_loop#1.review_implementation",
+                    "visit_count": 1,
+                },
+            }
+        },
+        summary_kind="provider",
+    )
+
+    index = json.loads((run_root / "summaries" / "index.json").read_text(encoding="utf-8"))
+    entries = index["entries"]
+    assert len(entries) == 2
+    assert entries[0]["summary_path"] != entries[1]["summary_path"]
+    assert entries[0]["step_id"] == "root.review_loop#0.review_implementation"
+    assert entries[1]["step_id"] == "root.review_loop#1.review_implementation"
+    assert entries[0]["visit_count"] == 1
+    for entry in entries:
+        assert (run_root / entry["summary_path"]).exists()
 
 
 def test_summary_observer_writes_index_entries(tmp_path: Path):
@@ -342,3 +414,102 @@ steps:
     assert final_state["artifact_versions"] == {}
     assert final_state["artifact_consumes"] == {}
     assert _wait_for(state_manager.run_root / "summaries" / "StepA.error.json")
+
+
+def test_repeat_until_body_provider_writes_summary_hub_entry(tmp_path: Path):
+    workflow_file = tmp_path / "workflow.yaml"
+    workflow_file.write_text(
+        """
+version: "2.14"
+name: repeat-provider-summary
+providers:
+  worker:
+    command:
+      - bash
+      - -lc
+      - >-
+        mkdir -p state artifacts/work &&
+        printf '{"status":"DONE","report":"artifacts/work/report.md"}\\n' > state/result.json &&
+        printf 'report\\n' > artifacts/work/report.md
+    input_mode: stdin
+  summary:
+    command: ["bash", "-lc", "cat >/dev/null; printf 'loop provider summary\\n'"]
+    input_mode: stdin
+steps:
+  - name: ReviewLoop
+    repeat_until:
+      id: iteration
+      max_iterations: 2
+      outputs:
+        status:
+          kind: scalar
+          type: enum
+          allowed: ["CONTINUE", "DONE"]
+          from:
+            ref: self.steps.RunOnce.artifacts.status
+        report:
+          type: relpath
+          under: artifacts/work
+          must_exist_target: true
+          from:
+            ref: self.steps.RunOnce.artifacts.report
+      condition:
+        compare:
+          left:
+            ref: self.outputs.status
+          op: eq
+          right: DONE
+      steps:
+        - name: RunOnce
+          provider: worker
+          output_bundle:
+            path: state/result.json
+            fields:
+              - name: status
+                json_pointer: /status
+                type: enum
+                allowed: ["CONTINUE", "DONE"]
+              - name: report
+                json_pointer: /report
+                type: relpath
+                under: artifacts/work
+                must_exist_target: true
+""".strip()
+        + "\n"
+    )
+
+    workflow = WorkflowLoader(tmp_path).load(workflow_file)
+    state_manager = StateManager(tmp_path, run_id="run-repeat-summary")
+    state_manager.initialize("workflow.yaml", {})
+
+    executor = WorkflowExecutor(
+        workflow=workflow,
+        workspace=tmp_path,
+        state_manager=state_manager,
+        debug=False,
+        observability={
+            "step_summaries": {
+                "enabled": True,
+                "mode": "sync",
+                "provider": "summary",
+                "timeout_sec": 30,
+                "best_effort": True,
+                "max_input_chars": 12000,
+                "profile": "phase-performance",
+            }
+        },
+    )
+
+    final_state = executor.execute(on_error="stop")
+
+    assert final_state["steps"]["ReviewLoop"]["status"] == "completed"
+    index = json.loads((state_manager.run_root / "summaries" / "index.json").read_text(encoding="utf-8"))
+    provider_entries = [entry for entry in index["entries"] if entry["kind"] == "provider"]
+    assert len(provider_entries) == 1
+    provider_entry = provider_entries[0]
+    assert provider_entry["step_name"] == "RunOnce"
+    assert provider_entry["step_id"] == "root.reviewloop#0.iteration.runonce"
+    assert str(provider_entry["summary_path"]).startswith(
+        "summaries/RunOnce.provider.root.reviewloop_0.iteration.runonce"
+    )
+    assert str(provider_entry["summary_path"]).endswith(".summary.md")

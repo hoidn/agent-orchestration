@@ -274,9 +274,10 @@ def test_summary_provider_flow_orders_design_gap_architecture_before_plan(tmp_pa
     ]
 
     html = app._provider_flow_mermaid_html(nodes)
+    normalized_html = html.replace("<wbr>", "")
 
-    assert html.index("SelectNextWork") < html.index("DraftDesignGapArchitecture")
-    assert html.index("ArchitectureReviewLoop") < html.index("PlanReviewLoop")
+    assert normalized_html.index("SelectNextWork") < normalized_html.index("DraftDesignGapArchitecture")
+    assert normalized_html.index("ArchitectureReviewLoop") < normalized_html.index("PlanReviewLoop")
 
 
 def test_runs_index_filters_by_status_workflow_recency_and_search(tmp_path: Path):
@@ -456,7 +457,8 @@ def test_run_detail_links_summary_hub_when_index_exists(tmp_path: Path):
 def test_summary_hub_route_renders_entries_and_escaped_rollup(tmp_path: Path):
     run_root = tmp_path / ".orchestrate" / "runs" / "run1"
     summaries = run_root / "summaries"
-    frame_summaries = run_root / "call_frames" / "frame1" / "summaries"
+    frame_root = "call_frames/root.loop#0/frame1"
+    frame_summaries = run_root / frame_root / "summaries"
     summaries.mkdir(parents=True)
     frame_summaries.mkdir(parents=True)
     (frame_summaries / "SelectNextWork.provider.summary.md").write_text(
@@ -468,7 +470,13 @@ def test_summary_hub_route_renders_entries_and_escaped_rollup(tmp_path: Path):
         encoding="utf-8",
     )
     (summaries / "run-summary.md").write_text(
-        "# Rollup\n<script>rollup</script>\n",
+        (
+            "# Rollup\n\n"
+            "## Generated Summaries\n\n"
+            "- SelectNextWork (provider): completed - "
+            "[summary](../call_frames/root.loop#0/frame1/summaries/SelectNextWork.provider.summary.md)\n\n"
+            "<script>rollup</script>\n"
+        ),
         encoding="utf-8",
     )
     (summaries / "index.json").write_text(
@@ -482,9 +490,9 @@ def test_summary_hub_route_renders_entries_and_escaped_rollup(tmp_path: Path):
                         "profile": "phase-performance",
                         "status": "completed",
                         "duration_ms": 1234,
-                        "frame_root": "call_frames/frame1",
-                        "summary_path": "call_frames/frame1/summaries/SelectNextWork.provider.summary.md",
-                        "snapshot_path": "call_frames/frame1/summaries/SelectNextWork.provider.snapshot.json",
+                        "frame_root": frame_root,
+                        "summary_path": f"{frame_root}/summaries/SelectNextWork.provider.summary.md",
+                        "snapshot_path": f"{frame_root}/summaries/SelectNextWork.provider.snapshot.json",
                         "error_path": None,
                     }
                 ],
@@ -508,11 +516,108 @@ def test_summary_hub_route_renders_entries_and_escaped_rollup(tmp_path: Path):
     assert "phase-performance" in body
     assert "completed" in body
     assert "1234 ms" in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/frame1/summaries/SelectNextWork.provider.summary.md"' in body
-    assert 'href="/runs/w0/run1/files/run/call_frames/frame1/summaries/SelectNextWork.provider.snapshot.json"' in body
+    assert (
+        'href="/runs/w0/run1/files/run/call_frames/root.loop%230/frame1/summaries/SelectNextWork.provider.summary.md"'
+        in body
+    )
+    assert (
+        'href="/runs/w0/run1/files/run/call_frames/root.loop%230/frame1/summaries/SelectNextWork.provider.snapshot.json"'
+        in body
+    )
+    assert '<article class="markdown-preview run-summary-preview">' in body
+    assert "<h1>Rollup</h1>" in body
+    assert "<h2>Generated Summaries</h2>" in body
+    assert "[summary](" not in body
+    assert (
+        '<li>SelectNextWork (provider): completed - '
+        '<a href="/runs/w0/run1/files/run/call_frames/root.loop%230/frame1/summaries/'
+        'SelectNextWork.provider.summary.md">summary</a></li>'
+        in body
+    )
+    assert (
+        'href="/runs/w0/run1/files/run/call_frames/root.loop%230/frame1/summaries/SelectNextWork.provider.summary.md"'
+        in body
+    )
     assert "&lt;script&gt;rollup&lt;/script&gt;" in body
     assert "<script>rollup</script>" not in body
     assert str(run_root) not in body
+
+
+def test_summary_hub_renders_provider_visit_stats(tmp_path: Path):
+    run_root = tmp_path / ".orchestrate" / "runs" / "run1"
+    summaries = run_root / "summaries"
+    first = run_root / "call_frames" / "root.loop#0.review__visit__1" / "summaries"
+    second = run_root / "call_frames" / "root.loop#1.review__visit__1" / "summaries"
+    third = run_root / "call_frames" / "root.loop#1.fix__visit__1" / "summaries"
+    for directory in (summaries, first, second, third):
+        directory.mkdir(parents=True)
+    (first / "ReviewImplementation.provider.summary.md").write_text("first", encoding="utf-8")
+    (second / "ReviewImplementation.provider.error.json").write_text("{}", encoding="utf-8")
+    (third / "FixImplementation.provider.summary.md").write_text("fix", encoding="utf-8")
+    (summaries / "index.json").write_text(
+        json.dumps(
+            {
+                "schema": "orchestrator_summary_index/v1",
+                "entries": [
+                    {
+                        "step_name": "ReviewImplementation",
+                        "kind": "provider",
+                        "status": "completed",
+                        "frame_root": "call_frames/root.loop#0.review__visit__1",
+                        "summary_path": (
+                            "call_frames/root.loop#0.review__visit__1/"
+                            "summaries/ReviewImplementation.provider.summary.md"
+                        ),
+                    },
+                    {
+                        "step_name": "ReviewImplementation",
+                        "kind": "provider",
+                        "status": "error",
+                        "frame_root": "call_frames/root.loop#1.review__visit__1",
+                        "error_path": (
+                            "call_frames/root.loop#1.review__visit__1/"
+                            "summaries/ReviewImplementation.provider.error.json"
+                        ),
+                    },
+                    {
+                        "step_name": "FixImplementation",
+                        "kind": "provider",
+                        "status": "completed",
+                        "frame_root": "call_frames/root.loop#1.fix__visit__1",
+                        "summary_path": (
+                            "call_frames/root.loop#1.fix__visit__1/"
+                            "summaries/FixImplementation.provider.summary.md"
+                        ),
+                    },
+                    {
+                        "step_name": "ImplementationReviewLoop",
+                        "kind": "phase",
+                        "status": "completed",
+                    },
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    (run_root / "state.json").write_text(
+        json.dumps({"run_id": "run1", "status": "completed"}),
+        encoding="utf-8",
+    )
+
+    response = _app(tmp_path).handle("GET", "/runs/w0/run1/summaries")
+
+    body = response.body.decode("utf-8")
+    assert response.status == 200
+    assert "Provider Visit Stats" in body
+    assert "ReviewImplementation" in body
+    assert "2 visits" in body
+    assert "1 completed" in body
+    assert "1 error" in body
+    assert "FixImplementation" in body
+    assert "1 visit" in body
+    assert "ImplementationReviewLoop</a>" not in body
+    assert 'href="/runs/w0/run1/files/run/call_frames/root.loop%230.review__visit__1/summaries/ReviewImplementation.provider.summary.md"' in body
+    assert 'href="/runs/w0/run1/files/run/call_frames/root.loop%231.review__visit__1/summaries/ReviewImplementation.provider.error.json"' in body
 
 
 def test_summary_hub_links_tmux_session_when_monitor_metadata_exists(
@@ -697,8 +802,8 @@ def test_summary_hub_renders_authored_workflow_structure(tmp_path: Path):
     assert "Provider Flow" in body
     assert '<div class="provider-flow-strip"' in body
     assert '<svg class="provider-flow-svg"' not in body
-    assert 'class="provider-flow-loop-card"' in body
-    assert 'class="provider-flow-provider-card"' in body
+    assert "provider-flow-loop-card" in body
+    assert "provider-flow-provider-card" in body
     assert '<details class="provider-flow-source">' in body
     assert "<summary>Mermaid source</summary>" in body
     assert "flowchart TD" in body

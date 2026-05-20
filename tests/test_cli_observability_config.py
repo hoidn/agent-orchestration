@@ -218,7 +218,20 @@ def test_build_observability_config_includes_live_agent_notes():
         'interval_sec': 5.0,
         'timeout_sec': 9,
         'max_tail_chars': 1234,
+        'source': 'tmux',
     }
+
+
+def test_build_observability_config_defaults_live_agent_notes_to_haiku_provider():
+    args = _base_run_args(Path('workflow.yaml'))
+    args.live_agent_notes = True
+
+    config = build_observability_config(args)
+
+    assert config is not None
+    live_cfg = config['step_summaries']['live_agent_notes']
+    assert live_cfg['provider'] == 'claude_haiku_summary'
+    assert live_cfg['source'] == 'tmux'
 
 
 @patch('orchestrator.cli.commands.run.WorkflowExecutor')
@@ -331,6 +344,7 @@ def test_resume_uses_persisted_observability_and_applies_override(mock_loader, m
         'interval_sec': 4.0,
         'timeout_sec': 8,
         'max_tail_chars': 2048,
+        'source': 'tmux',
     }
 
 
