@@ -1655,6 +1655,49 @@ def test_lower_compiled_module_supports_provider_and_prompt_record_outputs() -> 
     }
 
 
+def test_lower_compiled_module_supports_defschema_outputs() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_text = """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defschema PromptEnvelope
+  (provider Provider)
+  (prompt Prompt))
+
+(defworkflow emit_prompt ((provider Provider) (prompt Prompt)) -> PromptEnvelope
+  (record PromptEnvelope
+    :provider provider
+    :prompt prompt))
+"""
+
+    compiled = compiler.compile_workflow_module_text(
+        source_text,
+        source_path=str(Path("inline-defschema-lowering.orc")),
+    )
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+    workflow = lowered["emit_prompt"]
+
+    assert workflow["inputs"] == {
+        "provider": {"kind": "scalar", "type": "string"},
+        "prompt": {"kind": "scalar", "type": "string"},
+    }
+    assert workflow["outputs"] == {
+        "provider": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "root.steps.RecordResult.artifacts.provider"},
+        },
+        "prompt": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "root.steps.RecordResult.artifacts.prompt"},
+        },
+    }
+
+
 def test_lower_compiled_module_supports_phase_target_root_expression() -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()
