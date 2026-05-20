@@ -2187,11 +2187,14 @@ def _lower_procedure_call_expr(
         type_env=context.type_env,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,
+        authored_generated_inputs=context.authored_generated_inputs,
+        internal_generated_input_reasons=context.internal_generated_input_reasons,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
         origin_notes=_procedure_provenance_notes(expr, procedure),
+        boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
         phase_scope=context.phase_scope,
     )
@@ -3903,6 +3906,7 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
         typed_workflow=typed_workflow,
         authored_mapping=authored_mapping,
         origin_map=lowered_workflow.origin_map,
+        boundary_projection=lowered_workflow.boundary_projection,
     )
 
 

@@ -2,610 +2,321 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use `superpowers:executing-plans` to implement this plan task-by-task. Do not create a git worktree; this repo's `AGENTS.md` explicitly forbids worktrees. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Extend the existing Workflow Lisp Stage 1 and Stage 2 frontend into the bounded Stage 3 compile-and-validate slice: elaborate typed `defworkflow` definitions, typecheck same-file `call` / `provider-result` / `command-result` forms, derive deterministic structured-result contracts, lower directly into shared workflow handoff records, and remap shared-validation failures back to authored `.orc` spans.
+**Goal:** Complete and verify the bounded Workflow Lisp MVP Stage 3 slice so typed `defworkflow` forms, same-file `call`, `provider-result`, and `command-result` lower into authored workflow mappings, validate through the existing shared elaboration/lowering seam, and preserve authored-span diagnostics for generated workflow surfaces.
 
-**Architecture:** Keep `orchestrator/workflow_lisp/` as the isolated frontend package and reuse Stage 1 definitions plus Stage 2 expression/proof checking as the only type authority. Add a narrow workflow-definition layer in `workflows.py`, structured contract derivation in `contracts.py`, and a lowering bridge in `lowering.py` that constructs `SurfaceWorkflow` / `SurfaceStep` / `SurfaceContract` records without generating YAML text, then runs shared validation through an in-memory bridge and remaps any generated-step failures through a frontend-owned origin map.
+**Architecture:** Keep `orchestrator/workflow_lisp/` as the only frontend-owned boundary, preserve Stage 1 definitions plus Stage 2 type/proof checking as the source-language authority, and reuse the existing authored-workflow bridge by lowering to in-memory workflow mappings that pass through `elaborate_surface_workflow(...)` and `lower_surface_workflow(...)`. Workflow boundaries remain record-only in this tranche; structured provider/command results may still use record or union returns internally, provider/prompt references remain compiler-known externs, and same-file `call` lowering must use in-memory imported bundles plus generated hidden relpath write roots rather than authored `imports` paths or YAML text.
 
-**Tech Stack:** Python 3 frozen dataclasses, existing `orchestrator.workflow_lisp` Stage 1/2 modules, `orchestrator.workflow.surface_ast`, `orchestrator.workflow.lowering`, `orchestrator.loader.WorkflowLoader` validation helpers used via an in-memory bridge, pytest, and `.orc` fixtures under `tests/fixtures/workflow_lisp/`.
+**Tech Stack:** Python 3 dataclasses, `orchestrator.workflow_lisp`, `orchestrator.workflow.elaboration`, `orchestrator.workflow.lowering`, `orchestrator.workflow.loaded_bundle.LoadedWorkflowBundle`, `orchestrator.loader.WorkflowLoader`, pytest, and `.orc` fixtures under `tests/fixtures/workflow_lisp/`.
 
 ---
 
-## Context And Boundaries
+## Fixed Inputs
 
-Read these inputs before implementation:
+Read these before implementation and treat them as design authority:
 
 - `docs/index.md`
 - `docs/steering.md`
+- `docs/design/workflow_language_design_principles.md`
 - `docs/design/workflow_command_adapter_contract.md`
 - `docs/design/workflow_lisp_frontend_specification.md`
+  - `14. Workflow Calls`
+  - `22. Provider Result`
+  - `23. Command Result`
+  - `44. Typed Frontend AST`
+  - `50. defworkflow Lowering`
+  - `52. call Lowering`
+  - `54. provider-result Lowering`
+  - `59. Validation Sequence`
+  - `60. Type Validation`
+  - `61. Effect Validation`
+  - `74. Source Map Requirements`
 - `docs/design/workflow_lisp_frontend_mvp_specification.md`
+  - `6. Lowering Contract`
+  - `7. Provider And Command Results`
+  - `9. Source Spans And Diagnostics`
+  - `10. Validation`
+  - `14. Implementation Stages`
 - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax-frontend-core/implementation_architecture.md`
 - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/typed-expressions-variant-proof/implementation_architecture.md`
 - `docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-core-ast-lowering-structured-results/implementation_architecture.md`
-- `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/1/design-gap-architect/work_item_context.md`
-- `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/1/design-gap-architect/check_commands.json`
+- `artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/workflow-core-ast-lowering-structured-results/architecture-review.md`
+- `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/design-gap-architect/work_item_context.md`
 - `state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json`
 
-Current baseline to assume:
+Reference implementation shapes when lowering:
 
-- Stage 1 files already exist: `spans.py`, `diagnostics.py`, `sexpr.py`, `reader.py`, `syntax.py`, `definitions.py`, `compiler.py`.
-- Stage 2 files already exist: `expressions.py`, `type_env.py`, `typecheck.py`.
-- The current `progress_ledger.json` is empty, so trust the repository state and passing checks rather than ledger history.
-- `orchestrator/workflow_lisp/__init__.py` currently exports only Stage 1 and Stage 2 APIs and will need Stage 3 additions without breaking current imports.
+- `orchestrator/workflow/surface_ast.py`
+- `orchestrator/workflow/elaboration.py`
+- `orchestrator/workflow/lowering.py`
+- `orchestrator/workflow/loaded_bundle.py`
+- `workflows/examples/call_subworkflow_demo.yaml`
+- `workflows/examples/match_demo.yaml`
 
-Hard scope limits:
+## Current Repo Baseline
 
-- Implement only the Stage 3 workflow-lowering architecture layer from the approved work-item context.
-- Support bounded same-file `defworkflow`, `call`, `provider-result`, and `command-result`.
-- Generate deterministic `output_bundle` and `variant_output` contracts from record and union result types only.
-- Lower directly to shared typed workflow handoff records and run shared validation without `.orc` loader or CLI integration.
-- Preserve authored span and `form_path` fidelity through frontend diagnostics and remapped shared-validation failures.
+Assume this exact starting point:
+
+- Stage 1 and Stage 2 frontend code already exists under `orchestrator/workflow_lisp/`.
+- Stage 3-oriented modules already exist in the checkout:
+  - `orchestrator/workflow_lisp/workflows.py`
+  - `orchestrator/workflow_lisp/contracts.py`
+  - `orchestrator/workflow_lisp/lowering.py`
+  - `orchestrator/workflow_lisp/compiler.py`
+- Stage 3-oriented tests and fixtures already exist:
+  - `tests/test_workflow_lisp_workflows.py`
+  - `tests/test_workflow_lisp_structured_results.py`
+  - `tests/test_workflow_lisp_lowering.py`
+  - `tests/fixtures/workflow_lisp/valid/structured_results.orc`
+  - `tests/fixtures/workflow_lisp/invalid/shared_validation_remap.orc`
+- `compile_stage3_module(...)` already exists. Preserve its additive relationship to `compile_stage1_module(...)`; do not collapse the two entrypoints together.
+- `progress_ledger.json` is still empty, so treat the approved design docs, the current repo contents, and visible pytest output as authority rather than any recorded partial-progress state.
+
+Execution rule for this plan: if current code diverges from the approved architecture, the architecture and the tests written from this plan win.
+
+## Hard Scope Limits
+
+Implement only the bounded Stage 3 slice described in the work-item context:
+
+- same-file `defworkflow` elaboration and signature registration;
+- effectful typing for `call`, `provider-result`, and `command-result`;
+- workflow-boundary lowering only for types the shared surface already supports, with record-only workflow returns in this tranche;
+- deterministic `output_bundle` and `variant_output` derivation for provider and command steps;
+- explicit Stage 3 rejection of `Json` on workflow boundaries and generated structured-result contracts;
+- compiler-known provider/prompt extern bindings that lower directly to existing provider-step surfaces;
+- compiler-known command boundary bindings that classify `command-result` as plain external tool or certified adapter only;
+- generated hidden relpath workflow inputs for structured-result managed write roots;
+- same-file `call` lowering through compiler-generated aliases backed by in-memory imported bundles, not authored `imports` paths;
+- workflow-return lowering only through current legal export surfaces: step artifacts or structured statement outputs;
+- origin-based remapping of shared-validation failures back to authored `.orc` spans.
 
 Explicit non-goals:
 
-- No `defproc`, macros, imports/modules, higher-order workflow refs, standard-library phase procedures, or one real phase translation.
-- No runtime loader/CLI support for `.orc` workflows.
-- No new runtime execution semantics, no pointer-authority redesign, no Semantic IR redesign, and no debug YAML renderer.
-- No legacy adapters, report parsing, adapter registries, or runtime-native effect work.
-- No broad changes under `orchestrator/workflow/` unless a tiny validation seam extraction is strictly required to reuse existing behavior.
+- no `defproc`, macros, imports/modules, higher-order workflow refs, or standard-library phase/resource/drain procedures;
+- no runtime loader or CLI support for `.orc`;
+- no new runtime execution semantics, no YAML generation, and no second validator path;
+- no union workflow-boundary exports, optional workflow outputs, or provider/prompt transport across `call`;
+- no adapter registries, legacy adapter framework, report parsing, pointer-authority changes, or runtime-native effects;
+- no redesign of the shared Core Workflow AST, Semantic IR, SourceMap, or runtime proof model.
 
-Semantic rules to keep fixed:
+## Non-Negotiable Stage 3 Rules
 
-- Same-file workflow signatures register before any body is typechecked so forward calls work deterministically.
-- Workflow parameters seed the lexical `ValueEnvironment`; body types must exactly match the declared return type.
-- `call` bindings must match the callee signature exactly by keyword and by resolved type.
-- `provider-result` requires a `Provider` expression, a `Prompt` expression, typed input expressions, and a record or union return type.
-- `command-result` requires a record or union return type and explicit argv elements that do not hide semantic glue behind `python -c`, `python -`, `bash -c`, `sh -c`, or equivalent one-string shell wrappers.
-- Structured bundles are authoritative. Markdown reports may be referenced as relpath values inside the structured bundle, but report text is never parsed for semantic state.
-- Shared validation remains authoritative for path safety, output-bundle shape, variant-output shape, and workflow-boundary compatibility. The frontend must not fork that logic.
+Do not re-decide any of these during execution:
 
-## File Map
+- Lower to in-memory authored workflow mappings, not YAML text and not frontend-specific runtime execution.
+- Validate lowered workflows by calling `elaborate_surface_workflow(...)` and then `lower_surface_workflow(...)` with real in-memory imported bundles for same-file callees.
+- Workflow boundaries are record-only in this tranche. `defworkflow` returns may not be unions.
+- `Json` is a frontend-local primitive only. Reject it on workflow parameters, workflow return fields, and emitted `output_bundle` / `variant_output` field contracts with a frontend diagnostic instead of coercing it to `string`.
+- `Provider` and `Prompt` values are compiler-known extern bindings, not workflow parameters and not `call` transport.
+- `command-result` may use only validated `ExternalToolBinding` or `CertifiedAdapterBinding` entries. Generic semantic script wrappers remain compile-time errors.
+- Same-file workflows that emit structured results must expose compiler-generated hidden relpath inputs for bundle write roots.
+- Same-file `call` lowering must bind those hidden inputs with deterministic relpaths and supply the callee bundle via `imported_bundles`, not authored `imports`.
+- Workflow outputs may lower only from legal existing shared surfaces: step artifacts or structured statement outputs.
+- Shared-validation failures mentioning generated ids, paths, or flattened field names must remap to authored `.orc` spans or fail with `source_map_missing`.
 
-Create:
-
-- `orchestrator/workflow_lisp/workflows.py`
-- `orchestrator/workflow_lisp/contracts.py`
-- `orchestrator/workflow_lisp/lowering.py`
-- `tests/test_workflow_lisp_workflows.py`
-- `tests/test_workflow_lisp_structured_results.py`
-- `tests/test_workflow_lisp_lowering.py`
-- `tests/fixtures/workflow_lisp/valid/workflow_definitions.orc`
-- `tests/fixtures/workflow_lisp/valid/structured_results.orc`
-- `tests/fixtures/workflow_lisp/invalid/duplicate_workflow_definition.orc`
-- `tests/fixtures/workflow_lisp/invalid/duplicate_workflow_param.orc`
-- `tests/fixtures/workflow_lisp/invalid/workflow_return_type_invalid.orc`
-- `tests/fixtures/workflow_lisp/invalid/unknown_callee.orc`
-- `tests/fixtures/workflow_lisp/invalid/provider_result_bad_return.orc`
-- `tests/fixtures/workflow_lisp/invalid/command_result_bad_return.orc`
-- `tests/fixtures/workflow_lisp/invalid/inline_python_command_result.orc`
-- `tests/fixtures/workflow_lisp/invalid/inline_shell_command_result.orc`
-- `tests/fixtures/workflow_lisp/invalid/shared_validation_remap.orc`
+## File Ownership
 
 Modify:
 
 - `orchestrator/workflow_lisp/__init__.py`
 - `orchestrator/workflow_lisp/compiler.py`
+- `orchestrator/workflow_lisp/contracts.py`
+- `orchestrator/workflow_lisp/lowering.py`
+- `orchestrator/workflow_lisp/typecheck.py`
+- `orchestrator/workflow_lisp/workflows.py`
+- `tests/test_workflow_lisp_workflows.py`
+- `tests/test_workflow_lisp_structured_results.py`
+- `tests/test_workflow_lisp_lowering.py`
+- `tests/fixtures/workflow_lisp/valid/type_definitions.orc`
+- `tests/fixtures/workflow_lisp/valid/structured_results.orc`
+- `tests/fixtures/workflow_lisp/invalid/shared_validation_remap.orc`
+
+Modify only if a targeted failing test proves the need:
+
 - `orchestrator/workflow_lisp/expressions.py`
 - `orchestrator/workflow_lisp/type_env.py`
-- `orchestrator/workflow_lisp/typecheck.py`
-
-Reuse without widening ownership:
-
-- `orchestrator/workflow/surface_ast.py`
-- `orchestrator/workflow/lowering.py`
 - `orchestrator/loader.py`
-- `orchestrator/contracts/output_contract.py`
-- existing Stage 1 and Stage 2 tests plus existing fixtures under `tests/fixtures/workflow_lisp/`
 
-Do not modify unless a focused failing test proves it is unavoidable:
-
-- `orchestrator/loader.py`
-- `orchestrator/workflow/elaboration.py`
-- runtime execution code outside the narrow validation bridge
-- CLI commands and workflow examples
-
-## Concrete Public Surface
-
-Implement the minimum reusable Stage 3 surface so later translation work does not rediscover these shapes.
-
-Workflow-definition layer in `orchestrator/workflow_lisp/workflows.py`:
-
-```python
-@dataclass(frozen=True)
-class WorkflowParam:
-    name: str
-    type_name: str
-    span: SourceSpan
-    form_path: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class WorkflowDef:
-    name: str
-    params: tuple[WorkflowParam, ...]
-    return_type_name: str
-    body: SyntaxNode
-    span: SourceSpan
-    form_path: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class WorkflowSignature:
-    name: str
-    params: tuple[tuple[str, TypeRef], ...]
-    return_type_ref: RecordTypeRef | UnionTypeRef
-    span: SourceSpan
-    form_path: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class TypedWorkflowDef:
-    definition: WorkflowDef
-    signature: WorkflowSignature
-    typed_body: TypedExpr
-
-
-@dataclass(frozen=True)
-class WorkflowCatalog:
-    signatures_by_name: Mapping[str, WorkflowSignature]
-    definitions_by_name: Mapping[str, WorkflowDef]
-```
-
-Required entrypoints:
-
-```python
-def elaborate_workflow_definitions(module_syntax: WorkflowLispSyntaxModule) -> tuple[WorkflowDef, ...]: ...
-def build_workflow_catalog(
-    module: WorkflowLispModule,
-    workflow_defs: tuple[WorkflowDef, ...],
-    type_env: FrontendTypeEnvironment,
-) -> WorkflowCatalog: ...
-def typecheck_workflow_definitions(
-    workflow_defs: tuple[WorkflowDef, ...],
-    *,
-    type_env: FrontendTypeEnvironment,
-    workflow_catalog: WorkflowCatalog,
-) -> tuple[TypedWorkflowDef, ...]: ...
-```
-
-Effectful expression nodes in `orchestrator/workflow_lisp/expressions.py`:
-
-```python
-@dataclass(frozen=True)
-class CallExpr:
-    callee_name: str
-    bindings: tuple[tuple[str, ExprNode], ...]
-    span: SourceSpan
-    form_path: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class ProviderResultExpr:
-    provider: ExprNode
-    prompt: ExprNode
-    inputs: tuple[ExprNode, ...]
-    returns_type_name: str
-    span: SourceSpan
-    form_path: tuple[str, ...]
-
-
-@dataclass(frozen=True)
-class CommandResultExpr:
-    step_name: str
-    argv: tuple[ExprNode, ...]
-    returns_type_name: str
-    span: SourceSpan
-    form_path: tuple[str, ...]
-```
-
-Keep one alias:
-
-```python
-ExprNode = (
-    NameExpr
-    | LiteralExpr
-    | FieldAccessExpr
-    | RecordExpr
-    | LetStarExpr
-    | MatchExpr
-    | CallExpr
-    | ProviderResultExpr
-    | CommandResultExpr
-)
-```
-
-Structured contract helpers in `orchestrator/workflow_lisp/contracts.py`:
-
-```python
-@dataclass(frozen=True)
-class GeneratedBundleContract:
-    contract_kind: str  # "output_bundle" | "variant_output"
-    path: str
-    payload: Mapping[str, Any]
-    type_ref: RecordTypeRef | UnionTypeRef
-
-
-@dataclass(frozen=True)
-class FlattenedContractField:
-    generated_name: str
-    source_path: tuple[str, ...]
-    contract_definition: Mapping[str, Any]
-```
-
-Required entrypoints:
-
-```python
-def derive_structured_result_contract(
-    type_ref: RecordTypeRef | UnionTypeRef,
-    *,
-    workflow_name: str,
-    step_id: str,
-) -> GeneratedBundleContract: ...
-
-def derive_workflow_signature_contracts(
-    signature: WorkflowSignature,
-) -> tuple[Mapping[str, SurfaceContract], Mapping[str, SurfaceContract], tuple[FlattenedContractField, ...]]: ...
-```
-
-Lowering bridge in `orchestrator/workflow_lisp/lowering.py`:
-
-```python
-@dataclass(frozen=True)
-class LoweringOriginMap:
-    workflow_spans: Mapping[str, SourceSpan]
-    step_spans: Mapping[str, SourceSpan]
-    bundle_path_spans: Mapping[str, SourceSpan]
-    contract_field_spans: Mapping[str, SourceSpan]
-
-
-@dataclass(frozen=True)
-class LoweredWorkflow:
-    typed_workflow: TypedWorkflowDef
-    surface: SurfaceWorkflow
-    origin_map: LoweringOriginMap
-```
-
-Required entrypoints:
-
-```python
-def lower_workflow_definitions(
-    typed_workflows: tuple[TypedWorkflowDef, ...],
-) -> tuple[LoweredWorkflow, ...]: ...
-
-def validate_lowered_workflows(
-    lowered: tuple[LoweredWorkflow, ...],
-    *,
-    workspace_root: Path,
-) -> None: ...
-```
-
-Compiler entrypoint in `orchestrator/workflow_lisp/compiler.py`:
-
-```python
-@dataclass(frozen=True)
-class Stage3CompileResult:
-    module: WorkflowLispModule
-    workflow_catalog: WorkflowCatalog
-    typed_workflows: tuple[TypedWorkflowDef, ...]
-    lowered_workflows: tuple[LoweredWorkflow, ...]
-
-
-def compile_stage3_module(
-    path: Path,
-    *,
-    validate_shared: bool = True,
-    workspace_root: Path | None = None,
-) -> Stage3CompileResult: ...
-```
-
-Required diagnostics for this tranche:
-
-```text
-workflow_definition_duplicate
-workflow_param_duplicate
-workflow_return_type_invalid
-workflow_call_unknown
-workflow_signature_mismatch
-return_type_mismatch
-provider_result_return_type_invalid
-command_result_return_type_invalid
-command_result_argv_invalid
-inline_python_command_in_workflow
-inline_shell_command_in_workflow
-source_map_missing
-```
-
-Reuse existing codes where the meaning already matches:
-
-```text
-type_unknown
-type_mismatch
-variant_ref_unproved
-variant_ref_wrong_variant
-record_field_unknown
-record_field_missing
-union_variant_unknown
-```
-
-## Deterministic Lowering Rules
-
-Keep these implementation choices fixed so the engineer does not have to re-decide them during execution.
-
-Workflow definition syntax:
-
-- Require one body expression per `defworkflow`.
-- Register every workflow name before typechecking any body so same-file forward calls work.
-- Reject duplicate workflow names with `workflow_definition_duplicate`.
-- Reject duplicate parameter names within one workflow with `workflow_param_duplicate`.
-
-Workflow return types:
-
-- Allow only `RecordTypeRef` or `UnionTypeRef` as Stage 3 workflow return types.
-- Reject primitive, enum, or path returns with `workflow_return_type_invalid`.
-
-`call` lowering:
-
-- Lower one `call` expression to one `SurfaceStep` with `kind=SurfaceStepKind.CALL`.
-- Use `call_alias` equal to the callee workflow name.
-- Lower authored keyword bindings into `call_bindings`.
-- The typed result of the expression is the callee return type ref.
-- Keep same-version checking inside the shared validation bridge; compile-time checks still ensure the callee exists and binding types match the signature.
-
-`provider-result` lowering:
-
-- Lower record returns to `SurfaceStepKind.PROVIDER` with `output_bundle`.
-- Lower union returns to `SurfaceStepKind.PROVIDER` with `variant_output`.
-- Set `inject_output_contract=True` so existing prompt-contract injection remains authoritative.
-- Do not parse stdout or markdown. The structured contract alone defines the semantic output.
-
-`command-result` lowering:
-
-- Lower record returns to `SurfaceStepKind.COMMAND` with `output_bundle`.
-- Lower union returns to `SurfaceStepKind.COMMAND` with `variant_output`.
-- Reject argv forms that encode shell glue:
-  - `("python" "-c" ...)`
-  - `("python" "-" ...)`
-  - `("bash" "-c" ...)`
-  - `("sh" "-c" ...)`
-  - one-string wrappers that imply shell parsing instead of stable executable arguments
-- Allow stable script and executable launches such as `("python" "scripts/run_checks.py" "--out" out-path)`.
-
-Structured result contracts:
-
-- Record type -> `output_bundle`.
-- Union type -> `variant_output`.
-- Use `variant` with JSON pointer `/variant` as the discriminant field name for union outputs.
-- Keep `shared_fields` empty in this slice; Stage 1/2 types do not model shared union fields separately.
-
-Generated bundle paths:
-
-- Use one deterministic compiler-owned scheme:
-
-```text
-.orchestrate/workflow_lisp/<workflow-name>/<step-id>/result.json
-```
-
-- Base the path only on authored workflow identity and deterministic step ids.
-- Do not use timestamps, counters, or runtime state paths.
-
-Workflow boundary flattening:
-
-- Keep structured parameter and return types authoritative in frontend artifacts.
-- Localize temporary flattening for `SurfaceWorkflow.inputs` / `outputs` to `contracts.py`.
-- Use deterministic generated names such as `<param>__<field>` for flattened record leaves.
-- Record every flattened field mapping in the lowering origin map so shared-validation failures can be remapped to the authored parameter or return field span.
-
-Shared validation bridge:
-
-- Construct `SurfaceWorkflow` and `SurfaceStep` records directly.
-- Reuse existing shared validation logic through an in-memory bridge only. Do not emit YAML text or round-trip through YAML parsing.
-- If a tiny adapter is needed, keep it frontend-local in `orchestrator/workflow_lisp/lowering.py` or `compiler.py` and feed in-memory dict projections to `WorkflowLoader` helper methods only after the authoritative `SurfaceWorkflow` exists.
-- Any shared validation failure against a generated step id, contract field, or bundle path must be remapped to a `LispFrontendDiagnostic` using the origin map before being raised.
-
-## Task 1: Add Workflow Definitions And Signature Registration
+Do not broaden ownership into `orchestrator/workflow/` runtime code unless the lowering bridge genuinely cannot be implemented with the current shared helpers.
+
+## Required Diagnostics
+
+Preserve or add these Stage 3 diagnostic codes as the execution target:
+
+- `workflow_definition_duplicate`
+- `workflow_param_duplicate`
+- `workflow_boundary_type_invalid`
+- `workflow_return_type_invalid`
+- `workflow_call_unknown`
+- `workflow_signature_mismatch`
+- `workflow_return_not_exportable`
+- `return_type_mismatch`
+- `provider_result_return_type_invalid`
+- `provider_result_provider_invalid`
+- `provider_result_prompt_invalid`
+- `command_result_return_type_invalid`
+- `command_result_argv_invalid`
+- `command_adapter_missing_contract`
+- `json_surface_unsupported`
+- `inline_python_command_in_workflow`
+- `inline_shell_command_in_workflow`
+- `source_map_missing`
+
+## Task 1: Re-Baseline Fixtures And Boundary Tests
 
 **Files:**
 
-- Create: `orchestrator/workflow_lisp/workflows.py`
-- Create: `tests/test_workflow_lisp_workflows.py`
-- Create: `tests/fixtures/workflow_lisp/valid/workflow_definitions.orc`
-- Create: `tests/fixtures/workflow_lisp/invalid/duplicate_workflow_definition.orc`
-- Create: `tests/fixtures/workflow_lisp/invalid/duplicate_workflow_param.orc`
-- Create: `tests/fixtures/workflow_lisp/invalid/workflow_return_type_invalid.orc`
-
-- [ ] **Step 1: Write failing workflow-definition tests first**
-
-Cover:
-
-- elaboration of one module with multiple `defworkflow` forms;
-- same-file forward signature registration;
-- duplicate workflow names failing with `workflow_definition_duplicate`;
-- duplicate parameter names failing with `workflow_param_duplicate`;
-- invalid non-record/non-union return types failing with `workflow_return_type_invalid`.
-
-Use these test names:
-
-```python
-def test_elaborate_workflow_definitions_builds_same_file_catalog() -> None: ...
-def test_build_workflow_catalog_rejects_duplicate_workflow_names() -> None: ...
-def test_typecheck_workflow_definitions_rejects_duplicate_parameter_names() -> None: ...
-def test_typecheck_workflow_definitions_requires_record_or_union_return_type() -> None: ...
-```
-
-- [ ] **Step 2: Add `.orc` fixtures for valid and invalid Stage 3 workflow headers**
-
-Fixture requirements:
-
-- `workflow_definitions.orc` must include at least two workflows where the first calls the second by name.
-- One valid workflow should use record parameters plus a union return type so later tasks can reuse the same fixture.
-- Invalid fixtures should isolate exactly one failure mode each.
-
-- [ ] **Step 3: Implement `WorkflowDef`, `WorkflowSignature`, catalog building, and definition elaboration**
-
-Implementation requirements:
-
-- reuse `WorkflowLispSyntaxModule` from Stage 1 instead of reparsing or rebuilding syntax objects;
-- keep `WorkflowDef.body` as a `SyntaxNode` so Stage 2/3 expression elaboration still has full span metadata;
-- resolve parameter and return types through `FrontendTypeEnvironment`;
-- reject duplicate workflow names and duplicate parameter names deterministically;
-- export the new Stage 3 symbols from `__init__.py` only after this task compiles cleanly.
-
-- [ ] **Step 4: Run the workflow-definition test module**
-
-Run:
-
-```bash
-python -m pytest tests/test_workflow_lisp_workflows.py -q
-```
-
-Expected: workflow-definition tests still fail on missing effectful expression and lowering support, but elaboration and catalog tests pass.
-
-## Task 2: Extend The Expression Layer For `call`, `provider-result`, And `command-result`
-
-**Files:**
-
-- Modify: `orchestrator/workflow_lisp/expressions.py`
+- Modify: `tests/fixtures/workflow_lisp/valid/type_definitions.orc`
+- Modify: `tests/fixtures/workflow_lisp/valid/structured_results.orc`
 - Modify: `tests/test_workflow_lisp_workflows.py`
-- Create: `tests/fixtures/workflow_lisp/valid/structured_results.orc`
-- Create: `tests/fixtures/workflow_lisp/invalid/unknown_callee.orc`
-- Create: `tests/fixtures/workflow_lisp/invalid/provider_result_bad_return.orc`
-- Create: `tests/fixtures/workflow_lisp/invalid/command_result_bad_return.orc`
-- Create: `tests/fixtures/workflow_lisp/invalid/inline_python_command_result.orc`
-- Create: `tests/fixtures/workflow_lisp/invalid/inline_shell_command_result.orc`
-
-- [ ] **Step 1: Add failing expression-elaboration tests for the new effectful forms**
-
-Cover:
-
-- `(call helper :arg value ...)` elaborates to `CallExpr`;
-- `(provider-result provider-expr :prompt prompt-expr :inputs (...) :returns ReturnType)` elaborates to `ProviderResultExpr`;
-- `(command-result step-name :argv (...) :returns ReturnType)` elaborates to `CommandResultExpr`;
-- malformed keyword shapes fail with stable frontend diagnostics rather than generic Python errors.
-
-Use these test names:
-
-```python
-def test_elaborate_expression_supports_call_provider_result_and_command_result() -> None: ...
-def test_elaborate_expression_rejects_malformed_effectful_forms() -> None: ...
-```
-
-- [ ] **Step 2: Implement the new expression nodes and elaboration branches**
-
-Implementation requirements:
-
-- preserve all Stage 2 behavior for existing expression forms;
-- keep elaboration shape-only and typed-agnostic;
-- store effectful form spans on the full authored form, not just the head symbol;
-- do not introduce a general list-literal feature just to support `:inputs` or `:argv`;
-- keep `call` bindings as ordered pairs to preserve authored determinism.
-
-- [ ] **Step 3: Re-run the workflow-expression tests**
-
-Run:
-
-```bash
-python -m pytest tests/test_workflow_lisp_workflows.py -q
-```
-
-Expected: elaboration tests pass; typing/lowering tests still fail.
-
-## Task 3: Typecheck Workflow Bodies And Enforce Stage 3 Command Rules
-
-**Files:**
-
-- Modify: `orchestrator/workflow_lisp/typecheck.py`
-- Modify: `orchestrator/workflow_lisp/type_env.py`
-- Modify: `orchestrator/workflow_lisp/workflows.py`
-- Modify: `tests/test_workflow_lisp_workflows.py`
-- Create: `tests/test_workflow_lisp_structured_results.py`
-
-- [ ] **Step 1: Add failing typing tests for workflow calls and structured-result forms**
-
-Cover:
-
-- `call` succeeds when keyword bindings match the callee signature exactly;
-- unknown callees fail with `workflow_call_unknown`;
-- binding type mismatches fail with `workflow_signature_mismatch` or `type_mismatch`;
-- workflow bodies whose typed result differs from the declared return type fail with `return_type_mismatch`;
-- `provider-result` rejects non-record/non-union `:returns` types with `provider_result_return_type_invalid`;
-- `command-result` rejects non-record/non-union `:returns` types with `command_result_return_type_invalid`;
-- `provider-result` provider and prompt operands must resolve as `Provider` and `Prompt`;
-- `command-result` rejects inline Python and shell glue with the hard error codes from the command-adapter contract.
-
-Use these test names:
-
-```python
-def test_typecheck_workflow_definitions_validates_same_file_call_signatures() -> None: ...
-def test_typecheck_workflow_definitions_rejects_unknown_callees() -> None: ...
-def test_typecheck_workflow_definitions_rejects_return_type_mismatches() -> None: ...
-def test_typecheck_provider_result_requires_record_or_union_return_types() -> None: ...
-def test_typecheck_command_result_rejects_inline_shell_and_python_glue() -> None: ...
-```
-
-- [ ] **Step 2: Extend the typechecker to understand effectful forms**
-
-Implementation requirements:
-
-- keep current Stage 2 tests passing unchanged;
-- accept an optional `workflow_catalog` parameter rather than duplicating the Stage 2 checker in a second code path;
-- seed the initial `ValueEnvironment` for each workflow body from its parameters;
-- typecheck nested input and argv expressions using the same proof-aware checker used for pure expressions;
-- add focused argv validation helpers that classify rejected glue patterns before any lowering occurs.
-
-- [ ] **Step 3: Implement workflow-definition typechecking**
-
-Implementation requirements:
-
-- typecheck every workflow body after the full catalog is built;
-- keep the body result type equal to the declared return type exactly;
-- preserve authored `span` and `form_path` on all emitted diagnostics;
-- do not add structural subtyping, implicit coercions, or workflow defaults in this tranche.
-
-- [ ] **Step 4: Run the workflow and structured-result test modules**
-
-Run:
-
-```bash
-python -m pytest tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py -q
-```
-
-Expected: typing tests pass; lowering-origin tests may still fail.
-
-## Task 4: Derive Deterministic Structured Contracts
-
-**Files:**
-
-- Create: `orchestrator/workflow_lisp/contracts.py`
 - Modify: `tests/test_workflow_lisp_structured_results.py`
 
-- [ ] **Step 1: Add failing contract-derivation tests**
+- [ ] **Step 1: Align the valid fixtures to the approved Stage 3 boundary model**
 
-Cover:
+Keep the valid fixtures centered on these approved surfaces:
 
-- record return type generates an `output_bundle` payload with deterministic `path` and one field per record field;
-- union return type generates a `variant_output` payload with `variant` discriminant at `/variant` and one field list per variant;
-- generated bundle paths are stable across repeated compilations of the same module;
-- workflow signature flattening for record parameters/returns is deterministic and reversible through recorded field metadata.
+- `WorkReport` as the relpath boundary type;
+- `ChecksResult` as a record returned directly from `command-result`;
+- `ImplementationState` as the internal union returned by `provider-result`;
+- `ImplementationSummary` as the record exported at workflow boundaries;
+- one same-file caller that invokes a record-returning callee.
 
-Use these test names:
+Do not keep `Provider`, `Prompt`, or `Json` on workflow parameters or return records in the valid fixtures.
 
-```python
-def test_derive_structured_result_contract_builds_output_bundle_for_record_results() -> None: ...
-def test_derive_structured_result_contract_builds_variant_output_for_union_results() -> None: ...
-def test_generated_bundle_paths_are_deterministic() -> None: ...
-def test_workflow_signature_contract_flattening_records_origin_metadata() -> None: ...
+- [ ] **Step 2: Replace stale assumptions with failing boundary tests**
+
+Update or add tests so they fail first for these exact Stage 3 rules:
+
+- workflow returns must be records, not unions;
+- workflow params may not use `Provider`, `Prompt`, or `Json`;
+- workflow return records may not contain `Provider`, `Prompt`, or `Json`;
+- same-file `call` remains valid only when the callee boundary lowers to supported shared contracts.
+
+Prefer `tmp_path` fixtures for one-off invalid inputs instead of creating many permanent `.orc` files.
+
+- [ ] **Step 3: Add tests for the compiler-known symbol model**
+
+In `tests/test_workflow_lisp_workflows.py`, cover that:
+
+- `providers.execute` and `prompts.implementation.execute` elaborate as exact symbol references, not dotted field access;
+- valid same-file calls do not transport provider/prompt values through workflow params;
+- union workflow returns are rejected during workflow catalog construction or immediate boundary validation, not deferred until lowering.
+
+- [ ] **Step 4: Run collection on the touched modules**
+
+Run:
+
+```bash
+python -m pytest --collect-only tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py -q
 ```
 
-- [ ] **Step 2: Implement `contracts.py`**
+Expected: collection succeeds and the new Stage 3 rejection tests appear.
 
-Implementation requirements:
+## Task 2: Tighten Workflow Boundary Validation And Contract Derivation
 
-- map frontend primitive/path types onto the shared workflow contract vocabulary already accepted by `WorkflowLoader`;
-- keep `output_bundle` / `variant_output` generation centralized here, not scattered across lowering code;
-- localize all record-field flattening to this module;
-- keep the flattening metadata explicit so later runtime-integrated work can replace it without rediscovering the mapping.
+**Files:**
 
-- [ ] **Step 3: Run the structured-result contract tests**
+- Modify: `orchestrator/workflow_lisp/workflows.py`
+- Modify: `orchestrator/workflow_lisp/contracts.py`
+- Modify: `tests/test_workflow_lisp_workflows.py`
+- Modify: `tests/test_workflow_lisp_structured_results.py`
+
+- [ ] **Step 1: Centralize recursive boundary analysis**
+
+Use one recursive helper shared across workflow signature building and contract derivation that answers:
+
+- whether the type can lower through the current workflow boundary surface;
+- whether it encountered `Json`;
+- whether it encountered `Provider` or `Prompt`;
+- whether it encountered a union at the workflow boundary.
+
+This helper must recurse through record fields and path contracts. Do not duplicate Stage 3 boundary rules in multiple files.
+
+- [ ] **Step 2: Enforce record-only workflow signatures**
+
+In `build_workflow_catalog(...)`:
+
+- require workflow return types to resolve to `RecordTypeRef`;
+- reject union returns with `workflow_return_type_invalid` or `workflow_boundary_type_invalid`;
+- reject parameters and return fields that use `Json`, `Provider`, or `Prompt` immediately, before lowering.
+
+Keep provider and command result types as `RecordTypeRef | UnionTypeRef`; only workflow boundaries are record-only.
+
+- [ ] **Step 3: Reject unsupported primitives in contract lowering**
+
+In `contracts.py`:
+
+- remove any weakening of `Json`, `Provider`, or `Prompt` into shared scalar contracts;
+- reject those types on generated workflow-boundary contracts and structured-result bundle fields;
+- keep record input/output flattening;
+- do not introduce union workflow-output flattening in this tranche.
+
+- [ ] **Step 4: Preserve origin metadata for flattened boundary fields**
+
+Keep or extend flattened field metadata so the lowering bridge can map:
+
+- flattened workflow input names;
+- flattened workflow output names;
+- generated hidden write-root input names.
+
+- [ ] **Step 5: Run the boundary-focused selectors**
+
+Run:
+
+```bash
+python -m pytest tests/test_workflow_lisp_workflows.py -q
+python -m pytest tests/test_workflow_lisp_structured_results.py -q
+```
+
+Expected: boundary rejection and structured-result contract tests pass before lowering-bridge adjustments begin.
+
+## Task 3: Harden Extern And Command-Boundary Typing
+
+**Files:**
+
+- Modify: `orchestrator/workflow_lisp/workflows.py`
+- Modify: `orchestrator/workflow_lisp/typecheck.py`
+- Modify: `orchestrator/workflow_lisp/compiler.py`
+- Modify: `tests/test_workflow_lisp_structured_results.py`
+
+- [ ] **Step 1: Validate the compile-time extern environment**
+
+Preserve or tighten `ProviderExtern`, `PromptExtern`, and `ExternEnvironment` so they:
+
+- require non-empty authored symbol names and non-empty provider ids / asset paths;
+- keep bindings keyed by exact authored symbol name;
+- allow `NameExpr("providers.execute")` and `NameExpr("prompts.implementation.execute")` to resolve through the initial value environment without inventing a new expression surface.
+
+- [ ] **Step 2: Validate command boundary classes**
+
+Preserve or tighten `ExternalToolBinding`, `CertifiedAdapterBinding`, and `CommandBoundaryEnvironment`.
+
+Rules to enforce:
+
+- `ExternalToolBinding.stable_command` is a non-empty argv identity prefix;
+- `CertifiedAdapterBinding` requires stable command identity, input contract, output type name, visible effects, path-safety metadata, source-map behavior, and fixture identifiers;
+- semantic commands without a certified adapter fail with `command_adapter_missing_contract`.
+
+- [ ] **Step 3: Thread both environments through workflow typechecking**
+
+Update `typecheck_workflow_definitions(...)` and `typecheck_expression(...)` so:
+
+- the initial value environment includes provider/prompt extern bindings;
+- `provider-result` validates that the provider operand resolves to a provider extern, not a workflow-boundary value;
+- `provider-result` validates that the prompt operand resolves to a prompt extern;
+- `command-result` resolves the boundary name against `CommandBoundaryEnvironment`;
+- argv validation still rejects `python -c`, `python -`, `bash -c`, `sh -c`, heredoc-style shell wrappers, and one-string shell wrappers;
+- the rendered argv head matches the binding's stable command identity.
+
+- [ ] **Step 4: Add tests for both accepted command classes and failure modes**
+
+In `tests/test_workflow_lisp_structured_results.py`, write failing tests first for:
+
+- accepted plain external tool bindings;
+- accepted certified adapter bindings;
+- rejected semantic commands without certified adapter metadata;
+- rejected provider/prompt operands when the extern environment is missing or mismatched.
+
+- [ ] **Step 5: Re-run the structured-result selectors**
 
 Run:
 
@@ -613,54 +324,98 @@ Run:
 python -m pytest tests/test_workflow_lisp_structured_results.py -q
 ```
 
-Expected: contract derivation tests pass; surface-lowering and remap tests may still fail.
+Expected: all extern and command-boundary typing tests pass before lowering-bridge verification.
 
-## Task 5: Lower Typed Workflows Into Shared Handoff Records And Remap Validation Failures
+## Task 4: Stabilize The Lowering Bridge For Authored Mapping Generation
 
 **Files:**
 
-- Create: `orchestrator/workflow_lisp/lowering.py`
+- Modify: `orchestrator/workflow_lisp/lowering.py`
+- Modify: `orchestrator/workflow_lisp/contracts.py`
 - Modify: `tests/test_workflow_lisp_lowering.py`
-- Create: `tests/fixtures/workflow_lisp/invalid/shared_validation_remap.orc`
+- Modify: `tests/fixtures/workflow_lisp/invalid/shared_validation_remap.orc`
 
-- [ ] **Step 1: Add failing lowering tests before implementation**
+- [ ] **Step 1: Re-baseline lowering tests around approved Stage 3 outputs**
 
-Cover:
+In `tests/test_workflow_lisp_lowering.py`, keep or add failing tests that assert:
 
-- one typed `defworkflow` lowers to one `SurfaceWorkflow` with `version="2.14"`;
-- `call` lowers to a `SurfaceStepKind.CALL` step with deterministic `call_alias`, `step_id`, and `call_bindings`;
-- `provider-result` and `command-result` lower to provider/command steps with the generated structured contract attached;
-- origin maps include workflow name, step id, generated bundle path, and flattened boundary contract field coverage;
-- a deliberately invalid lowered contract produces a remapped `LispFrontendDiagnostic` anchored to the original `.orc` span rather than an opaque generated step id.
+- lowered workflows are authored mappings, not YAML text and not direct `SurfaceWorkflow` instances;
+- provider-result lowering emits `provider`, `asset_file`, `inject_output_contract`, and either `output_bundle` or `variant_output`;
+- command-result lowering emits `command` plus the correct structured result contract;
+- same-file calls lower through compiler-generated aliases and do not author `imports`;
+- lowered workflow inputs include generated hidden relpath write-root inputs;
+- record workflow outputs lower from legal `root.steps...artifacts...` or match-statement output surfaces;
+- shared-validation failures remap to authored spans.
 
-Use these test names:
+- [ ] **Step 2: Preserve deterministic lowering names and path conventions**
 
-```python
-def test_lower_workflow_definitions_builds_surface_workflows_without_yaml_text() -> None: ...
-def test_lower_workflow_definitions_attaches_origin_map_for_generated_steps_and_contracts() -> None: ...
-def test_validate_lowered_workflows_remaps_shared_validation_failures_to_authored_spans() -> None: ...
+Keep the lowering bridge deterministic for:
+
+- step ids;
+- match step ids;
+- local call step ids and aliases;
+- generated hidden write-root input names;
+- call-scoped write-root relpaths.
+
+Preserve these patterns:
+
+```text
+__write_root__<workflow_name>__<authored_step_id>__result_bundle
 ```
 
-- [ ] **Step 2: Implement surface lowering and origin-map recording**
+and
 
-Implementation requirements:
+```text
+.orchestrate/workflow_lisp/calls/<caller_workflow>/<call_step_id>/<callee_workflow>/<managed_input_name>.json
+```
 
-- construct `SurfaceWorkflow`, `SurfaceStep`, `SurfaceStepCommonConfig`, and `SurfaceContract` records directly;
-- derive deterministic workflow names, authored ids, and step ids from the workflow name plus expression position;
-- keep generated bundle paths and flattened boundary fields in the origin map;
-- call `lower_surface_workflow(surface)` only after shared validation passes.
+If current naming differs slightly, normalize to one documented scheme and update tests accordingly.
 
-- [ ] **Step 3: Implement the shared-validation bridge**
+- [ ] **Step 3: Lower only the approved Stage 3 expression forms**
 
-Implementation requirements:
+Support and verify lowering for:
 
-- keep the authoritative lowered object as `SurfaceWorkflow`;
-- if the existing shared validation entrypoints only operate on mapping-shaped data, add a minimal in-memory projection from `SurfaceWorkflow` to the required validation shape inside the frontend bridge;
-- do not write temporary YAML files and do not invoke YAML parsing;
-- catch shared validation errors and convert them to `LispFrontendDiagnostic` records by consulting `LoweringOriginMap`;
-- if any validation message refers to a generated id with no origin entry, raise `source_map_missing` instead of surfacing an untraceable failure.
+- direct `command-result` returning a record workflow result;
+- direct same-file `call` returning a record workflow result;
+- `let*` lowering for sequential bindings used by the fixtures;
+- `match` lowering over a union result so a workflow may use `provider-result` internally and still export a record boundary.
 
-- [ ] **Step 4: Run the lowering test module**
+Lowering rules:
+
+- build one authored mapping per `TypedWorkflowDef`;
+- set `version: "2.14"` and the authored workflow name;
+- flatten record inputs and outputs through `contracts.py`;
+- add generated hidden write-root inputs for every structured-result-producing step;
+- for provider steps, lower provider id from `ProviderExtern.provider_id` and prompt asset path from `PromptExtern.asset_file`;
+- for command steps, lower `stable_command` plus rendered argv tail into the shared `command:` list;
+- for same-file calls, lower `call:` plus `with:` bindings for authored args and generated write-root inputs.
+
+- [ ] **Step 4: Keep workflow returns on legal shared export surfaces**
+
+Implement or tighten one helper that turns the terminal typed body into workflow outputs:
+
+- direct record-producing step return:
+  - workflow outputs come from `root.steps.<StepName>.artifacts.<field>`
+- `match` return:
+  - lower to shared `match:` with explicit `outputs:` per case
+  - workflow outputs come from `root.steps.<MatchStep>.artifacts.return__<field>`
+- record projection return:
+  - allow only fields that resolve to legal existing artifact refs or statement outputs
+
+If a return field comes only from a literal, workflow input, or other non-exportable lexical value, raise `workflow_return_not_exportable`.
+
+- [ ] **Step 5: Keep the remap fixture focused on shared validation**
+
+`tests/fixtures/workflow_lisp/invalid/shared_validation_remap.orc` must:
+
+- pass Stage 1 and Stage 2 typing;
+- lower successfully;
+- fail only during shared validation;
+- mention a generated field or path so origin remapping is exercised.
+
+An unsafe relpath `under` value such as `"../escape"` is acceptable if it still isolates the failure to shared validation.
+
+- [ ] **Step 6: Run the lowering suite**
 
 Run:
 
@@ -668,117 +423,155 @@ Run:
 python -m pytest tests/test_workflow_lisp_lowering.py -q
 ```
 
-Expected: lowering and remap tests pass.
+Expected: lowering-shape, same-file call, and remap tests pass.
 
-## Task 6: Add The Stage 3 Compiler Entrypoint And Full Frontend Verification
+## Task 5: Reuse The Shared Validation Seam And Harden The Compiler API
 
 **Files:**
 
+- Modify: `orchestrator/workflow_lisp/lowering.py`
 - Modify: `orchestrator/workflow_lisp/compiler.py`
 - Modify: `orchestrator/workflow_lisp/__init__.py`
-- Modify: `tests/test_workflow_lisp_workflows.py`
-- Modify: `tests/test_workflow_lisp_structured_results.py`
 - Modify: `tests/test_workflow_lisp_lowering.py`
 
-- [ ] **Step 1: Add failing compiler-entrypoint tests**
+- [ ] **Step 1: Validate lowered workflows through real imported bundles**
 
-Cover:
+`validate_lowered_workflows(...)` must:
 
-- `compile_stage3_module(...)` returns the typed Stage 3 result object when validation succeeds;
-- `validate_shared=False` skips the shared-validation bridge but still returns lowered `SurfaceWorkflow` objects;
-- `validate_shared=True` runs the remapping bridge and raises one `LispFrontendCompileError` containing the remapped diagnostics tuple on failure.
+- build a local same-file call graph;
+- reject cycles before shared elaboration produces opaque loader failures;
+- instantiate `WorkflowLoader(workspace_root)`;
+- supply already-validated callees through `imported_bundles`;
+- call `elaborate_surface_workflow(...)`;
+- immediately call `lower_surface_workflow(...)`;
+- return the resulting `LoadedWorkflowBundle` objects keyed by workflow name.
 
-Use these test names:
+Prefer a small frontend-local helper that primes loader state instead of broad loader refactors.
 
-```python
-def test_compile_stage3_module_returns_lowered_workflow_artifacts() -> None: ...
-def test_compile_stage3_module_can_skip_shared_validation() -> None: ...
-def test_compile_stage3_module_surfaces_remapped_shared_validation_failures() -> None: ...
-```
+- [ ] **Step 2: Remap shared-validation failures through `LoweringOriginMap`**
 
-- [ ] **Step 2: Implement `compile_stage3_module(...)`**
+When shared validation fails, remap in this order:
 
-Implementation requirements:
+1. generated step id
+2. generated hidden input name
+3. generated workflow output name
+4. generated bundle path
+5. workflow-level fallback
 
-- reuse `compile_stage1_module(...)` rather than forking definition validation;
-- obtain the syntax module from the same parsed tree used for Stage 1 so spans stay aligned;
-- sequence the pipeline exactly as: Stage 1 compile -> workflow elaboration -> catalog build -> workflow body typecheck -> contract derivation -> lowering -> optional shared validation;
-- keep the raised exception type as `LispFrontendCompileError`.
+If no authored origin can be proven, raise `source_map_missing` instead of leaking raw generated identifiers.
 
-- [ ] **Step 3: Export the Stage 3 public APIs**
+- [ ] **Step 3: Preserve the additive Stage 3 compiler pipeline**
 
-Add only the new Stage 3 names required by tests and later slices to `__init__.py`. Do not rename or remove the existing Stage 1 and Stage 2 exports.
+`compile_stage3_module(...)` must keep this order:
 
-- [ ] **Step 4: Run collect-only on the new test modules**
+1. `read_sexpr_file(path)`
+2. `build_syntax_module(parse_tree)`
+3. `elaborate_definition_module(...)`
+4. Stage 1 definition validation
+5. `FrontendTypeEnvironment.from_module(module)`
+6. `elaborate_workflow_definitions(module_syntax)`
+7. `build_workflow_catalog(...)`
+8. `build_extern_environment(...)`
+9. `build_command_boundary_environment(...)`
+10. `typecheck_workflow_definitions(...)`
+11. `lower_workflow_definitions(...)`
+12. optional `validate_lowered_workflows(...)`
+
+Do not regress `compile_stage1_module(...)`.
+
+- [ ] **Step 4: Export and test the intended Stage 3 public surface**
+
+At minimum preserve or expose:
+
+- `compile_stage3_module`
+- `Stage3CompileResult`
+- `ProviderExtern`
+- `PromptExtern`
+- `ExternEnvironment`
+- `ExternalToolBinding`
+- `CertifiedAdapterBinding`
+- `CommandBoundaryEnvironment`
+- `LoweredWorkflow`
+- `LoweringOriginMap`
+- `lower_workflow_definitions`
+- `validate_lowered_workflows`
+
+In `tests/test_workflow_lisp_lowering.py`, add or keep coverage that:
+
+- `compile_stage3_module(..., validate_shared=False)` returns typed workflows plus authored mappings without bundles;
+- `compile_stage3_module(..., validate_shared=True)` returns validated bundles;
+- missing extern or command-boundary bindings fail before lowering leaks bad mappings;
+- shared-validation failures surface remapped `LispFrontendCompileError` diagnostics.
+
+- [ ] **Step 5: Run the targeted Stage 3 suite together**
 
 Run:
+
+```bash
+python -m pytest tests/test_workflow_lisp_lowering.py tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py -q
+```
+
+Expected: the full Stage 3 targeted suite passes.
+
+## Task 6: Full Verification And Completion Notes
+
+**Files:**
+
+- No further code changes unless a verification failure requires one
+
+- [ ] **Step 1: Run the exact deterministic checks for this work item**
+
+Run in order:
 
 ```bash
 python -m pytest --collect-only tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py -q
-```
-
-Expected: collection succeeds and discovers the new Stage 3 tests.
-
-- [ ] **Step 5: Run the narrow Stage 3 suites in the approved order**
-
-Run:
-
-```bash
 python -m pytest tests/test_workflow_lisp_workflows.py -q
 python -m pytest tests/test_workflow_lisp_structured_results.py -q
 python -m pytest tests/test_workflow_lisp_lowering.py -q
+python -m pytest tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py -q
+python -m pytest tests/test_workflow_lisp_reader.py tests/test_workflow_lisp_definitions.py tests/test_workflow_lisp_diagnostics.py tests/test_workflow_lisp_expressions.py tests/test_workflow_lisp_variant_proofs.py tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py -q
 ```
 
-Expected: all three Stage 3 modules pass.
+- [ ] **Step 2: Record implementation evidence in the completion handoff**
 
-- [ ] **Step 6: Run the frontend regression pass**
+Completion notes must explicitly state:
 
-Run:
-
-```bash
-python -m pytest tests/test_workflow_lisp_reader.py tests/test_workflow_lisp_definitions.py tests/test_workflow_lisp_expressions.py tests/test_workflow_lisp_variant_proofs.py tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py -q
-```
-
-Expected: the existing Stage 1 and Stage 2 suites still pass alongside the new Stage 3 suites.
-
-## Verification Sequence
-
-Use this exact command order during execution:
-
-1. `python -m pytest --collect-only tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py -q`
-2. `python -m pytest tests/test_workflow_lisp_workflows.py -q`
-3. `python -m pytest tests/test_workflow_lisp_structured_results.py -q`
-4. `python -m pytest tests/test_workflow_lisp_lowering.py -q`
-5. `python -m pytest tests/test_workflow_lisp_reader.py tests/test_workflow_lisp_definitions.py tests/test_workflow_lisp_expressions.py tests/test_workflow_lisp_variant_proofs.py tests/test_workflow_lisp_workflows.py tests/test_workflow_lisp_structured_results.py tests/test_workflow_lisp_lowering.py -q`
-
-If any new test file names change during implementation, update the selectors and also re-run the collect-only command before claiming completion.
+- which files changed;
+- that workflow boundaries are record-only and reject `Json` / `Provider` / `Prompt`;
+- that provider/prompt externs and command boundary bindings are compile-time inputs;
+- that same-file `call` validation reuses in-memory imported bundles plus generated hidden write-root inputs;
+- the exact pytest commands run and whether they passed;
+- any intentionally deferred edge cases that remain out of scope.
 
 ## Acceptance Checklist
 
-Treat the work item as complete only when all of these are true:
+The work item is complete only when all of these are true:
 
-- bounded `defworkflow` definitions elaborate into a dedicated workflow-definition layer with same-file signature registration;
-- `call`, `provider-result`, and `command-result` typecheck against Stage 1 and Stage 2 type authority rather than ad hoc dict inspection or prompt text;
-- record and union result types generate deterministic `output_bundle` or `variant_output` contracts with compiler-owned bundle paths;
-- lowered workflows produce shared typed handoff records directly, not YAML text;
-- the shared-validation bridge runs without `.orc` loader or CLI integration;
-- generated-step, generated-contract, and generated-bundle-path validation failures remap back to authored `.orc` spans;
-- `command-result` rejects inline Python and shell glue per the command-adapter contract;
-- the full Stage 1 + Stage 2 + Stage 3 frontend regression command passes.
+- `defworkflow` forms elaborate into a dedicated workflow-definition layer with same-file signature registration.
+- workflow boundaries reject unsupported types, especially union returns and any `Provider`, `Prompt`, or `Json` transport.
+- `call`, `provider-result`, and `command-result` typecheck against Stage 1 and Stage 2 authority plus the extern / command-boundary environments.
+- record and union result types generate deterministic `output_bundle` or `variant_output` contracts whose bundle paths flow through generated hidden relpath inputs.
+- lowered provider steps derive `provider` and `asset_file` from validated compiler-known extern bindings.
+- lowered `command-result` steps come only from validated plain external-tool or certified-adapter bindings.
+- same-file `call` lowers through compiler-generated aliases backed by real in-memory `LoadedWorkflowBundle` imports, without authored `imports`.
+- workflow returns lower only through existing legal shared output surfaces.
+- shared-validation failures on generated steps, hidden inputs, flattened fields, or bundle paths remap to authored `.orc` spans.
+- inline shell/Python command glue remains a compile-time error.
+- every verification command listed above passes.
 
 ## Risks And Guardrails
 
-- Risk: Stage 3 quietly forks the existing validation rules.
-  Guardrail: keep output-contract and workflow-boundary validation delegated to shared code and treat frontend checks as a narrow prefilter only.
+- Risk: implementation broadens into a new validator.
+  Guardrail: always route final validation through `elaborate_surface_workflow(...)` and `lower_surface_workflow(...)`.
 
-- Risk: workflow boundary flattening leaks into the source language as an author-facing rule.
-  Guardrail: localize flattening to `contracts.py` / `lowering.py` and record every generated field in the origin map.
+- Risk: stale fixtures keep invalid Stage 3 semantics alive.
+  Guardrail: re-baseline `structured_results.orc` and the workflow/structured-result tests first.
 
-- Risk: lowering falls back to YAML-shaped strings or temporary files because the shared validation seam is awkward.
-  Guardrail: forbid YAML serialization in tests; assert that lowering returns `SurfaceWorkflow` records directly and validate through an in-memory bridge only.
+- Risk: `Json` rejection gets enforced in one layer and silently weakened in another.
+  Guardrail: use one recursive boundary helper and reuse it from both workflow-boundary validation and contract derivation.
 
-- Risk: inline command glue sneaks back in under permissive argv handling.
-  Guardrail: add dedicated invalid fixtures and hard-error tests for `python -c`, `python -`, `bash -c`, and `sh -c`.
+- Risk: same-file call lowering hard-codes bundle paths inside callees.
+  Guardrail: every structured-result-producing callee exposes generated relpath inputs, and callers bind them explicitly.
 
-- Risk: remapped diagnostics lose source fidelity when generated ids are involved.
-  Guardrail: require origin-map assertions in lowering tests and emit `source_map_missing` if any generated validation failure lacks a source entry.
+- Risk: shared-validation remapping becomes brittle string matching.
+  Guardrail: centralize origin-map lookups and test remapping on generated step ids, flattened field names, hidden input names, and generated paths.

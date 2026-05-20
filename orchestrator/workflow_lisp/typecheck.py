@@ -472,7 +472,7 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         call_summary = effect_summary_from_direct(
-            direct_effects=(CallsWorkflowEffect(subject=(expr.callee_name,)),),
+            direct_effects=(CallsWorkflowEffect(subject=(signature.name,)),),
         )
         return _typed(
             expr=expr,
@@ -480,7 +480,7 @@ def _typecheck(
             effect=merge_effect_summaries(
                 *binding_summaries,
                 call_summary,
-                workflow_effects_by_name.get(expr.callee_name, EMPTY_EFFECT_SUMMARY),
+                workflow_effects_by_name.get(signature.name, EMPTY_EFFECT_SUMMARY),
             ),
         )
     if isinstance(expr, ProcedureCallExpr):
@@ -525,10 +525,10 @@ def _typecheck(
                     span=arg_expr.span,
                     form_path=arg_expr.form_path,
                 )
-        callee_summary = procedure_effects_by_name.get(expr.callee_name, EMPTY_EFFECT_SUMMARY)
+        callee_summary = procedure_effects_by_name.get(signature.name, EMPTY_EFFECT_SUMMARY)
         procedure_summary = effect_summary_from_direct(
             direct_effects=callee_summary.transitive_effects,
-            procedure_edges=(ProcedureCallEdge(callee_name=expr.callee_name),),
+            procedure_edges=(ProcedureCallEdge(callee_name=signature.name),),
         )
         return _typed(
             expr=expr,
@@ -2377,6 +2377,7 @@ def _raise_error(
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
+                phase="typecheck",
             ),
         )
     )

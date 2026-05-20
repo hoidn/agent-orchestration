@@ -9,10 +9,12 @@ from orchestrator.runtime_observability import (
     compute_active_runtime,
     format_duration,
     open_executor_session,
+    record_compiled_frontend_provenance,
     reconcile_open_sessions,
 )
 from orchestrator.monitor.process import write_process_metadata
 from orchestrator.state import StateManager
+from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 
 def dt(value: str) -> datetime:
@@ -166,6 +168,29 @@ def test_state_round_trips_runtime_observability(tmp_path: Path):
     loaded = StateManager(tmp_path, run_id="runtime-state").load()
 
     assert loaded.runtime_observability == state.runtime_observability
+
+
+def test_record_compiled_frontend_provenance_persists_bridge_fields():
+    state = {}
+
+    record_compiled_frontend_provenance(
+        state,
+        WorkflowProvenance(
+            workflow_path=Path("/tmp/workflow.orc"),
+            source_root=Path("/tmp"),
+            frontend_kind="workflow_lisp",
+            frontend_build_root=Path("/tmp/.orchestrate/build/abc123"),
+            frontend_source_trace_path=Path("/tmp/.orchestrate/build/abc123/source_map.json"),
+            frontend_entry_workflow="orchestrate",
+        ),
+    )
+
+    assert state["runtime_observability"]["compiled_frontend"] == {
+        "frontend_kind": "workflow_lisp",
+        "frontend_build_root": "/tmp/.orchestrate/build/abc123/",
+        "frontend_source_trace_path": "/tmp/.orchestrate/build/abc123/source_map.json",
+        "frontend_entry_workflow": "orchestrate",
+    }
 
 
 def test_old_state_without_runtime_observability_still_loads(tmp_path: Path):

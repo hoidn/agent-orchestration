@@ -295,20 +295,36 @@ ExprNode = (
 )
 
 
+_ACTIVE_PROCEDURE_NAME_RESOLVER = None
+_ACTIVE_WORKFLOW_NAME_RESOLVER = None
+
+
 def elaborate_expression(
     node: SyntaxNode,
     *,
     bound_names: frozenset[str],
     procedure_names: frozenset[str] = frozenset(),
+    procedure_name_resolver=None,
+    workflow_name_resolver=None,
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
-    return _elaborate(
-        syntax_node_datum(node),
-        form_path=node.form_path,
-        bound_names=bound_names,
-        procedure_names=procedure_names,
-    )
+    global _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
+
+    previous_procedure_resolver = _ACTIVE_PROCEDURE_NAME_RESOLVER
+    previous_workflow_resolver = _ACTIVE_WORKFLOW_NAME_RESOLVER
+    _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
+    _ACTIVE_WORKFLOW_NAME_RESOLVER = workflow_name_resolver
+    try:
+        return _elaborate(
+            syntax_node_datum(node),
+            form_path=node.form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    finally:
+        _ACTIVE_PROCEDURE_NAME_RESOLVER = previous_procedure_resolver
+        _ACTIVE_WORKFLOW_NAME_RESOLVER = previous_workflow_resolver
 
 
 def _elaborate(
@@ -769,7 +785,15 @@ def _elaborate_call(
             )
         )
     return CallExpr(
-        callee_name=callee_identifier.resolved_name,
+        callee_name=(
+            _ACTIVE_WORKFLOW_NAME_RESOLVER(
+                callee_identifier.resolved_name,
+                callee_identifier.span,
+                form_path,
+            )
+            if _ACTIVE_WORKFLOW_NAME_RESOLVER is not None
+            else callee_identifier.resolved_name
+        ),
         bindings=tuple(bindings),
         span=datum.span,
         form_path=form_path,
@@ -787,7 +811,15 @@ def _elaborate_procedure_call(
     callee_identifier = syntax_identifier(datum.items[0])
     assert callee_identifier is not None
     return ProcedureCallExpr(
-        callee_name=callee_identifier.resolved_name,
+        callee_name=(
+            _ACTIVE_PROCEDURE_NAME_RESOLVER(
+                callee_identifier.resolved_name,
+                callee_identifier.span,
+                form_path,
+            )
+            if _ACTIVE_PROCEDURE_NAME_RESOLVER is not None
+            else callee_identifier.resolved_name
+        ),
         args=tuple(
             _elaborate(
                 item,

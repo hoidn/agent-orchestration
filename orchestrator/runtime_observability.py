@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Callable, Mapping, MutableMapping
 
 from orchestrator.monitor.process import is_pid_alive, process_start_time_token
+from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 
 RuntimeState = MutableMapping[str, Any] | Any
@@ -81,6 +83,33 @@ def _sessions(state: RuntimeState, *, create: bool = False) -> list[MutableMappi
         sessions = []
         payload["executor_sessions"] = sessions
     return sessions
+
+
+def record_compiled_frontend_provenance(
+    state: RuntimeState,
+    provenance: WorkflowProvenance | None,
+) -> None:
+    """Persist compiled-frontend runtime metadata from typed workflow provenance."""
+
+    if provenance is None or provenance.frontend_kind is None:
+        return
+
+    payload = _runtime_payload(state, create=True)
+    if payload is None:
+        return
+
+    build_root = provenance.frontend_build_root
+    source_trace_path = provenance.frontend_source_trace_path
+    frontend_entry_workflow = provenance.frontend_entry_workflow
+    if not isinstance(build_root, Path) or not isinstance(source_trace_path, Path):
+        return
+
+    payload["compiled_frontend"] = {
+        "frontend_kind": provenance.frontend_kind,
+        "frontend_build_root": f"{build_root.as_posix()}/",
+        "frontend_source_trace_path": str(source_trace_path),
+        "frontend_entry_workflow": frontend_entry_workflow,
+    }
 
 
 def _next_session_id(sessions: list[MutableMapping[str, Any]]) -> str:

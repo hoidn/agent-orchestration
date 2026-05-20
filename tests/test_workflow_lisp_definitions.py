@@ -27,13 +27,22 @@ def test_elaborate_definition_module_supports_stage1_type_forms() -> None:
 
     assert module.language_version == "0.1"
     assert module.target_dsl_version == "2.14"
-    assert len(module.definitions) == 4
+    assert len(module.definitions) == 6
 
-    enum_def, path_def, record_def, union_def = module.definitions
+    enum_def = module.definitions[0]
+    path_def = module.definitions[1]
+    checks_result_def = module.definitions[2]
+    implementation_summary_def = module.definitions[3]
+    nested_summary_def = module.definitions[4]
+    union_def = module.definitions[5]
     assert isinstance(enum_def, EnumDef)
     assert [value.name for value in enum_def.values] == [
         "missing_resource",
+        "unavailable_hardware",
         "roadmap_conflict",
+        "external_dependency_outside_authority",
+        "user_decision_required",
+        "unrecoverable_after_fix_attempt",
     ]
     assert enum_def.values[0].span.start.line == 5
 
@@ -42,9 +51,17 @@ def test_elaborate_definition_module_supports_stage1_type_forms() -> None:
     assert path_def.under == "artifacts/work"
     assert path_def.must_exist is True
 
-    assert isinstance(record_def, RecordDef)
-    assert [field.name for field in record_def.fields] == ["status", "report"]
-    assert record_def.fields[1].type_name == "WorkReport"
+    assert isinstance(checks_result_def, RecordDef)
+    assert [field.name for field in checks_result_def.fields] == ["status", "report"]
+    assert checks_result_def.fields[1].type_name == "WorkReport"
+
+    assert isinstance(implementation_summary_def, RecordDef)
+    assert [field.name for field in implementation_summary_def.fields] == ["status", "report"]
+    assert implementation_summary_def.fields[1].type_name == "WorkReport"
+
+    assert isinstance(nested_summary_def, RecordDef)
+    assert [field.name for field in nested_summary_def.fields] == ["summary"]
+    assert nested_summary_def.fields[0].type_name == "ImplementationSummary"
 
     assert isinstance(union_def, UnionDef)
     assert [variant.name for variant in union_def.variants] == ["COMPLETED", "BLOCKED"]
@@ -98,6 +115,15 @@ def test_compile_stage1_reports_unknown_type_with_field_span() -> None:
     assert diagnostic.span.start.column == 5
 
 
+def test_compile_stage1_rejects_defworkflow_top_level_forms() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "valid" / "structured_results.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "definition_form_unknown"
+    assert "defworkflow" in diagnostic.message
+
+
 def test_compile_stage1_allows_forward_type_references(tmp_path: Path) -> None:
     path = tmp_path / "forward_refs.orc"
     path.write_text(
@@ -140,12 +166,3 @@ def test_compile_stage1_rejects_duplicate_union_variants() -> None:
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "union_variant_duplicate"
     assert "COMPLETED" in diagnostic.message
-
-def test_compile_stage1_rejects_defworkflow_top_level_forms() -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage1_module(FIXTURES / "valid" / "structured_results.orc")
-
-    diagnostic = excinfo.value.diagnostics[0]
-    assert diagnostic.code == "definition_form_unknown"
-    assert "defworkflow" in diagnostic.message
-

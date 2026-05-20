@@ -19,6 +19,7 @@ from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import (
     FrontendTypeEnvironment,
     PathTypeRef,
+    PRELUDE_PATH_TYPES,
     PrimitiveTypeRef,
     RecordTypeRef,
     UnionTypeRef,
@@ -58,7 +59,10 @@ def test_frontend_type_environment_resolves_stage1_definitions() -> None:
 
     for prelude_name in PRELUDE_TYPE_NAMES:
         resolved = type_env.resolve_type(prelude_name, span=syntax.span, form_path=syntax.form_path)
-        assert isinstance(resolved, PrimitiveTypeRef)
+        if prelude_name in PRELUDE_PATH_TYPES:
+            assert isinstance(resolved, PathTypeRef)
+        else:
+            assert isinstance(resolved, PrimitiveTypeRef)
         assert resolved.name == prelude_name
 
     checks_result = type_env.resolve_type("ChecksResult", span=syntax.span, form_path=syntax.form_path)
