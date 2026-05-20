@@ -193,6 +193,10 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
                     message=f"Unable to resolve imported call target for lowering: {call_target}",
                     span=signature.form_span,
                     enclosing_form_name=form_name,
+                    generated_core_node_id=_import_alias_node_id(
+                        workflow_name=callable_name,
+                        alias=call_target,
+                    ),
                 )
             lowered_imports[call_target] = imported_path
         if lowered_imports:

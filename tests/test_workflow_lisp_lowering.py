@@ -671,6 +671,36 @@ def test_lower_compiled_module_prefers_most_specific_import_for_overlapping_modu
     }
 
 
+def test_lower_compiled_module_reports_generated_node_for_unresolved_import_target(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = _fixture_path("valid_call_imported_with_returns.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+    resolve_import_target = lowering._resolve_imported_call_target_path
+
+    def _force_missing_import_target(
+        call_target: str,
+        *,
+        import_definitions: tuple[object, ...],
+    ) -> str | None:
+        if call_target == "remote/run_phase":
+            return None
+        return resolve_import_target(call_target, import_definitions=import_definitions)
+
+    monkeypatch.setattr(lowering, "_resolve_imported_call_target_path", _force_missing_import_target)
+
+    with pytest.raises(WorkflowLispSyntaxError) as exc_info:
+        lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    diagnostic = exc_info.value.diagnostic
+    assert diagnostic.code == "frontend_lowering_error"
+    assert "Unable to resolve imported call target for lowering" in diagnostic.message
+    assert diagnostic.generated_core_node_id == "run.import.remote/run_phase"
+
+
 def test_lower_compiled_module_supports_record_root_expression(tmp_path: Path) -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()
