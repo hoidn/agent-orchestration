@@ -650,6 +650,27 @@ def test_lower_compiled_module_emits_call_step_for_module_qualified_imported_cal
     assert loaded.surface.name == "run"
 
 
+def test_lower_compiled_module_prefers_most_specific_import_for_overlapping_module_qualifiers() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = _fixture_path("valid_call_imported_overlapping_module_qualifiers.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+    workflow = lowered["run"]
+    step = workflow["steps"][0]
+
+    assert workflow["imports"] == {
+        "remote/workflows/run_phase": "remote/workflows.yaml",
+    }
+    assert step == {
+        "name": "CallResult",
+        "id": "call_result",
+        "call": "remote/workflows/run_phase",
+        "with": {},
+    }
+
+
 def test_lower_compiled_module_supports_record_root_expression(tmp_path: Path) -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()

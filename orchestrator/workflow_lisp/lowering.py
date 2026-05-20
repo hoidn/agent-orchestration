@@ -2586,10 +2586,18 @@ def _resolve_imported_call_target_path(
     *,
     import_definitions: tuple[ImportDefinition, ...],
 ) -> str | None:
+    # `:only` names are exact imports and are validated as unique.
     for import_definition in import_definitions:
         import_path = _module_ref_to_import_path(import_definition.module_ref)
         if call_target in import_definition.only_names:
             return import_path
+
+    best_match_path: str | None = None
+    best_match_qualifier_len = -1
+
+    # For qualified names, prefer the most specific matching qualifier.
+    for import_definition in import_definitions:
+        import_path = _module_ref_to_import_path(import_definition.module_ref)
         qualifier = import_definition.alias or import_definition.module_ref
         resolved_member_name = _alias_qualified_member_name(
             call_target=call_target,
@@ -2599,8 +2607,12 @@ def _resolve_imported_call_target_path(
             continue
         if import_definition.only_names and resolved_member_name not in import_definition.only_names:
             continue
-        return import_path
-    return None
+        qualifier_len = len(qualifier)
+        if qualifier_len > best_match_qualifier_len:
+            best_match_path = import_path
+            best_match_qualifier_len = qualifier_len
+
+    return best_match_path
 
 
 def _alias_qualified_member_name(*, call_target: str, alias: str) -> str | None:
