@@ -46,6 +46,7 @@ from .expressions import (
     shape_expression,
 )
 from .expression_validation import (
+    ExpressionCheckedFunction,
     ExpressionCheckedModule,
     ExpressionCheckedProcedure,
     ExpressionCheckedWorkflow,
@@ -84,6 +85,7 @@ __all__ = [
     "EnumDefinition",
     "FunctionDefinition",
     "ExpressionCheckedModule",
+    "ExpressionCheckedFunction",
     "ExpressionCheckedProcedure",
     "ExpressionCheckedWorkflow",
     "FieldAccessExpression",

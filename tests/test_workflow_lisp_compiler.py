@@ -96,6 +96,14 @@ def test_compile_workflow_module_file_preserves_function_definitions() -> None:
         "normalize_inputs",
         "normalize_path",
     )
+    assert tuple(function.name for function in compiled.expression_module.functions) == (
+        "normalize_inputs",
+        "normalize_path",
+    )
+    assert tuple(function.inferred_return_type for function in compiled.expression_module.functions) == (
+        "PlanInputs",
+        "String",
+    )
     assert tuple(workflow.name for workflow in compiled.expression_module.workflows) == ("run_phase",)
 
 

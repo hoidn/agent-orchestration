@@ -51,12 +51,22 @@ class ExpressionCheckedProcedure:
 
 
 @dataclass(frozen=True)
+class ExpressionCheckedFunction:
+    """One defun body after expression typing."""
+
+    name: str
+    expression: ExpressionNode
+    inferred_return_type: str
+
+
+@dataclass(frozen=True)
 class ExpressionCheckedModule:
     """Definition-checked module with typed workflow expressions."""
 
     source_path: str
     workflows: tuple[ExpressionCheckedWorkflow, ...]
     procedures: tuple[ExpressionCheckedProcedure, ...] = ()
+    functions: tuple[ExpressionCheckedFunction, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -122,6 +132,7 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
     callable_catalog.update({procedure.name: procedure for procedure in module.procedure_definitions})
     workflows: list[ExpressionCheckedWorkflow] = []
     procedures: list[ExpressionCheckedProcedure] = []
+    functions: list[ExpressionCheckedFunction] = []
 
     for workflow in module.workflow_definitions:
         assert isinstance(workflow, WorkflowDefinition)
@@ -227,10 +238,62 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
             )
         )
 
+    for function in module.function_definitions:
+        generated_core_node_id = f"{function.name}.result"
+        if len(function.body_forms) != 1:
+            _raise_expression_error(
+                code="frontend_parse_error",
+                message=f"defun {function.name} requires exactly one body expression in MVP",
+                span=function.form_span,
+                enclosing_form_name="defun",
+                generated_core_node_id=generated_core_node_id,
+            )
+
+        expression = shape_expression(function.body_forms[0])
+        env = {
+            parameter.name: _resolve_type_ref(
+                parameter.type_ref,
+                type_catalog,
+                import_aliases=import_aliases,
+                generated_core_node_id=generated_core_node_id,
+            )
+            for parameter in function.parameters
+        }
+        inferred = _infer_expression_type(
+            expression,
+            env,
+            type_catalog,
+            callable_catalog,
+            imported_only_names=imported_only_names,
+            import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
+            generated_core_node_id=generated_core_node_id,
+        )
+        if _type_name(inferred) != function.return_type.name:
+            _raise_expression_error(
+                code="return_type_mismatch",
+                message=(
+                    f"Function {function.name} returns {_type_name(inferred)} "
+                    f"but declares {function.return_type.name}"
+                ),
+                span=function.return_type.span,
+                enclosing_form_name="defun",
+                generated_core_node_id=generated_core_node_id,
+            )
+        functions.append(
+            ExpressionCheckedFunction(
+                name=function.name,
+                expression=expression,
+                inferred_return_type=_type_name(inferred),
+            )
+        )
+
     return ExpressionCheckedModule(
         source_path=module.source_path,
         workflows=tuple(workflows),
         procedures=tuple(procedures),
+        functions=tuple(functions),
     )
 
 

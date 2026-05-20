@@ -241,6 +241,57 @@ def test_validate_expression_module_accepts_calls_to_local_procedures() -> None:
     assert result.workflows[0].inferred_return_type == "PlanResult"
 
 
+def test_validate_expression_module_checks_local_function_bodies() -> None:
+    expression_validation = _expression_validation_module()
+    checked = _checked_module_from_definition_fixture("valid_defuns.orc")
+
+    result = expression_validation.validate_expression_module(checked)
+
+    assert tuple(function.name for function in result.functions) == (
+        "normalize_inputs",
+        "normalize_path",
+    )
+    assert tuple(function.inferred_return_type for function in result.functions) == (
+        "PlanInputs",
+        "String",
+    )
+    assert tuple(workflow.name for workflow in result.workflows) == ("run_phase",)
+
+
+def test_validate_expression_module_rejects_function_return_type_mismatch() -> None:
+    parser = _parser_module()
+    definition_validation = _definition_validation_module()
+    expression_validation = _expression_validation_module()
+    source_path = str(_fixture_path("inline_bad_defun_return_type.orc"))
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defrecord PlanInputs
+  (design_path String))
+
+(defun normalize_path ((inputs PlanInputs)) -> String
+  inputs)
+
+(defworkflow run_phase ((inputs PlanInputs)) -> PlanInputs
+  inputs)
+""",
+        source_path=source_path,
+    )
+    checked = definition_validation.validate_definition_module(module)
+
+    with pytest.raises(Exception) as exc_info:
+        expression_validation.validate_expression_module(checked)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "return_type_mismatch"
+    assert diagnostic.enclosing_form_name == "defun"
+    assert diagnostic.generated_core_node_id == "normalize_path.result"
+    assert "Function normalize_path returns PlanInputs but declares String" in diagnostic.message
+
+
 def test_validate_expression_module_accepts_phase_target_expression() -> None:
     parser = _parser_module()
     definition_validation = _definition_validation_module()
