@@ -128,3 +128,51 @@ steps:
     assert imported_root.surface.name == "run_public"
     assert imported_private.surface.name == "private_helper"
     assert imported_leaf.surface.name == "build_status"
+
+
+def test_loader_records_frontend_source_map_for_orc_workflow_fragment(tmp_path: Path) -> None:
+    source_path = _fixture_path("valid_provider_command_result_expressions.orc")
+
+    loaded = WorkflowLoader(tmp_path).load(f"{source_path}#run_checks")
+    frontend_source_map = loaded.provenance.frontend_source_map
+
+    assert "run_checks.result" in frontend_source_map
+    result_span = frontend_source_map["run_checks.result"]
+    assert getattr(result_span, "source_file", None) == str(source_path)
+    assert getattr(result_span, "line_start", 0) > 0
+
+
+def test_loader_leaves_frontend_source_map_empty_for_yaml_workflows(tmp_path: Path) -> None:
+    workflow_path = tmp_path / "simple.yaml"
+    workflow_path.write_text(
+        """
+version: "2.14"
+name: simple
+inputs:
+  report_path:
+    type: relpath
+outputs:
+  path:
+    type: relpath
+    from:
+      ref: root.steps.CommandResult.artifacts.path
+steps:
+  - name: CommandResult
+    command:
+      - python
+      - scripts/emit_report.py
+      - ${inputs.report_path}
+    output_bundle:
+      path: state/run_path_result.json
+      fields:
+        - name: path
+          json_pointer: /path
+          type: relpath
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+
+    loaded = WorkflowLoader(tmp_path).load(workflow_path)
+
+    assert loaded.provenance.frontend_source_map == {}

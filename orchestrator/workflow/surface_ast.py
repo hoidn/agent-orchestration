@@ -121,6 +121,7 @@ class WorkflowProvenance:
     source_root: Path
     managed_write_root_inputs: tuple[str, ...] = ()
     imported_aliases: tuple[str, ...] = ()
+    frontend_source_map: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 @dataclass(frozen=True)

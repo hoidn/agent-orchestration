@@ -86,6 +86,7 @@ def elaborate_surface_workflow(
     workflow_path: Any,
     imported_bundles: Mapping[str, Any],
     managed_write_root_inputs: tuple[str, ...] = (),
+    frontend_source_map: Mapping[str, Any] | None = None,
     validation_backend: SurfaceWorkflowValidationBackend | None = None,
     workflow_is_imported: bool = False,
 ) -> SurfaceWorkflow | None:
@@ -184,6 +185,7 @@ def elaborate_surface_workflow(
         source_root=workflow_path.parent,
         managed_write_root_inputs=managed_inputs,
         imported_aliases=tuple(imported_bundles.keys()),
+        frontend_source_map=freeze_mapping(frontend_source_map),
     )
 
     return SurfaceWorkflow(

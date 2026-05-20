@@ -25,7 +25,7 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_managed_write_root_inputs,
     workflow_output_contracts,
 )
-from orchestrator.workflow_lisp import compile_workflow_module_file, lower_compiled_module_to_workflow_dicts
+from orchestrator.workflow_lisp import compile_workflow_module_file, lower_compiled_module
 from orchestrator.workflow_lisp.parser import WorkflowLispSyntaxError
 from orchestrator.workflow.lowering import lower_surface_workflow
 from orchestrator.workflow.predicates import (
@@ -82,6 +82,14 @@ class _ResolvedWorkflowRef:
 
     path: Path
     workflow_name: Optional[str] = None
+
+
+@dataclass(frozen=True)
+class _LoadedWorkflowSource:
+    """Loaded source payload plus optional frontend metadata."""
+
+    workflow: Dict[str, Any]
+    frontend_source_map: Mapping[str, Any] = MappingProxyType({})
 
 
 class WorkflowLoader:
@@ -187,7 +195,7 @@ class WorkflowLoader:
 
         try:
             try:
-                workflow = self._load_workflow_source(
+                loaded_source = self._load_workflow_source(
                     resolved_workflow_path,
                     selected_workflow_name=selected_workflow_name,
                 )
@@ -195,8 +203,9 @@ class WorkflowLoader:
                 self._add_error(f"Failed to load workflow: {e}")
                 return {}
 
-            if workflow is None:
+            if loaded_source is None:
                 return {}
+            workflow = loaded_source.workflow
             if not isinstance(workflow, dict):
                 self._add_error("Workflow must be a YAML object/dictionary")
                 return {}
@@ -237,6 +246,7 @@ class WorkflowLoader:
                 surface_source,
                 workflow_path=resolved_workflow_path,
                 imported_bundles=imported_bundles,
+                frontend_source_map=loaded_source.frontend_source_map,
                 validation_backend=self,
                 workflow_is_imported=expected_version is not None,
             )
@@ -264,8 +274,8 @@ class WorkflowLoader:
         resolved_workflow_path: Path,
         *,
         selected_workflow_name: Optional[str] = None,
-    ) -> Dict[str, Any] | None:
-        """Load one workflow source file as a workflow dictionary."""
+    ) -> _LoadedWorkflowSource | None:
+        """Load one workflow source file as a workflow dictionary plus frontend metadata."""
         if resolved_workflow_path.suffix.lower() != ".orc":
             if selected_workflow_name is not None:
                 self._add_error(
@@ -273,11 +283,15 @@ class WorkflowLoader:
                 )
                 return None
             with open(resolved_workflow_path, 'r') as f:
-                return yaml.load(f, Loader=PreservingLoader)
+                loaded = yaml.load(f, Loader=PreservingLoader)
+            if not isinstance(loaded, dict):
+                self._add_error("Workflow must be a YAML object/dictionary")
+                return None
+            return _LoadedWorkflowSource(workflow=loaded)
 
         try:
             compiled = compile_workflow_module_file(resolved_workflow_path)
-            lowered = lower_compiled_module_to_workflow_dicts(compiled)
+            lowered_module = lower_compiled_module(compiled)
         except WorkflowLispSyntaxError as error:
             diagnostic = error.diagnostic
             location = f"{diagnostic.source_file}:{diagnostic.line}:{diagnostic.column}"
@@ -296,6 +310,7 @@ class WorkflowLoader:
             self._add_error(f"Workflow Lisp compile failed: {error}")
             return None
 
+        lowered = lowered_module.workflows
         lowered_workflow_names = tuple(lowered)
         if selected_workflow_name is not None:
             selected = lowered.get(selected_workflow_name)
@@ -306,7 +321,10 @@ class WorkflowLoader:
                     f"'{selected_workflow_name}' (available: {rendered_names})"
                 )
                 return None
-            return dict(selected)
+            return _LoadedWorkflowSource(
+                workflow=dict(selected),
+                frontend_source_map=lowered_module.source_map.get(selected_workflow_name, MappingProxyType({})),
+            )
 
         if len(lowered_workflow_names) != 1:
             rendered_names = ", ".join(sorted(lowered_workflow_names)) or "<none>"
@@ -317,7 +335,10 @@ class WorkflowLoader:
             return None
 
         selected_name = lowered_workflow_names[0]
-        return dict(lowered[selected_name])
+        return _LoadedWorkflowSource(
+            workflow=dict(lowered[selected_name]),
+            frontend_source_map=lowered_module.source_map.get(selected_name, MappingProxyType({})),
+        )
 
     def _normalize_v214_ergonomics(self, workflow: Dict[str, Any], version: str) -> None:
         """Expand narrow v2.14 ergonomics shorthands into existing runtime shapes."""
