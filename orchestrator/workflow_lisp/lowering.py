@@ -1177,6 +1177,26 @@ def _inline_expression(
         )
 
     if isinstance(expression, MatchExpression):
+        inlined_arms = []
+        for arm in expression.arms:
+            arm_env = dict(env)
+            arm_env.pop(arm.binding_name, None)
+            inlined_arms.append(
+                arm.__class__(
+                    variant_name=arm.variant_name,
+                    variant_span=arm.variant_span,
+                    binding_name=arm.binding_name,
+                    binding_span=arm.binding_span,
+                    body=_inline_expression(
+                        arm.body,
+                        arm_env,
+                        current_phase_name,
+                        function_definitions=function_definitions,
+                        inline_stack=inline_stack,
+                    ),
+                    span=arm.span,
+                )
+            )
         return MatchExpression(
             subject=_inline_expression(
                 expression.subject,
@@ -1185,23 +1205,7 @@ def _inline_expression(
                 function_definitions=function_definitions,
                 inline_stack=inline_stack,
             ),
-            arms=tuple(
-                arm.__class__(
-                    variant_name=arm.variant_name,
-                    variant_span=arm.variant_span,
-                    binding_name=arm.binding_name,
-                    binding_span=arm.binding_span,
-                    body=_inline_expression(
-                        arm.body,
-                        env,
-                        current_phase_name,
-                        function_definitions=function_definitions,
-                        inline_stack=inline_stack,
-                    ),
-                    span=arm.span,
-                )
-                for arm in expression.arms
-            ),
+            arms=tuple(inlined_arms),
             partial=expression.partial,
             span=expression.span,
         )

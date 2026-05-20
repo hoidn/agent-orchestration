@@ -1550,6 +1550,60 @@ def test_lower_compiled_module_supports_match_case_call_bindings_from_variant_fi
     }
 
 
+def test_lower_compiled_module_preserves_match_arm_binding_shadowing_during_inlining() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_text = """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defunion Attempt
+  (COMPLETED (status String))
+  (BLOCKED (status String)))
+
+(defworkflow route_status ((execute_provider Provider) (execute_prompt Prompt) (design_path String)) -> String
+  (let* ((attempt
+           (provider-result execute_provider
+             :prompt execute_prompt
+             :inputs (design_path)
+             :returns Attempt))
+         (completed "fallback-completed")
+         (blocked "fallback-blocked"))
+    (match attempt
+      ((COMPLETED completed) completed.status)
+      ((BLOCKED blocked) blocked.status))))
+"""
+
+    compiled = compiler.compile_workflow_module_text(
+        source_text,
+        source_path=str(Path("inline-match-arm-shadowing.orc")),
+    )
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+    workflow = lowered["route_status"]
+    match_step = workflow["steps"][1]
+
+    completed_step = match_step["match"]["cases"]["COMPLETED"]["steps"][0]
+    blocked_step = match_step["match"]["cases"]["BLOCKED"]["steps"][0]
+
+    assert completed_step["name"] == "ScalarResult"
+    assert blocked_step["name"] == "ScalarResult"
+    assert completed_step["materialize_artifacts"]["values"] == [
+        {
+            "name": "result",
+            "source": {"ref": "parent.steps.ProviderResult.artifacts.status"},
+            "contract": {"inherit": "source"},
+        }
+    ]
+    assert blocked_step["materialize_artifacts"]["values"] == [
+        {
+            "name": "result",
+            "source": {"ref": "parent.steps.ProviderResult.artifacts.status"},
+            "contract": {"inherit": "source"},
+        }
+    ]
+
+
 def test_lower_compiled_module_rejects_direct_match_binding_scalar_lowering() -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()
