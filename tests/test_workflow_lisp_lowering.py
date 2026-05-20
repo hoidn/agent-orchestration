@@ -1067,6 +1067,31 @@ def test_lower_compiled_module_records_source_spans_for_generated_partial_match_
     )
 
 
+def test_lower_compiled_module_records_source_spans_for_match_case_steps() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = _fixture_path("valid_match_root_execution_routes.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+    lowered_module = lowering.lower_compiled_module(compiled)
+
+    route_map = lowered_module.source_map["route_plan"]
+    assert route_map["route_plan.step.MatchResult.case.COMPLETED.step.CommandResult"].line_start == 28
+    assert route_map["route_plan.step.MatchResult.case.BLOCKED.step.CommandResult"].line_start == 32
+
+
+def test_lower_compiled_module_records_source_spans_for_generated_partial_match_case_step() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = _fixture_path("invalid_match_root_execution_routes_partial_non_exhaustive.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+    lowered_module = lowering.lower_compiled_module(compiled)
+
+    route_map = lowered_module.source_map["route_plan"]
+    assert route_map["route_plan.step.MatchResult.case.BLOCKED.step.UnhandledPartialBlocked"].line_start == 26
+
+
 def test_lower_compiled_module_records_distinct_step_spans_for_root_match_lowering() -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()

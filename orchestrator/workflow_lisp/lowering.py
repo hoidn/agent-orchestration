@@ -242,6 +242,14 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
                 )
             )
             for case_variant_name, case_step_name, case_expression, case_step in root_match_case_steps:
+                workflow_source_map[
+                    _match_case_step_node_id(
+                        workflow_name=callable_name,
+                        match_step_name=root_step_name,
+                        case_variant_name=case_variant_name,
+                        case_step_name=case_step_name,
+                    )
+                ] = case_expression.span
                 workflow_source_map.update(
                     _match_case_output_source_map_entries(
                         workflow_name=callable_name,
@@ -313,6 +321,15 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
                     case_step_name = _first_case_step_name(case_payload)
                     if case_step_name is None:
                         continue
+                    workflow_source_map.setdefault(
+                        _match_case_step_node_id(
+                            workflow_name=callable_name,
+                            match_step_name=root_step_name,
+                            case_variant_name=case_variant_name,
+                            case_step_name=case_step_name,
+                        ),
+                        lowered_root_expression.span,
+                    )
                     return_definition = definition_table.get(signature.return_type.name)
                     if not isinstance(return_definition, (RecordDefinition, UnionDefinition)):
                         continue
@@ -2244,6 +2261,16 @@ def _match_case_step_call_target_node_id(
     case_step_name: str,
 ) -> str:
     return f"{workflow_name}.step.{match_step_name}.case.{case_variant_name}.step.{case_step_name}.call"
+
+
+def _match_case_step_node_id(
+    *,
+    workflow_name: str,
+    match_step_name: str,
+    case_variant_name: str,
+    case_step_name: str,
+) -> str:
+    return f"{workflow_name}.step.{match_step_name}.case.{case_variant_name}.step.{case_step_name}"
 
 
 def _match_case_step_call_binding_node_id(
