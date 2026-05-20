@@ -616,4 +616,49 @@ This is an early DSL-semantic step toward LLM-as-a-judge workflows: once judging
 This keeps today's contract honest while showing the path from provider-level adjudication to workflow-native LLM-as-a-judge semantics.
 \end{frame}
 
+\begin{frame}[shrink=12]{Workflow Lisp language surface}
+\scriptsize
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.32\textwidth}
+\begin{block}{Original MVP proof}
+\begin{itemize}
+  \item One-file \texttt{.orc} compilation unit.
+  \item \texttt{defenum}, \texttt{defpath}, \texttt{defrecord}, \texttt{defunion}, \texttt{defworkflow}.
+  \item \texttt{let*}, \texttt{record}, fields, \texttt{match}.
+  \item \texttt{provider-result}, \texttt{command-result}.
+  \item Compiler-owned \texttt{with-phase} and \texttt{phase-target}.
+\end{itemize}
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{Current/post-MVP extensions}
+\begin{itemize}
+  \item Modules, imports, exports, qualified names.
+  \item \texttt{defproc} effects and lowering policy.
+  \item Same-file/module \texttt{defmacro}.
+  \item Phase forms: \texttt{run-provider-phase}, \texttt{produce-one-of}, \texttt{resume-or-start}.
+  \item Drain forms: \texttt{resource-transition}, \texttt{finalize-selected-item}, \texttt{backlog-drain}.
+\end{itemize}
+\end{block}
+\end{column}
+\begin{column}{0.32\textwidth}
+\begin{block}{Full design target}
+\begin{itemize}
+  \item General \texttt{defun}; fuller procedural substrate.
+  \item Workflow refs and \texttt{loop}/\texttt{recur}.
+  \item Complete effect/proof graph artifacts.
+  \item Semantic IR and executable IR outputs.
+  \item Runtime-grade resource/drain semantics; non-authoritative debug YAML.
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\vspace{0.35em}
+\begin{block}{Read the claims this way}
+\footnotesize
+MVP means the first proof slice: typed provider results, union matching, and checked lowering.
+Current code has grown beyond that slice. Full design is the north-star language, not a claim that every listed feature is complete.
+\end{block}
+\end{frame}
+
 \end{document}
