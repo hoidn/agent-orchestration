@@ -1,0 +1,1 @@
+review the lisp mvp and full design docs in context of the progress on its implementation in this repository. Select a non-implemented section of suitable size and draft an implementation plan for it. Then, execute the plan.

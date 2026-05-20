@@ -1,0 +1,31 @@
+version: "2.14"
+name: ralph-lisp-forever
+
+context:
+  workflow_model: gpt-5.4
+  workflow_effort: high
+
+providers:
+  codex:
+    command:
+      - codex
+      - exec
+      - --dangerously-bypass-approvals-and-sandbox
+      - --skip-git-repo-check
+      - --model
+      - "${model}"
+      - --config
+      - "reasoning_effort=${reasoning_effort}"
+    input_mode: stdin
+    defaults:
+      model: "${context.workflow_model}"
+      reasoning_effort: "${context.workflow_effort}"
+
+steps:
+  - name: Ralph
+    provider: codex
+    input_file: workflows/examples/prompts/ralph_lisp_forever/ralph.md
+    timeout_sec: 86400
+    on:
+      success:
+        goto: Ralph
