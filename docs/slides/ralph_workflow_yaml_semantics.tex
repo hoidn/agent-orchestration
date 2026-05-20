@@ -253,6 +253,39 @@ It does not emit machine code or rewrite the workflow as YAML. It builds checked
 \end{columns}
 \end{frame}
 
+\begin{frame}{Why Lisp on top of YAML?}
+\small
+\begin{columns}[T,totalwidth=\textwidth]
+\begin{column}{0.48\textwidth}
+\begin{block}{YAML is the runtime surface}
+\footnotesize
+\begin{itemize}
+  \item Transparent execution/config format.
+  \item Good for explicit step wiring.
+  \item Validation mostly checks schema, fields, and declared contracts.
+  \item Reuse tends to happen by copying, importing, or expanding step blocks.
+\end{itemize}
+\end{block}
+\end{column}
+\begin{column}{0.48\textwidth}
+\begin{block}{Lisp is the authoring frontend}
+\footnotesize
+\begin{itemize}
+  \item Names reusable forms, procedures, macros, and modules.
+  \item Checks names, records, unions, inputs, returns, and operations before runtime.
+  \item Lets one semantic form lower to the same validated runtime machinery.
+  \item Keeps refactors tied to definitions and source-span diagnostics.
+\end{itemize}
+\end{block}
+\end{column}
+\end{columns}
+\vspace{0.45em}
+\begin{block}{Positioning}
+\footnotesize
+Use YAML when explicit wiring is the point. Use Lisp when workflows become large, typed, repeated, or semantically rich; it compiles into checked workflow objects the existing executor already knows how to run.
+\end{block}
+\end{frame}
+
 \begin{frame}{Compiler terms in plain language}
 \small
 \begin{tabular}{p{0.22\textwidth}p{0.70\textwidth}}
@@ -307,6 +340,7 @@ The AST is not text to execute directly. It is the workflow split into named par
 
 \begin{frame}{Full drain vs. Ralph loop: throughput}
 \small
+\setlength{\tabcolsep}{3pt}
 \begin{tabular}{p{0.31\textwidth}p{0.29\textwidth}p{0.29\textwidth}}
 \textbf{Metric} & \textbf{Full Lisp drain} & \textbf{Ralph loop} \\
 \hline
@@ -316,16 +350,17 @@ Raw rate & 0.38 design gaps/hour & 12.65 iterations/hour \\
 Durable design gaps & 12 recorded gaps & 0 ledger-recorded gaps \\
 Functional MVP completion & about 93\% & about 58\% \\
 Functional full-design completion & about 72\% & about 27\% \\
+Frontend source LOC & 20,675 & 7,130 \\
+Direct Lisp test LOC & 10,366 & 4,355 \\
+\texttt{.orc} fixtures & 86 & 133 \\
 \end{tabular}
-\vspace{0.8em}
+\vspace{0.45em}
 \begin{block}{Read the units carefully}
 The Ralph loop is much faster in raw iteration count, but the units are smaller. The full drain produces larger reviewed design-gap bundles and reaches much deeper into the full Workflow Lisp design.
 \end{block}
-\vspace{0.3em}
+\vspace{0.1em}
 \footnotesize
-Source: static inspection of run state, summaries, ledgers, artifacts, source, fixtures, and tests. No tests were run for this comparison.
-\par\medskip
-Generating prompt: \href{https://github.com/hoidn/prompts/blob/1cc09c05ba70869ac7a4860c143776bb37de2d4b/lisp-frontend-comparison-metrics-prompt.txt}{comparison metrics prompt}.
+Source: static inspection of run state, summaries, ledgers, artifacts, source, fixtures, and tests. No tests were run.
 \end{frame}
 
 \begin{frame}{Implementation quality comparison}
@@ -348,28 +383,6 @@ The full drain is heavier and churnier, but it has broader runtime integration, 
 \vspace{0.3em}
 \footnotesize
 Scores are static-inspection estimates, not test results. Higher quality scores are better; higher churn severity means more repeated repair/rework signal.
-\end{frame}
-
-\begin{frame}{Workflow Lisp code size}
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{@{}p{0.34\textwidth}p{0.24\textwidth}p{0.24\textwidth}p{0.12\textwidth}@{}}
-\textbf{Metric} & \textbf{Full Lisp drain} & \textbf{Ralph loop} & \textbf{Ratio} \\
-\hline
-Frontend source files & 31 & 10 & 3.1x \\
-Frontend source LOC & 20,675 & 7,130 & 2.9x \\
-Direct Workflow Lisp test files & 19 & 10 & 1.9x \\
-Direct Workflow Lisp test LOC & 10,366 & 4,355 & 2.4x \\
-\texttt{.orc} fixtures & 86 & 133 & 0.6x \\
-Test LOC per source LOC & 0.50 & 0.61 & Ralph \\
-\end{tabular}
-\vspace{0.75em}
-\begin{block}{Readout}
-The full drain is roughly three times larger in frontend source, which matches its broader design coverage and integration surface. The Ralph loop is smaller, with denser direct test LOC per source LOC and more \texttt{.orc} fixtures, but less full-design coverage.
-\end{block}
-\vspace{0.2em}
-\footnotesize
-Counts are static line counts over Workflow Lisp frontend source, direct Workflow Lisp tests, and repository \texttt{.orc} fixtures.
 \end{frame}
 
 \begin{frame}[shrink=8]{Progress quality: speed vs. churn}
