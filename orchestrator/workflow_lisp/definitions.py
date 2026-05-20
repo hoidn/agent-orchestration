@@ -160,6 +160,7 @@ def _raise_definition_error(
     message: str,
     span: SourceSpan,
     enclosing_form_name: str | None = None,
+    generated_core_node_id: str | None = None,
 ) -> None:
     raise WorkflowLispSyntaxError(
         SyntaxDiagnostic(
@@ -170,6 +171,7 @@ def _raise_definition_error(
             line=span.line_start,
             column=span.column_start,
             enclosing_form_name=enclosing_form_name,
+            generated_core_node_id=generated_core_node_id,
         )
     )
 
@@ -537,6 +539,7 @@ def _shape_callable_definition(
         message=f"{callable_form_name} name must be a symbol",
         enclosing_form_name=callable_form_name,
     )
+    callable_name = str(name_atom.value)
 
     params_node = form.items[2]
     if not isinstance(params_node, SyntaxList):
@@ -547,24 +550,26 @@ def _shape_callable_definition(
             enclosing_form_name=callable_form_name,
         )
 
-    arrow_atom = _expect_symbol(
-        form.items[3],
-        message=f"{callable_form_name} requires -> before return type",
-        enclosing_form_name=callable_form_name,
-    )
-    if arrow_atom.value != "->":
+    arrow_node = form.items[3]
+    if not isinstance(arrow_node, SyntaxAtom) or arrow_node.kind is not AtomKind.SYMBOL or arrow_node.value != "->":
         _raise_definition_error(
             code="frontend_parse_error",
             message=f"{callable_form_name} requires -> before return type",
-            span=arrow_atom.span,
+            span=arrow_node.span,
             enclosing_form_name=callable_form_name,
+            generated_core_node_id=f"{callable_name}.result",
         )
 
-    return_type_atom = _expect_symbol(
-        form.items[4],
-        message=f"{callable_form_name} return type must be a symbol",
-        enclosing_form_name=callable_form_name,
-    )
+    return_type_node = form.items[4]
+    if not isinstance(return_type_node, SyntaxAtom) or return_type_node.kind is not AtomKind.SYMBOL:
+        _raise_definition_error(
+            code="frontend_parse_error",
+            message=f"{callable_form_name} return type must be a symbol",
+            span=return_type_node.span,
+            enclosing_form_name=callable_form_name,
+            generated_core_node_id=f"{callable_name}.result",
+        )
+    return_type_atom = return_type_node
 
     body_forms = tuple(form.items[5:])
     if not body_forms:
@@ -585,12 +590,13 @@ def _shape_callable_definition(
                 message=f"Duplicate {callable_form_name} parameter name: {parameter.name}",
                 span=parameter.name_span,
                 enclosing_form_name=callable_form_name,
+                generated_core_node_id=f"{callable_name}.input.{parameter.name}",
             )
         seen_parameter_names.add(parameter.name)
         parameters.append(parameter)
 
     callable_kwargs = {
-        "name": str(name_atom.value),
+        "name": callable_name,
         "name_span": name_atom.span,
         "parameters": tuple(parameters),
         "return_type": DefinitionTypeRef(

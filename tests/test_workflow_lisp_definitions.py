@@ -269,15 +269,16 @@ def test_shape_module_definitions_allows_import_export_module_forms() -> None:
 
 
 @pytest.mark.parametrize(
-    ("fixture_name", "expected_message"),
+    ("fixture_name", "expected_message", "expected_generated_core_node_id"),
     [
-        ("invalid_defworkflow_missing_arrow.orc", "defworkflow requires -> before return type"),
-        ("invalid_defworkflow_duplicate_parameter.orc", "Duplicate defworkflow parameter name"),
+        ("invalid_defworkflow_missing_arrow.orc", "defworkflow requires -> before return type", "run_phase.result"),
+        ("invalid_defworkflow_duplicate_parameter.orc", "Duplicate defworkflow parameter name", "run_phase.input.inputs"),
     ],
 )
 def test_shape_module_workflow_definitions_rejects_invalid_defworkflow_signature(
     fixture_name: str,
     expected_message: str,
+    expected_generated_core_node_id: str,
 ) -> None:
     parser = _parser_module()
     definitions = _definitions_module()
@@ -296,3 +297,30 @@ def test_shape_module_workflow_definitions_rejects_invalid_defworkflow_signature
     assert expected_message in diagnostic.message
     assert diagnostic.enclosing_form_name == "defworkflow"
     assert diagnostic.source_file == str(source_path)
+    assert diagnostic.generated_core_node_id == expected_generated_core_node_id
+
+
+def test_shape_module_procedure_definitions_rejects_duplicate_defproc_parameter_with_generated_node_id() -> None:
+    parser = _parser_module()
+    definitions = _definitions_module()
+
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defproc build_plan ((inputs PlanInputs) (inputs PlanInputs)) -> PlanResult
+  inputs)
+""",
+        source_path="inline_invalid_defproc_duplicate_parameter.orc",
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        definitions.shape_module_procedure_definitions(module)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "frontend_parse_error"
+    assert "Duplicate defproc parameter name" in diagnostic.message
+    assert diagnostic.enclosing_form_name == "defproc"
+    assert diagnostic.generated_core_node_id == "build_plan.input.inputs"
