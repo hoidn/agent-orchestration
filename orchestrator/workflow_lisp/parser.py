@@ -515,7 +515,6 @@ def _collect_header_clauses(
             message=f"Unsupported clause in {enclosing_form_name} header: {key.value}",
             span=key.span,
             enclosing_form_name=enclosing_form_name,
-            generated_core_node_id=_module_header_clause_node_id(str(key.value)),
         )
 
     if language_clause is None:

@@ -256,13 +256,13 @@ def test_read_syntax_forms_rejects_bad_escape_sequences() -> None:
 @pytest.mark.parametrize(
     ("fixture_name", "expected_generated_core_node_id"),
     [
-        ("invalid_unknown_header_clause.orc", "module.header.unknown"),
+        ("invalid_unknown_header_clause.orc", None),
         ("invalid_defmodule_unsupported_language_name.orc", "module.header.language"),
     ],
 )
 def test_parse_workflow_module_text_emits_generated_node_ids_for_header_diagnostics(
     fixture_name: str,
-    expected_generated_core_node_id: str,
+    expected_generated_core_node_id: str | None,
 ) -> None:
     parser = _parser_module()
     source_path = _fixture_path(fixture_name)
