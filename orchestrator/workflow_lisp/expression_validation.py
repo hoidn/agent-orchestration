@@ -20,6 +20,7 @@ from .expressions import (
     LetStarExpression,
     LiteralExpression,
     MatchExpression,
+    PhaseTargetExpression,
     ProviderResultExpression,
     RecordExpression,
     ReferenceExpression,
@@ -784,6 +785,27 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             generated_core_node_id=generated_core_node_id,
         )
+
+    if isinstance(expression, PhaseTargetExpression):
+        context_type = _infer_expression_type(
+            expression.context,
+            env,
+            catalog,
+            callable_catalog,
+            imported_only_names=imported_only_names,
+            import_aliases=import_aliases,
+            generated_core_node_id=generated_core_node_id,
+        )
+        context_type_name = _type_name(context_type)
+        if context_type_name not in {"PathRel", "String"}:
+            _raise_expression_error(
+                code="type_mismatch",
+                message="phase-target context must have type PathRel or String",
+                span=expression.context.span,
+                enclosing_form_name="phase-target",
+                generated_core_node_id=generated_core_node_id,
+            )
+        return catalog["PathRel"]
 
     if isinstance(expression, MatchExpression):
         subject_type = _infer_expression_type(

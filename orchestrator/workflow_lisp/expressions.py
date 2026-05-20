@@ -107,6 +107,17 @@ class WithPhaseExpression:
 
 
 @dataclass(frozen=True)
+class PhaseTargetExpression:
+    """One phase-target expression."""
+
+    context: "ExpressionNode"
+    target_name: str
+    target_span: SourceSpan
+    phase_name: str | None
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
 class MatchArmExpression:
     """One match arm binding one variant to one local name."""
 
@@ -160,6 +171,7 @@ ExpressionNode = (
     | CallExpression
     | LetStarExpression
     | WithPhaseExpression
+    | PhaseTargetExpression
     | MatchExpression
     | ProviderResultExpression
     | CommandResultExpression
@@ -208,6 +220,8 @@ def shape_expression(node: SyntaxNode) -> ExpressionNode:
         return _shape_let_star(node)
     if head.value == "with-phase":
         return _shape_with_phase(node)
+    if head.value == "phase-target":
+        return _shape_phase_target(node)
     if head.value == "record":
         return _shape_record(node)
     if head.value == "call":
@@ -334,6 +348,31 @@ def _shape_with_phase(form: SyntaxList) -> WithPhaseExpression:
         phase_name=str(phase_node.value),
         phase_span=phase_node.span,
         body=shape_expression(form.items[3]),
+        span=form.span,
+    )
+
+
+def _shape_phase_target(form: SyntaxList) -> PhaseTargetExpression:
+    if len(form.items) != 3:
+        _raise_expression_error(
+            code="frontend_parse_error",
+            message="phase-target requires context and target name",
+            span=form.span,
+            enclosing_form_name="phase-target",
+        )
+    target_node = form.items[2]
+    if not isinstance(target_node, SyntaxAtom) or target_node.kind is not AtomKind.SYMBOL:
+        _raise_expression_error(
+            code="frontend_parse_error",
+            message="phase-target target name must be a symbol",
+            span=target_node.span,
+            enclosing_form_name="phase-target",
+        )
+    return PhaseTargetExpression(
+        context=shape_expression(form.items[1]),
+        target_name=str(target_node.value),
+        target_span=target_node.span,
+        phase_name=None,
         span=form.span,
     )
 

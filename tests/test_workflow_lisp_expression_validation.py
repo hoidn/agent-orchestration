@@ -207,6 +207,30 @@ def test_validate_expression_module_accepts_calls_to_local_procedures() -> None:
     assert result.workflows[0].inferred_return_type == "PlanResult"
 
 
+def test_validate_expression_module_accepts_phase_target_expression() -> None:
+    parser = _parser_module()
+    definition_validation = _definition_validation_module()
+    expression_validation = _expression_validation_module()
+    source_path = str(_fixture_path("inline_phase_target.orc"))
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_target ((phase_ctx PathRel)) -> PathRel
+  (phase-target phase_ctx progress-report))
+""",
+        source_path=source_path,
+    )
+    checked = definition_validation.validate_definition_module(module)
+
+    result = expression_validation.validate_expression_module(checked)
+
+    assert tuple(workflow.name for workflow in result.workflows) == ("emit_target",)
+    assert result.workflows[0].inferred_return_type == "PathRel"
+
+
 @pytest.mark.parametrize(
     ("fixture_name", "expected_code", "expected_message"),
     [

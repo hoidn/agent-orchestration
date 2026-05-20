@@ -48,6 +48,17 @@ def _workflow_body_expression_from_fixture(fixture_name: str):
     return workflow_defs[0].body_forms[0]
 
 
+def _workflow_body_expression_from_source(source_text: str, *, source_name: str):
+    parser = _parser_module()
+    definitions = _definitions_module()
+    source_path = str(_fixture_path(source_name))
+    module = parser.parse_workflow_module_text(source_text, source_path=source_path)
+    workflow_defs = definitions.shape_module_workflow_definitions(module)
+    assert len(workflow_defs) == 1
+    assert len(workflow_defs[0].body_forms) == 1
+    return workflow_defs[0].body_forms[0]
+
+
 def test_shape_expression_parses_symbol_field_access_chain() -> None:
     expressions = _expressions_module()
     body_node = _workflow_body_expression_from_fixture("valid_field_access_symbol.orc")
@@ -231,6 +242,28 @@ def test_shape_expression_parses_with_phase_expression() -> None:
     assert isinstance(shaped.body, expressions.ProviderResultExpression)
 
 
+def test_shape_expression_parses_phase_target_expression() -> None:
+    expressions = _expressions_module()
+    body_node = _workflow_body_expression_from_source(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_target ((phase_ctx PathRel)) -> PathRel
+  (phase-target phase_ctx progress-report))
+""",
+        source_name="inline_valid_phase_target.orc",
+    )
+
+    shaped = expressions.shape_expression(body_node)
+
+    assert isinstance(shaped, expressions.PhaseTargetExpression)
+    assert isinstance(shaped.context, expressions.ReferenceExpression)
+    assert shaped.context.name == "phase_ctx"
+    assert shaped.target_name == "progress-report"
+
+
 @pytest.mark.parametrize(
     ("fixture_name", "expected_message"),
     [
@@ -255,6 +288,10 @@ def test_shape_expression_parses_with_phase_expression() -> None:
             "invalid_with_phase_bad_phase_name.orc",
             "with-phase phase name must be a symbol",
         ),
+        (
+            "inline_invalid_phase_target_bad_target.orc",
+            "phase-target target name must be a symbol",
+        ),
         ("invalid_unsupported_expression_form.orc", "Unsupported expression form: if"),
     ],
 )
@@ -263,8 +300,22 @@ def test_shape_expression_rejects_invalid_let_star_or_unsupported_forms(
     expected_message: str,
 ) -> None:
     expressions = _expressions_module()
-    body_node = _workflow_body_expression_from_fixture(fixture_name)
-    source_path = _fixture_path(fixture_name)
+    if fixture_name.startswith("inline_invalid_phase_target"):
+        body_node = _workflow_body_expression_from_source(
+            """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow bad_target ((phase_ctx PathRel)) -> PathRel
+  (phase-target phase_ctx "progress-report"))
+""",
+            source_name=fixture_name,
+        )
+        source_path = _fixture_path(fixture_name)
+    else:
+        body_node = _workflow_body_expression_from_fixture(fixture_name)
+        source_path = _fixture_path(fixture_name)
 
     with pytest.raises(Exception) as exc_info:
         expressions.shape_expression(body_node)

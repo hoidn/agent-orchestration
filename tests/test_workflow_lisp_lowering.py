@@ -1462,3 +1462,46 @@ def test_lower_compiled_module_supports_provider_and_prompt_record_outputs() -> 
             "from": {"ref": "root.steps.RecordResult.artifacts.prompt"},
         },
     }
+
+
+def test_lower_compiled_module_supports_phase_target_root_expression() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_text = """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_target ((phase_ctx PathRel)) -> PathRel
+  (with-phase phase_ctx implementation
+    (phase-target phase_ctx progress-report)))
+"""
+
+    compiled = compiler.compile_workflow_module_text(
+        source_text,
+        source_path=str(Path("inline-phase-target-lowering.orc")),
+    )
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    workflow = lowered["emit_target"]
+    assert workflow["outputs"] == {
+        "result": {
+            "type": "relpath",
+            "from": {"ref": "root.steps.ScalarResult.artifacts.result"},
+        }
+    }
+    assert workflow["steps"] == [
+        {
+            "name": "ScalarResult",
+            "id": "scalar_result",
+            "materialize_artifacts": {
+                "values": [
+                    {
+                        "name": "result",
+                        "source": {"literal": "${inputs.phase_ctx}/implementation/progress-report"},
+                        "contract": {"type": "relpath"},
+                    }
+                ]
+            },
+        }
+    ]

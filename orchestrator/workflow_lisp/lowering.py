@@ -26,6 +26,7 @@ from .expressions import (
     LetStarExpression,
     LiteralExpression,
     MatchExpression,
+    PhaseTargetExpression,
     ProviderResultExpression,
     RecordExpression,
     ReferenceExpression,
@@ -430,7 +431,7 @@ def _lower_root_expression(
             local_reference_bindings=local_reference_bindings,
             generated_core_node_id=node_id,
         )
-    if isinstance(expression, (LiteralExpression, ReferenceExpression, FieldAccessExpression)):
+    if isinstance(expression, (LiteralExpression, ReferenceExpression, FieldAccessExpression, PhaseTargetExpression)):
         return _lower_scalar_result(
             expression=expression,
             declared_return_type_name=declared_return_type_name,
@@ -682,49 +683,62 @@ def _match_case_outputs_for_structured_return(
 
 
 def _inline_root_expression(expression: ExpressionNode) -> ExpressionNode:
-    inlined = _inline_expression(expression, {})
+    inlined = _inline_expression(expression, {}, None)
     while isinstance(inlined, WithPhaseExpression):
         inlined = inlined.body
     return inlined
 
 
-def _inline_expression(expression: ExpressionNode, env: dict[str, ExpressionNode]) -> ExpressionNode:
+def _inline_expression(
+    expression: ExpressionNode,
+    env: dict[str, ExpressionNode],
+    current_phase_name: str | None,
+) -> ExpressionNode:
     if isinstance(expression, ReferenceExpression):
         resolved = env.get(expression.name)
         if resolved is None:
             return expression
-        return _inline_expression(resolved, env)
+        return _inline_expression(resolved, env, current_phase_name)
 
     if isinstance(expression, LetStarExpression):
         local_env = dict(env)
         for binding in expression.bindings:
-            local_env[binding.name] = _inline_expression(binding.value, local_env)
-        return _inline_expression(expression.body, local_env)
+            local_env[binding.name] = _inline_expression(binding.value, local_env, current_phase_name)
+        return _inline_expression(expression.body, local_env, current_phase_name)
 
     if isinstance(expression, WithPhaseExpression):
         return WithPhaseExpression(
-            context=_inline_expression(expression.context, env),
+            context=_inline_expression(expression.context, env, current_phase_name),
             phase_name=expression.phase_name,
             phase_span=expression.phase_span,
-            body=_inline_expression(expression.body, env),
+            body=_inline_expression(expression.body, env, expression.phase_name),
+            span=expression.span,
+        )
+
+    if isinstance(expression, PhaseTargetExpression):
+        return PhaseTargetExpression(
+            context=_inline_expression(expression.context, env, current_phase_name),
+            target_name=expression.target_name,
+            target_span=expression.target_span,
+            phase_name=current_phase_name,
             span=expression.span,
         )
 
     if isinstance(expression, ProviderResultExpression):
         provider_reference = _inline_reference_expression(
-            _inline_expression(expression.provider_reference, env),
+            _inline_expression(expression.provider_reference, env, current_phase_name),
             form_name="provider-result",
             role="provider",
         )
         prompt_reference = _inline_reference_expression(
-            _inline_expression(expression.prompt_reference, env),
+            _inline_expression(expression.prompt_reference, env, current_phase_name),
             form_name="provider-result",
             role=":prompt",
         )
         return ProviderResultExpression(
             provider_reference=provider_reference,
             prompt_reference=prompt_reference,
-            inputs=tuple(_inline_expression(item, env) for item in expression.inputs),
+            inputs=tuple(_inline_expression(item, env, current_phase_name) for item in expression.inputs),
             returns_type_name=expression.returns_type_name,
             returns_type_span=expression.returns_type_span,
             span=expression.span,
@@ -734,7 +748,7 @@ def _inline_expression(expression: ExpressionNode, env: dict[str, ExpressionNode
         return CommandResultExpression(
             command_name=expression.command_name,
             command_name_span=expression.command_name_span,
-            argv=tuple(_inline_expression(item, env) for item in expression.argv),
+            argv=tuple(_inline_expression(item, env, current_phase_name) for item in expression.argv),
             returns_type_name=expression.returns_type_name,
             returns_type_span=expression.returns_type_span,
             span=expression.span,
@@ -748,7 +762,7 @@ def _inline_expression(expression: ExpressionNode, env: dict[str, ExpressionNode
                 argument.__class__(
                     parameter_name=argument.parameter_name,
                     keyword_span=argument.keyword_span,
-                    value=_inline_expression(argument.value, env),
+                    value=_inline_expression(argument.value, env, current_phase_name),
                     form_span=argument.form_span,
                 )
                 for argument in expression.arguments
@@ -760,7 +774,7 @@ def _inline_expression(expression: ExpressionNode, env: dict[str, ExpressionNode
 
     if isinstance(expression, FieldAccessExpression):
         return FieldAccessExpression(
-            base=_inline_expression(expression.base, env),
+            base=_inline_expression(expression.base, env, current_phase_name),
             field_name=expression.field_name,
             span=expression.span,
         )
@@ -773,7 +787,7 @@ def _inline_expression(expression: ExpressionNode, env: dict[str, ExpressionNode
                 field.__class__(
                     field_name=field.field_name,
                     field_span=field.field_span,
-                    value=_inline_expression(field.value, env),
+                    value=_inline_expression(field.value, env, current_phase_name),
                     form_span=field.form_span,
                 )
                 for field in expression.fields
@@ -783,14 +797,14 @@ def _inline_expression(expression: ExpressionNode, env: dict[str, ExpressionNode
 
     if isinstance(expression, MatchExpression):
         return MatchExpression(
-            subject=_inline_expression(expression.subject, env),
+            subject=_inline_expression(expression.subject, env, current_phase_name),
             arms=tuple(
                 arm.__class__(
                     variant_name=arm.variant_name,
                     variant_span=arm.variant_span,
                     binding_name=arm.binding_name,
                     binding_span=arm.binding_span,
-                    body=_inline_expression(arm.body, env),
+                    body=_inline_expression(arm.body, env, current_phase_name),
                     span=arm.span,
                 )
                 for arm in expression.arms
@@ -1107,7 +1121,7 @@ def _lower_record_result(
 
 def _lower_scalar_result(
     *,
-    expression: LiteralExpression | ReferenceExpression | FieldAccessExpression,
+    expression: LiteralExpression | ReferenceExpression | FieldAccessExpression | PhaseTargetExpression,
     declared_return_type_name: str,
     declared_return_type_span: SourceSpan,
     definitions: dict[str, DefinitionNode],
@@ -1148,7 +1162,7 @@ def _lower_scalar_result(
 
 def _lower_scalar_result_source(
     *,
-    expression: LiteralExpression | ReferenceExpression | FieldAccessExpression,
+    expression: LiteralExpression | ReferenceExpression | FieldAccessExpression | PhaseTargetExpression,
     return_contract: dict[str, Any],
     workflow_input_names: frozenset[str],
     workflow_input_field_paths: Mapping[tuple[str, tuple[str, ...]], str],
@@ -1185,13 +1199,28 @@ def _lower_scalar_result_source(
             generated_core_node_id=generated_core_node_id,
         )
 
-    reference_path = _lower_field_access_reference_path(
-        expression,
-        workflow_input_field_paths=workflow_input_field_paths,
-        local_reference_bindings=local_reference_bindings,
-    )
-    if reference_path is not None:
-        return {"ref": reference_path}, {"inherit": "source"}
+    if isinstance(expression, FieldAccessExpression):
+        reference_path = _lower_field_access_reference_path(
+            expression,
+            workflow_input_field_paths=workflow_input_field_paths,
+            local_reference_bindings=local_reference_bindings,
+        )
+        if reference_path is not None:
+            return {"ref": reference_path}, {"inherit": "source"}
+    if isinstance(expression, PhaseTargetExpression):
+        return (
+            {
+                "literal": _lower_phase_target_expression(
+                    expression,
+                    workflow_input_names=workflow_input_names,
+                    workflow_input_field_paths=workflow_input_field_paths,
+                    workflow_input_structured_names=workflow_input_structured_names,
+                    local_reference_bindings=local_reference_bindings,
+                    generated_core_node_id=generated_core_node_id,
+                )
+            },
+            return_contract,
+        )
     _raise_lowering_error(
         code="frontend_lowering_error",
         message=(
@@ -1248,6 +1277,25 @@ def _lower_record_field_value_source(
         )
         if reference_path is not None:
             return ({"ref": reference_path}, {"inherit": "source"})
+
+    if isinstance(value_expression, PhaseTargetExpression):
+        return (
+            {
+                "literal": _lower_phase_target_expression(
+                    value_expression,
+                    workflow_input_names=workflow_input_names,
+                    workflow_input_field_paths=workflow_input_field_paths,
+                    workflow_input_structured_names=frozenset(),
+                    local_reference_bindings=local_reference_bindings,
+                    generated_core_node_id=generated_core_node_id,
+                )
+            },
+            _bundle_field_contract_for_type(
+                field_type_name,
+                field_type_span,
+                definitions,
+            ),
+        )
 
     _raise_lowering_error(
         code="frontend_lowering_error",
@@ -1314,6 +1362,15 @@ def _lower_call_binding_value(
             return {"ref": reference_path}
     if isinstance(expression, LiteralExpression):
         return expression.value
+    if isinstance(expression, PhaseTargetExpression):
+        return _lower_phase_target_expression(
+            expression,
+            workflow_input_names=workflow_input_names,
+            workflow_input_field_paths=workflow_input_field_paths,
+            workflow_input_structured_names=workflow_input_structured_names,
+            local_reference_bindings=local_reference_bindings,
+            generated_core_node_id=generated_core_node_id,
+        )
     _raise_lowering_error(
         code="frontend_lowering_error",
         message=(
@@ -1624,6 +1681,15 @@ def _lower_scalar_expression(
             return "${" + reference_path + "}"
     if isinstance(expression, LiteralExpression):
         return str(expression.value)
+    if isinstance(expression, PhaseTargetExpression):
+        return _lower_phase_target_expression(
+            expression,
+            workflow_input_names=workflow_input_names,
+            workflow_input_field_paths=workflow_input_field_paths,
+            workflow_input_structured_names=workflow_input_structured_names,
+            local_reference_bindings=local_reference_bindings,
+            generated_core_node_id=generated_core_node_id,
+        )
     if isinstance(
         expression,
         (
@@ -1650,6 +1716,28 @@ def _lower_scalar_expression(
         span=expression.span,
         generated_core_node_id=generated_core_node_id,
     )
+
+
+def _lower_phase_target_expression(
+    expression: PhaseTargetExpression,
+    *,
+    workflow_input_names: frozenset[str],
+    workflow_input_field_paths: Mapping[tuple[str, tuple[str, ...]], str],
+    workflow_input_structured_names: frozenset[str],
+    local_reference_bindings: dict[str, str] | None,
+    generated_core_node_id: str | None,
+) -> str:
+    base_value = _lower_scalar_expression(
+        expression.context,
+        workflow_input_names=workflow_input_names,
+        workflow_input_field_paths=workflow_input_field_paths,
+        workflow_input_structured_names=workflow_input_structured_names,
+        local_reference_bindings=local_reference_bindings,
+        generated_core_node_id=generated_core_node_id,
+    )
+    if expression.phase_name:
+        return f"{base_value}/{expression.phase_name}/{expression.target_name}"
+    return f"{base_value}/{expression.target_name}"
 
 
 def _lower_workflow_inputs(
