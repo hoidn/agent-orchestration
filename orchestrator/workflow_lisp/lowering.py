@@ -1245,8 +1245,10 @@ def _lower_call_binding_entries(
             expression=expression,
             record_definition=definition,
             definitions=definitions,
+            workflow_input_names=workflow_input_names,
             workflow_input_field_paths=workflow_input_field_paths,
             workflow_input_structured_names=workflow_input_structured_names,
+            local_reference_bindings=local_reference_bindings,
             generated_core_node_id=generated_core_node_id,
         )
         if expanded is not None:
@@ -1601,14 +1603,29 @@ def _lower_record_parameter_call_binding_entries(
     expression: ExpressionNode,
     record_definition: RecordDefinition,
     definitions: dict[str, DefinitionNode],
+    workflow_input_names: frozenset[str],
     workflow_input_field_paths: Mapping[tuple[str, tuple[str, ...]], str],
     workflow_input_structured_names: frozenset[str],
+    local_reference_bindings: dict[str, str] | None,
     generated_core_node_id: str | None,
 ) -> dict[str, Any] | None:
     if not isinstance(expression, ReferenceExpression):
-        return None
-    if expression.name not in workflow_input_structured_names:
-        return None
+        if not isinstance(expression, RecordExpression):
+            return None
+        if expression.type_name != record_definition.name:
+            _raise_lowering_error(
+                code="frontend_lowering_error",
+                message=(
+                    f"Call argument {parameter.name} record literal type {expression.type_name} "
+                    f"does not match parameter type {record_definition.name}"
+                ),
+                span=expression.type_span,
+                enclosing_form_name="call",
+                generated_core_node_id=generated_core_node_id,
+            )
+    else:
+        if expression.name not in workflow_input_structured_names:
+            return None
 
     callee_field_paths = _record_parameter_field_paths(
         parameter_name=parameter.name,
@@ -1617,6 +1634,20 @@ def _lower_record_parameter_call_binding_entries(
     )
     if not callee_field_paths:
         return None
+
+    if isinstance(expression, RecordExpression):
+        return _lower_record_literal_parameter_call_binding_entries(
+            parameter=parameter,
+            expression=expression,
+            record_definition=record_definition,
+            definitions=definitions,
+            callee_field_paths=callee_field_paths,
+            workflow_input_names=workflow_input_names,
+            workflow_input_field_paths=workflow_input_field_paths,
+            workflow_input_structured_names=workflow_input_structured_names,
+            local_reference_bindings=local_reference_bindings,
+            generated_core_node_id=generated_core_node_id,
+        )
 
     bindings: dict[str, Any] = {}
     for field_path, callee_flattened_name in callee_field_paths.items():
@@ -1635,6 +1666,141 @@ def _lower_record_parameter_call_binding_entries(
             )
         bindings[callee_flattened_name] = {"ref": f"inputs.{caller_flattened_name}"}
     return bindings
+
+
+def _lower_record_literal_parameter_call_binding_entries(
+    *,
+    parameter: WorkflowParameter,
+    expression: RecordExpression,
+    record_definition: RecordDefinition,
+    definitions: dict[str, DefinitionNode],
+    callee_field_paths: Mapping[tuple[str, ...], str],
+    workflow_input_names: frozenset[str],
+    workflow_input_field_paths: Mapping[tuple[str, tuple[str, ...]], str],
+    workflow_input_structured_names: frozenset[str],
+    local_reference_bindings: dict[str, str] | None,
+    generated_core_node_id: str | None,
+) -> dict[str, Any]:
+    literal_fields = {field.field_name: field for field in expression.fields}
+    lowered_bindings: dict[str, Any] = {}
+    for field in record_definition.fields:
+        field_expression = literal_fields.get(field.name)
+        if field_expression is None:
+            _raise_lowering_error(
+                code="frontend_lowering_error",
+                message=f"Record call argument {parameter.name} is missing field {field.name}",
+                span=expression.span,
+                enclosing_form_name="call",
+                generated_core_node_id=generated_core_node_id,
+            )
+        _lower_record_literal_call_binding_field(
+            parameter=parameter,
+            path=(field.name,),
+            value_expression=field_expression.value,
+            field_type_name=field.type_ref.name,
+            field_type_span=field.type_ref.span,
+            definitions=definitions,
+            callee_field_paths=callee_field_paths,
+            workflow_input_names=workflow_input_names,
+            workflow_input_field_paths=workflow_input_field_paths,
+            workflow_input_structured_names=workflow_input_structured_names,
+            local_reference_bindings=local_reference_bindings,
+            generated_core_node_id=generated_core_node_id,
+            lowered_bindings=lowered_bindings,
+        )
+    return lowered_bindings
+
+
+def _lower_record_literal_call_binding_field(
+    *,
+    parameter: WorkflowParameter,
+    path: tuple[str, ...],
+    value_expression: ExpressionNode,
+    field_type_name: str,
+    field_type_span: SourceSpan,
+    definitions: dict[str, DefinitionNode],
+    callee_field_paths: Mapping[tuple[str, ...], str],
+    workflow_input_names: frozenset[str],
+    workflow_input_field_paths: Mapping[tuple[str, tuple[str, ...]], str],
+    workflow_input_structured_names: frozenset[str],
+    local_reference_bindings: dict[str, str] | None,
+    generated_core_node_id: str | None,
+    lowered_bindings: dict[str, Any],
+) -> None:
+    nested_definition = definitions.get(field_type_name)
+    if isinstance(nested_definition, RecordDefinition):
+        if not isinstance(value_expression, RecordExpression):
+            _raise_lowering_error(
+                code="frontend_lowering_error",
+                message=(
+                    f"Record call argument {parameter.name}.{'.'.join(path)} must be a "
+                    f"record expression of type {field_type_name}"
+                ),
+                span=value_expression.span,
+                enclosing_form_name="call",
+                generated_core_node_id=generated_core_node_id,
+            )
+        if value_expression.type_name != field_type_name:
+            _raise_lowering_error(
+                code="frontend_lowering_error",
+                message=(
+                    f"Record call argument {parameter.name}.{'.'.join(path)} has type "
+                    f"{value_expression.type_name}; expected {field_type_name}"
+                ),
+                span=value_expression.type_span,
+                enclosing_form_name="call",
+                generated_core_node_id=generated_core_node_id,
+            )
+        nested_fields = {field.field_name: field for field in value_expression.fields}
+        for nested_field in nested_definition.fields:
+            nested_expression = nested_fields.get(nested_field.name)
+            if nested_expression is None:
+                _raise_lowering_error(
+                    code="frontend_lowering_error",
+                    message=(
+                        f"Record call argument {parameter.name}.{'.'.join(path)} is missing field "
+                        f"{nested_field.name}"
+                    ),
+                    span=value_expression.span,
+                    enclosing_form_name="call",
+                    generated_core_node_id=generated_core_node_id,
+                )
+            _lower_record_literal_call_binding_field(
+                parameter=parameter,
+                path=path + (nested_field.name,),
+                value_expression=nested_expression.value,
+                field_type_name=nested_field.type_ref.name,
+                field_type_span=nested_field.type_ref.span,
+                definitions=definitions,
+                callee_field_paths=callee_field_paths,
+                workflow_input_names=workflow_input_names,
+                workflow_input_field_paths=workflow_input_field_paths,
+                workflow_input_structured_names=workflow_input_structured_names,
+                local_reference_bindings=local_reference_bindings,
+                generated_core_node_id=generated_core_node_id,
+                lowered_bindings=lowered_bindings,
+            )
+        return
+
+    flattened_name = callee_field_paths.get(path)
+    if flattened_name is None:
+        _raise_lowering_error(
+            code="frontend_lowering_error",
+            message=(
+                f"Unable to resolve flattened call binding target for {parameter.name}.{'.'.join(path)}"
+            ),
+            span=field_type_span,
+            enclosing_form_name="call",
+            generated_core_node_id=generated_core_node_id,
+        )
+    lowered_bindings[flattened_name] = _lower_call_binding_value(
+        value_expression,
+        workflow_input_names=workflow_input_names,
+        workflow_input_field_paths=workflow_input_field_paths,
+        workflow_input_structured_names=workflow_input_structured_names,
+        local_reference_bindings=local_reference_bindings,
+        generated_core_node_id=generated_core_node_id,
+    )
 
 
 def _record_parameter_field_paths(

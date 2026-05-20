@@ -1969,3 +1969,25 @@ def test_lower_compiled_module_supports_phase_target_root_expression() -> None:
             },
         }
     ]
+
+
+def test_lower_compiled_module_expands_record_typed_call_binding_from_record_literal() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = _fixture_path("valid_call_record_literal_argument.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    caller_workflow = lowered["run"]
+    caller_step = caller_workflow["steps"][0]
+
+    assert caller_step == {
+        "name": "CallResult",
+        "id": "call_result",
+        "call": "run_checks",
+        "with": {
+            "inputs__plan": {"ref": "inputs.plan_path"},
+            "inputs__attempts": {"ref": "inputs.attempt_count"},
+        },
+    }
