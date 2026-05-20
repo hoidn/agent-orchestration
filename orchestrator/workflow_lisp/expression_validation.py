@@ -256,6 +256,9 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
             expression,
             function_name=function.name,
             generated_core_node_id=generated_core_node_id,
+            callable_catalog=callable_catalog,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
         )
         env = {
             parameter.name: _resolve_type_ref(
@@ -309,6 +312,9 @@ def _validate_pure_function_expression(
     *,
     function_name: str,
     generated_core_node_id: str,
+    callable_catalog: dict[str, WorkflowDefinition | ProcedureDefinition | FunctionDefinition],
+    imported_workflow_targets: frozenset[str],
+    imported_workflow_qualifiers: frozenset[str],
 ) -> None:
     if isinstance(expression, ProviderResultExpression):
         _raise_expression_error(
@@ -327,9 +333,40 @@ def _validate_pure_function_expression(
             generated_core_node_id=generated_core_node_id,
         )
     if isinstance(expression, CallExpression):
+        callee = callable_catalog.get(expression.callee_name)
+        if isinstance(callee, FunctionDefinition):
+            for argument in expression.arguments:
+                _validate_pure_function_expression(
+                    argument.value,
+                    function_name=function_name,
+                    generated_core_node_id=generated_core_node_id,
+                    callable_catalog=callable_catalog,
+                    imported_workflow_targets=imported_workflow_targets,
+                    imported_workflow_qualifiers=imported_workflow_qualifiers,
+                )
+            return
+        is_imported_workflow = _is_imported_workflow_reference(
+            expression.callee_name,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
+        )
+        if callee is None and not is_imported_workflow:
+            for argument in expression.arguments:
+                _validate_pure_function_expression(
+                    argument.value,
+                    function_name=function_name,
+                    generated_core_node_id=generated_core_node_id,
+                    callable_catalog=callable_catalog,
+                    imported_workflow_targets=imported_workflow_targets,
+                    imported_workflow_qualifiers=imported_workflow_qualifiers,
+                )
+            return
         _raise_expression_error(
             code="pure_function_has_effect",
-            message=f"Pure function {function_name} may not use call",
+            message=(
+                f"Pure function {function_name} may not call effectful target "
+                f"{expression.callee_name}"
+            ),
             span=expression.span,
             enclosing_form_name="defun",
             generated_core_node_id=generated_core_node_id,
@@ -341,11 +378,17 @@ def _validate_pure_function_expression(
                 binding.value,
                 function_name=function_name,
                 generated_core_node_id=generated_core_node_id,
+                callable_catalog=callable_catalog,
+                imported_workflow_targets=imported_workflow_targets,
+                imported_workflow_qualifiers=imported_workflow_qualifiers,
             )
         _validate_pure_function_expression(
             expression.body,
             function_name=function_name,
             generated_core_node_id=generated_core_node_id,
+            callable_catalog=callable_catalog,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
         )
         return
 
@@ -354,12 +397,18 @@ def _validate_pure_function_expression(
             expression.subject,
             function_name=function_name,
             generated_core_node_id=generated_core_node_id,
+            callable_catalog=callable_catalog,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
         )
         for arm in expression.arms:
             _validate_pure_function_expression(
                 arm.body,
                 function_name=function_name,
                 generated_core_node_id=generated_core_node_id,
+                callable_catalog=callable_catalog,
+                imported_workflow_targets=imported_workflow_targets,
+                imported_workflow_qualifiers=imported_workflow_qualifiers,
             )
         return
 
@@ -369,6 +418,9 @@ def _validate_pure_function_expression(
                 field.value,
                 function_name=function_name,
                 generated_core_node_id=generated_core_node_id,
+                callable_catalog=callable_catalog,
+                imported_workflow_targets=imported_workflow_targets,
+                imported_workflow_qualifiers=imported_workflow_qualifiers,
             )
         return
 
@@ -377,11 +429,17 @@ def _validate_pure_function_expression(
             expression.context,
             function_name=function_name,
             generated_core_node_id=generated_core_node_id,
+            callable_catalog=callable_catalog,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
         )
         _validate_pure_function_expression(
             expression.body,
             function_name=function_name,
             generated_core_node_id=generated_core_node_id,
+            callable_catalog=callable_catalog,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
         )
         return
 
@@ -390,6 +448,9 @@ def _validate_pure_function_expression(
             expression.context,
             function_name=function_name,
             generated_core_node_id=generated_core_node_id,
+            callable_catalog=callable_catalog,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
         )
         return
 
@@ -398,6 +459,9 @@ def _validate_pure_function_expression(
             expression.base,
             function_name=function_name,
             generated_core_node_id=generated_core_node_id,
+            callable_catalog=callable_catalog,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
         )
 
 

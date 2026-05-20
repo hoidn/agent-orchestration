@@ -289,6 +289,81 @@ def test_validate_expression_module_accepts_calls_to_local_functions() -> None:
     assert result.workflows[0].inferred_return_type == "PlanInputs"
 
 
+def test_validate_expression_module_accepts_pure_function_calls_between_local_defuns() -> None:
+    parser = _parser_module()
+    definition_validation = _definition_validation_module()
+    expression_validation = _expression_validation_module()
+    source_path = str(_fixture_path("inline_call_local_defun_from_defun.orc"))
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defrecord PlanInputs
+  (design_path String))
+
+(defun normalize_path ((path String)) -> String
+  path)
+
+(defun normalize_inputs ((inputs PlanInputs)) -> PlanInputs
+  (record PlanInputs
+    :design_path (call normalize_path :path inputs.design_path)))
+
+(defworkflow run_phase ((inputs PlanInputs)) -> PlanInputs
+  (call normalize_inputs :inputs inputs))
+""",
+        source_path=source_path,
+    )
+    checked = definition_validation.validate_definition_module(module)
+
+    result = expression_validation.validate_expression_module(checked)
+
+    assert tuple(function.name for function in result.functions) == (
+        "normalize_path",
+        "normalize_inputs",
+    )
+    assert tuple(workflow.name for workflow in result.workflows) == ("run_phase",)
+    assert result.workflows[0].inferred_return_type == "PlanInputs"
+
+
+def test_validate_expression_module_rejects_effectful_call_target_in_pure_function() -> None:
+    parser = _parser_module()
+    definition_validation = _definition_validation_module()
+    expression_validation = _expression_validation_module()
+    source_path = str(_fixture_path("inline_call_defproc_from_defun.orc"))
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defrecord PlanResult
+  (path String))
+
+(defproc build_plan ((provider Provider) (prompt Prompt) (design_path String)) -> PlanResult
+  (provider-result provider :prompt prompt :inputs (design_path) :returns PlanResult))
+
+(defun normalize_inputs ((provider Provider) (prompt Prompt) (design_path String)) -> PlanResult
+  (call build_plan :provider provider :prompt prompt :design_path design_path))
+
+(defworkflow run_phase ((provider Provider) (prompt Prompt) (design_path String)) -> PlanResult
+  (call build_plan :provider provider :prompt prompt :design_path design_path))
+""",
+        source_path=source_path,
+    )
+    checked = definition_validation.validate_definition_module(module)
+
+    with pytest.raises(Exception) as exc_info:
+        expression_validation.validate_expression_module(checked)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "pure_function_has_effect"
+    assert diagnostic.enclosing_form_name == "defun"
+    assert diagnostic.generated_core_node_id == "normalize_inputs.result"
+    assert "Pure function normalize_inputs may not call effectful target build_plan" in diagnostic.message
+
+
 def test_validate_expression_module_rejects_function_return_type_mismatch() -> None:
     parser = _parser_module()
     definition_validation = _definition_validation_module()
