@@ -263,6 +263,13 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
                     definitions=definition_table,
                 )
             )
+            workflow_source_map.update(
+                _step_execution_surface_source_map_entries(
+                    workflow_name=callable_name,
+                    step_name=str(lowered_steps[-1]["name"]),
+                    expression=lowered_root_expression,
+                )
+            )
         if isinstance(lowered_root_expression, CallExpression):
             workflow_source_map.update(
                 _call_source_map_entries(
@@ -310,6 +317,15 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
                                 type_name=case_expression.returns_type_name,
                                 type_span=case_expression.returns_type_span,
                                 definitions=definition_table,
+                            )
+                        )
+                        workflow_source_map.update(
+                            _match_case_execution_surface_source_map_entries(
+                                workflow_name=callable_name,
+                                match_step_name=root_step_name,
+                                case_variant_name=case_variant_name,
+                                case_step_name=case_step_name,
+                                expression=case_expression,
                             )
                         )
                     continue
@@ -381,6 +397,15 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
                             type_name=signature.return_type.name,
                             type_span=signature.return_type.span,
                             definitions=definition_table,
+                        )
+                    )
+                    workflow_source_map.update(
+                        _match_case_execution_surface_source_map_entries(
+                            workflow_name=callable_name,
+                            match_step_name=root_step_name,
+                            case_variant_name=case_variant_name,
+                            case_step_name=case_step_name,
+                            expression=case_expression,
                         )
                     )
             if isinstance(lowered_root_expression.subject, (ProviderResultExpression, CommandResultExpression)):
@@ -2745,6 +2770,98 @@ def _step_variant_field_node_id(
     return f"{workflow_name}.step.{step_name}.contract.variant_output.variant.{variant_name}.field.{field_name}"
 
 
+def _step_execution_surface_source_map_entries(
+    *,
+    workflow_name: str,
+    step_name: str,
+    expression: ProviderResultExpression | CommandResultExpression,
+) -> dict[str, SourceSpan]:
+    if isinstance(expression, ProviderResultExpression):
+        entries = {
+            _step_provider_node_id(workflow_name=workflow_name, step_name=step_name): expression.provider_reference.span,
+            _step_input_file_node_id(workflow_name=workflow_name, step_name=step_name): expression.prompt_reference.span,
+        }
+        entries.update(
+            {
+                _step_provider_input_node_id(
+                    workflow_name=workflow_name,
+                    step_name=step_name,
+                    index=index,
+                ): input_expression.span
+                for index, input_expression in enumerate(expression.inputs)
+            }
+        )
+        return entries
+    return {
+        _step_command_argv_node_id(workflow_name=workflow_name, step_name=step_name, index=index): argument.span
+        for index, argument in enumerate(expression.argv)
+    }
+
+
+def _match_case_execution_surface_source_map_entries(
+    *,
+    workflow_name: str,
+    match_step_name: str,
+    case_variant_name: str,
+    case_step_name: str,
+    expression: ProviderResultExpression | CommandResultExpression,
+) -> dict[str, SourceSpan]:
+    if isinstance(expression, ProviderResultExpression):
+        entries = {
+            _match_case_step_provider_node_id(
+                workflow_name=workflow_name,
+                match_step_name=match_step_name,
+                case_variant_name=case_variant_name,
+                case_step_name=case_step_name,
+            ): expression.provider_reference.span,
+            _match_case_step_input_file_node_id(
+                workflow_name=workflow_name,
+                match_step_name=match_step_name,
+                case_variant_name=case_variant_name,
+                case_step_name=case_step_name,
+            ): expression.prompt_reference.span,
+        }
+        entries.update(
+            {
+                _match_case_step_provider_input_node_id(
+                    workflow_name=workflow_name,
+                    match_step_name=match_step_name,
+                    case_variant_name=case_variant_name,
+                    case_step_name=case_step_name,
+                    index=index,
+                ): input_expression.span
+                for index, input_expression in enumerate(expression.inputs)
+            }
+        )
+        return entries
+    return {
+        _match_case_step_command_argv_node_id(
+            workflow_name=workflow_name,
+            match_step_name=match_step_name,
+            case_variant_name=case_variant_name,
+            case_step_name=case_step_name,
+            index=index,
+        ): argument.span
+        for index, argument in enumerate(expression.argv)
+    }
+
+
+def _step_provider_node_id(*, workflow_name: str, step_name: str) -> str:
+    return f"{workflow_name}.step.{step_name}.provider"
+
+
+def _step_input_file_node_id(*, workflow_name: str, step_name: str) -> str:
+    return f"{workflow_name}.step.{step_name}.input_file"
+
+
+def _step_provider_input_node_id(*, workflow_name: str, step_name: str, index: int) -> str:
+    return f"{workflow_name}.step.{step_name}.provider_params.workflow_lisp_inputs.{index}"
+
+
+def _step_command_argv_node_id(*, workflow_name: str, step_name: str, index: int) -> str:
+    return f"{workflow_name}.step.{step_name}.command.{index}"
+
+
 def _call_source_map_entries(
     *,
     workflow_name: str,
@@ -2809,6 +2926,57 @@ def _match_case_call_source_map_entries(
         )
     )
     return entries
+
+
+def _match_case_step_provider_node_id(
+    *,
+    workflow_name: str,
+    match_step_name: str,
+    case_variant_name: str,
+    case_step_name: str,
+) -> str:
+    return (
+        f"{workflow_name}.step.{match_step_name}.case.{case_variant_name}.step."
+        f"{case_step_name}.provider"
+    )
+
+
+def _match_case_step_input_file_node_id(
+    *,
+    workflow_name: str,
+    match_step_name: str,
+    case_variant_name: str,
+    case_step_name: str,
+) -> str:
+    return (
+        f"{workflow_name}.step.{match_step_name}.case.{case_variant_name}.step."
+        f"{case_step_name}.input_file"
+    )
+
+
+def _match_case_step_provider_input_node_id(
+    *,
+    workflow_name: str,
+    match_step_name: str,
+    case_variant_name: str,
+    case_step_name: str,
+    index: int,
+) -> str:
+    return (
+        f"{workflow_name}.step.{match_step_name}.case.{case_variant_name}.step."
+        f"{case_step_name}.provider_params.workflow_lisp_inputs.{index}"
+    )
+
+
+def _match_case_step_command_argv_node_id(
+    *,
+    workflow_name: str,
+    match_step_name: str,
+    case_variant_name: str,
+    case_step_name: str,
+    index: int,
+) -> str:
+    return f"{workflow_name}.step.{match_step_name}.case.{case_variant_name}.step.{case_step_name}.command.{index}"
 
 
 def _call_binding_source_map_entries(

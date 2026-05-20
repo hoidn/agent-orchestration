@@ -968,12 +968,23 @@ def test_lower_compiled_module_records_contract_and_boundary_node_source_spans()
         ].line_start
         == 13
     )
+    assert execute_attempt_map["execute_attempt.step.ProviderResult.provider"].line_start == 21
+    assert execute_attempt_map["execute_attempt.step.ProviderResult.input_file"].line_start == 22
+    assert (
+        execute_attempt_map[
+            "execute_attempt.step.ProviderResult.provider_params.workflow_lisp_inputs.0"
+        ].line_start
+        == 23
+    )
 
     assert run_checks_map["run_checks.input.design_path"].line_start == 27
     assert run_checks_map["run_checks.output.path"].line_start == 6
     assert run_checks_map["run_checks.output.status"].line_start == 7
     assert run_checks_map["run_checks.step.CommandResult.contract.output_bundle.field.path"].line_start == 6
     assert run_checks_map["run_checks.step.CommandResult.contract.output_bundle.field.status"].line_start == 7
+    assert run_checks_map["run_checks.step.CommandResult.command.0"].line_start == 31
+    assert run_checks_map["run_checks.step.CommandResult.command.1"].line_start == 31
+    assert run_checks_map["run_checks.step.CommandResult.command.2"].line_start == 31
 
 
 def test_lower_compiled_module_records_defpath_contract_metadata_source_spans() -> None:
