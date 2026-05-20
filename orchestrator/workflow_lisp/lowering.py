@@ -151,6 +151,7 @@ def lower_workflow_definitions(
                         message=f"cyclic same-file workflow call detected for `{workflow_name}`",
                         span=workflow.definition.span,
                         form_path=workflow.definition.form_path,
+                        phase="lowering",
                     ),
                 )
             )
@@ -265,14 +266,12 @@ def _lower_one_workflow(
     type_env: FrontendTypeEnvironment,
     typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> LoweredWorkflow:
-    inputs, outputs, flattened_fields = derive_workflow_signature_contracts(typed_workflow.signature)
+    inputs, outputs, _ = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
     workflow_origin = _origin_for_workflow(typed_workflow, typed_procedures=typed_procedures)
-    origin_outputs = {
-        field.generated_name: workflow_origin
-        for field in flattened_fields
-    }
+    origin_inputs = {name: workflow_origin for name in authored_inputs}
+    origin_outputs = {name: workflow_origin for name in authored_outputs}
 
     context = _LoweringContext(
         workflow_name=typed_workflow.definition.name,
@@ -288,7 +287,7 @@ def _lower_one_workflow(
         typed_procedures=typed_procedures,
         type_env=type_env,
         step_spans={},
-        generated_input_spans={},
+        generated_input_spans=origin_inputs,
         generated_output_spans=origin_outputs,
         generated_path_spans={},
         top_level_artifacts={},
@@ -311,6 +310,9 @@ def _lower_one_workflow(
             expansion_stack=workflow_origin.expansion_stack,
             notes=context.origin_notes,
         )
+        for key in list(context.generated_input_spans):
+            if context.generated_input_spans[key] == workflow_origin:
+                context.generated_input_spans[key] = noted_origin
         for key in list(context.generated_output_spans):
             if context.generated_output_spans[key] == workflow_origin:
                 context.generated_output_spans[key] = noted_origin
@@ -5982,6 +5984,7 @@ def _compile_error(*, code: str, message: str, span: SourceSpan, form_path: tupl
                 message=message,
                 span=span,
                 form_path=form_path,
+                phase="lowering",
             ),
         )
     )

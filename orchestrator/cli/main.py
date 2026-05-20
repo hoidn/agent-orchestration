@@ -7,6 +7,56 @@ from typing import Optional
 from .commands import run_workflow
 
 
+def _add_frontend_flags(
+    parser: argparse.ArgumentParser,
+    *,
+    include_emit_debug_yaml: bool = False,
+    include_form: bool = False,
+) -> None:
+    if include_form:
+        parser.add_argument(
+            '--form',
+            type=str,
+            help='Form/workflow/procedure name to explain'
+        )
+    parser.add_argument(
+        '--entry-workflow',
+        type=str,
+        help='Entry workflow name for .orc entrypoints'
+    )
+    parser.add_argument(
+        '--source-root',
+        action='append',
+        help='Workflow Lisp source root (repeatable)'
+    )
+    parser.add_argument(
+        '--provider-externs-file',
+        type=str,
+        help='Path to JSON provider extern manifest for .orc compilation'
+    )
+    parser.add_argument(
+        '--prompt-externs-file',
+        type=str,
+        help='Path to JSON prompt extern manifest for .orc compilation'
+    )
+    parser.add_argument(
+        '--imported-workflow-bundles-file',
+        type=str,
+        help='Path to JSON imported workflow bundle manifest for .orc compilation'
+    )
+    parser.add_argument(
+        '--command-boundaries-file',
+        type=str,
+        help='Path to JSON command boundary manifest for .orc compilation'
+    )
+    if include_emit_debug_yaml:
+        parser.add_argument(
+            '--emit-debug-yaml',
+            action='store_true',
+            help='Emit non-authoritative debug YAML for validated .orc builds'
+        )
+
+
 def create_parser() -> argparse.ArgumentParser:
     """Create the argument parser for the orchestrator CLI."""
     parser = argparse.ArgumentParser(
@@ -176,6 +226,23 @@ def create_parser() -> argparse.ArgumentParser:
         default=6000,
         help='Maximum provider transport tail chars passed to live note provider'
     )
+    _add_frontend_flags(run_parser)
+
+    compile_parser = subparsers.add_parser('compile', help='Compile a Workflow Lisp entrypoint')
+    compile_parser.add_argument(
+        'workflow',
+        type=str,
+        help='Path to workflow .orc file'
+    )
+    _add_frontend_flags(compile_parser, include_emit_debug_yaml=True)
+
+    explain_parser = subparsers.add_parser('explain', help='Explain a compiled Workflow Lisp form')
+    explain_parser.add_argument(
+        'workflow',
+        type=str,
+        help='Path to workflow .orc file'
+    )
+    _add_frontend_flags(explain_parser, include_form=True)
 
     # Resume command (minimal for now)
     resume_parser = subparsers.add_parser('resume', help='Resume a workflow run')
@@ -260,7 +327,7 @@ def create_parser() -> argparse.ArgumentParser:
     resume_parser.add_argument(
         '--live-agent-note-provider',
         type=str,
-        help='Override provider template name for live current-step notes'
+        help='Override provider template name for live current-step notes (default: claude_haiku_summary)'
     )
     resume_parser.add_argument(
         '--live-agent-note-interval-sec',
@@ -275,7 +342,7 @@ def create_parser() -> argparse.ArgumentParser:
     resume_parser.add_argument(
         '--live-agent-note-max-tail-chars',
         type=int,
-        help='Override maximum provider transport tail chars passed to live note provider'
+        help='Override maximum tmux pane tail chars passed to live note provider'
     )
 
     report_parser = subparsers.add_parser('report', help='Render workflow run status')
@@ -361,6 +428,12 @@ def main(args: Optional[list] = None) -> int:
 
     if parsed_args.command == 'run':
         return run_workflow(parsed_args)
+    elif parsed_args.command == 'compile':
+        from orchestrator.cli.commands import compile_workflow
+        return compile_workflow(parsed_args)
+    elif parsed_args.command == 'explain':
+        from orchestrator.cli.commands import explain_workflow
+        return explain_workflow(parsed_args)
     elif parsed_args.command == 'resume':
         from orchestrator.cli.commands import resume_workflow
         return resume_workflow(**vars(parsed_args))

@@ -121,6 +121,10 @@ class WorkflowProvenance:
     source_root: Path
     managed_write_root_inputs: tuple[str, ...] = ()
     imported_aliases: tuple[str, ...] = ()
+    frontend_kind: str | None = None
+    frontend_build_root: Path | None = None
+    frontend_source_trace_path: Path | None = None
+    frontend_entry_workflow: str | None = None
 
 
 @dataclass(frozen=True)

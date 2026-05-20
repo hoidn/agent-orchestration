@@ -1,0 +1,37 @@
+version: "2.14"
+name: selector-run
+inputs:
+  input__status:
+    kind: scalar
+    type: string
+  input__report:
+    kind: relpath
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+  report_path:
+    kind: relpath
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+outputs:
+  return__report:
+    kind: relpath
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.EmitImportedReport.artifacts.report
+steps:
+  - name: EmitImportedReport
+    id: emit_imported_report
+    command:
+      - bash
+      - -lc
+      - printf 'ok\n'
+    expected_outputs:
+      - name: report
+        path: state/imported_selector_report.txt
+        kind: relpath
+        type: relpath
+        under: artifacts/work

@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import (
     LispFrontendCompileError,
@@ -84,6 +85,124 @@ def test_frontend_compile_error_exposes_diagnostics_tuple() -> None:
     assert isinstance(error.diagnostics, tuple)
     assert "[definition_duplicate]" in str(error)
     assert "[type_unknown]" in str(error)
+
+
+def test_serialize_diagnostic_includes_phase_location_and_notes() -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+    serialize_diagnostics = getattr(diagnostics_module, "serialize_diagnostics")
+
+    span = SourceSpan(
+        start=SourcePosition(
+            path="tests/fixtures/workflow_lisp/invalid/example.orc",
+            line=8,
+            column=3,
+            offset=42,
+        ),
+        end=SourcePosition(
+            path="tests/fixtures/workflow_lisp/invalid/example.orc",
+            line=8,
+            column=17,
+            offset=56,
+        ),
+    )
+    diagnostic = LispFrontendDiagnostic(
+        code="entry_workflow_required",
+        message="`--entry-workflow` is required when more than one workflow is exported",
+        span=span,
+        form_path=("workflow-lisp", "defworkflow", "beta"),
+        notes=("select one exported workflow explicitly",),
+        phase="cli_request",
+    )
+
+    payload = serialize_diagnostic(diagnostic)
+
+    assert payload["code"] == "entry_workflow_required"
+    assert payload["severity"] == "error"
+    assert payload["path"] == "tests/fixtures/workflow_lisp/invalid/example.orc"
+    assert payload["line"] == 8
+    assert payload["column"] == 3
+    assert payload["form_path"] == ["workflow-lisp", "defworkflow", "beta"]
+    assert payload["notes"] == ["select one exported workflow explicitly"]
+    assert payload["phase"] == "cli_request"
+    assert serialize_diagnostics((diagnostic,)) == [payload]
+
+
+def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_imported_workflow_bundle() -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            MODULE_FIXTURES / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc",
+            source_roots=(MODULE_FIXTURES / "valid" / "imported_bundle_mix",),
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={
+                "prompts.implementation.execute": "prompts/implementation/execute.md"
+            },
+            validate_shared=False,
+        )
+
+    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
+
+    assert payload["code"] == "workflow_call_unknown"
+    assert payload["phase"] == "typecheck"
+
+
+def test_serialize_diagnostic_preserves_lowering_phase_for_cyclic_workflow_calls(tmp_path: Path) -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    path = tmp_path / "cyclic_workflows.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Out",
+                "    (status String))",
+                "  (defworkflow alpha",
+                "    ()",
+                "    -> Out",
+                "    (call beta))",
+                "  (defworkflow beta",
+                "    ()",
+                "    -> Out",
+                "    (call alpha)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False)
+
+    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
+
+    assert payload["code"] == "workflow_signature_mismatch"
+    assert payload["phase"] == "lowering"
+
+
+def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_command_boundary() -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            MODULE_FIXTURES / "valid" / "callables" / "neurips" / "entry.orc",
+            source_roots=(MODULE_FIXTURES / "valid" / "callables",),
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={
+                "prompts.implementation.execute": "prompts/implementation/execute.md"
+            },
+            validate_shared=False,
+        )
+
+    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
+
+    assert payload["code"] == "command_adapter_missing_contract"
+    assert payload["phase"] == "typecheck"
 
 
 def test_compile_stage1_renders_unknown_type_diagnostic_with_field_location() -> None:

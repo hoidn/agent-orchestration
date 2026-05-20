@@ -1,0 +1,3 @@
+{
+  "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+}

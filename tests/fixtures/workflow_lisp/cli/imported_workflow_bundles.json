@@ -1,0 +1,6 @@
+{
+  "selector-run": {
+    "kind": "yaml",
+    "path": "imported_selector.yaml"
+  }
+}

@@ -22,10 +22,22 @@ from orchestrator.workflow.loaded_bundle import (
 from orchestrator.workflow.linting import lint_workflow
 from orchestrator.monitor.process import process_start_time_token, write_process_metadata
 from orchestrator.runtime_observability import close_executor_session, open_executor_session
+from orchestrator.runtime_observability import record_compiled_frontend_provenance
 from orchestrator.workflow.signatures import bind_workflow_inputs
+from orchestrator.workflow_lisp.build import FrontendBuildRequest, build_frontend_bundle
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 
 
 logger = logging.getLogger(__name__)
+
+
+def _workflow_path_for_state(workspace: Path, workflow_path: Path) -> str:
+    """Persist a workflow path relative to the workspace when possible."""
+
+    try:
+        return str(workflow_path.relative_to(workspace))
+    except ValueError:
+        return str(workflow_path)
 
 
 def build_observability_config(args: Namespace) -> Optional[Dict[str, Any]]:
@@ -297,15 +309,41 @@ def run_workflow(args: Namespace) -> int:
             logger.error(f"Workflow file not found: {workflow_path}")
             return 1
 
-        logger.info(f"Loading workflow: {workflow_path}")
-        loader = WorkflowLoader(workspace)
-        try:
-            workflow = loader.load_bundle(workflow_path)
-        except WorkflowValidationError as e:
-            # Print validation errors to stderr
-            for error in e.errors:
-                logger.error(f"Validation error: {error.message}")
-            return e.exit_code
+        frontend_build = None
+        if workflow_path.suffix == ".orc":
+            try:
+                frontend_build = build_frontend_bundle(
+                    FrontendBuildRequest(
+                        source_path=workflow_path,
+                        source_roots=tuple(Path(path) for path in (getattr(args, "source_root", None) or ())),
+                        entry_workflow=getattr(args, "entry_workflow", None),
+                        provider_externs_path=Path(args.provider_externs_file).resolve()
+                        if getattr(args, "provider_externs_file", None) else None,
+                        prompt_externs_path=Path(args.prompt_externs_file).resolve()
+                        if getattr(args, "prompt_externs_file", None) else None,
+                        imported_workflow_bundles_path=Path(args.imported_workflow_bundles_file).resolve()
+                        if getattr(args, "imported_workflow_bundles_file", None) else None,
+                        command_boundaries_path=Path(args.command_boundaries_file).resolve()
+                        if getattr(args, "command_boundaries_file", None) else None,
+                        emit_debug_yaml=bool(getattr(args, "emit_debug_yaml", False)),
+                        workspace_root=workspace,
+                    )
+                )
+            except LispFrontendCompileError as e:
+                for diagnostic in e.diagnostics:
+                    logger.error(render_diagnostic(diagnostic))
+                return 2
+            workflow = frontend_build.validated_bundle
+        else:
+            logger.info(f"Loading workflow: {workflow_path}")
+            loader = WorkflowLoader(workspace)
+            try:
+                workflow = loader.load_bundle(workflow_path)
+            except WorkflowValidationError as e:
+                # Print validation errors to stderr
+                for error in e.errors:
+                    logger.error(f"Validation error: {error.message}")
+                return e.exit_code
         bundle = loaded_workflow_bundle(workflow)
         # Determine processed directory
         if bundle is not None:
@@ -341,14 +379,14 @@ def run_workflow(args: Namespace) -> int:
             if args.dry_run:
                 logger.info(f"[DRY RUN] Would archive processed directory to: {archive_dest}")
 
-        # Dry run mode - just validate
         raw_inputs = parse_inputs(args)
+        lint_warnings = lint_workflow(workflow)
+
         bound_inputs = bind_workflow_inputs(
             workflow_input_contracts(workflow),
             raw_inputs,
             workspace=workspace,
         )
-        lint_warnings = lint_workflow(workflow)
 
         if args.dry_run:
             for warning in lint_warnings:
@@ -377,11 +415,17 @@ def run_workflow(args: Namespace) -> int:
 
         # Create new run
         run_state = state_manager.initialize(
-            str(workflow_path.relative_to(workspace)),
+            _workflow_path_for_state(workspace, workflow_path),
             context,
             bound_inputs=bound_inputs,
             observability=observability,
         )
+        if frontend_build is not None:
+            record_compiled_frontend_provenance(
+                run_state,
+                frontend_build.validated_bundle.provenance,
+            )
+            state_manager._write_state()
         logger.info(f"Created new run: {run_state.run_id}")
 
         session_id: str | None = None

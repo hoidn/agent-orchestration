@@ -871,6 +871,7 @@ def build_command_boundary_environment(
                     code="command_adapter_missing_contract",
                     message="command boundary bindings require non-empty names",
                     span=_environment_span(),
+                    phase="typecheck",
                 )
             )
             continue
@@ -880,6 +881,7 @@ def build_command_boundary_environment(
                     code="command_adapter_missing_contract",
                     message=f"command boundary `{name}` must declare a non-empty stable command",
                     span=_environment_span(),
+                    phase="typecheck",
                 )
             )
             continue
@@ -896,6 +898,7 @@ def build_command_boundary_environment(
                         code="command_adapter_missing_contract",
                         message=f"certified adapter `{name}` is missing required contract metadata",
                         span=_environment_span(),
+                        phase="typecheck",
                     )
                 )
                 continue
@@ -905,6 +908,7 @@ def build_command_boundary_environment(
                         code="command_adapter_missing_contract",
                         message=f"certified adapter `{name}` requires positive and negative fixtures",
                         span=_environment_span(),
+                        phase="typecheck",
                     )
                 )
                 continue

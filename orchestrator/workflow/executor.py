@@ -485,6 +485,8 @@ class WorkflowExecutor:
         self.live_agent_note_observer = self._create_live_agent_note_observer()
         provenance = workflow_provenance(workflow)
         workflow_path = provenance.workflow_path if provenance is not None else None
+        self._compiled_frontend_kind = provenance.frontend_kind if provenance is not None else None
+        self._compiled_frontend_step_origins = self._load_compiled_frontend_step_origins(provenance)
         self.asset_resolver = (
             WorkflowAssetResolver(Path(workflow_path))
             if workflow_path is not None
@@ -556,6 +558,80 @@ class WorkflowExecutor:
         self.retry_delay_ms = retry_delay_ms
         self.step_heartbeat_interval_sec = step_heartbeat_interval_sec
         self._active_provider_sessions: Dict[str, Dict[str, Any]] = {}
+
+    def _load_compiled_frontend_step_origins(
+        self,
+        provenance: Any,
+    ) -> Dict[str, Mapping[str, Any]]:
+        """Load persisted frontend source-trace entries keyed by step identity."""
+        source_trace_path = (
+            provenance.frontend_source_trace_path
+            if provenance is not None
+            else None
+        )
+        if not isinstance(source_trace_path, Path) or not source_trace_path.exists():
+            return {}
+        try:
+            payload = json.loads(source_trace_path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            logger.debug("Failed to read compiled frontend source trace %s: %s", source_trace_path, exc)
+            return {}
+
+        indexed: Dict[str, Mapping[str, Any]] = {}
+        workflows = payload.get("workflows")
+        if not isinstance(workflows, Mapping):
+            return indexed
+        for workflow_payload in workflows.values():
+            if not isinstance(workflow_payload, Mapping):
+                continue
+            step_ids = workflow_payload.get("step_ids")
+            if not isinstance(step_ids, Mapping):
+                continue
+            for key, origin in step_ids.items():
+                if isinstance(key, str) and isinstance(origin, Mapping):
+                    indexed.setdefault(key, origin)
+        return indexed
+
+    def _compiled_frontend_origin_for_step(
+        self,
+        step_name: str,
+        step_id: str,
+    ) -> Mapping[str, Any] | None:
+        """Resolve one runtime step back to compiled frontend source metadata."""
+        candidate_keys = [step_name, step_id]
+        if step_id.startswith("root."):
+            candidate_keys.append(step_id[len("root."):])
+        for candidate in candidate_keys:
+            if not isinstance(candidate, str) or not candidate:
+                continue
+            origin = self._compiled_frontend_step_origins.get(candidate)
+            if origin is not None:
+                return origin
+        return None
+
+    def _emit_compiled_frontend_step_display(
+        self,
+        step_name: str,
+        step_id: str,
+    ) -> None:
+        """Emit source-aware observability lines for compiled frontend steps."""
+        if self._compiled_frontend_kind != "workflow_lisp":
+            return
+        logger.info("Running step %s", step_name)
+        origin = self._compiled_frontend_origin_for_step(step_name, step_id)
+        if not isinstance(origin, Mapping):
+            return
+        path = origin.get("path")
+        line = origin.get("line")
+        column = origin.get("column")
+        if isinstance(path, str) and isinstance(line, int):
+            if isinstance(column, int):
+                logger.info("  source: %s:%s:%s", path, line, column)
+            else:
+                logger.info("  source: %s:%s", path, line)
+        form_path = origin.get("form_path")
+        if isinstance(form_path, list) and form_path:
+            logger.info("  form: %s", " > ".join(str(part) for part in form_path))
 
     def _step_id(self, step: Dict[str, Any], fallback_index: Optional[int] = None) -> str:
         """Return the durable identity for a top-level step."""
@@ -1694,6 +1770,7 @@ class WorkflowExecutor:
                 step_name = identity.name
                 step_id = identity.step_id
                 step = self._typed_execution_step(step)
+                self._emit_compiled_frontend_step_display(step_name, step_id)
                 resume_current_step = resume_restart_node_id is not None and current_node_id == resume_restart_node_id
                 if resume_current_step:
                     resume_restart_node_id = None
@@ -1977,6 +2054,12 @@ class WorkflowExecutor:
                         class_hint='pre_execution_failed',
                         retryable_hint=False,
                     )
+                    self._finalize_consumes(
+                        step,
+                        step_name,
+                        state,
+                        succeeded=False,
+                    )
                     self._record_finalization_settled_result(
                         state,
                         step_index,
@@ -2015,6 +2098,12 @@ class WorkflowExecutor:
                         phase_hint='pre_execution',
                         class_hint='contract_violation',
                         retryable_hint=False,
+                    )
+                    self._finalize_consumes(
+                        step,
+                        step_name,
+                        state,
+                        succeeded=False,
                     )
                     self._record_finalization_settled_result(
                         state,
@@ -2312,22 +2401,44 @@ class WorkflowExecutor:
         )
 
     @contextmanager
-    def _live_agent_note_watch(self, step_name: str, session_runtime: Optional[Dict[str, Any]]):
+    def _live_agent_note_watch(
+        self,
+        step_name: str,
+        step: Dict[str, Any],
+        session_runtime: Optional[Dict[str, Any]],
+    ):
         """Best-effort live-note watch for one active provider session."""
-        if self.live_agent_note_observer is None or not isinstance(session_runtime, dict):
+        if self.live_agent_note_observer is None:
             yield
             return
-        transport_spool_path = session_runtime.get("transport_spool_path")
-        step_id = session_runtime.get("step_id")
-        visit_count = session_runtime.get("visit_count")
-        if not isinstance(transport_spool_path, str) or not isinstance(step_id, str) or not isinstance(visit_count, int):
+        transport_spool_path = None
+        step_id = None
+        visit_count = None
+        if isinstance(session_runtime, dict):
+            transport_spool_path = session_runtime.get("transport_spool_path")
+            step_id = session_runtime.get("step_id")
+            visit_count = session_runtime.get("visit_count")
+        current_step = self.state_manager.state.current_step if self.state_manager.state is not None else None
+        if (not isinstance(step_id, str) or not isinstance(visit_count, int)) and isinstance(current_step, dict):
+            if current_step.get("name") == step_name:
+                current_step_id = current_step.get("step_id")
+                current_visit_count = current_step.get("visit_count")
+                if isinstance(current_step_id, str):
+                    step_id = current_step_id
+                if isinstance(current_visit_count, int):
+                    visit_count = current_visit_count
+        if not isinstance(step_id, str):
+            step_id = self._step_id(step)
+        if not isinstance(visit_count, int):
+            visit_count = 1
+        if not isinstance(step_id, str) or not isinstance(visit_count, int):
             yield
             return
         with self.live_agent_note_observer.watch(
             step_name=step_name,
             step_id=step_id,
             visit_count=visit_count,
-            transport_spool_path=Path(transport_spool_path),
+            transport_spool_path=Path(transport_spool_path) if isinstance(transport_spool_path, str) else None,
         ):
             yield
 
@@ -2412,6 +2523,8 @@ class WorkflowExecutor:
                 'error': result.get('error'),
                 'artifacts': result.get('artifacts'),
                 'debug': result.get('debug'),
+                'step_id': result.get('step_id'),
+                'visit_count': result.get('visit_count'),
             }
 
         return {
@@ -2715,6 +2828,24 @@ class WorkflowExecutor:
             step_name,
             state,
             runtime_step_id=runtime_step_id,
+        )
+
+    def _finalize_consumes(
+        self,
+        step: Dict[str, Any],
+        step_name: str,
+        state: Dict[str, Any],
+        *,
+        succeeded: bool,
+        runtime_step_id: Optional[str] = None,
+    ) -> None:
+        """Commit or discard pending consumes once a step has settled."""
+        self.dataflow_manager.finalize_consumes(
+            step,
+            step_name,
+            state,
+            runtime_step_id=runtime_step_id,
+            succeeded=succeeded,
         )
 
     def _substitute_path_template(
@@ -3259,6 +3390,14 @@ class WorkflowExecutor:
             nested_name,
             self._to_step_result(result, nested_name),
         )
+        self._finalize_consumes(
+            step,
+            nested_name,
+            state,
+            succeeded=result.get("status") == "completed",
+            runtime_step_id=runtime_step_id,
+        )
+        self._emit_step_summary(nested_name, step, result)
         return result
 
     def _execute_top_level_publish_and_persist(
@@ -3274,6 +3413,12 @@ class WorkflowExecutor:
             if publish_error is not None:
                 result = publish_error
             finalized = self._persist_step_result(state, step_name, step, result)
+            self._finalize_consumes(
+                step,
+                step_name,
+                state,
+                succeeded=finalized.get("status") == "completed",
+            )
             self._mark_managed_jobs_recovery_if_outstanding(
                 step,
                 step_name,
@@ -3352,6 +3497,12 @@ class WorkflowExecutor:
                     else None
                 )
         state.setdefault("steps", {})[step_name] = finalized
+        self._finalize_consumes(
+            step,
+            step_name,
+            state,
+            succeeded=finalized.get("status") == "completed",
+        )
 
         artifact_versions = state.get("artifact_versions", {})
         artifact_consumes = state.get("artifact_consumes", {})
@@ -3916,7 +4067,7 @@ class WorkflowExecutor:
                 )
 
             # Execute the prepared invocation
-            with self._live_agent_note_watch(step_name, session_runtime):
+            with self._live_agent_note_watch(step_name, step, session_runtime):
                 exec_result = self._execute_provider_invocation(
                     invocation,
                     session_runtime=session_runtime,
