@@ -265,6 +265,11 @@ def test_validate_expression_module_accepts_phase_target_expression() -> None:
             "Unknown workflow reference: remote/run_phase",
         ),
         (
+            "invalid_call_imported_only_unknown_qualified_workflow.orc",
+            "type_unknown",
+            "Unknown workflow reference: remote/workflows/other_phase",
+        ),
+        (
             "invalid_call_missing_argument.orc",
             "workflow_signature_mismatch",
             "Missing call argument for workflow build_plan: attempts",

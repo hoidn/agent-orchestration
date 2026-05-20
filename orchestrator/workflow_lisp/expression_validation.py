@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .definition_validation import DefinitionCheckedModule
 from .definitions import (
     DefinitionTypeRef,
+    ImportDefinition,
     ProcedureDefinition,
     RecordDefinition,
     UnionDefinition,
@@ -111,6 +112,9 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
     """Type-check workflow body expressions for one definition-checked module."""
 
     imported_only_names, import_aliases = _collect_import_type_resolution(module)
+    imported_workflow_targets, imported_workflow_qualifiers = _collect_import_workflow_resolution(
+        module.import_definitions
+    )
     type_catalog = _build_type_catalog(module, imported_only_names=imported_only_names)
     callable_catalog: dict[str, WorkflowDefinition | ProcedureDefinition] = {
         workflow.name: workflow for workflow in module.workflow_definitions
@@ -148,6 +152,8 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
         if _type_name(inferred) != workflow.return_type.name:
@@ -198,6 +204,8 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
         if _type_name(inferred) != procedure.return_type.name:
@@ -285,15 +293,32 @@ def _collect_import_type_resolution(
     return frozenset(imported_only_names), frozenset(import_aliases)
 
 
+def _collect_import_workflow_resolution(
+    import_definitions: tuple[ImportDefinition, ...],
+) -> tuple[frozenset[str], frozenset[str]]:
+    imported_targets: set[str] = set()
+    unrestricted_qualifiers: set[str] = set()
+    for import_definition in import_definitions:
+        qualifier = import_definition.alias or import_definition.module_ref
+        if import_definition.only_names:
+            for imported_name in import_definition.only_names:
+                imported_targets.add(imported_name)
+                imported_targets.add(f"{qualifier}.{imported_name}")
+                imported_targets.add(f"{qualifier}/{imported_name}")
+            continue
+        unrestricted_qualifiers.add(qualifier)
+    return frozenset(imported_targets), frozenset(unrestricted_qualifiers)
+
+
 def _is_imported_workflow_reference(
     workflow_name: str,
     *,
-    imported_only_names: frozenset[str],
-    import_aliases: frozenset[str],
+    imported_workflow_targets: frozenset[str],
+    imported_workflow_qualifiers: frozenset[str],
 ) -> bool:
-    if workflow_name in imported_only_names:
+    if workflow_name in imported_workflow_targets:
         return True
-    return _is_import_qualified_type_name(workflow_name, import_aliases=import_aliases)
+    return _is_import_qualified_type_name(workflow_name, import_aliases=imported_workflow_qualifiers)
 
 
 def _is_import_qualified_type_name(type_name: str, *, import_aliases: frozenset[str]) -> bool:
@@ -354,6 +379,8 @@ def _infer_expression_type(
     *,
     imported_only_names: frozenset[str],
     import_aliases: frozenset[str],
+    imported_workflow_targets: frozenset[str],
+    imported_workflow_qualifiers: frozenset[str],
     generated_core_node_id: str | None = None,
 ) -> _ValueType:
     if isinstance(expression, LiteralExpression):
@@ -393,6 +420,8 @@ def _infer_expression_type(
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
         if isinstance(base_type, _RecordType):
@@ -509,6 +538,8 @@ def _infer_expression_type(
                 callable_catalog,
                 imported_only_names=imported_only_names,
                 import_aliases=import_aliases,
+                imported_workflow_targets=imported_workflow_targets,
+                imported_workflow_qualifiers=imported_workflow_qualifiers,
                 generated_core_node_id=generated_core_node_id,
             )
             actual_type_name = _type_name(value_type)
@@ -529,8 +560,8 @@ def _infer_expression_type(
         callee = callable_catalog.get(expression.callee_name)
         is_imported_reference = _is_imported_workflow_reference(
             expression.callee_name,
-            imported_only_names=imported_only_names,
-            import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
         )
         if callee is None:
             if is_imported_reference:
@@ -553,6 +584,8 @@ def _infer_expression_type(
                         callable_catalog,
                         imported_only_names=imported_only_names,
                         import_aliases=import_aliases,
+                        imported_workflow_targets=imported_workflow_targets,
+                        imported_workflow_qualifiers=imported_workflow_qualifiers,
                         generated_core_node_id=generated_core_node_id,
                     )
                 return _resolve_type_name(
@@ -630,6 +663,8 @@ def _infer_expression_type(
                 callable_catalog,
                 imported_only_names=imported_only_names,
                 import_aliases=import_aliases,
+                imported_workflow_targets=imported_workflow_targets,
+                imported_workflow_qualifiers=imported_workflow_qualifiers,
                 generated_core_node_id=generated_core_node_id,
             )
             if _type_name(expected_type) != _type_name(actual_type):
@@ -658,6 +693,8 @@ def _infer_expression_type(
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
         if _type_name(provider_type) != "Provider":
@@ -675,6 +712,8 @@ def _infer_expression_type(
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
         if _type_name(prompt_type) != "Prompt":
@@ -693,6 +732,8 @@ def _infer_expression_type(
                 callable_catalog,
                 imported_only_names=imported_only_names,
                 import_aliases=import_aliases,
+                imported_workflow_targets=imported_workflow_targets,
+                imported_workflow_qualifiers=imported_workflow_qualifiers,
                 generated_core_node_id=generated_core_node_id,
             )
         returns_type = catalog.get(expression.returns_type_name)
@@ -723,6 +764,8 @@ def _infer_expression_type(
                 callable_catalog,
                 imported_only_names=imported_only_names,
                 import_aliases=import_aliases,
+                imported_workflow_targets=imported_workflow_targets,
+                imported_workflow_qualifiers=imported_workflow_qualifiers,
                 generated_core_node_id=generated_core_node_id,
             )
         returns_type = catalog.get(expression.returns_type_name)
@@ -754,6 +797,8 @@ def _infer_expression_type(
                 callable_catalog,
                 imported_only_names=imported_only_names,
                 import_aliases=import_aliases,
+                imported_workflow_targets=imported_workflow_targets,
+                imported_workflow_qualifiers=imported_workflow_qualifiers,
                 generated_core_node_id=generated_core_node_id,
             )
         return _infer_expression_type(
@@ -763,6 +808,8 @@ def _infer_expression_type(
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
 
@@ -774,6 +821,8 @@ def _infer_expression_type(
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
         return _infer_expression_type(
@@ -783,6 +832,8 @@ def _infer_expression_type(
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
 
@@ -794,6 +845,8 @@ def _infer_expression_type(
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
         context_type_name = _type_name(context_type)
@@ -815,6 +868,8 @@ def _infer_expression_type(
             callable_catalog,
             imported_only_names=imported_only_names,
             import_aliases=import_aliases,
+            imported_workflow_targets=imported_workflow_targets,
+            imported_workflow_qualifiers=imported_workflow_qualifiers,
             generated_core_node_id=generated_core_node_id,
         )
         if not isinstance(subject_type, _UnionType):
@@ -862,6 +917,8 @@ def _infer_expression_type(
                     callable_catalog,
                     imported_only_names=imported_only_names,
                     import_aliases=import_aliases,
+                    imported_workflow_targets=imported_workflow_targets,
+                    imported_workflow_qualifiers=imported_workflow_qualifiers,
                     generated_core_node_id=generated_core_node_id,
                 )
             )
