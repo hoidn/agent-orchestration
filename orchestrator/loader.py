@@ -24,6 +24,8 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_managed_write_root_inputs,
     workflow_output_contracts,
 )
+from orchestrator.workflow_lisp import compile_workflow_module_file, lower_compiled_module_to_workflow_dicts
+from orchestrator.workflow_lisp.parser import WorkflowLispSyntaxError
 from orchestrator.workflow.lowering import lower_surface_workflow
 from orchestrator.workflow.predicates import (
     SCORE_PREDICATE_BOUND_KEYS,
@@ -147,13 +149,14 @@ class WorkflowLoader:
 
         try:
             try:
-                with open(resolved_workflow_path, 'r') as f:
-                    workflow = yaml.load(f, Loader=PreservingLoader)
+                workflow = self._load_workflow_source(resolved_workflow_path)
             except Exception as e:
                 self._add_error(f"Failed to load workflow: {e}")
                 return {}
 
-            if workflow is None or not isinstance(workflow, dict):
+            if workflow is None:
+                return {}
+            if not isinstance(workflow, dict):
                 self._add_error("Workflow must be a YAML object/dictionary")
                 return {}
 
@@ -214,6 +217,38 @@ class WorkflowLoader:
             self._current_source_root = previous_source_root
             self._current_imports = previous_imports
             self._current_workflow_is_imported = previous_workflow_is_imported
+
+    def _load_workflow_source(self, resolved_workflow_path: Path) -> Dict[str, Any] | None:
+        """Load one workflow source file as a workflow dictionary."""
+        if resolved_workflow_path.suffix.lower() != ".orc":
+            with open(resolved_workflow_path, 'r') as f:
+                return yaml.load(f, Loader=PreservingLoader)
+
+        try:
+            compiled = compile_workflow_module_file(resolved_workflow_path)
+            lowered = lower_compiled_module_to_workflow_dicts(compiled)
+        except WorkflowLispSyntaxError as error:
+            diagnostic = error.diagnostic
+            location = f"{diagnostic.source_file}:{diagnostic.line}:{diagnostic.column}"
+            self._add_error(
+                f"Workflow Lisp compile failed at {location}: [{diagnostic.code}] {diagnostic.message}"
+            )
+            return None
+        except Exception as error:
+            self._add_error(f"Workflow Lisp compile failed: {error}")
+            return None
+
+        lowered_workflow_names = tuple(lowered)
+        if len(lowered_workflow_names) != 1:
+            rendered_names = ", ".join(sorted(lowered_workflow_names)) or "<none>"
+            self._add_error(
+                "Workflow Lisp module must lower to exactly one workflow for direct loading; "
+                f"found {len(lowered_workflow_names)} ({rendered_names})"
+            )
+            return None
+
+        selected_name = lowered_workflow_names[0]
+        return dict(lowered[selected_name])
 
     def _normalize_v214_ergonomics(self, workflow: Dict[str, Any], version: str) -> None:
         """Expand narrow v2.14 ergonomics shorthands into existing runtime shapes."""
