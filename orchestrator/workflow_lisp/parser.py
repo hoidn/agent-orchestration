@@ -94,6 +94,7 @@ def _raise_syntax_error(
     message: str,
     span: SourceSpan,
     enclosing_form_name: str | None = None,
+    generated_core_node_id: str | None = None,
 ) -> None:
     raise WorkflowLispSyntaxError(
         SyntaxDiagnostic(
@@ -104,8 +105,17 @@ def _raise_syntax_error(
             line=span.line_start,
             column=span.column_start,
             enclosing_form_name=enclosing_form_name,
+            generated_core_node_id=generated_core_node_id,
         )
     )
+
+
+def _module_header_clause_node_id(clause_key: str) -> str:
+    if clause_key == ":language":
+        return "module.header.language"
+    if clause_key == ":target-dsl":
+        return "module.header.target_dsl"
+    return f"module.header.{clause_key.removeprefix(':').replace('-', '_')}"
 
 
 def _is_symbol_boundary(char: str | None) -> bool:
@@ -420,6 +430,7 @@ def parse_workflow_module_text(source_text: str, *, source_path: str) -> ParsedW
             message=f"Unsupported workflow-lisp language version: {language_value.value}",
             span=language_value.span,
             enclosing_form_name=header_name,
+            generated_core_node_id=_module_header_clause_node_id(":language"),
         )
     if target_value.value != SUPPORTED_TARGET_DSL:
         _raise_syntax_error(
@@ -427,6 +438,7 @@ def parse_workflow_module_text(source_text: str, *, source_path: str) -> ParsedW
             message=f"Unsupported workflow-lisp target DSL: {target_value.value}",
             span=target_value.span,
             enclosing_form_name=header_name,
+            generated_core_node_id=_module_header_clause_node_id(":target-dsl"),
         )
 
     annotated_header = _attach_module_context(header_candidate, module_name)
@@ -482,6 +494,7 @@ def _collect_header_clauses(
                     message=f"Duplicate :language clause in {enclosing_form_name} header",
                     span=clause.span,
                     enclosing_form_name=enclosing_form_name,
+                    generated_core_node_id=_module_header_clause_node_id(":language"),
                 )
             language_clause = clause
             continue
@@ -492,6 +505,7 @@ def _collect_header_clauses(
                     message=f"Duplicate :target-dsl clause in {enclosing_form_name} header",
                     span=clause.span,
                     enclosing_form_name=enclosing_form_name,
+                    generated_core_node_id=_module_header_clause_node_id(":target-dsl"),
                 )
             target_clause = clause
             continue
@@ -509,6 +523,7 @@ def _collect_header_clauses(
             message=f"Missing required :language clause in {enclosing_form_name} header",
             span=header_form.span,
             enclosing_form_name=enclosing_form_name,
+            generated_core_node_id=_module_header_clause_node_id(":language"),
         )
     if target_clause is None:
         _raise_syntax_error(
@@ -516,6 +531,7 @@ def _collect_header_clauses(
             message=f"Missing required :target-dsl clause in {enclosing_form_name} header",
             span=header_form.span,
             enclosing_form_name=enclosing_form_name,
+            generated_core_node_id=_module_header_clause_node_id(":target-dsl"),
         )
     return language_clause, target_clause
 
