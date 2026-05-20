@@ -416,6 +416,10 @@ def _infer_expression_type(
         return resolved
 
     if isinstance(expression, FieldAccessExpression):
+        field_access_node_id = _field_access_generated_node_id(
+            parent_node_id=generated_core_node_id,
+            field_name=expression.field_name,
+        )
         base_type = _infer_expression_type(
             expression.base,
             env,
@@ -425,7 +429,7 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             imported_workflow_targets=imported_workflow_targets,
             imported_workflow_qualifiers=imported_workflow_qualifiers,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=field_access_node_id,
         )
         if isinstance(base_type, _RecordType):
             field_type_name = base_type.fields.get(expression.field_name)
@@ -435,7 +439,7 @@ def _infer_expression_type(
                     message=f"Unknown field {expression.field_name} on record type {base_type.name}",
                     span=expression.span,
                     enclosing_form_name="field.access",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=field_access_node_id,
                 )
             return _resolve_type_name(
                 field_type_name,
@@ -443,7 +447,7 @@ def _infer_expression_type(
                 import_aliases=import_aliases,
                 span=expression.span,
                 enclosing_form_name="field.access",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=field_access_node_id,
             )
         if isinstance(base_type, _UnionVariantType):
             field_type_name = base_type.fields.get(expression.field_name)
@@ -456,7 +460,7 @@ def _infer_expression_type(
                     ),
                     span=expression.span,
                     enclosing_form_name="field.access",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=field_access_node_id,
                 )
             return _resolve_type_name(
                 field_type_name,
@@ -464,7 +468,7 @@ def _infer_expression_type(
                 import_aliases=import_aliases,
                 span=expression.span,
                 enclosing_form_name="field.access",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=field_access_node_id,
             )
         if isinstance(base_type, _UnionType):
             _raise_expression_error(
@@ -475,14 +479,14 @@ def _infer_expression_type(
                 ),
                 span=expression.span,
                 enclosing_form_name="field.access",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=field_access_node_id,
             )
         _raise_expression_error(
             code="type_mismatch",
             message=f"Type {_type_name(base_type)} does not support field access",
             span=expression.span,
             enclosing_form_name="field.access",
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=field_access_node_id,
         )
 
     if isinstance(expression, RecordExpression):
@@ -1043,6 +1047,13 @@ def _record_generated_node_id(*, parent_node_id: str | None, type_name: str) -> 
     if parent_node_id is None:
         return None
     return f"{parent_node_id}.record.{type_name}"
+
+
+def _field_access_generated_node_id(*, parent_node_id: str | None, field_name: str) -> str | None:
+    workflow_node_prefix = _workflow_node_prefix(workflow_result_node_id=parent_node_id)
+    if workflow_node_prefix is None:
+        return None
+    return f"{workflow_node_prefix}.field.{field_name}"
 
 
 def _record_field_generated_node_id(*, record_node_id: str | None, field_name: str) -> str | None:

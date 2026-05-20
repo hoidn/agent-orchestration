@@ -390,7 +390,31 @@ def test_validate_expression_module_variant_proof_error_includes_form_and_genera
     diagnostic = _diagnostic_from_error(exc_info.value)
     assert diagnostic.code == "variant_ref_unproved"
     assert diagnostic.enclosing_form_name == "field.access"
-    assert diagnostic.generated_core_node_id == "bad.result"
+    assert diagnostic.generated_core_node_id == "bad.field.execution_report"
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_code", "expected_generated_node_id"),
+    [
+        ("invalid_unknown_field.orc", "type_mismatch", "bad.field.missing"),
+        ("invalid_variant_field_unproved.orc", "variant_ref_unproved", "bad.field.execution_report"),
+    ],
+)
+def test_validate_expression_module_field_access_errors_include_generated_node_id(
+    fixture_name: str,
+    expected_code: str,
+    expected_generated_node_id: str,
+) -> None:
+    expression_validation = _expression_validation_module()
+    checked = _checked_module_from_fixture(fixture_name)
+
+    with pytest.raises(Exception) as exc_info:
+        expression_validation.validate_expression_module(checked)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == expected_code
+    assert diagnostic.enclosing_form_name == "field.access"
+    assert diagnostic.generated_core_node_id == expected_generated_node_id
 
 
 @pytest.mark.parametrize(
