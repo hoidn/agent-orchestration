@@ -48,6 +48,19 @@ def test_loader_rejects_orc_module_with_multiple_lowered_workflows(tmp_path: Pat
     )
 
 
+def test_loader_orc_compile_errors_include_generated_node_and_form_context(tmp_path: Path) -> None:
+    source_path = _fixture_path("invalid_variant_field_unproved.orc")
+
+    with pytest.raises(WorkflowValidationError) as exc_info:
+        WorkflowLoader(tmp_path).load(source_path)
+
+    assert any(
+        "generated_node=bad.field.execution_report" in str(error.message)
+        and "form=field.access" in str(error.message)
+        for error in exc_info.value.errors
+    )
+
+
 def test_loader_resolves_orc_workflow_fragment_imports_for_defmodule_closure(tmp_path: Path) -> None:
     module_source = _definition_fixture_path("valid_module_exported_callable_closure.orc")
     module_copy = tmp_path / module_source.name

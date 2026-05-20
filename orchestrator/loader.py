@@ -256,8 +256,15 @@ class WorkflowLoader:
         except WorkflowLispSyntaxError as error:
             diagnostic = error.diagnostic
             location = f"{diagnostic.source_file}:{diagnostic.line}:{diagnostic.column}"
+            context_parts: list[str] = []
+            if diagnostic.enclosing_form_name:
+                context_parts.append(f"form={diagnostic.enclosing_form_name}")
+            if diagnostic.generated_core_node_id:
+                context_parts.append(f"generated_node={diagnostic.generated_core_node_id}")
+            context_suffix = f" ({', '.join(context_parts)})" if context_parts else ""
             self._add_error(
-                f"Workflow Lisp compile failed at {location}: [{diagnostic.code}] {diagnostic.message}"
+                f"Workflow Lisp compile failed at {location}: "
+                f"[{diagnostic.code}] {diagnostic.message}{context_suffix}"
             )
             return None
         except Exception as error:
