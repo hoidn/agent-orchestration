@@ -847,6 +847,10 @@ def _infer_expression_type(
         )
 
     if isinstance(expression, PhaseTargetExpression):
+        phase_target_node_id = _phase_target_generated_node_id(
+            workflow_result_node_id=generated_core_node_id,
+            target_name=expression.target_name,
+        )
         context_type = _infer_expression_type(
             expression.context,
             env,
@@ -856,7 +860,7 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             imported_workflow_targets=imported_workflow_targets,
             imported_workflow_qualifiers=imported_workflow_qualifiers,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=phase_target_node_id,
         )
         context_type_name = _type_name(context_type)
         if context_type_name not in {"PathRel", "String"}:
@@ -865,7 +869,7 @@ def _infer_expression_type(
                 message="phase-target context must have type PathRel or String",
                 span=expression.context.span,
                 enclosing_form_name="phase-target",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=phase_target_node_id,
             )
         return catalog["PathRel"]
 
@@ -1015,6 +1019,13 @@ def _match_generated_node_id(*, workflow_result_node_id: str | None) -> str | No
     if workflow_node_prefix is None:
         return None
     return f"{workflow_node_prefix}.match"
+
+
+def _phase_target_generated_node_id(*, workflow_result_node_id: str | None, target_name: str) -> str | None:
+    workflow_node_prefix = _workflow_node_prefix(workflow_result_node_id=workflow_result_node_id)
+    if workflow_node_prefix is None:
+        return None
+    return f"{workflow_node_prefix}.phase-target.{target_name}"
 
 
 def _match_case_generated_node_id(*, workflow_result_node_id: str | None, variant_name: str) -> str | None:
