@@ -55,6 +55,7 @@ class _WorkflowInputLowering:
     structured_param_names: frozenset[str]
     field_reference_paths: dict[tuple[str, tuple[str, ...]], str]
     source_spans: dict[str, SourceSpan]
+    input_type_names: dict[str, str]
 
 
 @dataclass(frozen=True)
@@ -233,6 +234,7 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
                 workflow_name=callable_name,
                 parameters=signature.parameters,
                 lowered_inputs=lowered_inputs,
+                definitions=definition_table,
             )
         )
         workflow_source_map.update(
@@ -1645,6 +1647,7 @@ def _record_parameter_field_paths(
     leaf_input_names: set[str] = set()
     source_spans: dict[str, SourceSpan] = {}
     field_reference_paths: dict[tuple[str, tuple[str, ...]], str] = {}
+    input_type_names: dict[str, str] = {}
     _expand_record_parameter_inputs(
         workflow_name=None,
         parameter_name=parameter_name,
@@ -1656,6 +1659,7 @@ def _record_parameter_field_paths(
         leaf_input_names=leaf_input_names,
         field_reference_paths=field_reference_paths,
         source_spans=source_spans,
+        input_type_names=input_type_names,
     )
     field_paths: dict[tuple[str, ...], str] = {}
     for (base_parameter_name, field_path), flattened_name in field_reference_paths.items():
@@ -1764,6 +1768,7 @@ def _workflow_input_source_map_entries(
     workflow_name: str,
     parameters: tuple[WorkflowParameter, ...],
     lowered_inputs: _WorkflowInputLowering,
+    definitions: dict[str, DefinitionNode],
 ) -> dict[str, SourceSpan]:
     entries: dict[str, SourceSpan] = {}
     for parameter in parameters:
@@ -1772,6 +1777,14 @@ def _workflow_input_source_map_entries(
         entries[_input_node_id(workflow_name, parameter.name)] = parameter.name_span
     for input_name, span in lowered_inputs.source_spans.items():
         entries[_input_node_id(workflow_name, input_name)] = span
+    for input_name, input_type_name in lowered_inputs.input_type_names.items():
+        entries.update(
+            _path_contract_source_map_entries(
+                base_node_id=_input_node_id(workflow_name, input_name),
+                type_name=input_type_name,
+                definitions=definitions,
+            )
+        )
     return entries
 
 
@@ -1784,22 +1797,37 @@ def _workflow_output_source_map_entries(
 ) -> dict[str, SourceSpan]:
     definition = definitions.get(type_name)
     if isinstance(definition, RecordDefinition):
-        return {
-            _output_node_id(workflow_name, field.flattened_name): field.source_span
-            for field in _flatten_record_leaf_fields(
-                record_definition=definition,
-                definitions=definitions,
+        entries: dict[str, SourceSpan] = {}
+        for field in _flatten_record_leaf_fields(
+            record_definition=definition,
+            definitions=definitions,
+        ):
+            node_id = _output_node_id(workflow_name, field.flattened_name)
+            entries[node_id] = field.source_span
+            entries.update(
+                _path_contract_source_map_entries(
+                    base_node_id=node_id,
+                    type_name=field.type_name,
+                    definitions=definitions,
+                )
             )
-        }
+        return entries
     if isinstance(definition, UnionDefinition):
         discriminant_name = f"{_snake_case(definition.name)}_variant"
         return {
             _output_node_id(workflow_name, discriminant_name): definition.name_span,
         }
     _bundle_field_contract_for_type(type_name, type_span, definitions)
-    return {
-        _output_node_id(workflow_name, "result"): type_span,
-    }
+    result_node_id = _output_node_id(workflow_name, "result")
+    entries = {result_node_id: type_span}
+    entries.update(
+        _path_contract_source_map_entries(
+            base_node_id=result_node_id,
+            type_name=type_name,
+            definitions=definitions,
+        )
+    )
+    return entries
 
 
 def _step_contract_source_map_entries(
@@ -1817,13 +1845,19 @@ def _step_contract_source_map_entries(
             record_definition=definition,
             definitions=definitions,
         ):
-            entries[
-                _step_bundle_field_node_id(
-                    workflow_name=workflow_name,
-                    step_name=step_name,
-                    field_name=field.flattened_name,
+            node_id = _step_bundle_field_node_id(
+                workflow_name=workflow_name,
+                step_name=step_name,
+                field_name=field.flattened_name,
+            )
+            entries[node_id] = field.source_span
+            entries.update(
+                _path_contract_source_map_entries(
+                    base_node_id=node_id,
+                    type_name=field.type_name,
+                    definitions=definitions,
                 )
-            ] = field.source_span
+            )
         return entries
 
     if isinstance(definition, UnionDefinition):
@@ -1839,23 +1873,35 @@ def _step_contract_source_map_entries(
                         definitions=definitions,
                         path=(field.name,),
                     ):
-                        entries[
-                            _step_variant_field_node_id(
-                                workflow_name=workflow_name,
-                                step_name=step_name,
-                                variant_name=variant.name,
-                                field_name=nested_field.flattened_name,
+                        node_id = _step_variant_field_node_id(
+                            workflow_name=workflow_name,
+                            step_name=step_name,
+                            variant_name=variant.name,
+                            field_name=nested_field.flattened_name,
+                        )
+                        entries[node_id] = nested_field.source_span
+                        entries.update(
+                            _path_contract_source_map_entries(
+                                base_node_id=node_id,
+                                type_name=nested_field.type_name,
+                                definitions=definitions,
                             )
-                        ] = nested_field.source_span
+                        )
                     continue
-                entries[
-                    _step_variant_field_node_id(
-                        workflow_name=workflow_name,
-                        step_name=step_name,
-                        variant_name=variant.name,
-                        field_name=field.name,
+                node_id = _step_variant_field_node_id(
+                    workflow_name=workflow_name,
+                    step_name=step_name,
+                    variant_name=variant.name,
+                    field_name=field.name,
+                )
+                entries[node_id] = field.name_span
+                entries.update(
+                    _path_contract_source_map_entries(
+                        base_node_id=node_id,
+                        type_name=field.type_ref.name,
+                        definitions=definitions,
                     )
-                ] = field.name_span
+                )
         return entries
 
     _raise_lowering_error(
@@ -1988,6 +2034,7 @@ def _lower_workflow_inputs(
     structured_param_names: set[str] = set()
     field_reference_paths: dict[tuple[str, tuple[str, ...]], str] = {}
     source_spans: dict[str, SourceSpan] = {}
+    input_type_names: dict[str, str] = {}
 
     for parameter in parameters:
         definition = definitions.get(parameter.type_ref.name)
@@ -2004,6 +2051,7 @@ def _lower_workflow_inputs(
                 leaf_input_names=leaf_input_names,
                 field_reference_paths=field_reference_paths,
                 source_spans=source_spans,
+                input_type_names=input_type_names,
             )
             continue
 
@@ -2014,6 +2062,7 @@ def _lower_workflow_inputs(
             generated_core_node_id=_input_node_id(workflow_name, parameter.name),
         )
         leaf_input_names.add(parameter.name)
+        input_type_names[parameter.name] = parameter.type_ref.name
 
     return _WorkflowInputLowering(
         contracts=contracts,
@@ -2021,6 +2070,7 @@ def _lower_workflow_inputs(
         structured_param_names=frozenset(structured_param_names),
         field_reference_paths=field_reference_paths,
         source_spans=source_spans,
+        input_type_names=input_type_names,
     )
 
 
@@ -2036,6 +2086,7 @@ def _expand_record_parameter_inputs(
     leaf_input_names: set[str],
     field_reference_paths: dict[tuple[str, tuple[str, ...]], str],
     source_spans: dict[str, SourceSpan],
+    input_type_names: dict[str, str],
 ) -> None:
     for field in record_definition.fields:
         field_path = path + (field.name,)
@@ -2053,6 +2104,7 @@ def _expand_record_parameter_inputs(
                 leaf_input_names=leaf_input_names,
                 field_reference_paths=field_reference_paths,
                 source_spans=source_spans,
+                input_type_names=input_type_names,
             )
             continue
         if isinstance(nested_definition, UnionDefinition):
@@ -2086,6 +2138,7 @@ def _expand_record_parameter_inputs(
         leaf_input_names.add(flattened_name)
         field_reference_paths[(parameter_name, field_path)] = flattened_name
         source_spans[flattened_name] = field.name_span
+        input_type_names[flattened_name] = field.type_ref.name
 
 
 def _input_contract_for_type(
@@ -2279,6 +2332,21 @@ def _output_contract_from_bundle_contract(bundle_contract: dict[str, Any]) -> di
     return contract
 
 
+def _path_contract_source_map_entries(
+    *,
+    base_node_id: str,
+    type_name: str,
+    definitions: dict[str, DefinitionNode],
+) -> dict[str, SourceSpan]:
+    definition = definitions.get(type_name)
+    if not isinstance(definition, PathDefinition):
+        return {}
+    return {
+        f"{base_node_id}.under": definition.under_span,
+        f"{base_node_id}.must_exist_target": definition.must_exist_span,
+    }
+
+
 def _snake_case(name: str) -> str:
     pieces: list[str] = []
     for index, char in enumerate(name):
@@ -2452,15 +2520,21 @@ def _match_case_step_contract_source_map_entries(
             record_definition=definition,
             definitions=definitions,
         ):
-            entries[
-                _match_case_step_bundle_field_node_id(
-                    workflow_name=workflow_name,
-                    match_step_name=match_step_name,
-                    case_variant_name=case_variant_name,
-                    case_step_name=case_step_name,
-                    field_name=field.flattened_name,
+            node_id = _match_case_step_bundle_field_node_id(
+                workflow_name=workflow_name,
+                match_step_name=match_step_name,
+                case_variant_name=case_variant_name,
+                case_step_name=case_step_name,
+                field_name=field.flattened_name,
+            )
+            entries[node_id] = field.source_span
+            entries.update(
+                _path_contract_source_map_entries(
+                    base_node_id=node_id,
+                    type_name=field.type_name,
+                    definitions=definitions,
                 )
-            ] = field.source_span
+            )
         return entries
 
     if isinstance(definition, UnionDefinition):
@@ -2481,27 +2555,39 @@ def _match_case_step_contract_source_map_entries(
                         definitions=definitions,
                         path=(field.name,),
                     ):
-                        entries[
-                            _match_case_step_variant_field_node_id(
-                                workflow_name=workflow_name,
-                                match_step_name=match_step_name,
-                                case_variant_name=case_variant_name,
-                                case_step_name=case_step_name,
-                                variant_name=variant.name,
-                                field_name=nested_field.flattened_name,
+                        node_id = _match_case_step_variant_field_node_id(
+                            workflow_name=workflow_name,
+                            match_step_name=match_step_name,
+                            case_variant_name=case_variant_name,
+                            case_step_name=case_step_name,
+                            variant_name=variant.name,
+                            field_name=nested_field.flattened_name,
+                        )
+                        entries[node_id] = nested_field.source_span
+                        entries.update(
+                            _path_contract_source_map_entries(
+                                base_node_id=node_id,
+                                type_name=nested_field.type_name,
+                                definitions=definitions,
                             )
-                        ] = nested_field.source_span
+                        )
                     continue
-                entries[
-                    _match_case_step_variant_field_node_id(
-                        workflow_name=workflow_name,
-                        match_step_name=match_step_name,
-                        case_variant_name=case_variant_name,
-                        case_step_name=case_step_name,
-                        variant_name=variant.name,
-                        field_name=field.name,
+                node_id = _match_case_step_variant_field_node_id(
+                    workflow_name=workflow_name,
+                    match_step_name=match_step_name,
+                    case_variant_name=case_variant_name,
+                    case_step_name=case_step_name,
+                    variant_name=variant.name,
+                    field_name=field.name,
+                )
+                entries[node_id] = field.name_span
+                entries.update(
+                    _path_contract_source_map_entries(
+                        base_node_id=node_id,
+                        type_name=field.type_ref.name,
+                        definitions=definitions,
                     )
-                ] = field.name_span
+                )
         return entries
 
     _raise_lowering_error(

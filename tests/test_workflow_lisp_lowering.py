@@ -840,6 +840,72 @@ def test_lower_compiled_module_records_contract_and_boundary_node_source_spans()
     assert run_checks_map["run_checks.step.CommandResult.contract.output_bundle.field.status"].line_start == 7
 
 
+def test_lower_compiled_module_records_defpath_contract_metadata_source_spans() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_text = """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defpath WorkReport
+  :kind relpath
+  :under "artifacts/work"
+  :must-exist true)
+
+(defrecord ReportResult
+  (path WorkReport)
+  (status String))
+
+(defunion Attempt
+  (COMPLETED (path WorkReport))
+  (BLOCKED (reason String)))
+
+(defworkflow run_record ((input_path WorkReport)) -> ReportResult
+  (command-result emit-report
+    :argv (input_path)
+    :returns ReportResult))
+
+(defworkflow run_union ((input_path WorkReport) (provider Provider) (prompt Prompt)) -> Attempt
+  (provider-result provider
+    :prompt prompt
+    :inputs (input_path)
+    :returns Attempt))
+"""
+    compiled = compiler.compile_workflow_module_text(
+        source_text,
+        source_path="inline-defpath-source-map.orc",
+    )
+    lowered_module = lowering.lower_compiled_module(compiled)
+
+    run_record_map = lowered_module.source_map["run_record"]
+    assert run_record_map["run_record.input.input_path.under"].line_start == 8
+    assert run_record_map["run_record.input.input_path.must_exist_target"].line_start == 9
+    assert run_record_map["run_record.output.path.under"].line_start == 8
+    assert run_record_map["run_record.output.path.must_exist_target"].line_start == 9
+    assert run_record_map["run_record.step.CommandResult.contract.output_bundle.field.path.under"].line_start == 8
+    assert (
+        run_record_map["run_record.step.CommandResult.contract.output_bundle.field.path.must_exist_target"].line_start
+        == 9
+    )
+
+    run_union_map = lowered_module.source_map["run_union"]
+    assert run_union_map["run_union.input.input_path.under"].line_start == 8
+    assert run_union_map["run_union.input.input_path.must_exist_target"].line_start == 9
+    assert (
+        run_union_map[
+            "run_union.step.ProviderResult.contract.variant_output.variant.COMPLETED.field.path.under"
+        ].line_start
+        == 8
+    )
+    assert (
+        run_union_map[
+            "run_union.step.ProviderResult.contract.variant_output.variant.COMPLETED.field.path.must_exist_target"
+        ].line_start
+        == 9
+    )
+
+
 def test_lower_compiled_module_records_call_and_import_node_source_spans() -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()
