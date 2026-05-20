@@ -292,6 +292,40 @@ def test_validate_expression_module_rejects_function_return_type_mismatch() -> N
     assert "Function normalize_path returns PlanInputs but declares String" in diagnostic.message
 
 
+def test_validate_expression_module_rejects_effectful_function_body() -> None:
+    parser = _parser_module()
+    definition_validation = _definition_validation_module()
+    expression_validation = _expression_validation_module()
+    source_path = str(_fixture_path("inline_effectful_defun_provider_result.orc"))
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defrecord PlanResult
+  (path String))
+
+(defun build_plan ((provider Provider) (prompt Prompt) (design_path String)) -> PlanResult
+  (provider-result provider :prompt prompt :inputs (design_path) :returns PlanResult))
+
+(defworkflow run_phase ((provider Provider) (prompt Prompt) (design_path String)) -> PlanResult
+  (provider-result provider :prompt prompt :inputs (design_path) :returns PlanResult))
+""",
+        source_path=source_path,
+    )
+    checked = definition_validation.validate_definition_module(module)
+
+    with pytest.raises(Exception) as exc_info:
+        expression_validation.validate_expression_module(checked)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "pure_function_has_effect"
+    assert diagnostic.enclosing_form_name == "defun"
+    assert diagnostic.generated_core_node_id == "build_plan.result"
+    assert "Pure function build_plan may not use provider-result" in diagnostic.message
+
+
 def test_validate_expression_module_accepts_phase_target_expression() -> None:
     parser = _parser_module()
     definition_validation = _definition_validation_module()

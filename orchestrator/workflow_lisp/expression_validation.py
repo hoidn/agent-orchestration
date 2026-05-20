@@ -250,6 +250,11 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
             )
 
         expression = shape_expression(function.body_forms[0])
+        _validate_pure_function_expression(
+            expression,
+            function_name=function.name,
+            generated_core_node_id=generated_core_node_id,
+        )
         env = {
             parameter.name: _resolve_type_ref(
                 parameter.type_ref,
@@ -295,6 +300,103 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
         procedures=tuple(procedures),
         functions=tuple(functions),
     )
+
+
+def _validate_pure_function_expression(
+    expression: ExpressionNode,
+    *,
+    function_name: str,
+    generated_core_node_id: str,
+) -> None:
+    if isinstance(expression, ProviderResultExpression):
+        _raise_expression_error(
+            code="pure_function_has_effect",
+            message=f"Pure function {function_name} may not use provider-result",
+            span=expression.span,
+            enclosing_form_name="defun",
+            generated_core_node_id=generated_core_node_id,
+        )
+    if isinstance(expression, CommandResultExpression):
+        _raise_expression_error(
+            code="pure_function_has_effect",
+            message=f"Pure function {function_name} may not use command-result",
+            span=expression.span,
+            enclosing_form_name="defun",
+            generated_core_node_id=generated_core_node_id,
+        )
+    if isinstance(expression, CallExpression):
+        _raise_expression_error(
+            code="pure_function_has_effect",
+            message=f"Pure function {function_name} may not use call",
+            span=expression.span,
+            enclosing_form_name="defun",
+            generated_core_node_id=generated_core_node_id,
+        )
+
+    if isinstance(expression, LetStarExpression):
+        for binding in expression.bindings:
+            _validate_pure_function_expression(
+                binding.value,
+                function_name=function_name,
+                generated_core_node_id=generated_core_node_id,
+            )
+        _validate_pure_function_expression(
+            expression.body,
+            function_name=function_name,
+            generated_core_node_id=generated_core_node_id,
+        )
+        return
+
+    if isinstance(expression, MatchExpression):
+        _validate_pure_function_expression(
+            expression.subject,
+            function_name=function_name,
+            generated_core_node_id=generated_core_node_id,
+        )
+        for arm in expression.arms:
+            _validate_pure_function_expression(
+                arm.body,
+                function_name=function_name,
+                generated_core_node_id=generated_core_node_id,
+            )
+        return
+
+    if isinstance(expression, RecordExpression):
+        for field in expression.fields:
+            _validate_pure_function_expression(
+                field.value,
+                function_name=function_name,
+                generated_core_node_id=generated_core_node_id,
+            )
+        return
+
+    if isinstance(expression, WithPhaseExpression):
+        _validate_pure_function_expression(
+            expression.context,
+            function_name=function_name,
+            generated_core_node_id=generated_core_node_id,
+        )
+        _validate_pure_function_expression(
+            expression.body,
+            function_name=function_name,
+            generated_core_node_id=generated_core_node_id,
+        )
+        return
+
+    if isinstance(expression, PhaseTargetExpression):
+        _validate_pure_function_expression(
+            expression.context,
+            function_name=function_name,
+            generated_core_node_id=generated_core_node_id,
+        )
+        return
+
+    if isinstance(expression, FieldAccessExpression):
+        _validate_pure_function_expression(
+            expression.base,
+            function_name=function_name,
+            generated_core_node_id=generated_core_node_id,
+        )
 
 
 def _build_type_catalog(
