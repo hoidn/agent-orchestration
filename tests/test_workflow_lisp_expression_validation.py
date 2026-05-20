@@ -349,3 +349,38 @@ def test_validate_expression_module_call_errors_include_call_generated_node_id(
     assert diagnostic.code == expected_code
     assert diagnostic.enclosing_form_name == "call"
     assert diagnostic.generated_core_node_id == expected_generated_node_id
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_code", "expected_form_name", "expected_generated_node_id"),
+    [
+        (
+            "invalid_provider_result_non_structured_return.orc",
+            "type_mismatch",
+            "provider-result",
+            "execute_attempt.provider-result",
+        ),
+        (
+            "invalid_command_result_non_structured_return.orc",
+            "type_mismatch",
+            "command-result",
+            "run_checks.command-result.check_plan",
+        ),
+    ],
+)
+def test_validate_expression_module_execution_form_errors_include_generated_node_id(
+    fixture_name: str,
+    expected_code: str,
+    expected_form_name: str,
+    expected_generated_node_id: str,
+) -> None:
+    expression_validation = _expression_validation_module()
+    checked = _checked_module_from_fixture(fixture_name)
+
+    with pytest.raises(Exception) as exc_info:
+        expression_validation.validate_expression_module(checked)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == expected_code
+    assert diagnostic.enclosing_form_name == expected_form_name
+    assert diagnostic.generated_core_node_id == expected_generated_node_id

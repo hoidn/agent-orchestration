@@ -690,6 +690,7 @@ def _infer_expression_type(
         )
 
     if isinstance(expression, ProviderResultExpression):
+        provider_node_id = _provider_result_generated_node_id(workflow_result_node_id=generated_core_node_id)
         provider_type = _infer_expression_type(
             expression.provider_reference,
             env,
@@ -699,7 +700,7 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             imported_workflow_targets=imported_workflow_targets,
             imported_workflow_qualifiers=imported_workflow_qualifiers,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=provider_node_id,
         )
         if _type_name(provider_type) != "Provider":
             _raise_expression_error(
@@ -707,7 +708,7 @@ def _infer_expression_type(
                 message="provider-result provider reference must have type Provider",
                 span=expression.provider_reference.span,
                 enclosing_form_name="provider-result",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=provider_node_id,
             )
         prompt_type = _infer_expression_type(
             expression.prompt_reference,
@@ -718,7 +719,7 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             imported_workflow_targets=imported_workflow_targets,
             imported_workflow_qualifiers=imported_workflow_qualifiers,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=provider_node_id,
         )
         if _type_name(prompt_type) != "Prompt":
             _raise_expression_error(
@@ -726,7 +727,7 @@ def _infer_expression_type(
                 message="provider-result :prompt value must have type Prompt",
                 span=expression.prompt_reference.span,
                 enclosing_form_name="provider-result",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=provider_node_id,
             )
         for input_expression in expression.inputs:
             _infer_expression_type(
@@ -738,7 +739,7 @@ def _infer_expression_type(
                 import_aliases=import_aliases,
                 imported_workflow_targets=imported_workflow_targets,
                 imported_workflow_qualifiers=imported_workflow_qualifiers,
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=provider_node_id,
             )
         returns_type = catalog.get(expression.returns_type_name)
         if returns_type is None:
@@ -747,7 +748,7 @@ def _infer_expression_type(
                 message=f"Unknown type reference: {expression.returns_type_name}",
                 span=expression.returns_type_span,
                 enclosing_form_name="provider-result",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=provider_node_id,
             )
         if not isinstance(returns_type, (_RecordType, _UnionType)):
             _raise_expression_error(
@@ -755,11 +756,15 @@ def _infer_expression_type(
                 message="provider-result :returns must reference a record or union type",
                 span=expression.returns_type_span,
                 enclosing_form_name="provider-result",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=provider_node_id,
             )
         return returns_type
 
     if isinstance(expression, CommandResultExpression):
+        command_node_id = _command_result_generated_node_id(
+            workflow_result_node_id=generated_core_node_id,
+            command_name=expression.command_name,
+        )
         for argument in expression.argv:
             _infer_expression_type(
                 argument,
@@ -770,7 +775,7 @@ def _infer_expression_type(
                 import_aliases=import_aliases,
                 imported_workflow_targets=imported_workflow_targets,
                 imported_workflow_qualifiers=imported_workflow_qualifiers,
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=command_node_id,
             )
         returns_type = catalog.get(expression.returns_type_name)
         if returns_type is None:
@@ -779,7 +784,7 @@ def _infer_expression_type(
                 message=f"Unknown type reference: {expression.returns_type_name}",
                 span=expression.returns_type_span,
                 enclosing_form_name="command-result",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=command_node_id,
             )
         if not isinstance(returns_type, (_RecordType, _UnionType)):
             _raise_expression_error(
@@ -787,7 +792,7 @@ def _infer_expression_type(
                 message="command-result :returns must reference a record or union type",
                 span=expression.returns_type_span,
                 enclosing_form_name="command-result",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=command_node_id,
             )
         return returns_type
 
@@ -985,3 +990,25 @@ def _call_generated_node_id(
     else:
         workflow_node_prefix = workflow_result_node_id
     return f"{workflow_node_prefix}.call.{callee_name}"
+
+
+def _provider_result_generated_node_id(*, workflow_result_node_id: str | None) -> str | None:
+    if workflow_result_node_id is None:
+        return None
+    if workflow_result_node_id.endswith(".result"):
+        workflow_node_prefix = workflow_result_node_id[: -len(".result")]
+    else:
+        workflow_node_prefix = workflow_result_node_id
+    return f"{workflow_node_prefix}.provider-result"
+
+
+def _command_result_generated_node_id(
+    *, workflow_result_node_id: str | None, command_name: str
+) -> str | None:
+    if workflow_result_node_id is None:
+        return None
+    if workflow_result_node_id.endswith(".result"):
+        workflow_node_prefix = workflow_result_node_id[: -len(".result")]
+    else:
+        workflow_node_prefix = workflow_result_node_id
+    return f"{workflow_node_prefix}.command-result.{command_name}"
