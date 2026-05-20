@@ -508,6 +508,20 @@ def test_lower_compiled_module_emits_call_step_for_imported_call_with_explicit_r
     assert loaded.surface.name == "run"
 
 
+def test_lower_compiled_module_normalizes_dotted_module_ref_to_import_path() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = _fixture_path("valid_call_imported_dotted_module_ref_with_returns.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    workflow = lowered["run"]
+    assert workflow["imports"] == {
+        "remote/run_phase": "remote/workflows.yaml",
+    }
+
+
 def test_lower_compiled_module_emits_call_step_for_imported_call_with_explicit_returns_and_arguments(
     tmp_path: Path,
 ) -> None:
