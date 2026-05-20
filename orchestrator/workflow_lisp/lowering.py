@@ -3207,7 +3207,7 @@ def _resolve_imported_call_target_path(
     for import_definition in import_definitions:
         import_path = _module_ref_to_import_path(import_definition.module_ref)
         if call_target in import_definition.only_names:
-            return import_path
+            return _import_path_for_call_target(import_path=import_path, workflow_name=call_target)
 
     best_match_path: str | None = None
     best_match_qualifier_len = -1
@@ -3226,10 +3226,23 @@ def _resolve_imported_call_target_path(
             continue
         qualifier_len = len(qualifier)
         if qualifier_len > best_match_qualifier_len:
-            best_match_path = import_path
+            best_match_path = _import_path_for_call_target(
+                import_path=import_path,
+                workflow_name=resolved_member_name,
+            )
             best_match_qualifier_len = qualifier_len
 
     return best_match_path
+
+
+def _import_path_for_call_target(*, import_path: str, workflow_name: str) -> str:
+    """Select one workflow from .orc imports while keeping YAML imports unchanged."""
+    path_without_fragment, separator, _ = import_path.partition("#")
+    if separator:
+        return import_path
+    if path_without_fragment.lower().endswith(".orc"):
+        return f"{import_path}#{workflow_name}"
+    return import_path
 
 
 def _alias_qualified_member_name(*, call_target: str, alias: str) -> str | None:
