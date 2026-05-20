@@ -11,6 +11,7 @@ from .compiler import CompiledWorkflowModule
 from .definitions import (
     DefinitionNode,
     EnumDefinition,
+    FunctionDefinition,
     ImportDefinition,
     PathDefinition,
     ProcedureDefinition,
@@ -32,6 +33,7 @@ from .expressions import (
     RecordExpression,
     ReferenceExpression,
     WithPhaseExpression,
+    shape_expression,
 )
 from .parser import WorkflowLispSyntaxError
 from .syntax import AtomKind, SourceSpan, SyntaxAtom, SyntaxDiagnostic
@@ -107,6 +109,9 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
         }
     )
     definition_table = dict(compiled.definition_module.definition_table)
+    function_definitions = {
+        function.name: function for function in compiled.definition_module.function_definitions
+    }
 
     lowered: dict[str, dict[str, Any]] = {}
     source_map: dict[str, MappingProxyType[str, SourceSpan]] = {}
@@ -147,7 +152,10 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
         inputs = lowered_inputs.contracts
         workflow_input_names = lowered_inputs.leaf_input_names
 
-        lowered_root_expression = _inline_root_expression(checked_expression)
+        lowered_root_expression = _inline_root_expression(
+            checked_expression,
+            function_definitions=function_definitions,
+        )
 
         step_source_spans: dict[str, SourceSpan] = {}
         root_match_case_steps: list[tuple[str, str, ExpressionNode]] = []
@@ -894,8 +902,18 @@ def _match_case_outputs_for_structured_return(
     return {"result": contract}
 
 
-def _inline_root_expression(expression: ExpressionNode) -> ExpressionNode:
-    inlined = _inline_expression(expression, {}, None)
+def _inline_root_expression(
+    expression: ExpressionNode,
+    *,
+    function_definitions: Mapping[str, FunctionDefinition],
+) -> ExpressionNode:
+    inlined = _inline_expression(
+        expression,
+        {},
+        None,
+        function_definitions=function_definitions,
+        inline_stack=(),
+    )
     while isinstance(inlined, WithPhaseExpression):
         inlined = inlined.body
     return inlined
@@ -905,31 +923,72 @@ def _inline_expression(
     expression: ExpressionNode,
     env: dict[str, ExpressionNode],
     current_phase_name: str | None,
+    *,
+    function_definitions: Mapping[str, FunctionDefinition],
+    inline_stack: tuple[str, ...],
 ) -> ExpressionNode:
     if isinstance(expression, ReferenceExpression):
         resolved = env.get(expression.name)
         if resolved is None:
             return expression
-        return _inline_expression(resolved, env, current_phase_name)
+        if isinstance(resolved, ReferenceExpression) and resolved.name == expression.name:
+            return resolved
+        return _inline_expression(
+            resolved,
+            env,
+            current_phase_name,
+            function_definitions=function_definitions,
+            inline_stack=inline_stack,
+        )
 
     if isinstance(expression, LetStarExpression):
         local_env = dict(env)
         for binding in expression.bindings:
-            local_env[binding.name] = _inline_expression(binding.value, local_env, current_phase_name)
-        return _inline_expression(expression.body, local_env, current_phase_name)
+            local_env[binding.name] = _inline_expression(
+                binding.value,
+                local_env,
+                current_phase_name,
+                function_definitions=function_definitions,
+                inline_stack=inline_stack,
+            )
+        return _inline_expression(
+            expression.body,
+            local_env,
+            current_phase_name,
+            function_definitions=function_definitions,
+            inline_stack=inline_stack,
+        )
 
     if isinstance(expression, WithPhaseExpression):
         return WithPhaseExpression(
-            context=_inline_expression(expression.context, env, current_phase_name),
+            context=_inline_expression(
+                expression.context,
+                env,
+                current_phase_name,
+                function_definitions=function_definitions,
+                inline_stack=inline_stack,
+            ),
             phase_name=expression.phase_name,
             phase_span=expression.phase_span,
-            body=_inline_expression(expression.body, env, expression.phase_name),
+            body=_inline_expression(
+                expression.body,
+                env,
+                expression.phase_name,
+                function_definitions=function_definitions,
+                inline_stack=inline_stack,
+            ),
             span=expression.span,
         )
 
     if isinstance(expression, PhaseTargetExpression):
         return PhaseTargetExpression(
-            context=_inline_expression(expression.context, env, current_phase_name),
+            context=_inline_expression(
+                expression.context,
+                env,
+                current_phase_name,
+                function_definitions=function_definitions,
+                inline_stack=inline_stack,
+            ),
             target_name=expression.target_name,
             target_span=expression.target_span,
             phase_name=expression.phase_name or current_phase_name,
@@ -938,19 +997,40 @@ def _inline_expression(
 
     if isinstance(expression, ProviderResultExpression):
         provider_reference = _inline_reference_expression(
-            _inline_expression(expression.provider_reference, env, current_phase_name),
+            _inline_expression(
+                expression.provider_reference,
+                env,
+                current_phase_name,
+                function_definitions=function_definitions,
+                inline_stack=inline_stack,
+            ),
             form_name="provider-result",
             role="provider",
         )
         prompt_reference = _inline_reference_expression(
-            _inline_expression(expression.prompt_reference, env, current_phase_name),
+            _inline_expression(
+                expression.prompt_reference,
+                env,
+                current_phase_name,
+                function_definitions=function_definitions,
+                inline_stack=inline_stack,
+            ),
             form_name="provider-result",
             role=":prompt",
         )
         return ProviderResultExpression(
             provider_reference=provider_reference,
             prompt_reference=prompt_reference,
-            inputs=tuple(_inline_expression(item, env, current_phase_name) for item in expression.inputs),
+            inputs=tuple(
+                _inline_expression(
+                    item,
+                    env,
+                    current_phase_name,
+                    function_definitions=function_definitions,
+                    inline_stack=inline_stack,
+                )
+                for item in expression.inputs
+            ),
             returns_type_name=expression.returns_type_name,
             returns_type_span=expression.returns_type_span,
             span=expression.span,
@@ -960,13 +1040,84 @@ def _inline_expression(
         return CommandResultExpression(
             command_name=expression.command_name,
             command_name_span=expression.command_name_span,
-            argv=tuple(_inline_expression(item, env, current_phase_name) for item in expression.argv),
+            argv=tuple(
+                _inline_expression(
+                    item,
+                    env,
+                    current_phase_name,
+                    function_definitions=function_definitions,
+                    inline_stack=inline_stack,
+                )
+                for item in expression.argv
+            ),
             returns_type_name=expression.returns_type_name,
             returns_type_span=expression.returns_type_span,
             span=expression.span,
         )
 
     if isinstance(expression, CallExpression):
+        function_definition = function_definitions.get(expression.callee_name)
+        if function_definition is not None:
+            if expression.callee_name in inline_stack:
+                _raise_lowering_error(
+                    code="frontend_lowering_error",
+                    message=f"Recursive defun call cannot be lowered: {expression.callee_name}",
+                    span=expression.callee_span,
+                    enclosing_form_name="call",
+                )
+            arguments_by_name = {argument.parameter_name: argument for argument in expression.arguments}
+            expected_parameters = tuple(parameter.name for parameter in function_definition.parameters)
+            provided_names = frozenset(arguments_by_name)
+            expected_names = frozenset(expected_parameters)
+            missing_names = sorted(expected_names - provided_names)
+            if missing_names:
+                _raise_lowering_error(
+                    code="frontend_lowering_error",
+                    message=(
+                        f"Missing call argument for function {function_definition.name}: "
+                        f"{missing_names[0]}"
+                    ),
+                    span=expression.span,
+                    enclosing_form_name="call",
+                )
+            unexpected_names = sorted(provided_names - expected_names)
+            if unexpected_names:
+                _raise_lowering_error(
+                    code="frontend_lowering_error",
+                    message=(
+                        f"Unknown call argument for function {function_definition.name}: "
+                        f"{unexpected_names[0]}"
+                    ),
+                    span=expression.span,
+                    enclosing_form_name="call",
+                )
+            function_env = dict(env)
+            for parameter in function_definition.parameters:
+                argument = arguments_by_name[parameter.name]
+                function_env[parameter.name] = _inline_expression(
+                    argument.value,
+                    env,
+                    current_phase_name,
+                    function_definitions=function_definitions,
+                    inline_stack=inline_stack,
+                )
+            if len(function_definition.body_forms) != 1:
+                _raise_lowering_error(
+                    code="frontend_lowering_error",
+                    message=(
+                        f"defun {function_definition.name} must have exactly one body expression "
+                        "for lowering"
+                    ),
+                    span=function_definition.form_span,
+                    enclosing_form_name="defun",
+                )
+            return _inline_expression(
+                shape_expression(function_definition.body_forms[0]),
+                function_env,
+                current_phase_name,
+                function_definitions=function_definitions,
+                inline_stack=(*inline_stack, function_definition.name),
+            )
         return CallExpression(
             callee_name=expression.callee_name,
             callee_span=expression.callee_span,
@@ -974,7 +1125,13 @@ def _inline_expression(
                 argument.__class__(
                     parameter_name=argument.parameter_name,
                     keyword_span=argument.keyword_span,
-                    value=_inline_expression(argument.value, env, current_phase_name),
+                    value=_inline_expression(
+                        argument.value,
+                        env,
+                        current_phase_name,
+                        function_definitions=function_definitions,
+                        inline_stack=inline_stack,
+                    ),
                     form_span=argument.form_span,
                 )
                 for argument in expression.arguments
@@ -986,7 +1143,13 @@ def _inline_expression(
 
     if isinstance(expression, FieldAccessExpression):
         return FieldAccessExpression(
-            base=_inline_expression(expression.base, env, current_phase_name),
+            base=_inline_expression(
+                expression.base,
+                env,
+                current_phase_name,
+                function_definitions=function_definitions,
+                inline_stack=inline_stack,
+            ),
             field_name=expression.field_name,
             span=expression.span,
         )
@@ -999,7 +1162,13 @@ def _inline_expression(
                 field.__class__(
                     field_name=field.field_name,
                     field_span=field.field_span,
-                    value=_inline_expression(field.value, env, current_phase_name),
+                    value=_inline_expression(
+                        field.value,
+                        env,
+                        current_phase_name,
+                        function_definitions=function_definitions,
+                        inline_stack=inline_stack,
+                    ),
                     form_span=field.form_span,
                 )
                 for field in expression.fields
@@ -1009,14 +1178,26 @@ def _inline_expression(
 
     if isinstance(expression, MatchExpression):
         return MatchExpression(
-            subject=_inline_expression(expression.subject, env, current_phase_name),
+            subject=_inline_expression(
+                expression.subject,
+                env,
+                current_phase_name,
+                function_definitions=function_definitions,
+                inline_stack=inline_stack,
+            ),
             arms=tuple(
                 arm.__class__(
                     variant_name=arm.variant_name,
                     variant_span=arm.variant_span,
                     binding_name=arm.binding_name,
                     binding_span=arm.binding_span,
-                    body=_inline_expression(arm.body, env, current_phase_name),
+                    body=_inline_expression(
+                        arm.body,
+                        env,
+                        current_phase_name,
+                        function_definitions=function_definitions,
+                        inline_stack=inline_stack,
+                    ),
                     span=arm.span,
                 )
                 for arm in expression.arms

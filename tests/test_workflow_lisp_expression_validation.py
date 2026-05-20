@@ -258,6 +258,37 @@ def test_validate_expression_module_checks_local_function_bodies() -> None:
     assert tuple(workflow.name for workflow in result.workflows) == ("run_phase",)
 
 
+def test_validate_expression_module_accepts_calls_to_local_functions() -> None:
+    parser = _parser_module()
+    definition_validation = _definition_validation_module()
+    expression_validation = _expression_validation_module()
+    source_path = str(_fixture_path("inline_call_local_defun.orc"))
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defrecord PlanInputs
+  (design_path String))
+
+(defun normalize_inputs ((inputs PlanInputs)) -> PlanInputs
+  inputs)
+
+(defworkflow run_phase ((inputs PlanInputs)) -> PlanInputs
+  (call normalize_inputs :inputs inputs))
+""",
+        source_path=source_path,
+    )
+    checked = definition_validation.validate_definition_module(module)
+
+    result = expression_validation.validate_expression_module(checked)
+
+    assert tuple(function.name for function in result.functions) == ("normalize_inputs",)
+    assert tuple(workflow.name for workflow in result.workflows) == ("run_phase",)
+    assert result.workflows[0].inferred_return_type == "PlanInputs"
+
+
 def test_validate_expression_module_rejects_function_return_type_mismatch() -> None:
     parser = _parser_module()
     definition_validation = _definition_validation_module()

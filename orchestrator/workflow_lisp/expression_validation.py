@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from .definition_validation import DefinitionCheckedModule
 from .definitions import (
     DefinitionTypeRef,
+    FunctionDefinition,
     ImportDefinition,
     ProcedureDefinition,
     RecordDefinition,
@@ -126,10 +127,11 @@ def validate_expression_module(module: DefinitionCheckedModule) -> ExpressionChe
         module.import_definitions
     )
     type_catalog = _build_type_catalog(module, imported_only_names=imported_only_names)
-    callable_catalog: dict[str, WorkflowDefinition | ProcedureDefinition] = {
+    callable_catalog: dict[str, WorkflowDefinition | ProcedureDefinition | FunctionDefinition] = {
         workflow.name: workflow for workflow in module.workflow_definitions
     }
     callable_catalog.update({procedure.name: procedure for procedure in module.procedure_definitions})
+    callable_catalog.update({function.name: function for function in module.function_definitions})
     workflows: list[ExpressionCheckedWorkflow] = []
     procedures: list[ExpressionCheckedProcedure] = []
     functions: list[ExpressionCheckedFunction] = []
@@ -541,7 +543,7 @@ def _infer_expression_type(
     expression: ExpressionNode,
     env: dict[str, _ValueType],
     catalog: dict[str, _ValueType],
-    callable_catalog: dict[str, WorkflowDefinition | ProcedureDefinition],
+    callable_catalog: dict[str, WorkflowDefinition | ProcedureDefinition | FunctionDefinition],
     *,
     imported_only_names: frozenset[str],
     import_aliases: frozenset[str],
@@ -809,13 +811,14 @@ def _infer_expression_type(
             )
 
         expected_parameters = {parameter.name: parameter for parameter in callee.parameters}
+        callable_kind = "function" if isinstance(callee, FunctionDefinition) else "workflow"
         provided_names = {argument.parameter_name for argument in expression.arguments}
         missing_names = sorted(set(expected_parameters) - provided_names)
         if missing_names:
             _raise_expression_error(
                 code="workflow_signature_mismatch",
                 message=(
-                    f"Missing call argument for workflow {callee.name}: {missing_names[0]}"
+                    f"Missing call argument for {callable_kind} {callee.name}: {missing_names[0]}"
                 ),
                 span=expression.span,
                 enclosing_form_name="call",
@@ -826,7 +829,7 @@ def _infer_expression_type(
             _raise_expression_error(
                 code="workflow_signature_mismatch",
                 message=(
-                    f"Unknown call argument for workflow {callee.name}: {unexpected_names[0]}"
+                    f"Unknown call argument for {callable_kind} {callee.name}: {unexpected_names[0]}"
                 ),
                 span=expression.span,
                 enclosing_form_name="call",

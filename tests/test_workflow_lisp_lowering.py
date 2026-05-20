@@ -356,6 +356,46 @@ def test_lower_compiled_module_lowers_local_defproc_and_callers(tmp_path: Path) 
     assert loaded_caller.surface.name == "run_phase"
 
 
+def test_lower_compiled_module_inlines_local_defun_calls(tmp_path: Path) -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = Path("inline_call_local_defun_lowering.orc")
+    compiled = compiler.compile_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defun normalize_path ((path String)) -> String
+  path)
+
+(defworkflow run_phase ((path String)) -> String
+  (call normalize_path :path path))
+""",
+        source_path=str(source_path),
+    )
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    workflow = lowered["run_phase"]
+    step = workflow["steps"][0]
+
+    assert workflow["outputs"] == {
+        "result": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "root.steps.ScalarResult.artifacts.result"},
+        },
+    }
+    assert step["name"] == "ScalarResult"
+    assert "call" not in step
+    assert "imports" not in workflow
+
+    path = tmp_path / "run_phase.yaml"
+    path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
+    loaded = WorkflowLoader(tmp_path).load(path)
+    assert loaded.surface.name == "run_phase"
+
+
 def test_lower_compiled_module_limits_defmodule_outputs_to_exported_callable_closure() -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()
