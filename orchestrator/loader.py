@@ -112,20 +112,45 @@ class WorkflowLoader:
         self._provider_registry = ProviderRegistry()
         self._current_workflow_is_imported = False
 
-    def load(self, workflow_path: Path) -> LoadedWorkflowBundle:
+    def load(self, workflow_path: Path | str) -> LoadedWorkflowBundle:
         """Load and validate workflow YAML into the typed bundle surface."""
         return self.load_bundle(workflow_path)
 
-    def load_bundle(self, workflow_path: Path) -> LoadedWorkflowBundle:
+    def load_bundle(self, workflow_path: Path | str) -> LoadedWorkflowBundle:
         """Load and validate workflow YAML into the typed surface bundle."""
         self.errors = []
         self._workflow_input_specs = {}
         self._current_imports = {}
         self._provider_registry = ProviderRegistry()
-        workflow = self._load_workflow(Path(workflow_path).resolve())
+        try:
+            requested = self._resolve_requested_workflow_ref(workflow_path)
+        except ValueError as exc:
+            self._add_error(str(exc))
+            self._raise_validation_errors()
+        workflow = self._load_workflow(
+            requested.path,
+            selected_workflow_name=requested.workflow_name,
+        )
         if self.errors:
             self._raise_validation_errors()
         return workflow
+
+    def _resolve_requested_workflow_ref(self, workflow_path: Path | str) -> _ResolvedWorkflowRef:
+        """Resolve one top-level workflow path, optionally including .orc#workflow selection."""
+        raw_path = str(workflow_path)
+        path_text = raw_path
+        selected_workflow_name: Optional[str] = None
+        if "#" in raw_path:
+            path_text, fragment = raw_path.split("#", maxsplit=1)
+            if not path_text.strip():
+                raise ValueError(f"invalid workflow path (missing file before '#'): {raw_path}")
+            if not fragment.strip():
+                raise ValueError(f"invalid workflow path (missing workflow after '#'): {raw_path}")
+            if "#" in fragment:
+                raise ValueError(f"invalid workflow path (multiple '#' fragments): {raw_path}")
+            selected_workflow_name = fragment.strip()
+
+        return _ResolvedWorkflowRef(path=Path(path_text).resolve(), workflow_name=selected_workflow_name)
 
     def _load_workflow(
         self,
@@ -244,7 +269,7 @@ class WorkflowLoader:
         if resolved_workflow_path.suffix.lower() != ".orc":
             if selected_workflow_name is not None:
                 self._add_error(
-                    "Workflow selection fragments (#workflow) are only supported for .orc module imports"
+                    "Workflow selection fragments (#workflow) are only supported for .orc module paths"
                 )
                 return None
             with open(resolved_workflow_path, 'r') as f:
@@ -277,7 +302,7 @@ class WorkflowLoader:
             if selected is None:
                 rendered_names = ", ".join(sorted(lowered_workflow_names)) or "<none>"
                 self._add_error(
-                    "Workflow Lisp module import fragment references unknown workflow "
+                    "Workflow Lisp module fragment references unknown workflow "
                     f"'{selected_workflow_name}' (available: {rendered_names})"
                 )
                 return None
