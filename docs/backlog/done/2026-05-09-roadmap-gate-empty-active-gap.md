@@ -1,6 +1,6 @@
 ---
 priority: 0
-plan_path: docs/plans/2026-05-09-roadmap-gate-empty-active-gap-plan.md
+plan_path: docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-09-roadmap-gate-empty-active-gap/execution_plan.md
 check_commands:
   - pytest tests/test_neurips_backlog_roadmap_gate.py -q
   - python -m json.tool docs/backlog/roadmap_gate.json

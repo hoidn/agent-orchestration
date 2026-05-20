@@ -1,6 +1,6 @@
 ---
 priority: -1
-plan_path: docs/plans/2026-05-09-output-bundle-variant-surface-review-plan.md
+plan_path: docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-09-output-bundle-variant-surface-review/execution_plan.md
 check_commands:
   - python -m json.tool docs/backlog/roadmap_gate.json
   - >-

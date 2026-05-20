@@ -1,6 +1,6 @@
 ---
 priority: 0
-plan_path: docs/plans/2026-05-09-dsl-v214-pointer-authority-clarification-plan.md
+plan_path: docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-09-dsl-v214-pointer-authority-clarification/execution_plan.md
 check_commands:
   - python -m json.tool docs/backlog/roadmap_gate.json
   - >-

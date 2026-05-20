@@ -1,12 +1,10 @@
 {
-  "current_gate_id": "dsl-v214-phase1-runtime",
-  "required_scope_summary": "Phase 1 runtime semantics are the next selectable tranche after the Phase 0 oracle completes. Phase 2 workflow translation remains blocked until Phase 1 is complete.",
+  "current_gate_id": "dsl-v214-phase2-neurips-stack",
+  "required_scope_summary": "Phase 2 workflow translation is now selectable after completion of the Phase 1 runtime-semantics tranche.",
   "allowed_roadmap_phase_prefixes": [
-    "phase-1-dsl-v214-runtime"
-  ],
-  "disallowed_roadmap_phase_prefixes": [
     "phase-2-dsl-v214-neurips-stack"
   ],
+  "disallowed_roadmap_phase_prefixes": [],
   "gap_policy": "block",
   "gap_item_target_dir": "docs/backlog/active",
   "gap_plan_target_root": "docs/plans/backlog-gaps"

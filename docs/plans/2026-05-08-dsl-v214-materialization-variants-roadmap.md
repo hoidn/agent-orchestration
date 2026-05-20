@@ -8,13 +8,12 @@ The tagged-union validation surface decision is recorded in
 
 ## Current Gate
 
-- Gate id: `dsl-v214-phase1-runtime`
-- Selectable phase prefix: `phase-1-dsl-v214-runtime`
-- Blocked future prefixes:
-  - `phase-2-dsl-v214-neurips-stack`
+- Gate id: `dsl-v214-phase2-neurips-stack`
+- Selectable phase prefix: `phase-2-dsl-v214-neurips-stack`
+- Blocked future prefixes: none
 
-The current gate advances to Phase 1 after the Phase 0 oracle item has produced
-reviewed implementation evidence. Phase 2 remains blocked until Phase 1 lands.
+The current gate advances to Phase 2 after the Phase 1 runtime semantics and
+public v2.14 release tranche landed together.
 
 ## Phase 0: phase-0-dsl-v214-oracle
 
@@ -42,7 +41,9 @@ Required outcomes:
 Exit criteria:
 
 - Phase 0 tests pass with no network or provider secrets.
-- Normal CLI and loader paths still reject public `version: "2.14"`.
+- The Phase 0 oracle preserves the pre-release behavior evidence; current
+  normal CLI and loader paths now accept public `version: "2.14"` after the
+  Phase 1 release.
 - The oracle can drive both primitive and minimal NeurIPS-style scenarios with
   fake providers.
 
@@ -52,9 +53,9 @@ Objective: implement the narrow v2.14 semantic tranche after Phase 0 is stable.
 
 Backlog authority:
 
-- `docs/backlog/in_progress/2026-05-09-output-bundle-variant-surface-review.md`
-- `docs/backlog/active/2026-05-09-dsl-v214-pointer-authority-clarification.md`
-- `docs/backlog/active/2026-05-09-roadmap-gate-empty-active-gap.md`
+- `docs/backlog/done/2026-05-09-output-bundle-variant-surface-review.md`
+- `docs/backlog/done/2026-05-09-dsl-v214-pointer-authority-clarification.md`
+- `docs/backlog/done/2026-05-09-roadmap-gate-empty-active-gap.md`
 - `docs/backlog/done/2026-05-09-dsl-v214-runtime-semantics.md`
 
 Scope:
@@ -73,9 +74,8 @@ Scope:
 
 Gate:
 
-- Do not start until Phase 0 is complete.
-- Do not expose public `version: "2.14"` until loader, runtime, docs, and tests
-  land together.
+- Phase 1 is complete.
+- Public `version: "2.14"` is released through loader, runtime, docs, and tests.
 
 ## Phase 2: phase-2-dsl-v214-neurips-stack
 
@@ -84,7 +84,8 @@ YAML and prove behavioral equivalence against the Phase 0 oracle.
 
 Backlog authority:
 
-- `docs/backlog/active/2026-05-09-dsl-v214-neurips-stack-translation.md`
+- `docs/backlog/done/2026-05-09-dsl-v214-neurips-stack-translation.md`
+- `docs/backlog/done/2026-05-09-dsl-v214-yaml-ergonomics-loc-reduction.md`
 
 Scope:
 
@@ -93,10 +94,13 @@ Scope:
 - `neurips_backlog_roadmap_sync.v214.yaml`
 - `neurips_selected_backlog_item.v214.yaml`
 - old-stack versus v2.14-stack differential tests
+- v2.14 YAML ergonomics correction so the translated production stack is
+  smaller than the legacy stack
+- LOC regression checks for the NeurIPS v2.14 workflow stack
 
 Gate:
 
-- Do not start until the public v2.14 release tranche has landed.
+- Public v2.14 release tranche has landed.
 - Same-version v2.14 call stacks are required.
 - Recovery, resource transitions, phase outcomes, review-loop macros, mixed
   versions, and general expression-language work remain deferred.

@@ -1,6 +1,6 @@
 ---
 priority: 2
-plan_path: docs/plans/2026-05-08-dsl-v214-materialization-variants-implementation-plan.md
+plan_path: docs/plans/NEURIPS-HYBRID-RESNET-2026/backlog/2026-05-09-dsl-v214-neurips-stack-translation/execution_plan.md
 check_commands:
   - pytest tests/test_v214_primitive_oracle.py tests/test_neurips_v214_equivalence_oracle.py -q
   - python -m orchestrator run workflows/examples/neurips_steered_backlog_drain.yaml --dry-run --input steering_path=docs/steering.md --input design_path=docs/plans/2026-05-08-dsl-v214-materialization-variants-implementation-plan.md --input roadmap_path=docs/plans/2026-05-08-dsl-v214-materialization-variants-roadmap.md --input backlog_root=docs/backlog/active --input roadmap_gate_path=docs/backlog/roadmap_gate.json --input progress_ledger_path=state/DSL-V214-MATERIALIZATION-VARIANTS/progress_ledger.json --input drain_state_root=state/DSL-V214-MATERIALIZATION-VARIANTS/backlog_drain --input run_state_target_path=state/DSL-V214-MATERIALIZATION-VARIANTS/backlog_drain/run_state.json --input drain_summary_target_path=artifacts/work/DSL-V214-MATERIALIZATION-VARIANTS/backlog-drain-summary.json
@@ -12,7 +12,7 @@ signals_for_selection:
   - Public v2.14 runtime semantics have landed.
   - The next tranche is workflow translation and equivalence proof.
 blocking_signals:
-  - Do not start until the Phase 1 runtime semantics item is complete.
+  - Phase 1 runtime semantics must remain complete.
   - Do not mix v2.14 caller/callee workflows with older DSL versions.
 ---
 
@@ -58,5 +58,6 @@ blocking_signals:
 
 ## Notes
 
-- This item is intentionally blocked behind Phase 1. If selected earlier, the
-  correct outcome is a roadmap or prerequisite block, not a partial translation.
+- This item is unblocked after the public v2.14 release. If selected, implement
+  the same-version v2.14 workflow stack and equivalence tests rather than
+  reopening Phase 1 runtime semantics.
