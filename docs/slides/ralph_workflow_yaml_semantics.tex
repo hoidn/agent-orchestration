@@ -310,12 +310,12 @@ The AST is not text to execute directly. It is the workflow split into named par
 \begin{tabular}{p{0.31\textwidth}p{0.29\textwidth}p{0.29\textwidth}}
 \textbf{Metric} & \textbf{Full Lisp drain} & \textbf{Ralph loop} \\
 \hline
-Elapsed wall time inspected & 31.45 hours & 9.31 hours \\
-Completed units & 12 design gaps & 75 Ralph iterations \\
-Raw rate & 0.38 design gaps/hour & 8.06 iterations/hour \\
-Approx. unique work items & 12 & 46 \\
-Functional MVP completion & about 95\% & about 74\% \\
-Functional full-design completion & about 82\% & about 24\% \\
+Elapsed wall time inspected & 31.45 hours & 7.51 hours \\
+Completed units & 12 design gaps & 95 Ralph iterations \\
+Raw rate & 0.38 design gaps/hour & 12.65 iterations/hour \\
+Durable design gaps & 12 recorded gaps & 0 ledger-recorded gaps \\
+Functional MVP completion & about 93\% & about 58\% \\
+Functional full-design completion & about 72\% & about 27\% \\
 \end{tabular}
 \vspace{0.8em}
 \begin{block}{Read the units carefully}
@@ -326,6 +326,28 @@ The Ralph loop is much faster in raw iteration count, but the units are smaller.
 Source: static inspection of run state, summaries, ledgers, artifacts, source, fixtures, and tests. No tests were run for this comparison.
 \par\medskip
 Generating prompt: \href{https://github.com/hoidn/prompts/blob/1cc09c05ba70869ac7a4860c143776bb37de2d4b/lisp-frontend-comparison-metrics-prompt.txt}{comparison metrics prompt}.
+\end{frame}
+
+\begin{frame}{Implementation quality comparison}
+\small
+\begin{tabular}{p{0.34\textwidth}p{0.27\textwidth}p{0.27\textwidth}}
+\textbf{Metric} & \textbf{Full Lisp drain} & \textbf{Ralph loop} \\
+\hline
+Full implementation quality & 7.8 / 10 & 5.8 / 10 \\
+Equivalent subset quality & 8.0 / 10 & 6.8 / 10 \\
+Spec adherence & 8.1 / 10 & 5.1 / 10 \\
+Correctness evidence & 7.6 / 10 & 6.1 / 10 \\
+Test coverage & 8.7 / 10 & 6.8 / 10 \\
+Maintainability & 6.7 / 10 & 6.5 / 10 \\
+Churn severity & 8.5 / 10 & 6.5 / 10 \\
+\end{tabular}
+\vspace{0.8em}
+\begin{block}{Quality readout}
+The full drain is heavier and churnier, but it has broader runtime integration, stronger artifact surfaces, deeper test coverage, and more durable completion evidence. The Ralph loop is smaller and fast-moving, but its subset remains less complete and less ledger-backed.
+\end{block}
+\vspace{0.3em}
+\footnotesize
+Scores are static-inspection estimates, not test results. Higher quality scores are better; higher churn severity means more repeated repair/rework signal.
 \end{frame}
 
 \begin{frame}[shrink=8]{Progress quality: speed vs. churn}
@@ -346,15 +368,15 @@ Generating prompt: \href{https://github.com/hoidn/prompts/blob/1cc09c05ba70869ac
 \begin{itemize}
   \item Faster early iteration velocity.
   \item Best suited to small MVP slices and focused regression additions.
-  \item Changed-file ledger: 231 touches over 83 unique files; 18 files repeat.
-  \item Hot spots: \texttt{test\_workflow\_lisp\_lowering.py} 42/60 iterations; \texttt{lowering.py} 40/60.
+  \item Changed-file ledgers show concentrated repeat touches across lowering, expression validation, and related tests.
+  \item Hot spots: \texttt{test\_workflow\_lisp\_lowering.py} 55 touches; \texttt{lowering.py} 52 touches.
 \end{itemize}
 \end{block}
 \end{column}
 \end{columns}
 \vspace{0.6em}
 \begin{block}{Repeated-file disparity}
-Ralph's hottest source file concentration is about 4.4x the full-drain report-mention proxy: 40 changed-file touches versus 9 mentions. Repeat surplus is 148 non-unique Ralph touches versus 48 full-drain repeated report mentions.
+Ralph's hottest source file concentration remains much higher than the full-drain report-mention proxy: 52 changed-file touches versus 9 execution-report mentions. This points to fast local iteration, but also to repeated stabilization in the same subset.
 \end{block}
 \end{frame}
 
