@@ -126,6 +126,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** workflows, prompts, input_file, asset_file, prompt-assets  
 **Use this when:** You need to find which prompt files a workflow step uses or audit missing/stale prompt references.
 
+### [Slide Decks](slides/README.md)
+**Description:** Source-controlled teaching slides for workflow and DSL concepts, including the Ralph workflow YAML semantics and prompt-injection example.
+**Keywords:** slides, teaching, yaml, prompt-injection, ralph
+**Use this when:** You want a short presentation-style explanation of a workflow concept.
+
 ### [Master Spec](../specs/index.md)
 **Description:** Normative root of the external contract, including module map, versioning boundaries, and acceptance scope.  
 **Keywords:** normative, contract, spec, versioning, conformance  
