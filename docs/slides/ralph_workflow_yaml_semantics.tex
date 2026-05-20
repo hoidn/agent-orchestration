@@ -350,6 +350,28 @@ The full drain is heavier and churnier, but it has broader runtime integration, 
 Scores are static-inspection estimates, not test results. Higher quality scores are better; higher churn severity means more repeated repair/rework signal.
 \end{frame}
 
+\begin{frame}{Workflow Lisp code size}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{0.34\textwidth}p{0.24\textwidth}p{0.24\textwidth}p{0.12\textwidth}@{}}
+\textbf{Metric} & \textbf{Full Lisp drain} & \textbf{Ralph loop} & \textbf{Ratio} \\
+\hline
+Frontend source files & 31 & 10 & 3.1x \\
+Frontend source LOC & 20,675 & 7,130 & 2.9x \\
+Direct Workflow Lisp test files & 19 & 10 & 1.9x \\
+Direct Workflow Lisp test LOC & 10,366 & 4,355 & 2.4x \\
+\texttt{.orc} fixtures & 86 & 133 & 0.6x \\
+Test LOC per source LOC & 0.50 & 0.61 & Ralph \\
+\end{tabular}
+\vspace{0.75em}
+\begin{block}{Readout}
+The full drain is roughly three times larger in frontend source, which matches its broader design coverage and integration surface. The Ralph loop is smaller, with denser direct test LOC per source LOC and more \texttt{.orc} fixtures, but less full-design coverage.
+\end{block}
+\vspace{0.2em}
+\footnotesize
+Counts are static line counts over Workflow Lisp frontend source, direct Workflow Lisp tests, and repository \texttt{.orc} fixtures.
+\end{frame}
+
 \begin{frame}[shrink=8]{Progress quality: speed vs. churn}
 \small
 \begin{columns}[T,totalwidth=\textwidth]
