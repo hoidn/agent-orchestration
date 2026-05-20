@@ -312,21 +312,25 @@ def test_shape_expression_parses_phase_target_expression_with_explicit_phase_nam
 @pytest.mark.parametrize(
     ("fixture_name", "expected_message", "expected_generated_core_node_id"),
     [
-        ("invalid_let_star_duplicate_binding.orc", "Duplicate let* binding name", None),
+        ("invalid_let_star_duplicate_binding.orc", "Duplicate let* binding name", "expression.let-star"),
         (
             "invalid_let_star_bad_binding_shape.orc",
             "let* bindings must be (name expression) pairs",
-            None,
+            "expression.let-star",
         ),
-        ("invalid_match_duplicate_variant.orc", "Duplicate match arm variant", None),
+        ("invalid_match_duplicate_variant.orc", "Duplicate match arm variant", "expression.match"),
         (
             "invalid_match_bad_arm_shape.orc",
             "match arms must have shape ((VARIANT binding) expression)",
-            None,
+            "expression.match",
         ),
-        ("invalid_match_partial_non_bool.orc", "match :partial value must be a boolean", None),
-        ("invalid_record_duplicate_field.orc", "Duplicate record field", None),
-        ("invalid_record_bad_clause_shape.orc", "record fields must be keyword/expression pairs", None),
+        ("invalid_match_partial_non_bool.orc", "match :partial value must be a boolean", "expression.match"),
+        ("invalid_record_duplicate_field.orc", "Duplicate record field", "expression.record.Plan"),
+        (
+            "invalid_record_bad_clause_shape.orc",
+            "record fields must be keyword/expression pairs",
+            "expression.record.Plan",
+        ),
         (
             "invalid_call_duplicate_argument.orc",
             "Duplicate call argument",
@@ -350,14 +354,14 @@ def test_shape_expression_parses_phase_target_expression_with_explicit_phase_nam
         (
             "invalid_with_phase_bad_phase_name.orc",
             "with-phase phase name must be a symbol",
-            None,
+            "expression.with-phase",
         ),
         (
             "inline_invalid_phase_target_bad_target.orc",
             "phase-target target name must be a symbol",
-            None,
+            "expression.phase-target",
         ),
-        ("invalid_unsupported_expression_form.orc", "Unsupported expression form: if", None),
+        ("invalid_unsupported_expression_form.orc", "Unsupported expression form: if", "expression.if"),
     ],
 )
 def test_shape_expression_rejects_invalid_let_star_or_unsupported_forms(

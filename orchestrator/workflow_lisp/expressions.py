@@ -200,6 +200,22 @@ def _raise_expression_error(
     )
 
 
+def _form_node_id_with_optional_symbol_suffix(
+    *,
+    base_node_id: str,
+    form: SyntaxList,
+    symbol_position: int,
+) -> str:
+    """Build a stable node id from a form, optionally suffixing a symbol value."""
+
+    if len(form.items) <= symbol_position:
+        return base_node_id
+    symbol_node = form.items[symbol_position]
+    if isinstance(symbol_node, SyntaxAtom) and symbol_node.kind is AtomKind.SYMBOL:
+        return f"{base_node_id}.{symbol_node.value}"
+    return base_node_id
+
+
 def shape_expression(node: SyntaxNode) -> ExpressionNode:
     """Shape one syntax node into one MVP expression node."""
 
@@ -210,6 +226,7 @@ def shape_expression(node: SyntaxNode) -> ExpressionNode:
             code="frontend_parse_error",
             message="Expression forms cannot be empty lists",
             span=node.span,
+            generated_core_node_id="expression.unknown",
         )
     head = node.items[0]
     if not isinstance(head, SyntaxAtom) or head.kind is not AtomKind.SYMBOL:
@@ -217,6 +234,7 @@ def shape_expression(node: SyntaxNode) -> ExpressionNode:
             code="frontend_parse_error",
             message="Expression form head must be a symbol",
             span=head.span,
+            generated_core_node_id="expression.unknown",
         )
     if head.value == "let*":
         return _shape_let_star(node)
@@ -239,6 +257,7 @@ def shape_expression(node: SyntaxNode) -> ExpressionNode:
         message=f"Unsupported expression form: {head.value}",
         span=head.span,
         enclosing_form_name=str(head.value),
+        generated_core_node_id=f"expression.{head.value}",
     )
 
 
@@ -279,12 +298,14 @@ def _shape_symbol_expression(node: SyntaxAtom) -> ExpressionNode:
 
 
 def _shape_let_star(form: SyntaxList) -> LetStarExpression:
+    let_node_id = "expression.let-star"
     if len(form.items) != 3:
         _raise_expression_error(
             code="frontend_parse_error",
             message="let* requires a binding list and exactly one body expression",
             span=form.span,
             enclosing_form_name="let*",
+            generated_core_node_id=let_node_id,
         )
     bindings_node = form.items[1]
     if not isinstance(bindings_node, SyntaxList):
@@ -293,6 +314,7 @@ def _shape_let_star(form: SyntaxList) -> LetStarExpression:
             message="let* bindings must be a list",
             span=bindings_node.span,
             enclosing_form_name="let*",
+            generated_core_node_id=let_node_id,
         )
     bindings: list[LetBindingExpression] = []
     seen_names: set[str] = set()
@@ -303,6 +325,7 @@ def _shape_let_star(form: SyntaxList) -> LetStarExpression:
                 message="let* bindings must be (name expression) pairs",
                 span=binding_node.span,
                 enclosing_form_name="let*",
+                generated_core_node_id=let_node_id,
             )
         name_node = binding_node.items[0]
         if not isinstance(name_node, SyntaxAtom) or name_node.kind is not AtomKind.SYMBOL:
@@ -311,6 +334,7 @@ def _shape_let_star(form: SyntaxList) -> LetStarExpression:
                 message="let* binding names must be symbols",
                 span=name_node.span,
                 enclosing_form_name="let*",
+                generated_core_node_id=let_node_id,
             )
         name_text = str(name_node.value)
         if name_text in seen_names:
@@ -319,6 +343,7 @@ def _shape_let_star(form: SyntaxList) -> LetStarExpression:
                 message=f"Duplicate let* binding name: {name_text}",
                 span=name_node.span,
                 enclosing_form_name="let*",
+                generated_core_node_id=let_node_id,
             )
         seen_names.add(name_text)
         bindings.append(
@@ -337,12 +362,18 @@ def _shape_let_star(form: SyntaxList) -> LetStarExpression:
 
 
 def _shape_with_phase(form: SyntaxList) -> WithPhaseExpression:
+    with_phase_node_id = _form_node_id_with_optional_symbol_suffix(
+        base_node_id="expression.with-phase",
+        form=form,
+        symbol_position=2,
+    )
     if len(form.items) != 4:
         _raise_expression_error(
             code="frontend_parse_error",
             message="with-phase requires context, phase name, and one body expression",
             span=form.span,
             enclosing_form_name="with-phase",
+            generated_core_node_id=with_phase_node_id,
         )
     phase_node = form.items[2]
     if not isinstance(phase_node, SyntaxAtom) or phase_node.kind is not AtomKind.SYMBOL:
@@ -351,6 +382,7 @@ def _shape_with_phase(form: SyntaxList) -> WithPhaseExpression:
             message="with-phase phase name must be a symbol",
             span=phase_node.span,
             enclosing_form_name="with-phase",
+            generated_core_node_id=with_phase_node_id,
         )
     return WithPhaseExpression(
         context=shape_expression(form.items[1]),
@@ -362,12 +394,26 @@ def _shape_with_phase(form: SyntaxList) -> WithPhaseExpression:
 
 
 def _shape_phase_target(form: SyntaxList) -> PhaseTargetExpression:
+    phase_target_node_id = "expression.phase-target"
+    if len(form.items) == 4:
+        phase_target_node_id = _form_node_id_with_optional_symbol_suffix(
+            base_node_id=phase_target_node_id,
+            form=form,
+            symbol_position=3,
+        )
+    else:
+        phase_target_node_id = _form_node_id_with_optional_symbol_suffix(
+            base_node_id=phase_target_node_id,
+            form=form,
+            symbol_position=2,
+        )
     if len(form.items) not in {3, 4}:
         _raise_expression_error(
             code="frontend_parse_error",
             message="phase-target requires context and target name, with optional phase name",
             span=form.span,
             enclosing_form_name="phase-target",
+            generated_core_node_id=phase_target_node_id,
         )
     phase_name: str | None = None
     if len(form.items) == 4:
@@ -378,6 +424,7 @@ def _shape_phase_target(form: SyntaxList) -> PhaseTargetExpression:
                 message="phase-target phase name must be a symbol",
                 span=phase_node.span,
                 enclosing_form_name="phase-target",
+                generated_core_node_id=phase_target_node_id,
             )
         phase_name = str(phase_node.value)
         target_node = form.items[3]
@@ -389,6 +436,7 @@ def _shape_phase_target(form: SyntaxList) -> PhaseTargetExpression:
             message="phase-target target name must be a symbol",
             span=target_node.span,
             enclosing_form_name="phase-target",
+            generated_core_node_id=phase_target_node_id,
         )
     return PhaseTargetExpression(
         context=shape_expression(form.items[1]),
@@ -400,12 +448,18 @@ def _shape_phase_target(form: SyntaxList) -> PhaseTargetExpression:
 
 
 def _shape_record(form: SyntaxList) -> RecordExpression:
+    record_node_id = _form_node_id_with_optional_symbol_suffix(
+        base_node_id="expression.record",
+        form=form,
+        symbol_position=1,
+    )
     if len(form.items) < 4:
         _raise_expression_error(
             code="frontend_parse_error",
             message="record requires a type symbol and at least one field",
             span=form.span,
             enclosing_form_name="record",
+            generated_core_node_id=record_node_id,
         )
     type_node = form.items[1]
     if not isinstance(type_node, SyntaxAtom) or type_node.kind is not AtomKind.SYMBOL:
@@ -414,6 +468,7 @@ def _shape_record(form: SyntaxList) -> RecordExpression:
             message="record type must be a symbol",
             span=type_node.span,
             enclosing_form_name="record",
+            generated_core_node_id=record_node_id,
         )
 
     raw_fields = form.items[2:]
@@ -423,6 +478,7 @@ def _shape_record(form: SyntaxList) -> RecordExpression:
             message="record fields must be keyword/expression pairs",
             span=form.span,
             enclosing_form_name="record",
+            generated_core_node_id=record_node_id,
         )
 
     fields: list[RecordFieldExpression] = []
@@ -436,6 +492,7 @@ def _shape_record(form: SyntaxList) -> RecordExpression:
                 message="record fields must be keyword/expression pairs",
                 span=key_node.span,
                 enclosing_form_name="record",
+                generated_core_node_id=record_node_id,
             )
         field_name = str(key_node.value)[1:]
         if not field_name:
@@ -444,6 +501,7 @@ def _shape_record(form: SyntaxList) -> RecordExpression:
                 message="record field keyword must not be empty",
                 span=key_node.span,
                 enclosing_form_name="record",
+                generated_core_node_id=record_node_id,
             )
         if field_name in seen_fields:
             _raise_expression_error(
@@ -451,6 +509,7 @@ def _shape_record(form: SyntaxList) -> RecordExpression:
                 message=f"Duplicate record field: {field_name}",
                 span=key_node.span,
                 enclosing_form_name="record",
+                generated_core_node_id=record_node_id,
             )
         seen_fields.add(field_name)
         fields.append(
@@ -578,12 +637,14 @@ def _shape_call(form: SyntaxList) -> CallExpression:
 
 
 def _shape_match(form: SyntaxList) -> MatchExpression:
+    match_node_id = "expression.match"
     if len(form.items) < 3:
         _raise_expression_error(
             code="frontend_parse_error",
             message="match requires a subject and at least one arm",
             span=form.span,
             enclosing_form_name="match",
+            generated_core_node_id=match_node_id,
         )
     subject = shape_expression(form.items[1])
     partial = False
@@ -598,6 +659,7 @@ def _shape_match(form: SyntaxList) -> MatchExpression:
                     message=f"Unsupported match clause: {key_node.value}",
                     span=key_node.span,
                     enclosing_form_name="match",
+                    generated_core_node_id=match_node_id,
                 )
             partial_node = form.items[3]
             if not isinstance(partial_node, SyntaxAtom) or partial_node.kind is not AtomKind.BOOL:
@@ -606,6 +668,7 @@ def _shape_match(form: SyntaxList) -> MatchExpression:
                     message="match :partial value must be a boolean",
                     span=partial_node.span,
                     enclosing_form_name="match",
+                    generated_core_node_id=match_node_id,
                 )
             partial = bool(partial_node.value)
             arm_start_index = 4
@@ -619,6 +682,7 @@ def _shape_match(form: SyntaxList) -> MatchExpression:
                 message="match arms must have shape ((VARIANT binding) expression)",
                 span=arm_node.span,
                 enclosing_form_name="match",
+                generated_core_node_id=match_node_id,
             )
         pattern_node = arm_node.items[0]
         if not isinstance(pattern_node, SyntaxList) or len(pattern_node.items) != 2:
@@ -627,6 +691,7 @@ def _shape_match(form: SyntaxList) -> MatchExpression:
                 message="match arm pattern must have shape (VARIANT binding)",
                 span=pattern_node.span,
                 enclosing_form_name="match",
+                generated_core_node_id=match_node_id,
             )
         variant_node = pattern_node.items[0]
         if not isinstance(variant_node, SyntaxAtom) or variant_node.kind is not AtomKind.SYMBOL:
@@ -635,6 +700,7 @@ def _shape_match(form: SyntaxList) -> MatchExpression:
                 message="match arm variant names must be symbols",
                 span=variant_node.span,
                 enclosing_form_name="match",
+                generated_core_node_id=match_node_id,
             )
         variant_name = str(variant_node.value)
         if variant_name in seen_variants:
@@ -643,6 +709,7 @@ def _shape_match(form: SyntaxList) -> MatchExpression:
                 message=f"Duplicate match arm variant: {variant_name}",
                 span=variant_node.span,
                 enclosing_form_name="match",
+                generated_core_node_id=match_node_id,
             )
         seen_variants.add(variant_name)
         binding_node = pattern_node.items[1]
@@ -652,6 +719,7 @@ def _shape_match(form: SyntaxList) -> MatchExpression:
                 message="match arm binding names must be symbols",
                 span=binding_node.span,
                 enclosing_form_name="match",
+                generated_core_node_id=match_node_id,
             )
         arms.append(
             MatchArmExpression(
