@@ -7,18 +7,18 @@ workflow loader and runtime pipeline.
 
 Start with these project docs before changing the package:
 
-- `../../docs/design/workflow_lisp_frontend_specification.md`:
+- [Workflow Lisp Frontend Specification](../../docs/design/workflow_lisp_frontend_specification.md):
   full frontend design, diagrams, terminology, and long-term architecture.
-- `../../docs/design/workflow_lisp_frontend_mvp_specification.md`:
+- [Workflow Lisp Frontend MVP Specification](../../docs/design/workflow_lisp_frontend_mvp_specification.md):
   implemented MVP scope and intentionally deferred frontend features.
-- `../../docs/workflow_lisp_mvp_comparison.md`:
+- [Workflow Lisp MVP Comparison](../../docs/workflow_lisp_mvp_comparison.md):
   quick side-by-side explanation of why the `.orc` form is more concise than
   the equivalent YAML.
-- `../../docs/design/workflow_lisp_stdlib_lowering.md`:
+- [Workflow Lisp Stdlib Lowering](../../docs/design/workflow_lisp_stdlib_lowering.md):
   intended lowering contracts for higher-level forms such as `provider-result`,
   `command-result`, `resume-or-start`, `resource-transition`, and
   `backlog-drain`.
-- `../../docs/design/workflow_command_adapter_contract.md`:
+- [Workflow Command Adapter Contract](../../docs/design/workflow_command_adapter_contract.md):
   rules for command adapters and why inline Python/shell glue is migration
   debt.
 
@@ -63,17 +63,17 @@ typed frontend expressions become ordinary workflow dictionaries.
 
 The larger design split these internal concepts into separate documents:
 
-- `../../docs/design/workflow_lisp_core_workflow_ast.md`
-- `../../docs/design/workflow_lisp_core_stmt_taxonomy.md`
-- `../../docs/design/workflow_lisp_semantic_workflow_ir.md`
-- `../../docs/design/workflow_lisp_reference_catalog.md`
-- `../../docs/design/workflow_lisp_type_catalog.md`
-- `../../docs/design/workflow_lisp_effect_graph.md`
-- `../../docs/design/workflow_lisp_proof_graph.md`
-- `../../docs/design/workflow_lisp_state_layout.md`
-- `../../docs/design/workflow_lisp_source_map.md`
-- `../../docs/design/workflow_lisp_legacy_adapter.md`
-- `../../docs/design/workflow_lisp_debug_yaml_renderer.md`
+- [Core Workflow AST](../../docs/design/workflow_lisp_core_workflow_ast.md)
+- [Core Statement Taxonomy](../../docs/design/workflow_lisp_core_stmt_taxonomy.md)
+- [Semantic Workflow IR](../../docs/design/workflow_lisp_semantic_workflow_ir.md)
+- [Reference Catalog](../../docs/design/workflow_lisp_reference_catalog.md)
+- [Type Catalog](../../docs/design/workflow_lisp_type_catalog.md)
+- [Effect Graph](../../docs/design/workflow_lisp_effect_graph.md)
+- [Proof Graph](../../docs/design/workflow_lisp_proof_graph.md)
+- [State Layout](../../docs/design/workflow_lisp_state_layout.md)
+- [Source Map](../../docs/design/workflow_lisp_source_map.md)
+- [Legacy Adapter](../../docs/design/workflow_lisp_legacy_adapter.md)
+- [Debug YAML Renderer](../../docs/design/workflow_lisp_debug_yaml_renderer.md)
 
 Some of those docs describe the intended future architecture more broadly than
 the MVP code currently implements. When code and docs differ, use the MVP spec
