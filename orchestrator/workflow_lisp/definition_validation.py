@@ -9,6 +9,7 @@ from .definitions import (
     DefinitionNode,
     DefinitionTypeRef,
     ExportDefinition,
+    FunctionDefinition,
     ImportDefinition,
     ProcedureDefinition,
     RecordDefinition,
@@ -16,6 +17,7 @@ from .definitions import (
     UnionDefinition,
     shape_module_export_definitions,
     shape_module_definitions,
+    shape_module_function_definitions,
     shape_module_import_definitions,
     shape_module_procedure_definitions,
     shape_module_workflow_definitions,
@@ -40,6 +42,7 @@ class DefinitionCheckedModule:
     exported_names: tuple[str, ...] = ()
     workflow_definitions: tuple[WorkflowDefinition, ...] = ()
     procedure_definitions: tuple[ProcedureDefinition, ...] = ()
+    function_definitions: tuple[FunctionDefinition, ...] = ()
 
 
 def _raise_definition_error(
@@ -70,6 +73,7 @@ def validate_definition_module(module: ParsedWorkflowModule) -> DefinitionChecke
     definitions = shape_module_definitions(module)
     workflow_definitions = shape_module_workflow_definitions(module)
     procedure_definitions = shape_module_procedure_definitions(module)
+    function_definitions = shape_module_function_definitions(module)
     import_definitions = shape_module_import_definitions(module)
     export_definitions = shape_module_export_definitions(module)
     table: dict[str, DefinitionNode] = {}
@@ -135,6 +139,39 @@ def validate_definition_module(module: ParsedWorkflowModule) -> DefinitionChecke
                 span=procedure_definition.name_span,
             )
         seen_procedure_names.add(procedure_definition.name)
+    seen_function_names: set[str] = set()
+    for function_definition in function_definitions:
+        if function_definition.name in PRELUDE_RESERVED_NAMES:
+            _raise_definition_error(
+                code="frontend_parse_error",
+                message=f"Reserved prelude name cannot be redefined: {function_definition.name}",
+                span=function_definition.name_span,
+            )
+        if function_definition.name in table:
+            _raise_definition_error(
+                code="frontend_parse_error",
+                message=f"Duplicate top-level definition: {function_definition.name}",
+                span=function_definition.name_span,
+            )
+        if function_definition.name in seen_workflow_names:
+            _raise_definition_error(
+                code="frontend_parse_error",
+                message=f"Duplicate top-level definition: {function_definition.name}",
+                span=function_definition.name_span,
+            )
+        if function_definition.name in seen_procedure_names:
+            _raise_definition_error(
+                code="frontend_parse_error",
+                message=f"Duplicate top-level definition: {function_definition.name}",
+                span=function_definition.name_span,
+            )
+        if function_definition.name in seen_function_names:
+            _raise_definition_error(
+                code="frontend_parse_error",
+                message=f"Duplicate top-level definition: {function_definition.name}",
+                span=function_definition.name_span,
+            )
+        seen_function_names.add(function_definition.name)
     imported_only_names, import_aliases = _collect_imported_type_resolution(import_definitions)
     _validate_known_type_references(
         definitions=definitions,
@@ -145,6 +182,7 @@ def validate_definition_module(module: ParsedWorkflowModule) -> DefinitionChecke
     _validate_callable_signature_type_references(
         workflow_definitions=workflow_definitions,
         procedure_definitions=procedure_definitions,
+        function_definitions=function_definitions,
         known_definition_names=frozenset(table),
         imported_only_names=imported_only_names,
         import_aliases=import_aliases,
@@ -153,7 +191,7 @@ def validate_definition_module(module: ParsedWorkflowModule) -> DefinitionChecke
     local_callable_names = frozenset(
         {workflow.name for workflow in workflow_definitions}.union(
             {procedure.name for procedure in procedure_definitions}
-        )
+        ).union({function.name for function in function_definitions})
     )
     _validate_import_aliases(
         import_definitions=import_definitions,
@@ -183,6 +221,7 @@ def validate_definition_module(module: ParsedWorkflowModule) -> DefinitionChecke
         exported_names=exported_names,
         workflow_definitions=workflow_definitions,
         procedure_definitions=procedure_definitions,
+        function_definitions=function_definitions,
     )
 
 
@@ -248,9 +287,14 @@ def _validate_known_type_references(
 
 
 def _iter_callable_signature_type_references(
-    callable_definition: WorkflowDefinition | ProcedureDefinition,
+    callable_definition: WorkflowDefinition | ProcedureDefinition | FunctionDefinition,
 ) -> tuple[tuple[DefinitionTypeRef, str, str], ...]:
-    form_name = "defworkflow" if isinstance(callable_definition, WorkflowDefinition) else "defproc"
+    if isinstance(callable_definition, WorkflowDefinition):
+        form_name = "defworkflow"
+    elif isinstance(callable_definition, ProcedureDefinition):
+        form_name = "defproc"
+    else:
+        form_name = "defun"
     refs: list[tuple[DefinitionTypeRef, str, str]] = [
         (
             parameter.type_ref,
@@ -273,13 +317,14 @@ def _validate_callable_signature_type_references(
     *,
     workflow_definitions: tuple[WorkflowDefinition, ...],
     procedure_definitions: tuple[ProcedureDefinition, ...],
+    function_definitions: tuple[FunctionDefinition, ...],
     known_definition_names: frozenset[str],
     imported_only_names: frozenset[str],
     import_aliases: frozenset[str],
 ) -> None:
     known_type_names = PRELUDE_RESERVED_NAMES.union(known_definition_names).union(imported_only_names)
-    callable_definitions: tuple[WorkflowDefinition | ProcedureDefinition, ...] = (
-        workflow_definitions + procedure_definitions
+    callable_definitions: tuple[WorkflowDefinition | ProcedureDefinition | FunctionDefinition, ...] = (
+        workflow_definitions + procedure_definitions + function_definitions
     )
     for callable_definition in callable_definitions:
         for type_ref, generated_core_node_id, enclosing_form_name in _iter_callable_signature_type_references(

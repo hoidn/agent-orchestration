@@ -249,6 +249,26 @@ def test_shape_module_procedure_definitions_shapes_defproc_signatures() -> None:
     assert len(build_plan.body_forms) == 1
 
 
+def test_shape_module_function_definitions_shapes_defun_signatures() -> None:
+    parser = _parser_module()
+    definitions = _definitions_module()
+    source_path = _fixture_path("valid_defuns.orc")
+
+    module = parser.parse_workflow_module_text(
+        source_path.read_text(encoding="utf-8"),
+        source_path=str(source_path),
+    )
+    shaped = definitions.shape_module_function_definitions(module)
+
+    assert len(shaped) == 2
+    normalize_inputs = shaped[0]
+    assert isinstance(normalize_inputs, definitions.FunctionDefinition)
+    assert normalize_inputs.name == "normalize_inputs"
+    assert tuple(parameter.name for parameter in normalize_inputs.parameters) == ("inputs",)
+    assert tuple(parameter.type_ref.name for parameter in normalize_inputs.parameters) == ("PlanInputs",)
+    assert normalize_inputs.return_type.name == "PlanInputs"
+    assert len(normalize_inputs.body_forms) == 1
+
 def test_shape_module_definitions_allows_import_export_module_forms() -> None:
     parser = _parser_module()
     definitions = _definitions_module()

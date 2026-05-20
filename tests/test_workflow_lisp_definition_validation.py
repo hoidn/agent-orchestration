@@ -243,6 +243,49 @@ def test_validate_definition_module_shapes_procedure_definitions() -> None:
     assert tuple(workflow.name for workflow in checked.workflow_definitions) == ("run_phase",)
 
 
+def test_validate_definition_module_shapes_function_definitions() -> None:
+    parser = _parser_module()
+    validation = _validation_module()
+    source_path = _fixture_path("valid_defuns.orc")
+
+    module = parser.parse_workflow_module_text(
+        source_path.read_text(encoding="utf-8"),
+        source_path=str(source_path),
+    )
+    checked = validation.validate_definition_module(module)
+
+    assert tuple(function.name for function in checked.function_definitions) == (
+        "normalize_inputs",
+        "normalize_path",
+    )
+    assert tuple(workflow.name for workflow in checked.workflow_definitions) == ("run_phase",)
+
+
+def test_validate_definition_module_rejects_unknown_function_signature_types() -> None:
+    parser = _parser_module()
+    validation = _validation_module()
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defun normalize ((raw MissingType)) -> String
+  raw)
+""",
+        source_path="inline_invalid_defun_unknown_type.orc",
+    )
+
+    with pytest.raises(Exception) as exc_info:
+        validation.validate_definition_module(module)
+
+    diagnostic = _diagnostic_from_error(exc_info.value)
+    assert diagnostic.code == "type_unknown"
+    assert "Unknown type reference: MissingType" in diagnostic.message
+    assert diagnostic.generated_core_node_id == "normalize.input.raw"
+    assert diagnostic.enclosing_form_name == "defun"
+
+
 @pytest.mark.parametrize(
     ("fixture_name", "expected_node_id"),
     [

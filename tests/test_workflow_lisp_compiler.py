@@ -85,6 +85,20 @@ def test_compile_workflow_module_file_accepts_local_procedure_calls() -> None:
     assert tuple(workflow.name for workflow in compiled.expression_module.workflows) == ("run_phase",)
 
 
+def test_compile_workflow_module_file_preserves_function_definitions() -> None:
+    compiler = _compiler_module()
+    source_path = _definition_fixture_path("valid_defuns.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+
+    assert compiled.expression_module.source_path == str(source_path)
+    assert tuple(function.name for function in compiled.definition_module.function_definitions) == (
+        "normalize_inputs",
+        "normalize_path",
+    )
+    assert tuple(workflow.name for workflow in compiled.expression_module.workflows) == ("run_phase",)
+
+
 def test_compile_and_lower_workflow_module_file_runs_pipeline_through_lowering() -> None:
     compiler = _compiler_module()
     source_path = _fixture_path("valid_provider_command_result_expressions.orc")

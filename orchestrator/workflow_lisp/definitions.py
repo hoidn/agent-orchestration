@@ -95,6 +95,18 @@ class ProcedureDefinition:
 
 
 @dataclass(frozen=True)
+class FunctionDefinition:
+    """Shaped top-level defun declaration."""
+
+    name: str
+    name_span: SourceSpan
+    parameters: tuple[WorkflowParameter, ...]
+    return_type: DefinitionTypeRef
+    body_forms: tuple[SyntaxNode, ...]
+    form_span: SourceSpan
+
+
+@dataclass(frozen=True)
 class RecordDefinition:
     """Shaped top-level defrecord declaration."""
 
@@ -522,7 +534,7 @@ def _shape_callable_definition(
     form: SyntaxList,
     *,
     callable_form_name: str,
-) -> WorkflowDefinition | ProcedureDefinition:
+) -> WorkflowDefinition | ProcedureDefinition | FunctionDefinition:
     if len(form.items) < 6:
         _raise_definition_error(
             code="frontend_parse_error",
@@ -608,7 +620,9 @@ def _shape_callable_definition(
     }
     if callable_form_name == "defworkflow":
         return WorkflowDefinition(**callable_kwargs)
-    return ProcedureDefinition(**callable_kwargs)
+    if callable_form_name == "defproc":
+        return ProcedureDefinition(**callable_kwargs)
+    return FunctionDefinition(**callable_kwargs)
 
 
 def _shape_defworkflow(form: SyntaxList) -> WorkflowDefinition:
@@ -626,6 +640,15 @@ def _shape_defproc(form: SyntaxList) -> ProcedureDefinition:
         callable_form_name="defproc",
     )
     assert isinstance(shaped, ProcedureDefinition)
+    return shaped
+
+
+def _shape_defun(form: SyntaxList) -> FunctionDefinition:
+    shaped = _shape_callable_definition(
+        form,
+        callable_form_name="defun",
+    )
+    assert isinstance(shaped, FunctionDefinition)
     return shaped
 
 
@@ -802,6 +825,8 @@ def shape_module_definitions(module: ParsedWorkflowModule) -> tuple[DefinitionNo
             continue
         if head.value == "defproc":
             continue
+        if head.value == "defun":
+            continue
         if head.value in {"import", "export"}:
             continue
         _raise_definition_error(
@@ -840,6 +865,7 @@ def shape_module_workflow_definitions(module: ParsedWorkflowModule) -> tuple[Wor
             "defschema",
             "defunion",
             "defproc",
+            "defun",
             "import",
             "export",
         }:
@@ -880,6 +906,7 @@ def shape_module_procedure_definitions(module: ParsedWorkflowModule) -> tuple[Pr
             "defschema",
             "defunion",
             "defworkflow",
+            "defun",
             "import",
             "export",
         }:
@@ -913,6 +940,47 @@ def shape_module_import_definitions(module: ParsedWorkflowModule) -> tuple[Impor
         if head.value == "import":
             imports.append(_shape_import(form))
     return tuple(imports)
+
+
+def shape_module_function_definitions(module: ParsedWorkflowModule) -> tuple[FunctionDefinition, ...]:
+    """Shape supported top-level defun declarations."""
+
+    function_definitions: list[FunctionDefinition] = []
+    for form in module.body_forms:
+        if not isinstance(form, SyntaxList) or not form.items:
+            _raise_definition_error(
+                code="frontend_parse_error",
+                message="Top-level definition must be a non-empty list",
+                span=form.span,
+            )
+        head = form.items[0]
+        if not isinstance(head, SyntaxAtom) or head.kind is not AtomKind.SYMBOL:
+            _raise_definition_error(
+                code="frontend_parse_error",
+                message="Top-level definition must start with a symbol",
+                span=head.span,
+            )
+        if head.value == "defun":
+            function_definitions.append(_shape_defun(form))
+            continue
+        if head.value in {
+            "defenum",
+            "defpath",
+            "defrecord",
+            "defschema",
+            "defunion",
+            "defworkflow",
+            "defproc",
+            "import",
+            "export",
+        }:
+            continue
+        _raise_definition_error(
+            code="frontend_parse_error",
+            message=f"Unsupported top-level definition form: {head.value}",
+            span=head.span,
+        )
+    return tuple(function_definitions)
 
 
 def shape_module_export_definitions(module: ParsedWorkflowModule) -> tuple[ExportDefinition, ...]:
