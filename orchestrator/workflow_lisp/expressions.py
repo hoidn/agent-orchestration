@@ -667,12 +667,19 @@ def _shape_match(form: SyntaxList) -> MatchExpression:
 
 
 def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
+    provider_node_id = "expression.provider-result"
+    if len(form.items) >= 2:
+        maybe_provider = form.items[1]
+        if isinstance(maybe_provider, SyntaxAtom) and maybe_provider.kind is AtomKind.SYMBOL:
+            provider_node_id = f"expression.provider-result.{maybe_provider.value}"
+
     if len(form.items) < 8:
         _raise_expression_error(
             code="frontend_parse_error",
             message="provider-result requires provider, :prompt, :inputs, and :returns clauses",
             span=form.span,
             enclosing_form_name="provider-result",
+            generated_core_node_id=provider_node_id,
         )
     provider_node = form.items[1]
     if not isinstance(provider_node, SyntaxAtom) or provider_node.kind is not AtomKind.SYMBOL:
@@ -681,6 +688,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
             message="provider-result provider reference must be a symbol",
             span=provider_node.span,
             enclosing_form_name="provider-result",
+            generated_core_node_id=provider_node_id,
         )
     clauses = form.items[2:]
     if len(clauses) % 2 != 0:
@@ -689,6 +697,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
             message="provider-result clauses must be keyword/value pairs",
             span=form.span,
             enclosing_form_name="provider-result",
+            generated_core_node_id=provider_node_id,
         )
 
     prompt_reference: ReferenceExpression | None = None
@@ -706,6 +715,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
                 message="provider-result clauses must be keyword/value pairs",
                 span=key_node.span,
                 enclosing_form_name="provider-result",
+                generated_core_node_id=provider_node_id,
             )
         key_text = str(key_node.value)
         if key_text in seen_keys:
@@ -714,6 +724,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
                 message=f"Duplicate provider-result clause: {key_text}",
                 span=key_node.span,
                 enclosing_form_name="provider-result",
+                generated_core_node_id=provider_node_id,
             )
         seen_keys.add(key_text)
 
@@ -725,6 +736,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
                     message="provider-result :prompt value must be a symbol reference",
                     span=value_node.span,
                     enclosing_form_name="provider-result",
+                    generated_core_node_id=provider_node_id,
                 )
             prompt_reference = prompt_expression
             continue
@@ -735,6 +747,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
                     message="provider-result :inputs value must be an expression list",
                     span=value_node.span,
                     enclosing_form_name="provider-result",
+                    generated_core_node_id=provider_node_id,
                 )
             inputs = tuple(shape_expression(item) for item in value_node.items)
             continue
@@ -745,6 +758,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
                     message="provider-result :returns value must be a type symbol",
                     span=value_node.span,
                     enclosing_form_name="provider-result",
+                    generated_core_node_id=provider_node_id,
                 )
             returns_type_name = str(value_node.value)
             returns_type_span = value_node.span
@@ -754,6 +768,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
             message=f"Unsupported provider-result clause: {key_text}",
             span=key_node.span,
             enclosing_form_name="provider-result",
+            generated_core_node_id=provider_node_id,
         )
 
     if prompt_reference is None or inputs is None or returns_type_name is None or returns_type_span is None:
@@ -762,6 +777,7 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
             message="provider-result requires :prompt, :inputs, and :returns clauses",
             span=form.span,
             enclosing_form_name="provider-result",
+            generated_core_node_id=provider_node_id,
         )
 
     return ProviderResultExpression(
@@ -775,12 +791,19 @@ def _shape_provider_result(form: SyntaxList) -> ProviderResultExpression:
 
 
 def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
+    command_node_id = "expression.command-result"
+    if len(form.items) >= 2:
+        maybe_command = form.items[1]
+        if isinstance(maybe_command, SyntaxAtom) and maybe_command.kind is AtomKind.SYMBOL:
+            command_node_id = f"expression.command-result.{maybe_command.value}"
+
     if len(form.items) < 6:
         _raise_expression_error(
             code="frontend_parse_error",
             message="command-result requires command name, :argv, and :returns clauses",
             span=form.span,
             enclosing_form_name="command-result",
+            generated_core_node_id=command_node_id,
         )
     command_node = form.items[1]
     if not isinstance(command_node, SyntaxAtom) or command_node.kind is not AtomKind.SYMBOL:
@@ -789,6 +812,7 @@ def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
             message="command-result command name must be a symbol",
             span=command_node.span,
             enclosing_form_name="command-result",
+            generated_core_node_id=command_node_id,
         )
 
     clauses = form.items[2:]
@@ -798,6 +822,7 @@ def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
             message="command-result clauses must be keyword/value pairs",
             span=form.span,
             enclosing_form_name="command-result",
+            generated_core_node_id=command_node_id,
         )
 
     argv: tuple[ExpressionNode, ...] | None = None
@@ -814,6 +839,7 @@ def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
                 message="command-result clauses must be keyword/value pairs",
                 span=key_node.span,
                 enclosing_form_name="command-result",
+                generated_core_node_id=command_node_id,
             )
         key_text = str(key_node.value)
         if key_text in seen_keys:
@@ -822,6 +848,7 @@ def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
                 message=f"Duplicate command-result clause: {key_text}",
                 span=key_node.span,
                 enclosing_form_name="command-result",
+                generated_core_node_id=command_node_id,
             )
         seen_keys.add(key_text)
 
@@ -832,6 +859,7 @@ def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
                     message="command-result :argv value must be an expression list",
                     span=value_node.span,
                     enclosing_form_name="command-result",
+                    generated_core_node_id=command_node_id,
                 )
             argv = tuple(shape_expression(item) for item in value_node.items)
             continue
@@ -842,6 +870,7 @@ def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
                     message="command-result :returns value must be a type symbol",
                     span=value_node.span,
                     enclosing_form_name="command-result",
+                    generated_core_node_id=command_node_id,
                 )
             returns_type_name = str(value_node.value)
             returns_type_span = value_node.span
@@ -851,6 +880,7 @@ def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
             message=f"Unsupported command-result clause: {key_text}",
             span=key_node.span,
             enclosing_form_name="command-result",
+            generated_core_node_id=command_node_id,
         )
 
     if argv is None or returns_type_name is None or returns_type_span is None:
@@ -859,6 +889,7 @@ def _shape_command_result(form: SyntaxList) -> CommandResultExpression:
             message="command-result requires :argv and :returns clauses",
             span=form.span,
             enclosing_form_name="command-result",
+            generated_core_node_id=command_node_id,
         )
 
     return CommandResultExpression(

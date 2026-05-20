@@ -340,12 +340,12 @@ def test_shape_expression_parses_phase_target_expression_with_explicit_phase_nam
         (
             "invalid_provider_result_bad_clause_shape.orc",
             "provider-result :inputs value must be an expression list",
-            None,
+            "expression.provider-result.execute_provider",
         ),
         (
             "invalid_command_result_bad_argv_shape.orc",
             "command-result :argv value must be an expression list",
-            None,
+            "expression.command-result.run_checks",
         ),
         (
             "invalid_with_phase_bad_phase_name.orc",
