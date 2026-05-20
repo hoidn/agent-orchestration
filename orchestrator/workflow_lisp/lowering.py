@@ -3254,14 +3254,18 @@ def _alias_qualified_member_name(*, call_target: str, alias: str) -> str | None:
 
 
 def _module_ref_to_import_path(module_ref: str) -> str:
-    module_path, separator, _ = module_ref.partition("#")
+    module_path, separator, fragment = module_ref.partition("#")
     if module_path.endswith(".yaml") or module_path.endswith(".yml") or module_path.endswith(".orc"):
         return module_ref
+
+    if "/" not in module_path and "." in module_path:
+        normalized_path = f"{module_path.replace('.', '/')}.yaml"
+    else:
+        normalized_path = f"{module_path}.yaml"
+
     if separator:
-        return module_ref
-    if "/" not in module_ref and "." in module_ref:
-        return f"{module_ref.replace('.', '/')}.yaml"
-    return f"{module_ref}.yaml"
+        return f"{normalized_path}#{fragment}"
+    return normalized_path
 
 
 def _first_case_step_name(case_payload: Any) -> str | None:

@@ -566,6 +566,30 @@ def test_lower_compiled_module_normalizes_dotted_module_ref_to_import_path() -> 
     }
 
 
+def test_lower_compiled_module_normalizes_dotted_module_ref_with_explicit_fragment() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    compiled = compiler.compile_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(import remote.workflows#run_phase :as remote)
+
+(defworkflow run () -> String
+  (call remote/run_phase :returns String))
+""",
+        source_path="inline_imported_dotted_fragment_ref.orc",
+    )
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    workflow = lowered["run"]
+    assert workflow["imports"] == {
+        "remote/run_phase": "remote/workflows.yaml#run_phase",
+    }
+
+
 def test_lower_compiled_module_preserves_orc_module_ref_import_path() -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()
