@@ -998,6 +998,54 @@ def test_lower_compiled_module_supports_nil_scalar_root_expression(tmp_path: Pat
     assert loaded.surface.name == "emit_null"
 
 
+def test_lower_compiled_module_supports_symbol_scalar_root_expression(tmp_path: Path) -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = str(_fixture_path("inline_symbol_literal_expression.orc"))
+
+    compiled = compiler.compile_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_symbol () -> Symbol
+  'ready)
+""",
+        source_path=source_path,
+    )
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    workflow = lowered["emit_symbol"]
+    assert workflow["outputs"] == {
+        "result": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "root.steps.ScalarResult.artifacts.result"},
+        }
+    }
+    assert workflow["steps"] == [
+        {
+            "name": "ScalarResult",
+            "id": "scalar_result",
+            "materialize_artifacts": {
+                "values": [
+                    {
+                        "name": "result",
+                        "source": {"literal": "ready"},
+                        "contract": {"type": "string"},
+                    }
+                ]
+            },
+        }
+    ]
+
+    path = tmp_path / "emit_symbol.yaml"
+    path.write_text(yaml.safe_dump(workflow), encoding="utf-8")
+    loaded = WorkflowLoader(tmp_path).load(path)
+    assert loaded.surface.name == "emit_symbol"
+
+
 def test_lower_compiled_module_supports_match_root_execution_routes(tmp_path: Path) -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()

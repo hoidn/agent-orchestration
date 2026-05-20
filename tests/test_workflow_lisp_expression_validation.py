@@ -195,6 +195,30 @@ def test_validate_expression_module_accepts_nil_literal_expression() -> None:
     assert result.workflows[0].inferred_return_type == "Json"
 
 
+def test_validate_expression_module_accepts_quoted_symbol_literal_expression() -> None:
+    parser = _parser_module()
+    definition_validation = _definition_validation_module()
+    expression_validation = _expression_validation_module()
+    source_path = str(_fixture_path("inline_quoted_symbol_literal.orc"))
+    module = parser.parse_workflow_module_text(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_symbol () -> Symbol
+  'ready)
+""",
+        source_path=source_path,
+    )
+    checked = definition_validation.validate_definition_module(module)
+
+    result = expression_validation.validate_expression_module(checked)
+
+    assert tuple(workflow.name for workflow in result.workflows) == ("emit_symbol",)
+    assert result.workflows[0].inferred_return_type == "Symbol"
+
+
 def test_validate_expression_module_accepts_imported_type_references() -> None:
     expression_validation = _expression_validation_module()
     checked = _checked_module_from_definition_fixture("valid_imported_type_references.orc")

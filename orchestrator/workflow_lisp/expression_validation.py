@@ -245,6 +245,7 @@ def _build_type_catalog(
         "Float": _ScalarType(name="Float"),
         "Bool": _ScalarType(name="Bool"),
         "Json": _ScalarType(name="Json"),
+        "Symbol": _ScalarType(name="Symbol"),
         "Provider": _ScalarType(name="Provider"),
         "Prompt": _ScalarType(name="Prompt"),
         "PathRel": _ScalarType(name="PathRel"),
@@ -386,6 +387,8 @@ def _infer_expression_type(
     if isinstance(expression, LiteralExpression):
         if expression.kind.value == "string":
             return catalog["String"]
+        if expression.kind.value == "quoted_symbol":
+            return catalog["Symbol"]
         if expression.kind.value == "int":
             return catalog["Int"]
         if expression.kind.value == "float":

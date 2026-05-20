@@ -2040,7 +2040,7 @@ def _input_contract_for_type(
     span: SourceSpan,
     generated_core_node_id: str | None = None,
 ) -> dict[str, Any]:
-    if type_name in {"String", "Json", "Provider", "Prompt"}:
+    if type_name in {"String", "Json", "Symbol", "Provider", "Prompt"}:
         return {"kind": "scalar", "type": "string"}
     if type_name == "Int":
         return {"kind": "scalar", "type": "integer"}
@@ -2163,7 +2163,7 @@ def _bundle_field_contract_for_type(
     *,
     generated_core_node_id: str | None = None,
 ) -> dict[str, Any]:
-    if type_name in {"String", "Json", "Provider", "Prompt"}:
+    if type_name in {"String", "Json", "Symbol", "Provider", "Prompt"}:
         return {"type": "string"}
     if type_name == "Int":
         return {"type": "integer"}

@@ -229,6 +229,27 @@ def test_shape_expression_parses_nil_literal_expression() -> None:
     assert shaped.value is None
 
 
+def test_shape_expression_parses_quoted_symbol_literal_expression() -> None:
+    expressions = _expressions_module()
+    body_node = _workflow_body_expression_from_source(
+        """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defworkflow emit_symbol () -> Symbol
+  'ready)
+""",
+        source_name="inline_valid_quoted_symbol_literal.orc",
+    )
+
+    shaped = expressions.shape_expression(body_node)
+
+    assert isinstance(shaped, expressions.LiteralExpression)
+    assert shaped.kind is expressions.AtomKind.QUOTED_SYMBOL
+    assert shaped.value == "ready"
+
+
 def test_shape_expression_parses_with_phase_expression() -> None:
     expressions = _expressions_module()
     body_node = _workflow_body_expression_from_fixture("valid_with_phase.orc")

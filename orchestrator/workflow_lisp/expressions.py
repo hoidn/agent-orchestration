@@ -241,7 +241,14 @@ def shape_expression(node: SyntaxNode) -> ExpressionNode:
 
 
 def _shape_atom_expression(node: SyntaxAtom) -> ExpressionNode:
-    if node.kind in {AtomKind.STRING, AtomKind.INT, AtomKind.FLOAT, AtomKind.BOOL, AtomKind.NIL}:
+    if node.kind in {
+        AtomKind.STRING,
+        AtomKind.QUOTED_SYMBOL,
+        AtomKind.INT,
+        AtomKind.FLOAT,
+        AtomKind.BOOL,
+        AtomKind.NIL,
+    }:
         return LiteralExpression(kind=node.kind, value=node.value, span=node.span)
     if node.kind is not AtomKind.SYMBOL:
         _raise_expression_error(
