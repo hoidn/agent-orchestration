@@ -253,36 +253,36 @@ It does not emit machine code or rewrite the workflow as YAML. It builds checked
 \end{columns}
 \end{frame}
 
-\begin{frame}{Why Lisp on top of YAML?}
+\begin{frame}{Why a Lisp frontend over YAML?}
 \small
 \begin{columns}[T,totalwidth=\textwidth]
 \begin{column}{0.48\textwidth}
-\begin{block}{YAML is the runtime surface}
+\begin{block}{YAML stays close to runtime}
 \footnotesize
 \begin{itemize}
-  \item Transparent execution/config format.
-  \item Good for explicit step wiring.
-  \item Validation mostly checks schema, fields, and declared contracts.
-  \item Reuse tends to happen by copying, importing, or expanding step blocks.
+  \item Explicit step wiring and migration/debug visibility.
+  \item Existing executor still owns state, resume, ledgers, artifacts, and provider/command execution.
+  \item Command steps remain valid for real external work.
+  \item Debug YAML can help audit compiled workflows, but it is not compiler authority.
 \end{itemize}
 \end{block}
 \end{column}
 \begin{column}{0.48\textwidth}
-\begin{block}{Lisp is the authoring frontend}
+\begin{block}{Lisp removes semantic glue}
 \footnotesize
 \begin{itemize}
-  \item Names reusable forms, procedures, macros, and modules.
-  \item Checks names, records, unions, inputs, returns, and operations before runtime.
-  \item Lets one semantic form lower to the same validated runtime machinery.
-  \item Keeps refactors tied to definitions and source-span diagnostics.
+  \item Typed records/unions replace markdown and JSON scraping.
+  \item \texttt{match} proves variant-specific access instead of hand-pairing \texttt{when} and \texttt{requires\_variant}.
+  \item Phase context replaces repeated state-path and pointer conventions.
+  \item Procedures/macros reuse workflow meaning, not copied shell blocks.
 \end{itemize}
 \end{block}
 \end{column}
 \end{columns}
-\vspace{0.45em}
-\begin{block}{Positioning}
+\vspace{0.35em}
+\begin{block}{Boundary}
 \footnotesize
-Use YAML when explicit wiring is the point. Use Lisp when workflows become large, typed, repeated, or semantically rich; it compiles into checked workflow objects the existing executor already knows how to run.
+Not ``no Python.'' No hidden semantic Python. Inline Bash/Python is fine for incidental tooling, but workflow meaning should be a typed \texttt{provider-result}, \texttt{command-result}, certified adapter, or frontend/runtime form that lowers through shared validation and source maps.
 \end{block}
 \end{frame}
 
