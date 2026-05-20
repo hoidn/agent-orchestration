@@ -356,6 +356,20 @@ def test_lower_compiled_module_lowers_local_defproc_and_callers(tmp_path: Path) 
     assert loaded_caller.surface.name == "run_phase"
 
 
+def test_lower_compiled_module_limits_defmodule_outputs_to_exported_callable_closure() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_path = _definition_fixture_path("valid_module_exported_callable_closure.orc")
+
+    compiled = compiler.compile_workflow_module_file(source_path)
+    lowered = lowering.lower_compiled_module_to_workflow_dicts(compiled)
+
+    assert set(lowered) == {"build_status", "private_helper", "run_public"}
+    assert "internal_only" not in lowered
+    assert lowered["run_public"]["imports"] == {"private_helper": "./private_helper.yaml"}
+    assert lowered["private_helper"]["imports"] == {"build_status": "./build_status.yaml"}
+
+
 def test_lower_compiled_module_emits_call_step_for_zero_argument_call_expression(tmp_path: Path) -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()

@@ -33,7 +33,7 @@ from .expressions import (
     WithPhaseExpression,
 )
 from .parser import WorkflowLispSyntaxError
-from .syntax import SourceSpan, SyntaxDiagnostic
+from .syntax import AtomKind, SourceSpan, SyntaxAtom, SyntaxDiagnostic
 
 
 @dataclass(frozen=True)
@@ -107,7 +107,16 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
             for checked in compiled.expression_module.procedures
         ]
     )
+    callable_expressions = {name: expression for name, expression, _ in checked_callables}
+    selected_callable_names = _select_callables_to_lower(
+        compiled=compiled,
+        callable_signatures=callable_signatures,
+        callable_expressions=callable_expressions,
+        checked_callables=checked_callables,
+    )
     for callable_name, checked_expression, form_name in checked_callables:
+        if callable_name not in selected_callable_names:
+            continue
         signature = callable_signatures.get(callable_name)
         if signature is None:
             _raise_lowering_error(
@@ -367,6 +376,106 @@ def lower_compiled_module_to_workflow_dicts(compiled: CompiledWorkflowModule) ->
     """Compatibility helper returning only lowered workflow dictionaries."""
 
     return lower_compiled_module(compiled).workflows
+
+
+def _select_callables_to_lower(
+    *,
+    compiled: CompiledWorkflowModule,
+    callable_signatures: Mapping[str, WorkflowDefinition | ProcedureDefinition],
+    callable_expressions: Mapping[str, ExpressionNode],
+    checked_callables: list[tuple[str, ExpressionNode, str]],
+) -> frozenset[str]:
+    ordered_callable_names = tuple(name for name, _, _ in checked_callables)
+    if not _is_defmodule_header(compiled):
+        return frozenset(ordered_callable_names)
+
+    exported_callable_roots = tuple(
+        exported_name
+        for exported_name in compiled.definition_module.exported_names
+        if exported_name in callable_signatures
+    )
+    if not exported_callable_roots:
+        return frozenset(ordered_callable_names)
+
+    local_callable_names = frozenset(callable_signatures)
+    selected: set[str] = set()
+    frontier = list(exported_callable_roots)
+    while frontier:
+        callable_name = frontier.pop()
+        if callable_name in selected:
+            continue
+        selected.add(callable_name)
+        expression = callable_expressions.get(callable_name)
+        if expression is None:
+            continue
+        for local_target in _collect_local_call_targets_from_expression(
+            expression,
+            local_callable_names=local_callable_names,
+        ):
+            if local_target not in selected:
+                frontier.append(local_target)
+
+    return frozenset(name for name in ordered_callable_names if name in selected)
+
+
+def _is_defmodule_header(compiled: CompiledWorkflowModule) -> bool:
+    if not compiled.parsed_module.header_form.items:
+        return False
+    head = compiled.parsed_module.header_form.items[0]
+    return isinstance(head, SyntaxAtom) and head.kind is AtomKind.SYMBOL and str(head.value) == "defmodule"
+
+
+def _collect_local_call_targets_from_expression(
+    expression: ExpressionNode,
+    *,
+    local_callable_names: frozenset[str],
+) -> frozenset[str]:
+    targets: set[str] = set()
+
+    def visit(node: ExpressionNode) -> None:
+        if isinstance(node, CallExpression):
+            if node.callee_name in local_callable_names:
+                targets.add(node.callee_name)
+            for argument in node.arguments:
+                visit(argument.value)
+            return
+        if isinstance(node, LetStarExpression):
+            for binding in node.bindings:
+                visit(binding.value)
+            visit(node.body)
+            return
+        if isinstance(node, MatchExpression):
+            visit(node.subject)
+            for arm in node.arms:
+                visit(arm.body)
+            return
+        if isinstance(node, RecordExpression):
+            for field in node.fields:
+                visit(field.value)
+            return
+        if isinstance(node, ProviderResultExpression):
+            for provider_input in node.inputs:
+                visit(provider_input)
+            return
+        if isinstance(node, CommandResultExpression):
+            for argument in node.argv:
+                visit(argument)
+            return
+        if isinstance(node, WithPhaseExpression):
+            visit(node.context)
+            visit(node.body)
+            return
+        if isinstance(node, PhaseTargetExpression):
+            visit(node.context)
+            return
+        if isinstance(node, FieldAccessExpression):
+            visit(node.base)
+            return
+        if isinstance(node, (LiteralExpression, ReferenceExpression)):
+            return
+
+    visit(expression)
+    return frozenset(targets)
 
 
 def _lower_root_expression(
