@@ -870,6 +870,7 @@ def _infer_expression_type(
         return catalog["PathRel"]
 
     if isinstance(expression, MatchExpression):
+        match_node_id = _match_generated_node_id(workflow_result_node_id=generated_core_node_id)
         subject_type = _infer_expression_type(
             expression.subject,
             env,
@@ -879,7 +880,7 @@ def _infer_expression_type(
             import_aliases=import_aliases,
             imported_workflow_targets=imported_workflow_targets,
             imported_workflow_qualifiers=imported_workflow_qualifiers,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=match_node_id,
         )
         if not isinstance(subject_type, _UnionType):
             _raise_expression_error(
@@ -887,12 +888,16 @@ def _infer_expression_type(
                 message="match subject must be a union type",
                 span=expression.subject.span,
                 enclosing_form_name="match",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=match_node_id,
             )
 
         seen_variants: set[str] = set()
         arm_types: list[_ValueType] = []
         for arm in expression.arms:
+            arm_node_id = _match_case_generated_node_id(
+                workflow_result_node_id=generated_core_node_id,
+                variant_name=arm.variant_name,
+            )
             variant_fields = subject_type.variants.get(arm.variant_name)
             if variant_fields is None:
                 _raise_expression_error(
@@ -900,7 +905,7 @@ def _infer_expression_type(
                     message=f"Unknown match variant {arm.variant_name} for union {subject_type.name}",
                     span=arm.variant_span,
                     enclosing_form_name="match",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=arm_node_id,
                 )
             if arm.variant_name in seen_variants:
                 _raise_expression_error(
@@ -908,7 +913,7 @@ def _infer_expression_type(
                     message=f"Duplicate match arm variant: {arm.variant_name}",
                     span=arm.variant_span,
                     enclosing_form_name="match",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=arm_node_id,
                 )
             seen_variants.add(arm.variant_name)
 
@@ -928,7 +933,7 @@ def _infer_expression_type(
                     import_aliases=import_aliases,
                     imported_workflow_targets=imported_workflow_targets,
                     imported_workflow_qualifiers=imported_workflow_qualifiers,
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=arm_node_id,
                 )
             )
 
@@ -939,7 +944,7 @@ def _infer_expression_type(
                 message=f"Non-exhaustive match over {subject_type.name}",
                 span=expression.span,
                 enclosing_form_name="match",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=match_node_id,
             )
 
         if not arm_types:
@@ -948,7 +953,7 @@ def _infer_expression_type(
                 message="match requires at least one arm",
                 span=expression.span,
                 enclosing_form_name="match",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=match_node_id,
             )
 
         first_name = _type_name(arm_types[0])
@@ -962,7 +967,7 @@ def _infer_expression_type(
                     ),
                     span=expression.span,
                     enclosing_form_name="match",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=match_node_id,
                 )
         return arm_types[0]
 
@@ -983,32 +988,47 @@ def _type_name(value_type: _ValueType) -> str:
 def _call_generated_node_id(
     *, workflow_result_node_id: str | None, callee_name: str
 ) -> str | None:
-    if workflow_result_node_id is None:
+    workflow_node_prefix = _workflow_node_prefix(workflow_result_node_id=workflow_result_node_id)
+    if workflow_node_prefix is None:
         return None
-    if workflow_result_node_id.endswith(".result"):
-        workflow_node_prefix = workflow_result_node_id[: -len(".result")]
-    else:
-        workflow_node_prefix = workflow_result_node_id
     return f"{workflow_node_prefix}.call.{callee_name}"
 
 
 def _provider_result_generated_node_id(*, workflow_result_node_id: str | None) -> str | None:
-    if workflow_result_node_id is None:
+    workflow_node_prefix = _workflow_node_prefix(workflow_result_node_id=workflow_result_node_id)
+    if workflow_node_prefix is None:
         return None
-    if workflow_result_node_id.endswith(".result"):
-        workflow_node_prefix = workflow_result_node_id[: -len(".result")]
-    else:
-        workflow_node_prefix = workflow_result_node_id
     return f"{workflow_node_prefix}.provider-result"
 
 
 def _command_result_generated_node_id(
     *, workflow_result_node_id: str | None, command_name: str
 ) -> str | None:
+    workflow_node_prefix = _workflow_node_prefix(workflow_result_node_id=workflow_result_node_id)
+    if workflow_node_prefix is None:
+        return None
+    return f"{workflow_node_prefix}.command-result.{command_name}"
+
+
+def _match_generated_node_id(*, workflow_result_node_id: str | None) -> str | None:
+    workflow_node_prefix = _workflow_node_prefix(workflow_result_node_id=workflow_result_node_id)
+    if workflow_node_prefix is None:
+        return None
+    return f"{workflow_node_prefix}.match"
+
+
+def _match_case_generated_node_id(*, workflow_result_node_id: str | None, variant_name: str) -> str | None:
+    match_node_id = _match_generated_node_id(workflow_result_node_id=workflow_result_node_id)
+    if match_node_id is None:
+        return None
+    return f"{match_node_id}.case.{variant_name}"
+
+
+def _workflow_node_prefix(*, workflow_result_node_id: str | None) -> str | None:
     if workflow_result_node_id is None:
         return None
     if workflow_result_node_id.endswith(".result"):
         workflow_node_prefix = workflow_result_node_id[: -len(".result")]
     else:
         workflow_node_prefix = workflow_result_node_id
-    return f"{workflow_node_prefix}.command-result.{command_name}"
+    return workflow_node_prefix
