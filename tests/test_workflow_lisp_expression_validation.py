@@ -131,6 +131,16 @@ def test_validate_expression_module_accepts_module_qualified_imported_call_with_
     assert result.workflows[0].inferred_return_type == "String"
 
 
+def test_validate_expression_module_accepts_imported_call_with_overlapping_module_qualifiers() -> None:
+    expression_validation = _expression_validation_module()
+    checked = _checked_module_from_fixture("valid_call_imported_overlapping_module_qualifiers.orc")
+
+    result = expression_validation.validate_expression_module(checked)
+
+    assert tuple(workflow.name for workflow in result.workflows) == ("run",)
+    assert result.workflows[0].inferred_return_type == "String"
+
+
 def test_validate_expression_module_accepts_provider_and_command_result_expressions() -> None:
     expression_validation = _expression_validation_module()
     checked = _checked_module_from_fixture("valid_provider_command_result_expressions.orc")
@@ -283,6 +293,11 @@ def test_validate_expression_module_accepts_phase_target_expression() -> None:
             "invalid_call_argument_type_mismatch.orc",
             "type_mismatch",
             "Call argument build_plan.attempts expects Int but got String",
+        ),
+        (
+            "invalid_call_imported_with_returns_and_arguments.orc",
+            "type_unknown",
+            "Unknown reference: missing",
         ),
         (
             "invalid_provider_result_non_structured_return.orc",
