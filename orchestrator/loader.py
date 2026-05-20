@@ -1,5 +1,6 @@
 """Workflow loader and strict DSL validation per specs/dsl.md."""
 
+from dataclasses import dataclass
 import re
 from copy import deepcopy
 from pathlib import Path
@@ -75,6 +76,14 @@ if 'O' in PreservingLoader.yaml_implicit_resolvers:
     ]
 
 
+@dataclass(frozen=True)
+class _ResolvedWorkflowRef:
+    """Concrete source reference for loading a workflow payload."""
+
+    path: Path
+    workflow_name: Optional[str] = None
+
+
 class WorkflowLoader:
     """Loads and validates workflow YAML with strict DSL enforcement."""
 
@@ -99,7 +108,7 @@ class WorkflowLoader:
         self._current_workflow_path: Optional[Path] = None
         self._current_source_root: Optional[Path] = None
         self._current_imports: Dict[str, Any] = {}
-        self._load_stack: List[Path] = []
+        self._load_stack: List[tuple[Path, Optional[str]]] = []
         self._provider_registry = ProviderRegistry()
         self._current_workflow_is_imported = False
 
@@ -123,14 +132,18 @@ class WorkflowLoader:
         workflow_path: Path,
         *,
         expected_version: Optional[str] = None,
+        selected_workflow_name: Optional[str] = None,
     ) -> LoadedWorkflowBundle:
         """Load and validate one workflow file without clearing accumulated errors."""
         resolved_workflow_path = workflow_path.resolve()
-        if resolved_workflow_path in self._load_stack:
+        load_key = (resolved_workflow_path, selected_workflow_name)
+        if load_key in self._load_stack:
             try:
                 display_path = str(resolved_workflow_path.relative_to(self.workspace))
             except ValueError:
                 display_path = str(resolved_workflow_path)
+            if selected_workflow_name:
+                display_path = f"{display_path}#{selected_workflow_name}"
             self._add_error(f"Circular import detected while loading '{display_path}'")
             return {}
 
@@ -140,7 +153,7 @@ class WorkflowLoader:
         previous_imports = self._current_imports
         previous_workflow_is_imported = self._current_workflow_is_imported
 
-        self._load_stack.append(resolved_workflow_path)
+        self._load_stack.append(load_key)
         self._workflow_input_specs = {}
         self._current_workflow_path = resolved_workflow_path
         self._current_source_root = resolved_workflow_path.parent
@@ -149,7 +162,10 @@ class WorkflowLoader:
 
         try:
             try:
-                workflow = self._load_workflow_source(resolved_workflow_path)
+                workflow = self._load_workflow_source(
+                    resolved_workflow_path,
+                    selected_workflow_name=selected_workflow_name,
+                )
             except Exception as e:
                 self._add_error(f"Failed to load workflow: {e}")
                 return {}
@@ -218,9 +234,19 @@ class WorkflowLoader:
             self._current_imports = previous_imports
             self._current_workflow_is_imported = previous_workflow_is_imported
 
-    def _load_workflow_source(self, resolved_workflow_path: Path) -> Dict[str, Any] | None:
+    def _load_workflow_source(
+        self,
+        resolved_workflow_path: Path,
+        *,
+        selected_workflow_name: Optional[str] = None,
+    ) -> Dict[str, Any] | None:
         """Load one workflow source file as a workflow dictionary."""
         if resolved_workflow_path.suffix.lower() != ".orc":
+            if selected_workflow_name is not None:
+                self._add_error(
+                    "Workflow selection fragments (#workflow) are only supported for .orc module imports"
+                )
+                return None
             with open(resolved_workflow_path, 'r') as f:
                 return yaml.load(f, Loader=PreservingLoader)
 
@@ -239,6 +265,17 @@ class WorkflowLoader:
             return None
 
         lowered_workflow_names = tuple(lowered)
+        if selected_workflow_name is not None:
+            selected = lowered.get(selected_workflow_name)
+            if selected is None:
+                rendered_names = ", ".join(sorted(lowered_workflow_names)) or "<none>"
+                self._add_error(
+                    "Workflow Lisp module import fragment references unknown workflow "
+                    f"'{selected_workflow_name}' (available: {rendered_names})"
+                )
+                return None
+            return dict(selected)
+
         if len(lowered_workflow_names) != 1:
             rendered_names = ", ".join(sorted(lowered_workflow_names)) or "<none>"
             self._add_error(
@@ -538,15 +575,16 @@ class WorkflowLoader:
                 continue
 
             try:
-                resolved_import_path = self._resolve_import_path(workflow_path, import_path)
+                resolved_import = self._resolve_import_path(workflow_path, import_path)
             except ValueError as exc:
                 self._add_error(f"{context}: {exc}")
                 continue
 
             error_start = len(self.errors)
             imported_workflow = self._load_workflow(
-                resolved_import_path,
+                resolved_import.path,
                 expected_version=version if self._version_at_least(version, "2.5") else None,
+                selected_workflow_name=resolved_import.workflow_name,
             )
             if len(self.errors) > error_start:
                 for error in self.errors[error_start:]:
@@ -556,14 +594,26 @@ class WorkflowLoader:
 
         return imported_workflows
 
-    def _resolve_import_path(self, workflow_path: Path, import_path: str) -> Path:
+    def _resolve_import_path(self, workflow_path: Path, import_path: str) -> _ResolvedWorkflowRef:
         """Resolve an import path relative to the authored workflow while keeping it in WORKSPACE."""
         if not isinstance(import_path, str) or not import_path.strip():
             raise ValueError("import path must be a non-empty string")
         if "${" in import_path:
             raise ValueError("import paths must be literal workflow-relative strings")
 
-        candidate = Path(import_path)
+        path_text = import_path
+        selected_workflow_name: Optional[str] = None
+        if "#" in import_path:
+            path_text, fragment = import_path.split("#", maxsplit=1)
+            if not path_text.strip():
+                raise ValueError(f"invalid import path (missing file before '#'): {import_path}")
+            if not fragment.strip():
+                raise ValueError(f"invalid import path (missing workflow after '#'): {import_path}")
+            if "#" in fragment:
+                raise ValueError(f"invalid import path (multiple '#' fragments): {import_path}")
+            selected_workflow_name = fragment.strip()
+
+        candidate = Path(path_text)
         if candidate.is_absolute():
             raise ValueError(f"absolute import paths are not allowed: {import_path}")
 
@@ -574,7 +624,7 @@ class WorkflowLoader:
             raise ValueError(
                 f"asset path traversal outside the workflow source tree is not allowed: {import_path}"
             ) from exc
-        return resolved
+        return _ResolvedWorkflowRef(path=resolved, workflow_name=selected_workflow_name)
 
     def _validate_workflow_inputs(self, inputs: Any, version: str) -> None:
         """Validate top-level workflow input contracts."""

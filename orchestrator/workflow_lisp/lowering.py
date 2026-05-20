@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Callable, Mapping
 
@@ -182,7 +183,10 @@ def lower_compiled_module(compiled: CompiledWorkflowModule) -> LoweredWorkflowMo
         lowered_imports: dict[str, str] = {}
         for call_target in call_targets:
             if call_target in callable_signatures:
-                lowered_imports[call_target] = f"./{call_target}.yaml"
+                lowered_imports[call_target] = _local_callable_import_path(
+                    compiled=compiled,
+                    call_target=call_target,
+                )
                 continue
             imported_path = _resolve_imported_call_target_path(
                 call_target,
@@ -430,6 +434,13 @@ def _is_defmodule_header(compiled: CompiledWorkflowModule) -> bool:
         return False
     head = compiled.parsed_module.header_form.items[0]
     return isinstance(head, SyntaxAtom) and head.kind is AtomKind.SYMBOL and str(head.value) == "defmodule"
+
+
+def _local_callable_import_path(*, compiled: CompiledWorkflowModule, call_target: str) -> str:
+    if not _is_defmodule_header(compiled):
+        return f"./{call_target}.yaml"
+    module_filename = Path(compiled.parsed_module.source_path).name
+    return f"./{module_filename}#{call_target}"
 
 
 def _collect_local_call_targets_from_expression(

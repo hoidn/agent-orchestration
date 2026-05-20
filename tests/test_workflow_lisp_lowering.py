@@ -366,8 +366,12 @@ def test_lower_compiled_module_limits_defmodule_outputs_to_exported_callable_clo
 
     assert set(lowered) == {"build_status", "private_helper", "run_public"}
     assert "internal_only" not in lowered
-    assert lowered["run_public"]["imports"] == {"private_helper": "./private_helper.yaml"}
-    assert lowered["private_helper"]["imports"] == {"build_status": "./build_status.yaml"}
+    assert lowered["run_public"]["imports"] == {
+        "private_helper": "./valid_module_exported_callable_closure.orc#private_helper"
+    }
+    assert lowered["private_helper"]["imports"] == {
+        "build_status": "./valid_module_exported_callable_closure.orc#build_status"
+    }
 
 
 def test_lower_compiled_module_omits_defmodule_callables_when_exports_are_type_only() -> None:
