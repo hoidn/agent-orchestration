@@ -557,6 +557,10 @@ def _infer_expression_type(
         return resolved_record
 
     if isinstance(expression, CallExpression):
+        call_node_id = _call_generated_node_id(
+            workflow_result_node_id=generated_core_node_id,
+            callee_name=expression.callee_name,
+        )
         callee = callable_catalog.get(expression.callee_name)
         is_imported_reference = _is_imported_workflow_reference(
             expression.callee_name,
@@ -574,7 +578,7 @@ def _infer_expression_type(
                         ),
                         span=expression.callee_span,
                         enclosing_form_name="call",
-                        generated_core_node_id=generated_core_node_id,
+                        generated_core_node_id=call_node_id,
                     )
                 for argument in expression.arguments:
                     _infer_expression_type(
@@ -586,7 +590,7 @@ def _infer_expression_type(
                         import_aliases=import_aliases,
                         imported_workflow_targets=imported_workflow_targets,
                         imported_workflow_qualifiers=imported_workflow_qualifiers,
-                        generated_core_node_id=generated_core_node_id,
+                        generated_core_node_id=call_node_id,
                     )
                 return _resolve_type_name(
                     expression.returns_type_name,
@@ -594,14 +598,14 @@ def _infer_expression_type(
                     import_aliases=import_aliases,
                     span=expression.returns_type_span,
                     enclosing_form_name="call",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=call_node_id,
                 )
             _raise_expression_error(
                 code="type_unknown",
                 message=f"Unknown workflow reference: {expression.callee_name}",
                 span=expression.callee_span,
                 enclosing_form_name="call",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=call_node_id,
             )
 
         if expression.returns_type_name is not None:
@@ -614,14 +618,14 @@ def _infer_expression_type(
                     ),
                     span=expression.returns_type_span or expression.span,
                     enclosing_form_name="call",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=call_node_id,
                 )
             _raise_expression_error(
                 code="frontend_parse_error",
                 message="call :returns is only allowed for imported workflow references",
                 span=expression.returns_type_span or expression.span,
                 enclosing_form_name="call",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=call_node_id,
             )
 
         expected_parameters = {parameter.name: parameter for parameter in callee.parameters}
@@ -635,7 +639,7 @@ def _infer_expression_type(
                 ),
                 span=expression.span,
                 enclosing_form_name="call",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=call_node_id,
             )
         unexpected_names = sorted(provided_names - set(expected_parameters))
         if unexpected_names:
@@ -646,7 +650,7 @@ def _infer_expression_type(
                 ),
                 span=expression.span,
                 enclosing_form_name="call",
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=call_node_id,
             )
         for argument in expression.arguments:
             parameter = expected_parameters[argument.parameter_name]
@@ -654,7 +658,7 @@ def _infer_expression_type(
                 parameter.type_ref,
                 catalog,
                 import_aliases=import_aliases,
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=call_node_id,
             )
             actual_type = _infer_expression_type(
                 argument.value,
@@ -665,7 +669,7 @@ def _infer_expression_type(
                 import_aliases=import_aliases,
                 imported_workflow_targets=imported_workflow_targets,
                 imported_workflow_qualifiers=imported_workflow_qualifiers,
-                generated_core_node_id=generated_core_node_id,
+                generated_core_node_id=call_node_id,
             )
             if _type_name(expected_type) != _type_name(actual_type):
                 _raise_expression_error(
@@ -676,13 +680,13 @@ def _infer_expression_type(
                     ),
                     span=argument.form_span,
                     enclosing_form_name="call",
-                    generated_core_node_id=generated_core_node_id,
+                    generated_core_node_id=call_node_id,
                 )
         return _resolve_type_ref(
             callee.return_type,
             catalog,
             import_aliases=import_aliases,
-            generated_core_node_id=generated_core_node_id,
+            generated_core_node_id=call_node_id,
         )
 
     if isinstance(expression, ProviderResultExpression):
@@ -969,3 +973,15 @@ def _type_name(value_type: _ValueType) -> str:
     if isinstance(value_type, _UnionVariantType):
         return value_type.union_name
     return value_type.name
+
+
+def _call_generated_node_id(
+    *, workflow_result_node_id: str | None, callee_name: str
+) -> str | None:
+    if workflow_result_node_id is None:
+        return None
+    if workflow_result_node_id.endswith(".result"):
+        workflow_node_prefix = workflow_result_node_id[: -len(".result")]
+    else:
+        workflow_node_prefix = workflow_result_node_id
+    return f"{workflow_node_prefix}.call.{callee_name}"
