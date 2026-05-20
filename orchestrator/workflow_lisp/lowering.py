@@ -862,11 +862,16 @@ def _match_case_outputs_for_structured_return(
     definition = definitions.get(type_name)
     if isinstance(definition, RecordDefinition):
         outputs: dict[str, Any] = {}
-        for field in definition.fields:
-            contract = _bundle_field_contract_for_type(field.type_ref.name, field.type_ref.span, definitions)
+        for field in _flatten_record_leaf_fields(
+            record_definition=definition,
+            definitions=definitions,
+        ):
+            contract = _bundle_field_contract_for_type(field.type_name, field.type_span, definitions)
             contract = _output_contract_from_bundle_contract(contract)
-            contract["from"] = {"ref": f"self.steps.{case_step_name}.artifacts.{field.name}"}
-            outputs[field.name] = contract
+            contract["from"] = {
+                "ref": f"self.steps.{case_step_name}.artifacts.{field.flattened_name}"
+            }
+            outputs[field.flattened_name] = contract
         return outputs
 
     if isinstance(definition, UnionDefinition):

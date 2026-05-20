@@ -1778,6 +1778,90 @@ def test_lower_compiled_module_flattens_nested_record_output_contracts() -> None
     assert "run_checks.step.CommandResult.contract.output_bundle.field.report__status" in source_map
 
 
+def test_lower_compiled_module_flattens_nested_record_match_case_outputs() -> None:
+    compiler = _compiler_module()
+    lowering = _lowering_module()
+    source_text = """
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14"))
+
+(defrecord ReportPayload
+  (path PathRel)
+  (status String))
+
+(defrecord AttemptSummary
+  (report ReportPayload)
+  (note String))
+
+(defunion Attempt
+  (COMPLETED (report_path PathRel) (note String))
+  (BLOCKED (report_path PathRel) (note String)))
+
+(defworkflow route_attempt ((provider Provider) (prompt Prompt)) -> AttemptSummary
+  (match
+    (provider-result provider
+      :prompt prompt
+      :inputs ()
+      :returns Attempt)
+    ((COMPLETED attempt)
+      (command-result emit-summary
+        :argv (attempt.report_path attempt.note)
+        :returns AttemptSummary))
+    ((BLOCKED attempt)
+      (command-result emit-summary
+        :argv (attempt.report_path attempt.note)
+        :returns AttemptSummary))))
+"""
+
+    compiled = compiler.compile_workflow_module_text(
+        source_text,
+        source_path=str(Path("inline-match-nested-record-output-contracts.orc")),
+    )
+    lowered_module = lowering.lower_compiled_module(compiled)
+    workflow = lowered_module.workflows["route_attempt"]
+    match_step = workflow["steps"][1]
+
+    assert workflow["outputs"] == {
+        "report__path": {
+            "type": "relpath",
+            "from": {"ref": "root.steps.MatchResult.artifacts.report__path"},
+        },
+        "report__status": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "root.steps.MatchResult.artifacts.report__status"},
+        },
+        "note": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "root.steps.MatchResult.artifacts.note"},
+        },
+    }
+    expected_case_outputs = {
+        "report__path": {
+            "type": "relpath",
+            "from": {"ref": "self.steps.CommandResult.artifacts.report__path"},
+        },
+        "report__status": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "self.steps.CommandResult.artifacts.report__status"},
+        },
+        "note": {
+            "kind": "scalar",
+            "type": "string",
+            "from": {"ref": "self.steps.CommandResult.artifacts.note"},
+        },
+    }
+    assert match_step["match"]["cases"]["COMPLETED"]["outputs"] == expected_case_outputs
+    assert match_step["match"]["cases"]["BLOCKED"]["outputs"] == expected_case_outputs
+
+    source_map = lowered_module.source_map["route_attempt"]
+    assert "route_attempt.step.MatchResult.case.COMPLETED.output.report__path" in source_map
+    assert "route_attempt.step.MatchResult.case.BLOCKED.output.report__status" in source_map
+
+
 def test_lower_compiled_module_supports_phase_target_root_expression() -> None:
     compiler = _compiler_module()
     lowering = _lowering_module()
