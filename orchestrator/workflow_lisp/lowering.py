@@ -3254,7 +3254,10 @@ def _alias_qualified_member_name(*, call_target: str, alias: str) -> str | None:
 
 
 def _module_ref_to_import_path(module_ref: str) -> str:
-    if module_ref.endswith(".yaml") or module_ref.endswith(".yml") or module_ref.endswith(".orc"):
+    module_path, separator, _ = module_ref.partition("#")
+    if module_path.endswith(".yaml") or module_path.endswith(".yml") or module_path.endswith(".orc"):
+        return module_ref
+    if separator:
         return module_ref
     if "/" not in module_ref and "." in module_ref:
         return f"{module_ref.replace('.', '/')}.yaml"
