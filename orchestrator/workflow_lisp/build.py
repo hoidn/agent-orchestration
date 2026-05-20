@@ -694,6 +694,7 @@ def _write_build_artifacts(
         "lowered_workflows": build_root / "lowered_workflows.json",
         "executable_ir": build_root / "executable_ir.json",
         "source_map": build_root / "source_map.json",
+        "workflow_boundary_projection": build_root / "workflow_boundary_projection.json",
         "diagnostics": build_root / "diagnostics.json",
     }
     payloads = {
@@ -703,6 +704,10 @@ def _write_build_artifacts(
         "lowered_workflows": _serialize_lowered_workflows(compile_result),
         "executable_ir": _json_data(validated_bundle.ir),
         "source_map": _serialize_source_map(
+            compile_result,
+            selected_name=entry_selection.canonical_name,
+        ),
+        "workflow_boundary_projection": _serialize_workflow_boundary_projection(
             compile_result,
             selected_name=entry_selection.canonical_name,
         ),
@@ -872,6 +877,60 @@ def _serialize_source_map(
                 },
             }
     return {"workflows": workflows}
+
+
+def _serialize_workflow_boundary_projection(
+    compile_result: LinkedStage3CompileResult,
+    *,
+    selected_name: str,
+) -> dict[str, object]:
+    workflows: list[dict[str, object]] = []
+    for compiled_result in compile_result.compiled_results_by_name.values():
+        for lowered in compiled_result.lowered_workflows:
+            projection = lowered.boundary_projection
+            workflows.append(
+                {
+                    "workflow_name": projection.workflow_name,
+                    "display_name": projection.display_name,
+                    "params": [
+                        {"name": param.name, "type_kind": param.type_kind}
+                        for param in projection.params
+                    ],
+                    "return_kind": projection.return_kind,
+                    "flattened_inputs": [
+                        {
+                            "generated_name": field.generated_name,
+                            "source_path": list(field.source_path),
+                            "contract_definition": _json_data(field.contract_definition),
+                        }
+                        for field in sorted(projection.flattened_inputs, key=lambda field: field.generated_name)
+                    ],
+                    "flattened_outputs": [
+                        {
+                            "generated_name": field.generated_name,
+                            "source_path": list(field.source_path),
+                            "contract_definition": _json_data(field.contract_definition),
+                        }
+                        for field in sorted(projection.flattened_outputs, key=lambda field: field.generated_name)
+                    ],
+                    "generated_internal_inputs": [
+                        {
+                            "generated_name": field.generated_name,
+                            "reason": field.reason,
+                        }
+                        for field in sorted(
+                            projection.generated_internal_inputs,
+                            key=lambda field: field.generated_name,
+                        )
+                    ],
+                }
+            )
+    workflows.sort(key=lambda workflow: str(workflow["workflow_name"]))
+    return {
+        "schema_version": "workflow_lisp_boundary_projection.v1",
+        "entry_workflow": selected_name,
+        "workflows": workflows,
+    }
 
 
 def _origin_payload(origin: object) -> dict[str, object]:

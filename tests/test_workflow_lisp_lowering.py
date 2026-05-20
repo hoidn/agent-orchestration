@@ -32,6 +32,7 @@ MODULE_FIXTURES = FIXTURES / "modules"
 STRUCTURED_RESULTS_FIXTURE = FIXTURES / "valid" / "structured_results.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
+PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 
 
 def _extern_environment() -> ExternEnvironment:
@@ -278,9 +279,31 @@ def test_lower_workflow_definitions_supports_union_returning_same_file_calls(tmp
         for workflow in result.lowered_workflows
         if workflow.typed_workflow.definition.name == "entry"
     )
+    helper = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "helper"
+    )
 
     assert any(step.get("call") == "helper" for step in authored["steps"])
     assert any("match" in step for step in authored["steps"])
+    assert helper.boundary_projection.return_kind == "union"
+    assert [field.generated_name for field in helper.boundary_projection.flattened_outputs] == [
+        "return__variant",
+        "return__execution_report",
+        "return__progress_report",
+        "return__blocker_class",
+    ]
+    assert set(helper.origin_map.authored_input_spans) == {"input__status", "input__report", "report_path"}
+    assert set(helper.origin_map.internal_input_spans) == {
+        "__write_root__helper__result__result_bundle",
+    }
+    assert set(helper.origin_map.generated_input_spans) == {
+        "input__status",
+        "input__report",
+        "report_path",
+        "__write_root__helper__result__result_bundle",
+    }
 
 
 def test_compile_stage3_module_preserves_macro_provenance_in_origin_maps(tmp_path: Path) -> None:
@@ -373,7 +396,7 @@ def test_compile_stage3_module_supports_terminal_record_projection_returns(tmp_p
     assert lowered["outputs"]["return__report"]["from"]["ref"].endswith(".artifacts.report")
 
 
-def test_lower_workflow_definitions_supports_projection_only_match_record_outputs(tmp_path: Path) -> None:
+def test_lower_workflow_definitions_supports_generic_match_outputs(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "generic_match_outputs.orc",
         "\n".join(
@@ -421,9 +444,13 @@ def test_lower_workflow_definitions_supports_projection_only_match_record_output
         workspace_root=tmp_path,
     )
 
-    lowered = result.lowered_workflows[0].authored_mapping
+    lowered_workflow = result.lowered_workflows[0]
+    lowered = lowered_workflow.authored_mapping
     assert "providers" not in lowered
     assert tuple(lowered["outputs"]) == ("return__report",)
+    assert [field.generated_name for field in lowered_workflow.boundary_projection.flattened_outputs] == [
+        "return__report"
+    ]
     match_step = lowered["steps"][1]
     completed_outputs = match_step["match"]["cases"]["COMPLETED"]["outputs"]
     assert completed_outputs["return__report"]["from"]["ref"].endswith(".artifacts.execution_report")
@@ -1004,6 +1031,33 @@ def test_compile_stage3_module_maps_phase_targets_by_name_not_position(tmp_path:
     assert prelude_by_name["progress_report_target"]["source"] == {
         "ref": "inputs.phase-ctx__progress_report_target"
     }
+
+
+def test_compile_stage3_module_labels_phase_prompt_hidden_inputs_distinct_from_write_roots(
+    tmp_path: Path,
+) -> None:
+    result = compile_stage3_module(
+        PHASE_STDLIB_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered_by_name = {
+        workflow.typed_workflow.definition.name: workflow
+        for workflow in result.lowered_workflows
+    }
+
+    for workflow_name in ("run-provider-phase-demo", "produce-one-of-demo"):
+        projection = lowered_by_name[workflow_name].boundary_projection
+        assert projection.generated_internal_inputs
+        assert {
+            item.generated_name: item.reason for item in projection.generated_internal_inputs
+        } == {
+            f"__phase_prompt__{workflow_name}__attempt__execution_report_target": "phase_prompt_transport",
+            f"__phase_prompt__{workflow_name}__attempt__progress_report_target": "phase_prompt_transport",
+        }
 
 
 def test_compile_stage3_entrypoint_coexists_with_explicit_imported_bundles(tmp_path: Path) -> None:

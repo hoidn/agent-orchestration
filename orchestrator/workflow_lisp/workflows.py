@@ -506,29 +506,11 @@ def _flattened_boundary_contracts(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> Mapping[str, Mapping[str, object]]:
-    from .contracts import _flatten_workflow_boundary_fields, derive_union_workflow_boundary_projection
+    from .contracts import derive_workflow_boundary_fields
 
-    if isinstance(type_ref, UnionTypeRef):
-        projection = derive_union_workflow_boundary_projection(
-            type_ref,
-            span=span,
-            form_path=form_path,
-        )
-        fields = [projection.discriminant_field, *projection.shared_fields]
-        seen_generated_names = {field.generated_name for field in fields}
-        for variant in type_ref.definition.variants:
-            for field in projection.variant_fields.get(variant.name, ()):
-                if field.generated_name in seen_generated_names:
-                    continue
-                fields.append(field)
-                seen_generated_names.add(field.generated_name)
-        return {
-            field.generated_name: _normalize_boundary_contract_definition(field.contract_definition)
-            for field in fields
-        }
     return {
         field.generated_name: _normalize_boundary_contract_definition(field.contract_definition)
-        for field in _flatten_workflow_boundary_fields(
+        for field in derive_workflow_boundary_fields(
             type_ref,
             generated_name=generated_name,
             source_path=(generated_name,),

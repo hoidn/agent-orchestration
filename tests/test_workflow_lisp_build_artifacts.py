@@ -277,6 +277,7 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
         "lowered_workflows.json",
         "executable_ir.json",
         "source_map.json",
+        "workflow_boundary_projection.json",
         "diagnostics.json",
     }
 
@@ -319,12 +320,15 @@ def test_build_removes_stale_debug_yaml_when_not_requested(tmp_path: Path) -> No
     assert not (plain_result.build_root / "expanded.debug.yaml").exists()
 
 
-def test_source_trace_covers_generated_steps_inputs_outputs_and_paths(tmp_path: Path) -> None:
+def test_source_map_covers_generated_steps_inputs_outputs_and_paths(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
     result = build_frontend_bundle(_build_request(tmp_path))
     source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    boundary_projection = json.loads(
+        result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+    )
 
     entry_workflow = next(
         workflow
@@ -340,6 +344,26 @@ def test_source_trace_covers_generated_steps_inputs_outputs_and_paths(tmp_path: 
     }
     assert set(entry_workflow["generated_outputs"]) == {"return__report"}
     assert any(workflow["generated_paths"] for workflow in source_map["workflows"].values())
+    assert "contract_definition" not in json.dumps(source_map, sort_keys=True)
+    assert boundary_projection["schema_version"] == "workflow_lisp_boundary_projection.v1"
+    assert boundary_projection["entry_workflow"] == "neurips/entry::orchestrate"
+    projection_entry = next(
+        workflow
+        for workflow in boundary_projection["workflows"]
+        if workflow["workflow_name"] == "neurips/entry::orchestrate"
+    )
+    assert projection_entry["params"] == [
+        {"name": "input", "type_kind": "record"},
+        {"name": "report_path", "type_kind": "relpath"},
+    ]
+    assert projection_entry["return_kind"] == "record"
+    assert [field["generated_name"] for field in projection_entry["flattened_inputs"]] == [
+        "input__report",
+        "input__status",
+        "report_path",
+    ]
+    assert [field["generated_name"] for field in projection_entry["flattened_outputs"]] == ["return__report"]
+    assert projection_entry["generated_internal_inputs"] == []
 
 
 def test_source_trace_preserves_distinct_workflows_with_shared_display_names(tmp_path: Path) -> None:

@@ -30,10 +30,33 @@ class FlattenedContractField:
 
 
 @dataclass(frozen=True)
+class WorkflowBoundaryParamSummary:
+    name: str
+    type_kind: str
+
+
+@dataclass(frozen=True)
+class GeneratedInternalInput:
+    generated_name: str
+    reason: str
+
+
+@dataclass(frozen=True)
 class UnionWorkflowBoundaryProjection:
     discriminant_field: FlattenedContractField
     shared_fields: tuple[FlattenedContractField, ...]
     variant_fields: Mapping[str, tuple[FlattenedContractField, ...]]
+
+
+@dataclass(frozen=True)
+class WorkflowBoundaryProjection:
+    workflow_name: str
+    display_name: str
+    params: tuple[WorkflowBoundaryParamSummary, ...]
+    return_kind: str
+    flattened_inputs: tuple[FlattenedContractField, ...]
+    flattened_outputs: tuple[FlattenedContractField, ...]
+    generated_internal_inputs: tuple[GeneratedInternalInput, ...] = ()
 
 
 def derive_structured_result_contract(
@@ -98,15 +121,16 @@ def derive_structured_result_contract(
 
 def derive_workflow_signature_contracts(
     signature: WorkflowSignature,
-) -> tuple[Mapping[str, SurfaceContract], Mapping[str, SurfaceContract], tuple[FlattenedContractField, ...]]:
+) -> tuple[Mapping[str, SurfaceContract], Mapping[str, SurfaceContract], WorkflowBoundaryProjection]:
     """Flatten workflow-boundary contracts into the current shared surface vocabulary."""
 
     inputs: dict[str, SurfaceContract] = {}
     outputs: dict[str, SurfaceContract] = {}
-    flattened_fields: list[FlattenedContractField] = []
+    flattened_inputs: list[FlattenedContractField] = []
+    flattened_outputs: list[FlattenedContractField] = []
 
     for param_name, type_ref in signature.params:
-        for flattened_field in _flatten_workflow_boundary_fields(
+        for flattened_field in derive_workflow_boundary_fields(
             type_ref,
             generated_name=param_name,
             source_path=(param_name,),
@@ -119,50 +143,41 @@ def derive_workflow_signature_contracts(
                 value_type=flattened_field.contract_definition["type"],
                 definition=flattened_field.contract_definition,
             )
-            flattened_fields.append(flattened_field)
+            flattened_inputs.append(flattened_field)
 
-    if isinstance(signature.return_type_ref, RecordTypeRef):
-        for flattened_field in _flatten_workflow_boundary_fields(
-            signature.return_type_ref,
-            generated_name="return",
-            source_path=("return",),
-            span=signature.span,
-            form_path=signature.form_path,
-        ):
-            outputs[flattened_field.generated_name] = SurfaceContract(
-                name=flattened_field.generated_name,
-                kind=flattened_field.contract_definition["kind"],
-                value_type=flattened_field.contract_definition["type"],
-                definition=flattened_field.contract_definition,
-            )
-            flattened_fields.append(flattened_field)
-    else:
-        projection = derive_union_workflow_boundary_projection(
-            signature.return_type_ref,
-            span=signature.span,
-            form_path=signature.form_path,
+    for flattened_field in derive_workflow_boundary_fields(
+        signature.return_type_ref,
+        generated_name="return",
+        source_path=("return",),
+        span=signature.span,
+        form_path=signature.form_path,
+    ):
+        outputs[flattened_field.generated_name] = SurfaceContract(
+            name=flattened_field.generated_name,
+            kind=flattened_field.contract_definition["kind"],
+            value_type=flattened_field.contract_definition["type"],
+            definition=flattened_field.contract_definition,
         )
-        union_fields = [
-            projection.discriminant_field,
-            *projection.shared_fields,
-        ]
-        seen_generated_names = {field.generated_name for field in union_fields}
-        for variant in signature.return_type_ref.definition.variants:
-            for field in projection.variant_fields.get(variant.name, ()):
-                if field.generated_name in seen_generated_names:
-                    continue
-                union_fields.append(field)
-                seen_generated_names.add(field.generated_name)
-        for flattened_field in union_fields:
-            outputs[flattened_field.generated_name] = SurfaceContract(
-                name=flattened_field.generated_name,
-                kind=flattened_field.contract_definition["kind"],
-                value_type=flattened_field.contract_definition["type"],
-                definition=flattened_field.contract_definition,
-            )
-            flattened_fields.append(flattened_field)
+        flattened_outputs.append(flattened_field)
 
-    return inputs, outputs, tuple(flattened_fields)
+    return (
+        inputs,
+        outputs,
+        WorkflowBoundaryProjection(
+            workflow_name=signature.name,
+            display_name=signature.name.split("::", 1)[-1],
+            params=tuple(
+                WorkflowBoundaryParamSummary(
+                    name=param_name,
+                    type_kind=_workflow_boundary_type_kind(type_ref),
+                )
+                for param_name, type_ref in signature.params
+            ),
+            return_kind="record" if isinstance(signature.return_type_ref, RecordTypeRef) else "union",
+            flattened_inputs=tuple(flattened_inputs),
+            flattened_outputs=tuple(flattened_outputs),
+        ),
+    )
 
 
 def derive_union_workflow_boundary_projection(
@@ -214,6 +229,77 @@ def derive_union_workflow_boundary_projection(
     )
 
 
+def derive_workflow_boundary_fields(
+    type_ref: TypeRef,
+    *,
+    generated_name: str,
+    source_path: tuple[str, ...],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[FlattenedContractField, ...]:
+    if isinstance(type_ref, UnionTypeRef):
+        return _union_projection_fields(
+            derive_union_workflow_boundary_projection(
+                type_ref,
+                span=span,
+                form_path=form_path,
+            ),
+            span=span,
+            form_path=form_path,
+        )
+    return _flatten_workflow_boundary_fields(
+        type_ref,
+        generated_name=generated_name,
+        source_path=source_path,
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _union_projection_fields(
+    projection: UnionWorkflowBoundaryProjection,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[FlattenedContractField, ...]:
+    fields: list[FlattenedContractField] = [
+        projection.discriminant_field,
+        *projection.shared_fields,
+    ]
+    for variant_fields in projection.variant_fields.values():
+        fields.extend(variant_fields)
+    return _dedupe_projection_fields(fields, span=span, form_path=form_path)
+
+
+def _dedupe_projection_fields(
+    fields: list[FlattenedContractField],
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[FlattenedContractField, ...]:
+    deduped: dict[str, FlattenedContractField] = {}
+    for field in fields:
+        existing = deduped.get(field.generated_name)
+        if existing is None:
+            deduped[field.generated_name] = field
+            continue
+        if (
+            existing.source_path == field.source_path
+            and dict(existing.contract_definition) == dict(field.contract_definition)
+        ):
+            continue
+        _raise_contract_error(
+            code="workflow_boundary_projection_collision",
+            message=(
+                f"workflow boundary projection collision for `{field.generated_name}` across "
+                f"`{'.'.join(existing.source_path)}` and `{'.'.join(field.source_path)}`"
+            ),
+            span=span,
+            form_path=form_path,
+        )
+    return tuple(deduped.values())
+
+
 def _flatten_workflow_boundary_fields(
     type_ref: TypeRef,
     *,
@@ -235,7 +321,7 @@ def _flatten_workflow_boundary_fields(
                     form_path=form_path,
                 )
             )
-        return tuple(flattened)
+        return _dedupe_projection_fields(flattened, span=span, form_path=form_path)
 
     definition = _workflow_boundary_contract_definition(
         type_ref,
@@ -267,6 +353,26 @@ def _workflow_boundary_contract_definition(
         "kind": "scalar",
         **definition,
     }
+
+
+def _workflow_boundary_type_kind(type_ref: TypeRef) -> str:
+    if isinstance(type_ref, RecordTypeRef):
+        return "record"
+    if isinstance(type_ref, UnionTypeRef):
+        return "union"
+    if isinstance(type_ref, PathTypeRef):
+        return "relpath"
+    if isinstance(type_ref, PrimitiveTypeRef):
+        if type_ref.allowed_values:
+            return "enum"
+        if type_ref.name == "String":
+            return "string"
+        if type_ref.name == "Int":
+            return "integer"
+        if type_ref.name == "Bool":
+            return "bool"
+        return type_ref.name.lower()
+    raise TypeError(f"unsupported workflow-boundary type kind: {type(type_ref)!r}")
 
 
 def _workflow_boundary_contract_from_structured_field(field_definition: Mapping[str, Any]) -> dict[str, Any]:

@@ -757,18 +757,27 @@ def test_workflow_signature_contract_flattening_records_origin_metadata() -> Non
         form_path=("workflow-lisp", "defworkflow", "summarize_checks"),
     )
 
-    inputs, outputs, flattened = derive_workflow_signature_contracts(signature)
+    inputs, outputs, projection = derive_workflow_signature_contracts(signature)
 
     assert tuple(inputs) == ("input__status", "input__report")
     assert tuple(outputs) == ("return__status", "return__report")
-    assert [field.generated_name for field in flattened] == [
+    assert signature.params == (("input", implementation_summary),)
+    assert signature.return_type_ref == implementation_summary
+    assert projection.workflow_name == "summarize_checks"
+    assert [param.name for param in projection.params] == ["input"]
+    assert [param.type_kind for param in projection.params] == ["record"]
+    assert projection.return_kind == "record"
+    assert projection.generated_internal_inputs == ()
+    assert [field.generated_name for field in projection.flattened_inputs] == [
         "input__status",
         "input__report",
+    ]
+    assert [field.generated_name for field in projection.flattened_outputs] == [
         "return__status",
         "return__report",
     ]
-    assert flattened[0].source_path == ("input", "status")
-    assert flattened[-1].source_path == ("return", "report")
+    assert projection.flattened_inputs[0].source_path == ("input", "status")
+    assert projection.flattened_outputs[-1].source_path == ("return", "report")
     assert inputs["input__report"].definition == {
         "kind": "relpath",
         "type": "relpath",
@@ -795,18 +804,66 @@ def test_workflow_signature_contract_flattening_recurses_nested_records() -> Non
         form_path=("workflow-lisp", "defworkflow", "summarize_nested_checks"),
     )
 
-    inputs, outputs, flattened = derive_workflow_signature_contracts(signature)
+    inputs, outputs, projection = derive_workflow_signature_contracts(signature)
 
     assert tuple(inputs) == ("input__summary__status", "input__summary__report")
     assert tuple(outputs) == ("return__summary__status", "return__summary__report")
-    assert [field.generated_name for field in flattened] == [
+    assert [field.generated_name for field in projection.flattened_inputs] == [
         "input__summary__status",
         "input__summary__report",
+    ]
+    assert [field.generated_name for field in projection.flattened_outputs] == [
         "return__summary__status",
         "return__summary__report",
     ]
-    assert flattened[0].source_path == ("input", "summary", "status")
-    assert flattened[-1].source_path == ("return", "summary", "report")
+    assert projection.flattened_inputs[0].source_path == ("input", "summary", "status")
+    assert projection.flattened_outputs[-1].source_path == ("return", "summary", "report")
+
+
+def test_workflow_signature_contract_flattening_rejects_projection_name_collisions(tmp_path: Path) -> None:
+    types_path = _write_module(
+        tmp_path / "projection_collision_types.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord Summary",
+                "    (report WorkReport))",
+                "  (defrecord CollisionInput",
+                "    (summary Summary)",
+                "    (summary__report WorkReport)))",
+            ]
+        ),
+    )
+    module = compile_stage1_module(types_path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    collision_input = type_env.resolve_type(
+        "CollisionInput",
+        span=_build_syntax_module(types_path).span,
+        form_path=("workflow-lisp", "contract-test"),
+    )
+
+    assert isinstance(collision_input, RecordTypeRef)
+    signature = WorkflowSignature(
+        name="collision",
+        params=(("input", collision_input),),
+        return_type_ref=collision_input,
+        span=_build_syntax_module(types_path).span,
+        form_path=("workflow-lisp", "defworkflow", "collision"),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        derive_workflow_signature_contracts(signature)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_boundary_projection_collision"
+    assert "input.summary.report" in diagnostic.message
+    assert "input.summary__report" in diagnostic.message
 
 
 def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
@@ -831,12 +888,16 @@ def test_union_boundary_projection_flattens_workflow_return_variants() -> None:
         form_path=("workflow-lisp", "defworkflow", "provider_attempt"),
     )
 
-    _, outputs, flattened = derive_workflow_signature_contracts(signature)
+    _, outputs, projection = derive_workflow_signature_contracts(signature)
 
+    assert projection.workflow_name == "provider_attempt"
+    assert [param.name for param in projection.params] == ["report_path"]
+    assert [param.type_kind for param in projection.params] == ["relpath"]
+    assert projection.return_kind == "union"
     assert "return__variant" in outputs
     assert "return__execution_report" in outputs
     assert "return__progress_report" in outputs
-    assert [field.generated_name for field in flattened if field.generated_name.startswith("return__")] == [
+    assert [field.generated_name for field in projection.flattened_outputs] == [
         "return__variant",
         "return__execution_report",
         "return__progress_report",

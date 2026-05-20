@@ -19,8 +19,10 @@ from orchestrator.workflow.surface_ast import SurfaceStepKind
 
 from .definitions import elaborate_definition_module
 from .contracts import (
+    GeneratedInternalInput,
+    WorkflowBoundaryProjection,
     derive_structured_result_contract,
-    derive_union_workflow_boundary_projection,
+    derive_workflow_boundary_fields,
     derive_workflow_signature_contracts,
 )
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -87,7 +89,8 @@ class LoweringOrigin:
 class LoweringOriginMap:
     workflow_origin: LoweringOrigin
     step_spans: Mapping[str, LoweringOrigin]
-    generated_input_spans: Mapping[str, LoweringOrigin]
+    authored_input_spans: Mapping[str, LoweringOrigin]
+    internal_input_spans: Mapping[str, LoweringOrigin]
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: Mapping[str, LoweringOrigin]
 
@@ -95,12 +98,17 @@ class LoweringOriginMap:
     def workflow_span(self) -> SourceSpan:
         return self.workflow_origin.span
 
+    @property
+    def generated_input_spans(self) -> Mapping[str, LoweringOrigin]:
+        return MappingProxyType({**dict(self.authored_input_spans), **dict(self.internal_input_spans)})
+
 
 @dataclass(frozen=True)
 class LoweredWorkflow:
     typed_workflow: TypedWorkflowDef
     authored_mapping: Mapping[str, object]
     origin_map: LoweringOriginMap
+    boundary_projection: WorkflowBoundaryProjection
 
 
 def lower_workflow_definitions(
@@ -266,7 +274,7 @@ def _lower_one_workflow(
     type_env: FrontendTypeEnvironment,
     typed_procedures: Mapping[str, TypedProcedureDef],
 ) -> LoweredWorkflow:
-    inputs, outputs, _ = derive_workflow_signature_contracts(typed_workflow.signature)
+    inputs, outputs, boundary_projection = derive_workflow_signature_contracts(typed_workflow.signature)
     authored_inputs = {name: dict(contract.definition) for name, contract in inputs.items()}
     authored_outputs = {name: dict(contract.definition) for name, contract in outputs.items()}
     workflow_origin = _origin_for_workflow(typed_workflow, typed_procedures=typed_procedures)
@@ -288,11 +296,14 @@ def _lower_one_workflow(
         type_env=type_env,
         step_spans={},
         generated_input_spans=origin_inputs,
+        authored_generated_inputs=set(authored_inputs),
+        internal_generated_input_reasons={},
         generated_output_spans=origin_outputs,
         generated_path_spans={},
         top_level_artifacts={},
         inline_call_counters={},
         origin_notes=workflow_origin.notes,
+        boundary_projection=boundary_projection,
         return_output_contracts=MappingProxyType(
             {
                 name.removeprefix("return__"): dict(definition)
@@ -323,6 +334,34 @@ def _lower_one_workflow(
             "type": "relpath",
         }
         context.generated_input_spans[hidden_input_name] = origin
+        context.internal_generated_input_reasons.setdefault(hidden_input_name, "managed_write_root")
+
+    authored_input_spans = {
+        name: origin
+        for name, origin in context.generated_input_spans.items()
+        if name in context.authored_generated_inputs
+    }
+    internal_input_spans = {
+        name: origin
+        for name, origin in context.generated_input_spans.items()
+        if name in context.internal_generated_input_reasons
+    }
+    finalized_projection = replace(
+        context.boundary_projection,
+        generated_internal_inputs=tuple(
+            GeneratedInternalInput(generated_name=name, reason=reason)
+            for name, reason in sorted(context.internal_generated_input_reasons.items())
+        ),
+    )
+    _validate_projection_origin_coverage(
+        workflow_name=typed_workflow.definition.name,
+        boundary_projection=finalized_projection,
+        authored_input_spans=authored_input_spans,
+        internal_input_spans=internal_input_spans,
+        generated_output_spans=context.generated_output_spans,
+        span=typed_workflow.definition.span,
+        form_path=typed_workflow.definition.form_path,
+    )
 
     authored_mapping: dict[str, object] = {
         "version": "2.14",
@@ -349,10 +388,12 @@ def _lower_one_workflow(
                 notes=context.origin_notes or workflow_origin.notes,
             ),
             step_spans=MappingProxyType(dict(context.step_spans)),
-            generated_input_spans=MappingProxyType(dict(context.generated_input_spans)),
+            authored_input_spans=MappingProxyType(dict(authored_input_spans)),
+            internal_input_spans=MappingProxyType(dict(internal_input_spans)),
             generated_output_spans=MappingProxyType(dict(context.generated_output_spans)),
             generated_path_spans=MappingProxyType(dict(context.generated_path_spans)),
         ),
+        boundary_projection=finalized_projection,
     )
 
 
@@ -381,11 +422,14 @@ class _LoweringContext:
     type_env: FrontendTypeEnvironment
     step_spans: dict[str, LoweringOrigin]
     generated_input_spans: dict[str, LoweringOrigin]
+    authored_generated_inputs: set[str]
+    internal_generated_input_reasons: dict[str, str]
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: dict[str, LoweringOrigin]
     top_level_artifacts: dict[str, Any]
     inline_call_counters: dict[str, int]
     origin_notes: tuple[str, ...]
+    boundary_projection: WorkflowBoundaryProjection
     return_output_contracts: Mapping[str, Mapping[str, Any]]
     phase_scope: "_ActivePhaseScope | None" = None
 
@@ -399,6 +443,56 @@ class _ActivePhaseScope:
     snapshot_root_ref: str | None = None
     candidate_root_ref: str | None = None
     runtime_phase_name_ref: str | None = None
+
+
+def _validate_projection_origin_coverage(
+    *,
+    workflow_name: str,
+    boundary_projection: WorkflowBoundaryProjection,
+    authored_input_spans: Mapping[str, LoweringOrigin],
+    internal_input_spans: Mapping[str, LoweringOrigin],
+    generated_output_spans: Mapping[str, LoweringOrigin],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> None:
+    missing = next(
+        (
+            field.generated_name
+            for field in boundary_projection.flattened_inputs
+            if field.generated_name not in authored_input_spans
+        ),
+        None,
+    )
+    if missing is None:
+        missing = next(
+            (
+                field.generated_name
+                for field in boundary_projection.flattened_outputs
+                if field.generated_name not in generated_output_spans
+            ),
+            None,
+        )
+    if missing is None:
+        missing = next(
+            (
+                field.generated_name
+                for field in boundary_projection.generated_internal_inputs
+                if field.generated_name not in internal_input_spans
+            ),
+            None,
+        )
+    if missing is None:
+        return
+    raise LispFrontendCompileError(
+        (
+            LispFrontendDiagnostic(
+                code="workflow_boundary_projection_missing_origin",
+                message=f"workflow boundary projection origin missing for `{workflow_name}` field `{missing}`",
+                span=span,
+                form_path=form_path,
+            ),
+        )
+    )
 
 
 def _normalize_generated_step_id(raw_name: str) -> str:
@@ -4152,6 +4246,8 @@ def _build_phase_stdlib_prompt_input_prelude(
             local_values=local_values,
         )
         hidden_inputs.update(extra_hidden_inputs)
+        for hidden_input_name in extra_hidden_inputs:
+            context.internal_generated_input_reasons.setdefault(hidden_input_name, "phase_prompt_transport")
         contract_input_name = _materialize_contract_input_name(raw_source_node)
         pointer_path = _phase_prompt_input_pointer_path(context.workflow_name, artifact_name)
         if contract_input_name is None or contract_input_name.startswith("__phase_prompt__"):
@@ -4599,25 +4695,16 @@ def _flatten_boundary_leaf_paths(
     field_path: tuple[str, ...] = (),
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
     if isinstance(type_ref, UnionTypeRef):
-        projection = derive_union_workflow_boundary_projection(
-            type_ref,
-            span=type_ref.definition.span,
-            form_path=("workflow-lisp", "defunion", type_ref.name),
+        return tuple(
+            (field.generated_name, field.source_path[1:])
+            for field in derive_workflow_boundary_fields(
+                type_ref,
+                generated_name=generated_name,
+                source_path=("return",),
+                span=type_ref.definition.span,
+                form_path=("workflow-lisp", "defunion", type_ref.name),
+            )
         )
-        flattened: list[tuple[str, tuple[str, ...]]] = [
-            (projection.discriminant_field.generated_name, ("variant",)),
-        ]
-        seen_generated_names = {projection.discriminant_field.generated_name}
-        for field in projection.shared_fields:
-            flattened.append((field.generated_name, field.source_path[1:]))
-            seen_generated_names.add(field.generated_name)
-        for variant in type_ref.definition.variants:
-            for field in projection.variant_fields.get(variant.name, ()):
-                if field.generated_name in seen_generated_names:
-                    continue
-                flattened.append((field.generated_name, field.source_path[1:]))
-                seen_generated_names.add(field.generated_name)
-        return tuple(flattened)
     flattened: list[tuple[str, tuple[str, ...]]] = []
     for field in type_ref.definition.fields:
         field_type = type_ref.field_types[field.name]
@@ -5264,11 +5351,14 @@ def _copy_context_with_phase_scope(
         type_env=context.type_env,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,
+        authored_generated_inputs=context.authored_generated_inputs,
+        internal_generated_input_reasons=context.internal_generated_input_reasons,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
         origin_notes=context.origin_notes,
+        boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
         phase_scope=phase_scope,
     )
@@ -5290,11 +5380,14 @@ def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefi
         type_env=context.type_env,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,
+        authored_generated_inputs=context.authored_generated_inputs,
+        internal_generated_input_reasons=context.internal_generated_input_reasons,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
         origin_notes=context.origin_notes,
+        boundary_projection=context.boundary_projection,
         return_output_contracts=context.return_output_contracts,
         phase_scope=context.phase_scope,
     )
