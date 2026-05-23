@@ -12,6 +12,7 @@ from typing import Any
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
@@ -195,6 +196,18 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         source_path=resolved_request.source_path,
     )
     selected_bundle = compile_result.entry_result.validated_bundles[entry_selection.canonical_name]
+    source_map_payload = _serialize_source_map(
+        compile_result,
+        selected_name=entry_selection.canonical_name,
+    )
+    runtime_plan = enrich_workflow_runtime_plan(
+        selected_bundle.runtime_plan,
+        command_boundary_metadata=_command_boundary_metadata_for_workflow(
+            source_map_payload,
+            workflow_name=entry_selection.canonical_name,
+        ),
+        has_compiled_frontend_lineage=True,
+    )
     fingerprint = _fingerprint_build(
         request=resolved_request,
         compile_result=compile_result,
@@ -222,6 +235,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         surface=replace(selected_bundle.surface, provenance=provenance),
         ir=selected_bundle.ir,
         projection=selected_bundle.projection,
+        runtime_plan=runtime_plan,
         imports=selected_bundle.imports,
         provenance=provenance,
     )
@@ -232,6 +246,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         entry_selection=entry_selection,
         diagnostics=diagnostics,
         emit_debug_yaml=resolved_request.emit_debug_yaml,
+        source_map_payload=source_map_payload,
     )
     manifest = _build_manifest(
         request=resolved_request,
@@ -734,6 +749,7 @@ def _write_build_artifacts(
     entry_selection: FrontendEntrySelection,
     diagnostics: tuple[LispFrontendDiagnostic, ...],
     emit_debug_yaml: bool,
+    source_map_payload: Mapping[str, object],
 ) -> Mapping[str, Path]:
     debug_yaml_path = build_root / "expanded.debug.yaml"
     artifact_paths = {
@@ -742,6 +758,7 @@ def _write_build_artifacts(
         "typed_frontend_ast": build_root / "typed_frontend_ast.json",
         "lowered_workflows": build_root / "lowered_workflows.json",
         "executable_ir": build_root / "executable_ir.json",
+        "runtime_plan": build_root / "runtime_plan.json",
         "source_map": build_root / "source_map.json",
         "workflow_boundary_projection": build_root / "workflow_boundary_projection.json",
         "diagnostics": build_root / "diagnostics.json",
@@ -752,10 +769,8 @@ def _write_build_artifacts(
         "typed_frontend_ast": _serialize_typed_frontend_ast(compile_result),
         "lowered_workflows": _serialize_lowered_workflows(compile_result),
         "executable_ir": _json_data(validated_bundle.ir),
-        "source_map": _serialize_source_map(
-            compile_result,
-            selected_name=entry_selection.canonical_name,
-        ),
+        "runtime_plan": _json_data(validated_bundle.runtime_plan),
+        "source_map": _json_data(source_map_payload),
         "workflow_boundary_projection": _serialize_workflow_boundary_projection(
             compile_result,
             selected_name=entry_selection.canonical_name,
@@ -977,6 +992,39 @@ def _origin_payload(origin: object) -> dict[str, object]:
 
 def _display_workflow_name(name: str) -> str:
     return name.split("::", 1)[-1]
+
+
+def _command_boundary_metadata_for_workflow(
+    source_map_payload: Mapping[str, object],
+    *,
+    workflow_name: str,
+) -> Mapping[str, tuple[str, str]]:
+    workflows = source_map_payload.get("workflows")
+    if not isinstance(workflows, Mapping):
+        return {}
+    workflow_payload = workflows.get(workflow_name)
+    if not isinstance(workflow_payload, Mapping):
+        return {}
+    command_boundaries = workflow_payload.get("command_boundaries")
+    if not isinstance(command_boundaries, list):
+        return {}
+    metadata: dict[str, tuple[str, str]] = {}
+    for boundary in command_boundaries:
+        if not isinstance(boundary, Mapping):
+            continue
+        step_id = boundary.get("step_id")
+        boundary_kind = boundary.get("boundary_kind")
+        boundary_name = boundary.get("adapter_name") or boundary.get("command_name")
+        if (
+            isinstance(step_id, str)
+            and step_id
+            and isinstance(boundary_kind, str)
+            and boundary_kind
+            and isinstance(boundary_name, str)
+            and boundary_name
+        ):
+            metadata[step_id] = (boundary_kind, boundary_name)
+    return metadata
 
 
 def _load_json_file(path: Path, *, label: str) -> Any:

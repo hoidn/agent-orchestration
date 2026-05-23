@@ -7,6 +7,7 @@ from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
 from .executable_ir import ExecutableWorkflow
+from .runtime_plan import WorkflowRuntimePlan
 from .state_projection import WorkflowStateProjection
 from .surface_ast import ImportedWorkflowMetadata, SurfaceWorkflow, WorkflowProvenance
 
@@ -18,6 +19,7 @@ class LoadedWorkflowBundle:
     surface: SurfaceWorkflow
     ir: ExecutableWorkflow
     projection: WorkflowStateProjection
+    runtime_plan: WorkflowRuntimePlan
     imports: Mapping[str, "LoadedWorkflowBundle"]
     provenance: WorkflowProvenance
 
@@ -82,6 +84,14 @@ def workflow_provenance(workflow_or_bundle: Any) -> Optional[WorkflowProvenance]
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is not None:
         return bundle.provenance
+    return None
+
+
+def workflow_runtime_plan(workflow_or_bundle: Any) -> Optional[WorkflowRuntimePlan]:
+    """Return typed workflow runtime-plan metadata for one loaded bundle."""
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        return bundle.runtime_plan
     return None
 
 

@@ -381,6 +381,49 @@ def test_projection_formats_call_boundary_checkpoint_runtime_step_ids(tmp_path: 
     ) == "root.process_items#1.run_review_loop_from_for_each"
 
 
+def test_runtime_plan_derives_topology_dependencies_and_nested_body_summaries(tmp_path: Path):
+    workflow_path = _write_projection_call_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    runtime_plan = bundle.runtime_plan
+
+    review_loop = runtime_plan.nodes["root.review_loop"]
+    nested_repeat_call = runtime_plan.nodes["root.review_loop.iteration_body.run_review_loop"]
+    process_items = runtime_plan.nodes["root.process_items"]
+    nested_for_each_call = runtime_plan.nodes["root.process_items.run_review_loop_from_for_each"]
+
+    assert review_loop.nested_body_node_ids == ("root.review_loop.iteration_body.run_review_loop",)
+    assert nested_repeat_call.dependency_node_ids == ("root.review_loop",)
+    assert process_items.dependency_node_ids == (
+        "root.review_loop",
+        "root.process_items.run_review_loop_from_for_each",
+    )
+    assert process_items.nested_body_node_ids == ("root.process_items.run_review_loop_from_for_each",)
+    assert nested_for_each_call.dependency_node_ids == ("root.process_items",)
+
+
+def test_runtime_plan_uses_projection_order_for_execution_indexes_and_finalization_checkpoints(
+    tmp_path: Path,
+):
+    workflow_path = _write_projection_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    runtime_plan = bundle.runtime_plan
+    ordered_node_ids = bundle.projection.ordered_execution_node_ids()
+
+    for execution_index, node_id in enumerate(ordered_node_ids):
+        assert runtime_plan.nodes[node_id].execution_index == execution_index
+
+    finalization_node_id = "root.finally.cleanup.write_cleanup_marker"
+    finalization_checkpoint = next(
+        checkpoint
+        for checkpoint in runtime_plan.resume_checkpoints
+        if checkpoint.node_id == finalization_node_id
+    )
+    assert finalization_checkpoint.checkpoint_kind == "finalization_node"
+    assert runtime_plan.nodes[finalization_node_id].execution_index == len(bundle.ir.body_region)
+
+
 def test_resume_planner_uses_projection_step_id_mapping_for_running_current_step(tmp_path: Path):
     workflow_path = _write_projection_workflow(tmp_path)
 

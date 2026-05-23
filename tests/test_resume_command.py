@@ -19,6 +19,7 @@ from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
+from orchestrator.workflow.resume_planner import ResumePlanner
 from tests.workflow_bundle_helpers import bundle_context_dict, materialize_projection_body_steps
 
 
@@ -851,6 +852,140 @@ def _build_repeat_until_call_resume_workflow() -> dict:
     }
 
 
+def _build_projection_runtime_plan_snapshot_workflow() -> dict:
+    return {
+        "version": "2.14",
+        "name": "projection-runtime-plan-snapshot-workflow",
+        "artifacts": {
+            "review_feedback": {
+                "kind": "scalar",
+                "type": "string",
+            }
+        },
+        "steps": [
+            {
+                "name": "PublishReview",
+                "id": "publish_review",
+                "set_scalar": {
+                    "artifact": "review_feedback",
+                    "value": "revise the implementation",
+                },
+                "publishes": [{"artifact": "review_feedback", "from": "review_feedback"}],
+            },
+            {
+                "name": "MaterializeTargets",
+                "id": "materialize_targets",
+                "materialize_artifacts": {
+                    "values": [
+                        {
+                            "name": "execution_report_target_path",
+                            "source": {"literal": "artifacts/work/execution_report.md"},
+                            "contract": {
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": False,
+                            },
+                            "pointer": {"path": "state/execution_report_target_path.txt"},
+                            "ensure_parent": True,
+                        },
+                        {
+                            "name": "progress_report_target_path",
+                            "source": {"literal": "artifacts/work/progress_report.md"},
+                            "contract": {
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": False,
+                            },
+                            "pointer": {"path": "state/progress_report_target_path.txt"},
+                            "ensure_parent": True,
+                        },
+                    ]
+                },
+            },
+            {
+                "name": "PrepareResultBundle",
+                "id": "prepare_result_bundle",
+                "command": [
+                    "python",
+                    "-c",
+                    (
+                        "from pathlib import Path\n"
+                        "path = Path('state/implementation_bundle.json')\n"
+                        "path.parent.mkdir(parents=True, exist_ok=True)\n"
+                        "path.write_text('{\"implementation_state\":\"COMPLETED\"}\\n', encoding='utf-8')\n"
+                    ),
+                ],
+                "output_bundle": {
+                    "path": "state/implementation_bundle.json",
+                    "fields": [
+                        {
+                            "name": "implementation_state",
+                            "json_pointer": "/implementation_state",
+                            "type": "enum",
+                            "allowed": ["COMPLETED", "BLOCKED"],
+                        }
+                    ],
+                },
+                "pre_snapshot": {
+                    "name": "implementation_outcome_before",
+                    "digest": "sha256",
+                    "candidates": {
+                        "COMPLETED": {
+                            "ref": "root.steps.MaterializeTargets.artifacts.execution_report_target_path",
+                        },
+                        "BLOCKED": {
+                            "ref": "root.steps.MaterializeTargets.artifacts.progress_report_target_path",
+                        },
+                    },
+                },
+            },
+            {
+                "name": "SelectImplementationOutcome",
+                "id": "select_implementation_outcome",
+                "select_variant_output": {
+                    "path": "state/implementation_state.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED", "BLOCKED"],
+                    },
+                    "variants": {
+                        "COMPLETED": {
+                            "fields": [
+                                {
+                                    "name": "execution_report_path",
+                                    "json_pointer": "/execution_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                        "BLOCKED": {
+                            "fields": [
+                                {
+                                    "name": "progress_report_path",
+                                    "json_pointer": "/progress_report_path",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                    },
+                    "evidence": {
+                        "mode": "snapshot_diff",
+                        "snapshot": {
+                            "ref": "root.steps.PrepareResultBundle.snapshots.implementation_outcome_before",
+                        },
+                    },
+                },
+            },
+        ],
+    }
+
+
 def _seed_resume_loop_state(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:
     workflow_path = workspace / "resume_loop.yaml"
     workflow_path.write_text(yaml.safe_dump(_build_resume_loop_workflow(), sort_keys=False))
@@ -907,6 +1042,99 @@ def _seed_repeat_until_failure(workspace: Path, *, run_id: str) -> tuple[Path, S
 
     assert state["status"] == "failed"
     return workflow_path, state_manager
+
+
+def test_projection_runtime_plan_summarizes_artifacts_and_snapshots_from_executable_config(
+    tmp_path: Path,
+):
+    workflow_path = tmp_path / "projection_runtime_plan_snapshot.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_projection_runtime_plan_snapshot_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    runtime_plan = bundle.runtime_plan
+
+    publication_modes = {
+        (artifact.source_node_id, artifact.publication_mode, artifact.contract_name)
+        for artifact in runtime_plan.artifacts
+    }
+    snapshot_modes = {
+        (snapshot.owner_node_id, snapshot.operation_kind, snapshot.selection_relevant)
+        for snapshot in runtime_plan.snapshots
+    }
+
+    assert ("root.publish_review", "publishes", "review_feedback") in publication_modes
+    assert (
+        "root.prepare_result_bundle",
+        "output_bundle",
+        "implementation_state",
+    ) in publication_modes
+    assert (
+        "root.materialize_targets",
+        "materialize_artifacts",
+        False,
+    ) in snapshot_modes
+    assert (
+        "root.prepare_result_bundle",
+        "pre_snapshot",
+        True,
+    ) in snapshot_modes
+    assert (
+        "root.select_implementation_outcome",
+        "select_variant_output",
+        True,
+    ) in snapshot_modes
+
+
+def test_repeat_until_runtime_plan_checkpoint_metadata_preserves_projection_resume_authority(
+    tmp_path: Path,
+):
+    library_path = tmp_path / "workflows" / "library" / "repeat_until_review_loop.yaml"
+    library_path.parent.mkdir(parents=True, exist_ok=True)
+    library_path.write_text(
+        yaml.safe_dump(_build_repeat_until_call_resume_library_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+    workflow_path = tmp_path / "repeat_until_call_resume.yaml"
+    workflow_path.write_text(
+        yaml.safe_dump(_build_repeat_until_call_resume_workflow(), sort_keys=False),
+        encoding="utf-8",
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    runtime_plan = bundle.runtime_plan
+    planner = ResumePlanner()
+
+    call_checkpoint = next(
+        checkpoint
+        for checkpoint in runtime_plan.resume_checkpoints
+        if checkpoint.node_id == "root.review_loop.iteration_body.run_review_loop"
+    )
+    frame_checkpoint = next(
+        checkpoint
+        for checkpoint in runtime_plan.resume_checkpoints
+        if checkpoint.node_id == "root.review_loop"
+    )
+    restart_index = planner.determine_restart_index(
+        {
+            "steps": {},
+            "current_step": {
+                "name": "ReviewLoop",
+                "status": "running",
+                "step_id": "root.review_loop",
+            },
+        },
+        projection=bundle.projection,
+    )
+
+    assert call_checkpoint.checkpoint_kind == "call_boundary"
+    assert call_checkpoint.runtime_step_id_mode == "qualified_iteration"
+    assert call_checkpoint.iteration_owner_node_id == "root.review_loop"
+    assert call_checkpoint.iteration_step_id_suffix == "iteration_body.run_review_loop"
+    assert frame_checkpoint.checkpoint_kind == "repeat_until_frame"
+    assert restart_index == bundle.projection.compatibility_index_by_node_id["root.review_loop"]
 
 
 def _seed_repeat_until_call_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:

@@ -44,7 +44,9 @@ from .executable_ir import (
     WorkflowInputAddress,
     WorkflowRegion,
 )
+from .loaded_bundle import LoadedWorkflowBundle
 from .references import SelfOutputReference, StructuredStepReference, WorkflowInputReference
+from .runtime_plan import derive_workflow_runtime_plan
 from .state_projection import (
     CallBoundaryProjection,
     CompatibilityStepDefinition,
@@ -1207,3 +1209,22 @@ def _bind_predicate(predicate: Any, context: _BindingContext) -> Any:
 def lower_surface_workflow(surface: SurfaceWorkflow) -> tuple[ExecutableWorkflow, WorkflowStateProjection]:
     """Lower the immutable authored surface AST into executable IR + compatibility projection."""
     return _IRBuilder(surface).build()
+
+
+def build_loaded_workflow_bundle(
+    surface: SurfaceWorkflow,
+    *,
+    imports: Mapping[str, LoadedWorkflowBundle],
+) -> LoadedWorkflowBundle:
+    """Lower one validated surface workflow into the shared loaded bundle contract."""
+
+    ir, projection = lower_surface_workflow(surface)
+    runtime_plan = derive_workflow_runtime_plan(ir, projection)
+    return LoadedWorkflowBundle(
+        surface=surface,
+        ir=ir,
+        projection=projection,
+        runtime_plan=runtime_plan,
+        imports=MappingProxyType(dict(imports)),
+        provenance=surface.provenance,
+    )

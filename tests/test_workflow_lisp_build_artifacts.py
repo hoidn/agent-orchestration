@@ -359,12 +359,37 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
         "typed_frontend_ast.json",
         "lowered_workflows.json",
         "executable_ir.json",
+        "runtime_plan.json",
         "source_map.json",
         "workflow_boundary_projection.json",
         "diagnostics.json",
     }
 
     assert expected_artifacts.issubset({path.name for path in result.artifact_paths.values()})
+    assert result.artifact_paths["runtime_plan"].name == "runtime_plan.json"
+    assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
+    assert result.manifest.artifact_status["core_workflow_ast"] == "deferred_shared_contract"
+    assert result.manifest.artifact_status["semantic_ir"] == "deferred_shared_contract"
+
+
+def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manifest(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    runtime_plan = json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8"))
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    selected_workflow = result.validated_bundle.surface.name
+    runtime_plan_node_ids = set(runtime_plan["nodes"])
+    source_map_node_ids = {
+        node["node_id"]
+        for node in source_map["workflows"][selected_workflow]["executable_nodes"]
+    }
+
+    assert runtime_plan["schema_version"] == "workflow_runtime_plan.v1"
+    assert runtime_plan["workflow_name"] == selected_workflow
+    assert runtime_plan_node_ids == source_map_node_ids
+    assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
     assert result.manifest.artifact_status["core_workflow_ast"] == "deferred_shared_contract"
     assert result.manifest.artifact_status["semantic_ir"] == "deferred_shared_contract"
 

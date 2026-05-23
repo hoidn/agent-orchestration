@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 from orchestrator.runtime_observability import (
     close_executor_session,
@@ -14,6 +15,7 @@ from orchestrator.runtime_observability import (
 )
 from orchestrator.monitor.process import write_process_metadata
 from orchestrator.state import StateManager
+from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
@@ -410,6 +412,156 @@ def test_compiled_frontend_source_context_logs_certified_adapter_metadata(tmp_pa
     messages = "\n".join(record.getMessage() for record in caplog.records)
     assert "certified adapter: apply_resource_transition" in messages
     assert "source-map behavior: step" in messages
+
+
+def test_executor_uses_bundle_runtime_plan_for_top_level_ordering(tmp_path: Path):
+    workflow = tmp_path / "workflow.yaml"
+    workflow.write_text(
+        "\n".join(
+            [
+                "version: '2.7'",
+                "name: runtime-plan-ordering",
+                "steps:",
+                "  - name: First",
+                "    id: first",
+                "    command: ['bash', '-lc', 'printf first\\\\n']",
+                "  - name: Second",
+                "    id: second",
+                "    command: ['bash', '-lc', 'printf second\\\\n']",
+                "finally:",
+                "  id: cleanup",
+                "  steps:",
+                "    - name: Cleanup",
+                "      id: cleanup_marker",
+                "      command: ['bash', '-lc', 'printf cleanup\\\\n']",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow)
+    state_manager = StateManager(tmp_path, run_id="runtime-plan-ordering")
+    state_manager.initialize("workflow.yaml")
+
+    executor = WorkflowExecutor(bundle, tmp_path, state_manager)
+
+    assert executor._step_node_ids == list(bundle.runtime_plan.ordered_node_ids)
+
+
+def test_compiled_frontend_source_context_can_use_runtime_plan_command_hints(tmp_path: Path, caplog):
+    source_map = tmp_path / "source_map.json"
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "coverage": {
+                    "frontend_ast": "covered",
+                    "lowered_surface": "covered",
+                    "shared_validation_subjects": "covered",
+                    "executable_ir": "covered",
+                    "runtime_logs": "covered",
+                    "core_workflow_ast": "deferred_shared_contract",
+                    "semantic_ir": "deferred_shared_contract",
+                },
+                "workflows": {
+                    "pkg/entry::run": {
+                        "display_name": "run",
+                        "selected_entry_workflow": True,
+                        "workflow_name": "pkg/entry::run",
+                        "workflow_origin": {
+                            "origin_key": "pkg/entry::run::workflow::pkg/entry::run",
+                            "entity_kind": "workflow",
+                            "workflow_name": "pkg/entry::run",
+                            "path": "workflow.orc",
+                            "line": 1,
+                            "column": 1,
+                            "end_line": 1,
+                            "end_column": 5,
+                            "form_path": ["workflow-lisp", "defworkflow", "run"],
+                            "module_name": "pkg/entry",
+                            "expansion_stack": [],
+                            "notes": [],
+                            "generated_name_origin": "pkg/entry::run",
+                        },
+                        "step_ids": {
+                            "run__adapter": {
+                                "origin_key": "pkg/entry::run::step_id::run__adapter",
+                                "entity_kind": "step_id",
+                                "workflow_name": "pkg/entry::run",
+                                "path": "adapter.orc",
+                                "line": 7,
+                                "column": 3,
+                                "end_line": 7,
+                                "end_column": 9,
+                                "form_path": ["workflow-lisp", "defworkflow", "run", "command-result"],
+                                "module_name": "pkg/entry",
+                                "expansion_stack": [],
+                                "notes": [],
+                                "generated_name_origin": "run__adapter",
+                            }
+                        },
+                        "generated_inputs": {},
+                        "generated_outputs": {},
+                        "generated_paths": {},
+                        "generated_internal_inputs": {},
+                        "command_boundaries": [],
+                        "validation_subjects": [],
+                        "executable_nodes": [
+                            {
+                                "node_id": "root.run__adapter",
+                                "step_id": "run__adapter",
+                                "kind": "command",
+                                "region": "body",
+                                "origin_key": "pkg/entry::run::step_id::run__adapter",
+                                "presentation_name": "run__adapter",
+                            }
+                        ],
+                    }
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow="pkg/entry::run",
+    )
+    executor._compiled_frontend_kind = "workflow_lisp"
+    executor._compiled_frontend_node_origins = executor._load_compiled_frontend_node_origins(provenance)
+    executor._compiled_frontend_step_origins = executor._load_compiled_frontend_step_origins(provenance)
+    executor._compiled_frontend_command_boundaries = {}
+    executor.runtime_plan = SimpleNamespace(
+        nodes={
+            "root.run__adapter": SimpleNamespace(
+                node_id="root.run__adapter",
+                step_id="run__adapter",
+                presentation_key="run__adapter",
+                display_name="run__adapter",
+                command_boundary_kind="certified_adapter",
+                command_boundary_name="apply_resource_transition",
+            )
+        }
+    )
+
+    with caplog.at_level("INFO", logger="orchestrator.workflow.executor"):
+        executor._emit_compiled_frontend_step_display(
+            "run__adapter",
+            "run__adapter",
+            node_id="root.run__adapter",
+        )
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "source: adapter.orc:7:3" in messages
+    assert "certified adapter: apply_resource_transition" in messages
 
 
 def test_compiled_frontend_source_trace_payload_reads_sidecar_once(tmp_path: Path, monkeypatch):

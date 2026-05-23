@@ -41,7 +41,7 @@ from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import ProviderStepConfig
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
-from orchestrator.workflow.lowering import lower_surface_workflow
+from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.surface_ast import SurfaceStepKind
 
 from .definitions import elaborate_definition_module
@@ -6680,14 +6680,7 @@ def _validate_one_lowered_workflow(
     )
     if surface is None or loader.errors:
         _raise_remapped_validation_error(lowered_workflow, loader.errors)
-    ir, projection = lower_surface_workflow(surface)
-    return LoadedWorkflowBundle(
-        surface=surface,
-        ir=ir,
-        projection=projection,
-        imports=MappingProxyType(dict(imported_bundles)),
-        provenance=surface.provenance,
-    )
+    return build_loaded_workflow_bundle(surface, imports=imported_bundles)
 
 
 def _raise_remapped_validation_error(

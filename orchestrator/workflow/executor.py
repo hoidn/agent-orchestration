@@ -430,6 +430,7 @@ class WorkflowExecutor:
             raise TypeError("WorkflowExecutor requires a LoadedWorkflowBundle")
         self.projection = self.loaded_bundle.projection
         self.executable_ir = self.loaded_bundle.ir
+        self.runtime_plan = getattr(self.loaded_bundle, "runtime_plan", None)
         self.workflow_name = self.loaded_bundle.surface.name
         self.workflow_version = self.loaded_bundle.surface.version
         workflow_context_defaults = _thaw_workflow_value(workflow_context(self.loaded_bundle))
@@ -520,9 +521,12 @@ class WorkflowExecutor:
             else None
         )
         self._step_node_ids: List[Optional[str]] = []
-        self._step_node_ids = list(self.executable_ir.body_region) + list(
-            self.executable_ir.finalization_region
-        )
+        if self.runtime_plan is not None:
+            self._step_node_ids = list(self.runtime_plan.ordered_node_ids)
+        else:
+            self._step_node_ids = list(self.executable_ir.body_region) + list(
+                self.executable_ir.finalization_region
+            )
         self.finalization_start_index = len(self.executable_ir.body_region)
         self._execution_index_by_node_id = {
             node_id: index
@@ -708,6 +712,8 @@ class WorkflowExecutor:
         self,
         step_name: str,
         step_id: str,
+        *,
+        node_id: str | None = None,
     ) -> Mapping[str, Any] | None:
         for candidate in (step_id, step_name):
             if not isinstance(candidate, str) or not candidate:
@@ -715,6 +721,23 @@ class WorkflowExecutor:
             boundary = self._compiled_frontend_command_boundaries.get(candidate)
             if boundary is not None:
                 return boundary
+        runtime_plan_node = self._runtime_plan_node_for_step(
+            step_name,
+            step_id,
+            node_id=node_id,
+        )
+        if (
+            runtime_plan_node is not None
+            and isinstance(runtime_plan_node.command_boundary_kind, str)
+            and runtime_plan_node.command_boundary_kind
+            and isinstance(runtime_plan_node.command_boundary_name, str)
+            and runtime_plan_node.command_boundary_name
+        ):
+            return {
+                "boundary_kind": runtime_plan_node.command_boundary_kind,
+                "command_name": runtime_plan_node.command_boundary_name,
+                "adapter_name": runtime_plan_node.command_boundary_name,
+            }
         return None
 
     def _emit_compiled_frontend_step_display(
@@ -742,7 +765,11 @@ class WorkflowExecutor:
         form_path = origin.get("form_path")
         if isinstance(form_path, list) and form_path:
             logger.info("  form: %s", " > ".join(str(part) for part in form_path))
-        boundary = self._compiled_frontend_command_boundary_for_step(step_name, step_id)
+        boundary = self._compiled_frontend_command_boundary_for_step(
+            step_name,
+            step_id,
+            node_id=node_id,
+        )
         if not isinstance(boundary, Mapping):
             return
         if boundary.get("boundary_kind") == "certified_adapter":
@@ -835,7 +862,11 @@ class WorkflowExecutor:
         resolved_name = (
             presentation_name
             if isinstance(presentation_name, str)
-            else self.projection.presentation_key_by_node_id.get(node.node_id, node.presentation_name)
+            else (
+                self._runtime_plan_node_for_node_id(node.node_id).presentation_key
+                if self._runtime_plan_node_for_node_id(node.node_id) is not None
+                else self.projection.presentation_key_by_node_id.get(node.node_id, node.presentation_name)
+            )
             if self.projection is not None
             else node.presentation_name
         )
@@ -863,6 +894,9 @@ class WorkflowExecutor:
 
     def _first_execution_node_id(self) -> Optional[str]:
         """Return the first top-level executable node id when bundle-backed IR is available."""
+        if self.runtime_plan is not None:
+            ordered_node_ids = self.runtime_plan.ordered_node_ids
+            return ordered_node_ids[0] if ordered_node_ids else None
         if self.projection is None:
             return None
         ordered_node_ids = self.projection.ordered_execution_node_ids()
@@ -870,6 +904,9 @@ class WorkflowExecutor:
 
     def _execution_index_for_node_id(self, node_id: str) -> int:
         """Return the combined execution index for one top-level executable node id."""
+        runtime_plan_node = self._runtime_plan_node_for_node_id(node_id)
+        if runtime_plan_node is not None and isinstance(runtime_plan_node.execution_index, int):
+            return runtime_plan_node.execution_index
         index = self._execution_index_by_node_id.get(node_id)
         if isinstance(index, int):
             return index
@@ -884,11 +921,38 @@ class WorkflowExecutor:
 
     def _node_id_for_execution_index(self, step_index: int) -> Optional[str]:
         """Return the executable node id for one top-level execution index."""
+        if self.runtime_plan is not None and 0 <= step_index < len(self.runtime_plan.ordered_node_ids):
+            return self.runtime_plan.ordered_node_ids[step_index]
         if self.projection is not None:
             return self.projection.node_id_for_execution_index(step_index)
         if 0 <= step_index < len(self._step_node_ids):
             node_id = self._step_node_ids[step_index]
             return node_id if isinstance(node_id, str) else None
+        return None
+
+    def _runtime_plan_node_for_node_id(self, node_id: str):
+        """Return one runtime-plan node summary when the bundle exposes it."""
+        if self.runtime_plan is None:
+            return None
+        return self.runtime_plan.nodes.get(node_id)
+
+    def _runtime_plan_node_for_step(
+        self,
+        step_name: str,
+        step_id: str,
+        *,
+        node_id: str | None = None,
+    ):
+        """Resolve one runtime step to a runtime-plan node summary when available."""
+        if isinstance(node_id, str) and node_id:
+            node = self._runtime_plan_node_for_node_id(node_id)
+            if node is not None:
+                return node
+        if self.runtime_plan is None:
+            return None
+        for node in self.runtime_plan.nodes.values():
+            if step_id == node.step_id or step_name == node.presentation_key or step_name == node.display_name:
+                return node
         return None
 
     def _fallthrough_node_id(self, current_node_id: str) -> Optional[str]:

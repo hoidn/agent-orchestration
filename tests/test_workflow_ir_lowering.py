@@ -661,3 +661,34 @@ def test_lowering_emits_typed_execution_configs_for_leaf_and_loop_nodes(tmp_path
 
     assert isinstance(run_review_loop.execution_config, CallStepConfig)
     assert run_review_loop.execution_config.call == "review_loop"
+
+
+def test_loaded_bundle_exposes_runtime_plan_with_ordered_and_nested_node_metadata(tmp_path: Path):
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_ir_workflow(tmp_path))
+    for_each_bundle = WorkflowLoader(tmp_path).load_bundle(_write_for_each_call_ir_workflow(tmp_path))
+
+    runtime_plan = bundle.runtime_plan
+    ordered_node_ids = bundle.projection.ordered_execution_node_ids()
+
+    assert runtime_plan.schema_version == "workflow_runtime_plan.v1"
+    assert runtime_plan.workflow_name == bundle.surface.name
+    assert runtime_plan.ordered_node_ids == ordered_node_ids
+    assert set(runtime_plan.nodes) == set(bundle.ir.nodes)
+    assert not hasattr(bundle, "workflow_projection")
+
+    for execution_index, node_id in enumerate(ordered_node_ids):
+        assert runtime_plan.nodes[node_id].execution_index == execution_index
+
+    nested_repeat_until_node = runtime_plan.nodes["root.review_loop.iteration_body.run_review_loop"]
+    assert nested_repeat_until_node.execution_index is None
+    assert nested_repeat_until_node.call_alias == "review_loop"
+
+    for_each_nested_node = for_each_bundle.runtime_plan.nodes[
+        "root.process_items.run_review_loop_from_for_each"
+    ]
+    assert for_each_nested_node.execution_index is None
+    assert for_each_nested_node.call_alias == "review_loop"
+
+    cleanup_node = runtime_plan.nodes["root.finally.cleanup.write_cleanup_marker"]
+    assert cleanup_node.command_boundary_kind is None
+    assert cleanup_node.command_boundary_name is None

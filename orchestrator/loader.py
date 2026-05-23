@@ -24,7 +24,7 @@ from orchestrator.workflow.loaded_bundle import (
     workflow_managed_write_root_inputs,
     workflow_output_contracts,
 )
-from orchestrator.workflow.lowering import lower_surface_workflow
+from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.predicates import (
     SCORE_PREDICATE_BOUND_KEYS,
     TYPED_PREDICATE_OPERATOR_KEYS,
@@ -200,15 +200,7 @@ class WorkflowLoader:
             )
             if surface is None:
                 return {}
-            ir, projection = lower_surface_workflow(surface)
-            bundle = LoadedWorkflowBundle(
-                surface=surface,
-                ir=ir,
-                projection=projection,
-                imports=MappingProxyType(dict(imported_bundles)),
-                provenance=surface.provenance,
-            )
-            return bundle
+            return build_loaded_workflow_bundle(surface, imports=imported_bundles)
         finally:
             self._load_stack.pop()
             self._workflow_input_specs = previous_input_specs
