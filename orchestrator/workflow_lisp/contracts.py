@@ -7,6 +7,8 @@ are attached to provider and command steps.
 
 from __future__ import annotations
 
+import hashlib
+import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +16,7 @@ from typing import Any
 from orchestrator.workflow.surface_ast import SurfaceContract
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .phase_stdlib import ReusableArtifactRequirement
 from .spans import SourceSpan
 from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
 from .workflows import WorkflowSignature
@@ -282,6 +285,48 @@ def derive_union_workflow_boundary_projection(
     )
 
 
+def derive_reusable_state_contract_metadata(
+    type_ref: RecordTypeRef | UnionTypeRef,
+    *,
+    target_dsl_version: str,
+    workflow_name: str,
+    step_id: str,
+    reusable_variants: tuple[str, ...] = (),
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> tuple[str, str, Mapping[str, tuple[ReusableArtifactRequirement, ...]], Mapping[str, Any]]:
+    """Derive reusable-state schema metadata from structured-result contracts."""
+
+    bundle_contract = derive_structured_result_contract(
+        type_ref,
+        workflow_name=workflow_name,
+        step_id=step_id,
+        span=span,
+        form_path=form_path,
+    )
+    structured_contract = {
+        key: value
+        for key, value in bundle_contract.payload.items()
+        if key != "path"
+    }
+    structured_contract_kind = "record" if isinstance(type_ref, RecordTypeRef) else "union"
+    digest = hashlib.sha256(
+        json.dumps(
+            structured_contract,
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+    fingerprint = f"{target_dsl_version}:{type_ref.name}:{structured_contract_kind}:{digest}"
+    artifact_requirements = _derive_reusable_artifact_requirements(
+        type_ref,
+        reusable_variants=reusable_variants,
+        span=span,
+        form_path=form_path,
+    )
+    return structured_contract_kind, fingerprint, artifact_requirements, structured_contract
+
+
 def derive_workflow_boundary_fields(
     type_ref: TypeRef,
     *,
@@ -329,6 +374,65 @@ def _union_projection_fields(
     for variant_fields in projection.variant_fields.values():
         fields.extend(variant_fields)
     return _dedupe_projection_fields(fields, span=span, form_path=form_path)
+
+
+def _derive_reusable_artifact_requirements(
+    type_ref: RecordTypeRef | UnionTypeRef,
+    *,
+    reusable_variants: tuple[str, ...] = (),
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> Mapping[str, tuple[ReusableArtifactRequirement, ...]]:
+    if isinstance(type_ref, RecordTypeRef):
+        return {
+            type_ref.name: _artifact_requirements_from_fields(
+                _flatten_structured_result_fields(
+                    type_ref,
+                    span=span,
+                    form_path=form_path,
+                )
+            )
+        }
+
+    requirements: dict[str, tuple[ReusableArtifactRequirement, ...]] = {}
+    selected_variants = set(reusable_variants)
+    shared_fields = _shared_variant_structured_result_fields(
+        type_ref,
+        span=span,
+        form_path=form_path,
+    )
+    for variant in type_ref.definition.variants:
+        if selected_variants and variant.name not in selected_variants:
+            continue
+        requirements[variant.name] = _artifact_requirements_from_fields(
+            [
+                *shared_fields,
+                *_flatten_variant_structured_result_fields(
+                    type_ref,
+                    variant.name,
+                    span=span,
+                    form_path=form_path,
+                ),
+            ]
+        )
+    return requirements
+
+
+def _artifact_requirements_from_fields(
+    fields: list[dict[str, Any]],
+) -> tuple[ReusableArtifactRequirement, ...]:
+    requirements: list[ReusableArtifactRequirement] = []
+    for field in fields:
+        if field.get("type") != "relpath" or not field.get("must_exist_target"):
+            continue
+        json_pointer = str(field.get("json_pointer", ""))
+        requirements.append(
+            ReusableArtifactRequirement(
+                field_path=tuple(part for part in json_pointer.split("/") if part),
+                under=str(field.get("under", "")),
+            )
+        )
+    return tuple(requirements)
 
 
 def _dedupe_projection_fields(

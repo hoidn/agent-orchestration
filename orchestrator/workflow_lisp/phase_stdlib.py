@@ -42,13 +42,23 @@ class ProduceOneOfCandidateSpec:
 
 
 @dataclass(frozen=True)
-class ResumeValidationSpec:
+class ReusableArtifactRequirement:
+    """One compiler-derived reusable artifact existence requirement."""
+
+    field_path: tuple[str, ...]
+    under: str
+
+
+@dataclass(frozen=True)
+class ReusableStateValidationSpec:
     """Compiled validation contract for `resume-or-start` reusable state."""
 
     resume_from_expr: "ExprNode"
     return_type_ref: RecordTypeRef | UnionTypeRef
-    valid_variants: tuple[str, ...]
-    required_artifact_fields: Mapping[str, tuple[str, ...]]
-    validator_adapter_name: str
-    decision_type_name: str
+    structured_contract_kind: str
+    expected_contract_fingerprint: str
+    reusable_variants: tuple[str, ...]
+    artifact_requirements: Mapping[str, tuple[ReusableArtifactRequirement, ...]]
+    validator_binding_name: str
+    loader_binding_name: str
     source_map_behavior: str

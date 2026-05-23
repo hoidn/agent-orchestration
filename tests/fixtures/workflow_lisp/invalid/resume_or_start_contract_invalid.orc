@@ -52,11 +52,10 @@
                (resume-or-start plan-gate
                  :ctx phase-ctx
                  :resume-from inputs.resume_from
-                 :valid-when (APPROVED)
                  :start
-                   (command-result run_checks
-                     :argv ("python" "scripts/run_checks.py" inputs.report_path)
-                     :returns ChecksResult)
+                   (command-result resolve_plan_gate
+                     :argv ("python" "scripts/resolve_plan_gate.py" inputs.report_path)
+                     :returns PlanGateResult)
                  :returns PlanGateResult)))
         (match result
           ((APPROVED approved)

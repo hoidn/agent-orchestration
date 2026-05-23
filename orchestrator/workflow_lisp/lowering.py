@@ -47,6 +47,7 @@ from .definitions import elaborate_definition_module
 from .contracts import (
     GeneratedInternalInput,
     WorkflowBoundaryProjection,
+    derive_reusable_state_contract_metadata,
     derive_structured_result_contract,
     derive_workflow_boundary_fields,
     derive_workflow_signature_contracts,
@@ -1797,7 +1798,10 @@ def _lower_resume_or_start(
 
     expr = typed_expr.expr
     assert isinstance(expr, ResumeOrStartExpr)
-    validator_binding = context.command_boundary_environment.bindings_by_name.get("validate_reusable_phase_state")
+    validator_binding_name = "validate_reusable_phase_state"
+    loader_binding_name = f"load_canonical_phase_result__{expr.returns_type_name}"
+    validator_binding = context.command_boundary_environment.bindings_by_name.get(validator_binding_name)
+    loader_binding = context.command_boundary_environment.bindings_by_name.get(loader_binding_name)
     if context.phase_scope is not None:
         _require_phase_scope_name_match(
             context.phase_scope,
@@ -1813,15 +1817,36 @@ def _lower_resume_or_start(
             span=expr.span,
             form_path=expr.form_path,
         )
+    if not isinstance(loader_binding, CertifiedAdapterBinding):
+        raise _compile_error(
+            code="resume_or_start_uncertified_backend",
+            message=f"`resume-or-start` lowering requires `{loader_binding_name}`",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    (
+        structured_contract_kind,
+        expected_contract_fingerprint,
+        artifact_requirements,
+        structured_contract,
+    ) = derive_reusable_state_contract_metadata(
+        typed_expr.type_ref,
+        target_dsl_version="2.14",
+        workflow_name=context.workflow_name,
+        step_id=context.step_name_prefix,
+        reusable_variants=tuple(expr.valid_when),
+        span=expr.span,
+        form_path=expr.form_path,
+    )
     validator_step_name = f"{context.step_name_prefix}__resume_decision"
     validator_step_id = _normalize_generated_step_id(validator_step_name)
-    branch_step_name = f"{context.step_name_prefix}__select_bundle"
-    branch_step_id = _normalize_generated_step_id(branch_step_name)
-    loader_step_name = context.step_name_prefix
-    loader_step_id = _normalize_generated_step_id(loader_step_name)
+    result_step_name = context.step_name_prefix
+    result_step_id = _normalize_generated_step_id(result_step_name)
+    reuse_loader_step_name = f"{context.step_name_prefix}__reuse_load"
+    reuse_loader_step_id = _normalize_generated_step_id(reuse_loader_step_name)
     _record_step_origin(context, step_name=validator_step_name, step_id=validator_step_id, source=expr)
-    _record_step_origin(context, step_name=branch_step_name, step_id=branch_step_id, source=expr)
-    _record_step_origin(context, step_name=loader_step_name, step_id=loader_step_id, source=expr)
+    _record_step_origin(context, step_name=result_step_name, step_id=result_step_id, source=expr)
+    _record_step_origin(context, step_name=reuse_loader_step_name, step_id=reuse_loader_step_id, source=expr)
     resume_from_ref = _render_existing_output_ref(expr.resume_from_expr, local_values=local_values)
     if resume_from_ref is None:
         raise _compile_error(
@@ -1834,19 +1859,45 @@ def _lower_resume_or_start(
     validator_payload = json.dumps(
         {
             "resume_from": _template_for_ref(resume_from_ref),
-            "expected_return_type": expr.returns_type_name,
-            "valid_variants": list(expr.valid_when),
-            "required_artifact_fields": {
-                key: list(value)
-                for key, value in _resume_required_artifact_fields(
-                    typed_expr.type_ref,
-                    context=context,
-                    span=expr.span,
-                    form_path=expr.form_path,
-                ).items()
+            "target_dsl_version": "2.14",
+            "return_type_name": typed_expr.type_ref.name,
+            "structured_contract_kind": structured_contract_kind,
+            "expected_contract_fingerprint": expected_contract_fingerprint,
+            "structured_contract": structured_contract,
+            "reusable_variants": list(expr.valid_when),
+            "artifact_requirements": {
+                key: [
+                    {
+                        "field_path": list(requirement.field_path),
+                        "under": requirement.under,
+                    }
+                    for requirement in requirements
+                ]
+                for key, requirements in artifact_requirements.items()
             },
         }
     )
+    reuse_fields = [
+        {
+            "name": "source_bundle_path",
+            "json_pointer": "/source_bundle_path",
+            "type": "relpath",
+        },
+        {
+            "name": "source_bundle_sha256",
+            "json_pointer": "/source_bundle_sha256",
+            "type": "string",
+        },
+    ]
+    if isinstance(typed_expr.type_ref, UnionTypeRef):
+        reuse_fields.append(
+            {
+                "name": "matched_variant",
+                "json_pointer": "/matched_variant",
+                "type": "enum",
+                "allowed": list(expr.valid_when),
+            }
+        )
     validator_step = {
         "name": validator_step_name,
         "id": validator_step_id,
@@ -1862,20 +1913,15 @@ def _lower_resume_or_start(
             "shared_fields": [],
             "variants": {
                 "REUSE": {
-                    "fields": [
-                        {
-                            "name": "source_bundle_path",
-                            "json_pointer": "/source_bundle_path",
-                            "type": "relpath",
-                        }
-                    ]
+                    "fields": reuse_fields
                 },
                 "START": {
                     "fields": [
                         {
                             "name": "reason_code",
                             "json_pointer": "/reason_code",
-                            "type": "string",
+                            "type": "enum",
+                            "allowed": ["MISSING_BUNDLE", "VARIANT_NOT_REUSABLE"],
                         }
                     ]
                 },
@@ -1896,129 +1942,119 @@ def _lower_resume_or_start(
         context=start_context,
         local_values=local_values,
     )
-    start_bundle_ref = _resume_start_bundle_ref(
-        expr.start_expr,
-        start_terminal=start_terminal,
-        context=start_context,
-    )
-    start_case_steps = list(start_steps)
-    start_bundle_output_ref = start_bundle_ref
-    if not start_bundle_ref.startswith("root.steps.") and not start_bundle_ref.startswith("self.steps.") and not start_bundle_ref.startswith("parent.steps."):
-        capture_step_name = "CaptureFreshBundlePath"
-        capture_step_id = "capture_fresh_bundle_path"
-        start_case_steps.append(
-            {
-                "name": capture_step_name,
-                "id": capture_step_id,
-                "materialize_artifacts": {
-                    "values": [
-                        {
-                            "name": "source_bundle_path",
-                            "source": (
-                                {"input": start_bundle_ref.removeprefix("inputs.")}
-                                if start_bundle_ref.startswith("inputs.")
-                                else {"literal": start_bundle_ref}
-                            ),
-                            "contract": {
-                                "kind": "relpath",
-                                "type": "relpath",
-                            },
-                        }
-                    ],
-                },
-            }
-        )
-        start_bundle_output_ref = f"self.steps.{capture_step_name}.artifacts.source_bundle_path"
-    branch_case_outputs = {
-        "source_bundle_path": {
-            "kind": "relpath",
-            "type": "relpath",
-            "from": {"ref": f"parent.steps.{validator_step_name}.artifacts.source_bundle_path"},
-        }
-    }
-    branch_step = {
-        "name": branch_step_name,
-        "id": branch_step_id,
-        "match": {
-            "ref": f"root.steps.{validator_step_name}.artifacts.variant",
-            "cases": {
-                "REUSE": {
-                    "id": "reuse_bundle",
-                    "outputs": branch_case_outputs,
-                    "steps": [
-                        {
-                            "name": "ReuseBranchAnchor",
-                            "id": "reuse_branch_anchor",
-                            "assert": {
-                                "compare": {
-                                    "left": {
-                                        "ref": f"parent.steps.{validator_step_name}.artifacts.variant",
-                                    },
-                                    "op": "eq",
-                                    "right": "REUSE",
-                                }
-                            },
-                        }
-                    ],
-                },
-                "START": {
-                    "id": "start_bundle",
-                    "outputs": {
-                        "source_bundle_path": {
-                            "kind": "relpath",
-                            "type": "relpath",
-                            "from": {"ref": start_bundle_output_ref},
-                        }
-                    },
-                    "steps": start_case_steps,
-                },
-            },
-        },
-    }
-    loader_binding_name = f"load_canonical_phase_result__{expr.returns_type_name}"
-    loader_binding = context.command_boundary_environment.bindings_by_name.get(loader_binding_name)
-    if not isinstance(loader_binding, CertifiedAdapterBinding):
-        raise _compile_error(
-            code="resume_or_start_uncertified_backend",
-            message=f"`resume-or-start` lowering requires `{loader_binding_name}`",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
     loader_contract = derive_structured_result_contract(
         typed_expr.type_ref,
         workflow_name=context.workflow_name,
-        step_id=loader_step_name,
+        step_id=reuse_loader_step_name,
         span=expr.span,
         form_path=expr.form_path,
     )
-    loader_hidden_input = f"__write_root__{loader_step_id}__result_bundle"
+    loader_hidden_input = f"__write_root__{reuse_loader_step_id}__result_bundle"
     loader_payload = json.dumps(
         {
-            "bundle_path": "${root.steps."
-            + branch_step_name
+            "bundle_path": "${parent.steps."
+            + validator_step_name
             + ".artifacts.source_bundle_path}",
-            "expected_return_type": expr.returns_type_name,
+            "target_dsl_version": "2.14",
+            "return_type_name": typed_expr.type_ref.name,
+            "structured_contract_kind": structured_contract_kind,
+            "expected_contract_fingerprint": expected_contract_fingerprint,
+            "structured_contract": structured_contract,
+            "source_bundle_sha256": "${parent.steps."
+            + validator_step_name
+            + ".artifacts.source_bundle_sha256}",
         }
     )
     loader_step = {
-        "name": loader_step_name,
-        "id": loader_step_id,
+        "name": reuse_loader_step_name,
+        "id": reuse_loader_step_id,
         "command": [*loader_binding.stable_command, loader_payload],
         loader_contract.contract_kind: {
             **dict(loader_contract.payload),
             "path": f"${{inputs.{loader_hidden_input}}}",
         },
     }
+    resume_output_contracts = {
+        field.generated_name.removeprefix("return__"): dict(field.contract_definition)
+        for field in derive_workflow_boundary_fields(
+            typed_expr.type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    }
+
+    def _case_ref(ref: str) -> str:
+        if ref.startswith("root.steps."):
+            return "self.steps." + ref.removeprefix("root.steps.")
+        return ref
+
+    def _case_outputs(terminal: _TerminalResult) -> dict[str, Any]:
+        outputs: dict[str, Any] = {}
+        for field_name, definition in resume_output_contracts.items():
+            outputs[field_name] = {
+                **definition,
+                "from": {"ref": _case_ref(terminal.output_refs[f"return__{field_name}"])},
+            }
+        return outputs
+
+    reuse_terminal = _TerminalResult(
+        step_name=reuse_loader_step_name,
+        step_id=reuse_loader_step_id,
+        output_refs=_record_output_refs(reuse_loader_step_name, typed_expr.type_ref),
+        output_kind="step",
+        hidden_inputs={loader_hidden_input: _origin_from_context_source(context, expr)},
+    )
+    reuse_case_outputs = _case_outputs(reuse_terminal)
+    start_case_outputs = _case_outputs(start_terminal)
+    result_step = {
+        "name": result_step_name,
+        "id": result_step_id,
+        "match": {
+            "ref": f"root.steps.{validator_step_name}.artifacts.variant",
+            "cases": {
+                "REUSE": {
+                    "id": _normalize_generated_step_id(f"{context.step_name_prefix}__reuse"),
+                    "outputs": reuse_case_outputs,
+                    "steps": [
+                        loader_step,
+                        _build_match_projection_anchor_step(
+                            match_step_name=result_step_name,
+                            variant_name="REUSE",
+                            case_outputs=reuse_case_outputs,
+                            context=context,
+                            span=expr.span,
+                        ),
+                    ],
+                },
+                "START": {
+                    "id": _normalize_generated_step_id(f"{context.step_name_prefix}__start"),
+                    "outputs": start_case_outputs,
+                    "steps": [
+                        *start_steps,
+                        _build_match_projection_anchor_step(
+                            match_step_name=result_step_name,
+                            variant_name="START",
+                            case_outputs=start_case_outputs,
+                            context=context,
+                            span=expr.span,
+                        ),
+                    ],
+                },
+            },
+        },
+    }
     hidden_inputs = {
         validator_hidden_input: _origin_from_context_source(context, expr),
-        loader_hidden_input: _origin_from_context_source(context, expr),
     }
+    hidden_inputs.update(reuse_terminal.hidden_inputs)
     hidden_inputs.update(start_terminal.hidden_inputs)
-    return [validator_step, branch_step, loader_step], _TerminalResult(
-        step_name=loader_step_name,
-        step_id=loader_step_id,
-        output_refs=_record_output_refs(loader_step_name, typed_expr.type_ref),
-        output_kind="step",
+    return [validator_step, result_step], _TerminalResult(
+        step_name=result_step_name,
+        step_id=result_step_id,
+        output_refs=_record_output_refs(result_step_name, typed_expr.type_ref),
+        output_kind="match",
         hidden_inputs=hidden_inputs,
     )
 

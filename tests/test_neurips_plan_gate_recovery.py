@@ -1,7 +1,15 @@
+import hashlib
 import json
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
+
+from orchestrator.workflow_lisp.adapters import (
+    load_canonical_phase_result,
+    validate_reusable_phase_state,
+)
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -60,6 +68,107 @@ def _run_recovery(
     )
     assert result.stderr == ""
     return json.loads(output.read_text(encoding="utf-8")), status_output.read_text(encoding="utf-8").strip()
+
+
+def _write_json(path: Path, payload: dict[str, object]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
+
+
+def _structured_contract_fingerprint(
+    *,
+    structured_contract_kind: str,
+    structured_contract: dict[str, object],
+    return_type_name: str,
+) -> str:
+    digest = hashlib.sha256(
+        json.dumps(structured_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"2.14:{return_type_name}:{structured_contract_kind}:{digest}"
+
+
+def _plan_gate_payload_path(workspace: Path, *, resume_from: str) -> Path:
+    structured_contract = {
+        "discriminant": {
+            "name": "variant",
+            "json_pointer": "/variant",
+            "type": "enum",
+            "allowed": ["APPROVED", "BLOCKED"],
+        },
+        "shared_fields": [
+            {
+                "name": "shared_report_path",
+                "json_pointer": "/shared_report_path",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ],
+        "variants": {
+            "APPROVED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    },
+                    {
+                        "name": "blocker_class",
+                        "json_pointer": "/blocker_class",
+                        "type": "string",
+                    },
+                ]
+            },
+        },
+    }
+    return _write_json(
+        workspace / "state" / "payloads" / "plan_gate_validate.json",
+        {
+            "resume_from": resume_from,
+            "target_dsl_version": "2.14",
+            "return_type_name": "PlanGateResult",
+            "structured_contract_kind": "union",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="union",
+                structured_contract=structured_contract,
+                return_type_name="PlanGateResult",
+            ),
+            "structured_contract": structured_contract,
+            "reusable_variants": ["APPROVED"],
+            "artifact_requirements": {
+                "APPROVED": [
+                    {
+                        "field_path": ["shared_report_path"],
+                        "under": "artifacts/work",
+                    },
+                    {
+                        "field_path": ["execution_report_path"],
+                        "under": "artifacts/work",
+                    }
+                ],
+                "BLOCKED": [
+                    {
+                        "field_path": ["progress_report_path"],
+                        "under": "artifacts/work",
+                    }
+                ],
+            },
+        },
+    )
 
 
 def test_recovers_approved_plan_gate_from_in_progress_item_frontmatter(tmp_path: Path) -> None:
@@ -144,3 +253,169 @@ def test_recovered_item_with_missing_or_unsafe_plan_path_falls_back_to_fresh_pla
 
         assert status == "MISSING"
         assert payload == {"status": "MISSING", "source": "NONE"}
+
+
+def test_plan_gate_recovery_resume_validator_distinguishes_start_from_hard_failure(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    payload_path = _plan_gate_payload_path(tmp_path, resume_from="state/item/plan-gate/final_plan_gate.json")
+
+    missing_exit = validate_reusable_phase_state.main(
+        ["validate_reusable_phase_state", payload_path.as_posix()]
+    )
+    missing = json.loads(capsys.readouterr().out)
+
+    blocked_bundle_path = _write_json(
+        tmp_path / "state" / "item" / "plan-gate" / "final_plan_gate.json",
+        {
+            "variant": "BLOCKED",
+            "shared_report_path": "artifacts/work/shared-blocked.md",
+            "progress_report_path": "artifacts/work/blocked.md",
+            "blocker_class": "user_decision_required",
+        },
+    )
+    blocked_exit = validate_reusable_phase_state.main(
+        ["validate_reusable_phase_state", payload_path.as_posix()]
+    )
+    blocked = json.loads(capsys.readouterr().out)
+
+    blocked_bundle_path.write_text("state/item/plan-gate/pointer.txt\n", encoding="utf-8")
+    invalid_exit = validate_reusable_phase_state.main(
+        ["validate_reusable_phase_state", payload_path.as_posix()]
+    )
+    invalid = json.loads(capsys.readouterr().out)
+
+    assert missing_exit == 0
+    assert missing == {"variant": "START", "reason_code": "MISSING_BUNDLE"}
+    assert blocked_exit == 0
+    assert blocked == {"variant": "START", "reason_code": "VARIANT_NOT_REUSABLE"}
+    assert invalid_exit == 1
+    assert invalid == {"error": {"type": "resume_state_pointer_authority_forbidden"}}
+
+
+def test_plan_gate_recovery_resume_validator_reports_missing_required_shared_artifact_for_reusable_variant(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    payload_path = _plan_gate_payload_path(tmp_path, resume_from="state/item/plan-gate/final_plan_gate.json")
+    execution_report = tmp_path / "artifacts" / "work" / "execution.md"
+    execution_report.parent.mkdir(parents=True, exist_ok=True)
+    execution_report.write_text("execution", encoding="utf-8")
+    _write_json(
+        tmp_path / "state" / "item" / "plan-gate" / "final_plan_gate.json",
+        {
+            "variant": "APPROVED",
+            "shared_report_path": "artifacts/work/missing-shared.md",
+            "execution_report_path": "artifacts/work/execution.md",
+        },
+    )
+
+    exit_code = validate_reusable_phase_state.main(
+        ["validate_reusable_phase_state", payload_path.as_posix()]
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert payload == {"error": {"type": "resume_state_required_artifact_missing"}}
+
+
+def test_plan_gate_recovery_loader_preserves_plan_gate_result_shape(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    shared_report = tmp_path / "artifacts" / "work" / "shared.md"
+    execution_report = tmp_path / "artifacts" / "work" / "execution.md"
+    execution_report.parent.mkdir(parents=True, exist_ok=True)
+    shared_report.write_text("shared", encoding="utf-8")
+    execution_report.write_text("report", encoding="utf-8")
+    bundle_path = _write_json(
+        tmp_path / "state" / "item" / "plan-gate" / "final_plan_gate.json",
+        {
+            "variant": "APPROVED",
+            "shared_report_path": "artifacts/work/shared.md",
+            "execution_report_path": "artifacts/work/execution.md",
+        },
+    )
+    bundle_sha256 = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    structured_contract = {
+        "discriminant": {
+            "name": "variant",
+            "json_pointer": "/variant",
+            "type": "enum",
+            "allowed": ["APPROVED", "BLOCKED"],
+        },
+        "shared_fields": [
+            {
+                "name": "shared_report_path",
+                "json_pointer": "/shared_report_path",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ],
+        "variants": {
+            "APPROVED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    },
+                    {
+                        "name": "blocker_class",
+                        "json_pointer": "/blocker_class",
+                        "type": "string",
+                    },
+                ]
+            },
+        },
+    }
+
+    exit_code = load_canonical_phase_result.main(
+        [
+            "load_canonical_phase_result",
+            json.dumps(
+                {
+                    "bundle_path": "state/item/plan-gate/final_plan_gate.json",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "PlanGateResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="union",
+                        structured_contract=structured_contract,
+                        return_type_name="PlanGateResult",
+                    ),
+                    "structured_contract_kind": "union",
+                    "structured_contract": structured_contract,
+                    "source_bundle_sha256": bundle_sha256,
+                }
+            ),
+        ]
+    )
+    loaded = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert loaded == {
+        "variant": "APPROVED",
+        "shared_report_path": "artifacts/work/shared.md",
+        "execution_report_path": "artifacts/work/execution.md",
+    }

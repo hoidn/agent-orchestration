@@ -63,7 +63,7 @@ from .procedures import (
     with_call_graph,
 )
 from .reader import read_sexpr_file
-from .syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
+from .syntax import WorkflowLispSyntaxModule, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
 from .type_env import PRELUDE_TYPE_NAMES, FrontendTypeEnvironment, TypeRef
 from .typecheck import typecheck_expression
 from .workflows import (
@@ -215,6 +215,11 @@ def compile_stage3_module(
     command_boundary_environment = _augment_resource_transition_command_boundaries(
         command_boundary_environment,
     )
+    command_boundary_environment = _augment_resume_command_boundaries(
+        command_boundary_environment,
+        expressions=tuple(workflow.body for workflow in workflow_defs)
+        + tuple(procedure.body for procedure in procedure_defs),
+    )
     typed_procedures, typed_workflows, procedure_catalog = _infer_stage3_effect_summaries(
         procedure_defs,
         workflow_defs=workflow_defs,
@@ -223,11 +228,6 @@ def compile_stage3_module(
         procedure_catalog=procedure_catalog,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
-    )
-    command_boundary_environment = _augment_resume_command_boundaries(
-        command_boundary_environment,
-        typed_procedures=typed_procedures,
-        typed_workflows=typed_workflows,
     )
     lowered_workflows = lower_workflow_definitions(
         typed_workflows,
@@ -394,6 +394,11 @@ def _compile_stage3_graph(
         command_boundary_environment = _augment_resource_transition_command_boundaries(
             command_boundary_environment,
         )
+        command_boundary_environment = _augment_resume_command_boundaries(
+            command_boundary_environment,
+            expressions=tuple(workflow.body for workflow in workflow_defs)
+            + tuple(procedure.body for procedure in procedure_defs),
+        )
         local_procedure_resolver = _procedure_name_resolver(
             module_name,
             import_scope,
@@ -417,11 +422,6 @@ def _compile_stage3_graph(
             workflow_effects_by_name=workflow_effects_by_name,
             procedure_name_resolver=local_procedure_resolver,
             workflow_name_resolver=local_workflow_resolver,
-        )
-        command_boundary_environment = _augment_resume_command_boundaries(
-            command_boundary_environment,
-            typed_procedures=typed_procedures,
-            typed_workflows=typed_workflows,
         )
         combined_typed_procedures = {
             **typed_procedures_by_name,
@@ -740,14 +740,13 @@ def _expanded_syntax_module(path: Path) -> WorkflowLispSyntaxModule:
 
 def _augment_resume_command_boundaries(
     command_boundary_environment,
-    typed_procedures,
-    typed_workflows,
+    *,
+    expressions,
 ):
     """Install resume/state-reuse adapters only when code uses `resume-or-start`."""
 
     bindings = dict(command_boundary_environment.bindings_by_name)
-    resume_exprs = [workflow.typed_body.expr for workflow in typed_workflows]
-    resume_exprs.extend(procedure.typed_body.expr for procedure in typed_procedures)
+    resume_exprs = list(expressions)
     if not any(_workflow_contains_resume_or_start(expr) for expr in resume_exprs):
         return command_boundary_environment
     bindings["validate_reusable_phase_state"] = CertifiedAdapterBinding(
@@ -759,7 +758,11 @@ def _augment_resume_command_boundaries(
         path_safety={"kind": "workspace_relpath"},
         source_map_behavior="step",
         fixture_ids=("resume_state_reuse_valid",),
-        negative_fixture_ids=("resume_state_pointer_authority_forbidden",),
+        negative_fixture_ids=(
+            "resume_state_pointer_authority_forbidden",
+            "resume_state_contract_fingerprint_mismatch",
+            "resume_state_bundle_schema_invalid",
+        ),
     )
     for return_type_name in sorted(
         {
@@ -812,6 +815,12 @@ def _augment_resource_transition_command_boundaries(command_boundary_environment
 def _workflow_contains_resume_or_start(expr) -> bool:
     """Return whether an expression tree contains a `resume-or-start` form."""
 
+    if isinstance(expr, SyntaxNode):
+        return _workflow_contains_resume_or_start(syntax_node_datum(expr))
+    if isinstance(expr, SyntaxList):
+        if syntax_head_name(expr) == "resume-or-start":
+            return True
+        return any(_workflow_contains_resume_or_start(item) for item in expr.items)
     if isinstance(expr, ResumeOrStartExpr):
         return True
     if isinstance(expr, LetStarExpr):
@@ -826,6 +835,21 @@ def _workflow_contains_resume_or_start(expr) -> bool:
 def _resume_return_type_names(expr) -> tuple[str, ...]:
     """Collect result types that require resume-state loader adapters."""
 
+    if isinstance(expr, SyntaxNode):
+        return _resume_return_type_names(syntax_node_datum(expr))
+    if isinstance(expr, SyntaxList):
+        names: list[str] = []
+        if syntax_head_name(expr) == "resume-or-start":
+            for index, item in enumerate(expr.items[:-1]):
+                if getattr(item, "value", None) != ":returns":
+                    continue
+                return_identifier = syntax_identifier(expr.items[index + 1])
+                if return_identifier is not None:
+                    names.append(return_identifier.resolved_name)
+                break
+        for item in expr.items:
+            names.extend(_resume_return_type_names(item))
+        return tuple(names)
     if isinstance(expr, ResumeOrStartExpr):
         return (expr.returns_type_name,)
     if isinstance(expr, LetStarExpr):

@@ -42,8 +42,10 @@
     (checks_report WorkReport))
   (defunion PlanGateResult
     (APPROVED
+      (shared_report_path WorkReport)
       (execution_report_path WorkReport))
     (BLOCKED
+      (shared_report_path WorkReport)
       (progress_report_path WorkReport)
       (blocker_class BlockerClass)))
   (defworkflow plan-run

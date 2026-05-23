@@ -51,7 +51,7 @@ from .phase import (
     is_implementation_attempt_result_type,
     resolve_phase_target_type,
 )
-from .phase_stdlib import ResumeValidationSpec
+from .phase_stdlib import ReusableStateValidationSpec
 from .resource import (
     ensure_drain_context_type,
     ensure_finalize_selected_item_inputs,
@@ -1440,7 +1440,7 @@ def _typecheck(
         if not isinstance(typed_resume_from.type_ref, PathTypeRef) or typed_resume_from.type_ref.definition.under != "state":
             _raise_error(
                 "`resume-or-start :resume-from` must be a canonical state relpath",
-                code="resume_or_start_contract_invalid",
+                code="resume_or_start_resume_path_invalid",
                 span=expr.resume_from_expr.span,
                 form_path=expr.resume_from_expr.form_path,
             )
@@ -1476,6 +1476,13 @@ def _typecheck(
             )
         valid_variants = expr.valid_when
         if isinstance(return_type, UnionTypeRef):
+            if not valid_variants:
+                _raise_error(
+                    "`resume-or-start` union returns require non-empty `:valid-when`",
+                    code="resume_or_start_contract_invalid",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
             declared_variants = {variant.name for variant in return_type.definition.variants}
             for variant_name in valid_variants:
                 if variant_name not in declared_variants:
@@ -1488,10 +1495,26 @@ def _typecheck(
         elif valid_variants:
             _raise_error(
                 "`resume-or-start :valid-when` is valid only for union return types",
-                code="resume_or_start_contract_invalid",
+                code="resume_or_start_record_valid_when_invalid",
                 span=expr.span,
                 form_path=expr.form_path,
             )
+        validator_binding_name = "validate_reusable_phase_state"
+        loader_binding_name = f"load_canonical_phase_result__{expr.returns_type_name}"
+        _require_resume_binding(
+            command_boundary_environment=command_boundary_environment,
+            binding_name=validator_binding_name,
+            expected_output_type_name="ResumeReuseDecision",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        _require_resume_binding(
+            command_boundary_environment=command_boundary_environment,
+            binding_name=loader_binding_name,
+            expected_output_type_name=expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
         if isinstance(expr.start_expr, CommandResultExpr) and expr.start_expr.step_name.startswith("load_canonical_phase_result__"):
             _raise_error(
                 "`resume-or-start` may not author loader adapter calls directly",
@@ -1499,13 +1522,29 @@ def _typecheck(
                 span=expr.start_expr.span,
                 form_path=expr.start_expr.form_path,
             )
-        validation_spec = ResumeValidationSpec(
+        (
+            structured_contract_kind,
+            expected_contract_fingerprint,
+            artifact_requirements,
+            _,
+        ) = _derive_resume_metadata(
+            return_type,
+            target_dsl_version="2.14",
+            workflow_name="resume_or_start",
+            step_id=expr.resume_name,
+            reusable_variants=valid_variants,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        validation_spec = ReusableStateValidationSpec(
             resume_from_expr=expr.resume_from_expr,
             return_type_ref=return_type,
-            valid_variants=valid_variants,
-            required_artifact_fields=_required_resume_artifact_fields(return_type, type_env=type_env, span=expr.span, form_path=expr.form_path),
-            validator_adapter_name="validate_reusable_phase_state",
-            decision_type_name="ResumeReuseDecision",
+            structured_contract_kind=structured_contract_kind,
+            expected_contract_fingerprint=expected_contract_fingerprint,
+            reusable_variants=valid_variants,
+            artifact_requirements=artifact_requirements,
+            validator_binding_name=validator_binding_name,
+            loader_binding_name=loader_binding_name,
             source_map_behavior="step",
         )
         return _typed(
@@ -1516,7 +1555,7 @@ def _typecheck(
                 typed_resume_from.effect_summary,
                 typed_start.effect_summary,
                 effect_summary_from_direct(
-                    direct_effects=(UsesCommandEffect(subject=("validate_reusable_phase_state",)),),
+                    direct_effects=(UsesCommandEffect(subject=(validator_binding_name,)),),
                 ),
             ),
         )
@@ -1794,30 +1833,49 @@ def _validate_review_loop_result_contract(
             )
 
 
-def _required_resume_artifact_fields(
-    return_type: RecordTypeRef | UnionTypeRef,
+def _require_resume_binding(
     *,
-    type_env: FrontendTypeEnvironment,
+    command_boundary_environment,
+    binding_name: str,
+    expected_output_type_name: str,
     span: SourceSpan,
     form_path: tuple[str, ...],
-) -> Mapping[str, tuple[str, ...]]:
-    if isinstance(return_type, RecordTypeRef):
-        return {
-            return_type.name: tuple(
-                field.name
-                for field in return_type.definition.fields
-                if isinstance(type_env.record_field(return_type, field.name, span=span, form_path=form_path), PathTypeRef)
-            )
-        }
-    required: dict[str, tuple[str, ...]] = {}
-    for variant in return_type.definition.variants:
-        variant_type = type_env.union_variant(return_type, variant.name, span=span, form_path=form_path)
-        required[variant.name] = tuple(
-            field.name
-            for field in variant.fields
-            if isinstance(type_env.record_field(variant_type, field.name, span=span, form_path=form_path), PathTypeRef)
+) -> None:
+    from .workflows import CertifiedAdapterBinding
+
+    binding = None
+    if command_boundary_environment is not None:
+        binding = command_boundary_environment.bindings_by_name.get(binding_name)
+    if not isinstance(binding, CertifiedAdapterBinding) or binding.output_type_name != expected_output_type_name:
+        _raise_error(
+            f"`resume-or-start` requires certified adapter binding `{binding_name}`",
+            code="resume_or_start_uncertified_backend",
+            span=span,
+            form_path=form_path,
         )
-    return required
+
+
+def _derive_resume_metadata(
+    return_type: RecordTypeRef | UnionTypeRef,
+    *,
+    target_dsl_version: str,
+    workflow_name: str,
+    step_id: str,
+    reusable_variants: tuple[str, ...] = (),
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+):
+    from .contracts import derive_reusable_state_contract_metadata
+
+    return derive_reusable_state_contract_metadata(
+        return_type,
+        target_dsl_version=target_dsl_version,
+        workflow_name=workflow_name,
+        step_id=step_id,
+        reusable_variants=reusable_variants,
+        span=span,
+        form_path=form_path,
+    )
 
 
 def _typed(*, expr: ExprNode, type_ref: TypeRef, effect: EffectSummary) -> TypedExpr:

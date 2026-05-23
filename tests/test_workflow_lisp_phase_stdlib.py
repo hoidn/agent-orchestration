@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from orchestrator.workflow_lisp.adapters import (
 )
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
+    _augment_resume_command_boundaries,
     _validate_definition_module,
     compile_stage3_module,
 )
@@ -41,6 +43,8 @@ INVALID_LEGACY_BRIDGE_FIXTURE = FIXTURES / "invalid" / "phase_ctx_legacy_bridge_
 INVALID_PHASE_TARGET_FIXTURE = FIXTURES / "invalid" / "phase_target_unknown_generic.orc"
 INVALID_REVIEW_LOOP_FIXTURE = FIXTURES / "invalid" / "review_loop_result_contract_invalid.orc"
 INVALID_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_contract_invalid.orc"
+INVALID_RESUME_POINTER_FIXTURE = FIXTURES / "invalid" / "resume_or_start_pointer_authority_invalid.orc"
+INVALID_RESUME_RECORD_VALID_WHEN_FIXTURE = FIXTURES / "invalid" / "resume_or_start_record_valid_when_invalid.orc"
 INVALID_UNCERTIFIED_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_uncertified_adapter.orc"
 
 
@@ -66,6 +70,24 @@ def _rewrite_fixture(path: Path, *, replacements: tuple[tuple[str, str], ...], t
         assert old in source, f"fixture text not found: {old}"
         source = source.replace(old, new, 1)
     return _write_module(tmp_path / filename, source)
+
+
+def _write_payload_file(tmp_path: Path, filename: str, payload: dict[str, object]) -> str:
+    path = tmp_path / filename
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path.as_posix()
+
+
+def _structured_contract_fingerprint(
+    *,
+    structured_contract_kind: str,
+    structured_contract: dict[str, object],
+    return_type_name: str,
+) -> str:
+    digest = hashlib.sha256(
+        json.dumps(structured_contract, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return f"2.14:{return_type_name}:{structured_contract_kind}:{digest}"
 
 
 def _extern_environment() -> ExternEnvironment:
@@ -128,12 +150,16 @@ def _typecheck_fixture(path: Path):
     syntax_module = _build_syntax_module(path)
     workflow_defs = elaborate_workflow_definitions(syntax_module)
     workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    command_boundary_environment = _augment_resume_command_boundaries(
+        _command_boundary_environment(),
+        expressions=tuple(workflow.body for workflow in workflow_defs),
+    )
     return typecheck_workflow_definitions(
         workflow_defs,
         type_env=type_env,
         workflow_catalog=workflow_catalog,
         extern_environment=_extern_environment(),
-        command_boundary_environment=_command_boundary_environment(),
+        command_boundary_environment=command_boundary_environment,
     )
 
 
@@ -193,6 +219,7 @@ def _iter_nested_steps(steps):
             nested_steps = repeat_block.get("steps", [])
             if isinstance(nested_steps, list):
                 yield from _iter_nested_steps(nested_steps)
+
 
 
 def test_typecheck_accepts_generic_phase_ctx_for_phase_target(tmp_path: Path) -> None:
@@ -499,6 +526,79 @@ def test_lowering_resume_or_start_registers_generated_loader_binding(tmp_path: P
     )
 
 
+def test_resume_or_start_lowers_contract_fingerprint_and_loader_metadata(
+    tmp_path: Path,
+) -> None:
+    result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
+    authored_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name in {"resume-record-phase", "resume-plan-gate"}
+    }
+
+    record_validator_payload = json.loads(authored_by_name["resume-record-phase"]["steps"][0]["command"][3])
+    assert record_validator_payload["target_dsl_version"] == "2.14"
+    assert record_validator_payload["return_type_name"] == "ChecksResult"
+    assert record_validator_payload["structured_contract_kind"] == "record"
+    assert record_validator_payload["expected_contract_fingerprint"].startswith("2.14:ChecksResult:record:")
+    assert record_validator_payload["artifact_requirements"] == {
+        "ChecksResult": [
+            {
+                "field_path": ["checks_report"],
+                "under": "artifacts/work",
+            }
+        ]
+    }
+    record_loader_payload = json.loads(
+        next(
+            step["command"][3]
+            for step in authored_by_name["resume-record-phase"]["steps"][1]["match"]["cases"]["REUSE"]["steps"]
+            if step.get("command", [])[:3]
+            == [
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+            ]
+        )
+    )
+    assert record_loader_payload["target_dsl_version"] == "2.14"
+    assert record_loader_payload["return_type_name"] == "ChecksResult"
+    assert record_loader_payload["expected_contract_fingerprint"].startswith("2.14:ChecksResult:record:")
+
+    union_validator_payload = json.loads(authored_by_name["resume-plan-gate"]["steps"][0]["command"][3])
+    assert union_validator_payload["target_dsl_version"] == "2.14"
+    assert union_validator_payload["return_type_name"] == "PlanGateResult"
+    assert union_validator_payload["structured_contract_kind"] == "union"
+    assert union_validator_payload["expected_contract_fingerprint"].startswith("2.14:PlanGateResult:union:")
+    assert union_validator_payload["artifact_requirements"] == {
+        "APPROVED": [
+            {
+                "field_path": ["shared_report_path"],
+                "under": "artifacts/work",
+            },
+            {
+                "field_path": ["execution_report_path"],
+                "under": "artifacts/work",
+            }
+        ],
+    }
+    union_loader_payload = json.loads(
+        next(
+            step["command"][3]
+            for step in authored_by_name["resume-plan-gate"]["steps"][1]["match"]["cases"]["REUSE"]["steps"]
+            if step.get("command", [])[:3]
+            == [
+                "python",
+                "-m",
+                "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+            ]
+        )
+    )
+    assert union_loader_payload["target_dsl_version"] == "2.14"
+    assert union_loader_payload["return_type_name"] == "PlanGateResult"
+    assert union_loader_payload["expected_contract_fingerprint"].startswith("2.14:PlanGateResult:union:")
+
+
 def test_resume_or_start_reserved_adapter_names_cannot_be_shadowed(tmp_path: Path) -> None:
     result = compile_stage3_module(
         VALID_RESUME_FIXTURE,
@@ -642,51 +742,81 @@ def test_lowering_resume_or_start_emits_validator_and_branch_normalization(tmp_p
     }
 
     record_workflow = by_name["resume-record-phase"]
-    assert len(record_workflow["steps"]) == 3
+    assert len(record_workflow["steps"]) == 2
     validator_step = record_workflow["steps"][0]
     assert validator_step["command"][:3] == [
         "python",
         "-m",
         "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state",
     ]
+    validator_payload = json.loads(validator_step["command"][3])
+    assert validator_payload["structured_contract_kind"] == "record"
+    assert validator_payload["expected_contract_fingerprint"].startswith("2.14:ChecksResult:record:")
+    assert validator_payload["artifact_requirements"] == {
+        "ChecksResult": [
+            {
+                "field_path": ["checks_report"],
+                "under": "artifacts/work",
+            }
+        ]
+    }
+    assert validator_step["variant_output"]["variants"]["REUSE"]["fields"] == [
+        {
+            "name": "source_bundle_path",
+            "json_pointer": "/source_bundle_path",
+            "type": "relpath",
+        },
+        {
+            "name": "source_bundle_sha256",
+            "json_pointer": "/source_bundle_sha256",
+            "type": "string",
+        },
+    ]
     branch_step = record_workflow["steps"][1]
     assert set(branch_step["match"]["cases"]) == {"REUSE", "START"}
     reuse_steps = branch_step["match"]["cases"]["REUSE"]["steps"]
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
+    assert any(
+        step.get("command", [])[:3]
+        == [
+            "python",
+            "-m",
+            "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+        ]
+        for step in reuse_steps
+    )
     assert any(step.get("command", [])[:2] == ["python", "scripts/run_checks.py"] for step in start_steps)
-    loader_step = record_workflow["steps"][2]
-    assert loader_step["command"][:3] == [
-        "python",
-        "-m",
-        "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
-    ]
-    assert json.loads(loader_step["command"][3]) == {
-        "bundle_path": f"${{root.steps.{branch_step['name']}.artifacts.source_bundle_path}}",
-        "expected_return_type": "ChecksResult",
-    }
 
     plan_gate_workflow = by_name["resume-plan-gate"]
-    assert len(plan_gate_workflow["steps"]) == 4
+    assert len(plan_gate_workflow["steps"]) == 3
     validator_step = plan_gate_workflow["steps"][0]
     assert validator_step["command"][:3] == [
         "python",
         "-m",
         "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state",
     ]
-    branch_step = plan_gate_workflow["steps"][1]
+    validator_payload = json.loads(validator_step["command"][3])
+    assert validator_payload["structured_contract_kind"] == "union"
+    assert validator_payload["expected_contract_fingerprint"].startswith("2.14:PlanGateResult:union:")
+    branch_step = next(
+        step
+        for step in plan_gate_workflow["steps"]
+        if step.get("match", {}).get("ref")
+        == f"root.steps.{validator_step['name']}.artifacts.variant"
+    )
     assert set(branch_step["match"]["cases"]) == {"REUSE", "START"}
+    reuse_steps = branch_step["match"]["cases"]["REUSE"]["steps"]
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
+    assert any(
+        step.get("command", [])[:3]
+        == [
+            "python",
+            "-m",
+            "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+        ]
+        for step in reuse_steps
+    )
     assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
-    loader_step = plan_gate_workflow["steps"][2]
-    assert loader_step["command"][:3] == [
-        "python",
-        "-m",
-        "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
-    ]
-    assert json.loads(loader_step["command"][3]) == {
-        "bundle_path": f"${{root.steps.{branch_step['name']}.artifacts.source_bundle_path}}",
-        "expected_return_type": "PlanGateResult",
-    }
 
 
 def test_shared_validation_accepts_resume_or_start(tmp_path: Path) -> None:
@@ -708,7 +838,13 @@ def test_resume_or_start_supports_union_start_workflow_call(tmp_path: Path) -> N
         for workflow in result.lowered_workflows
         if workflow.typed_workflow.definition.name == "resume-plan-gate"
     )
-    branch_step = next(step for step in authored["steps"] if step.get("name", "").endswith("__select_bundle"))
+    validator_step = authored["steps"][0]
+    branch_step = next(
+        step
+        for step in authored["steps"]
+        if step.get("match", {}).get("ref")
+        == f"root.steps.{validator_step['name']}.artifacts.variant"
+    )
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
 
     assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))
@@ -719,6 +855,20 @@ def test_typecheck_rejects_resume_or_start_contract_invalid() -> None:
         _typecheck_fixture(INVALID_RESUME_FIXTURE)
 
     _assert_diagnostic_code(excinfo, "resume_or_start_contract_invalid")
+
+
+def test_typecheck_rejects_resume_or_start_valid_when_for_record_return() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(INVALID_RESUME_RECORD_VALID_WHEN_FIXTURE)
+
+    _assert_diagnostic_code(excinfo, "resume_or_start_record_valid_when_invalid")
+
+
+def test_typecheck_rejects_pointer_backed_resume_from() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(INVALID_RESUME_POINTER_FIXTURE)
+
+    _assert_diagnostic_code(excinfo, "resume_or_start_resume_path_invalid")
 
 
 def test_typecheck_rejects_resume_or_start_name_mismatch_with_active_phase(tmp_path: Path) -> None:
@@ -748,29 +898,249 @@ def test_validate_reusable_phase_state_reuses_record_bundle_without_variant(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
-    report_path = tmp_path / "artifacts" / "checks-report.md"
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("checks", encoding="utf-8")
     bundle_path = tmp_path / "checks-state.json"
     bundle_path.write_text(
-        json.dumps({"checks_report": "artifacts/checks-report.md"}),
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
         encoding="utf-8",
+    )
+    expected_sha256 = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_ok.json",
+        {
+            "resume_from": "checks-state.json",
+            "target_dsl_version": "2.14",
+            "return_type_name": "ChecksResult",
+            "structured_contract_kind": "record",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="record",
+                structured_contract=structured_contract,
+                return_type_name="ChecksResult",
+            ),
+            "structured_contract": structured_contract,
+            "reusable_variants": [],
+            "artifact_requirements": {
+                "ChecksResult": [
+                    {"field_path": ["checks_report"], "under": "artifacts/work"}
+                ]
+            },
+        },
     )
 
     exit_code = validate_reusable_phase_state.main(
         [
             "validate_reusable_phase_state",
-            (
-                '{"resume_from": "checks-state.json", "expected_return_type": "ChecksResult", "valid_variants": [], '
-                + '"required_artifact_fields": {"ChecksResult": ["checks_report"]}}'
-            ),
+            payload_path,
         ]
     )
 
     captured = capsys.readouterr()
 
     assert exit_code == 0
-    assert '"variant": "REUSE"' in captured.out
+    assert json.loads(captured.out) == {
+        "variant": "REUSE",
+        "source_bundle_path": "checks-state.json",
+        "source_bundle_sha256": expected_sha256,
+    }
+
+
+def test_validate_reusable_phase_state_rejects_contract_fingerprint_mismatch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_mismatch.json",
+        {
+            "resume_from": "checks-state.json",
+            "target_dsl_version": "2.14",
+            "return_type_name": "ChecksResult",
+            "structured_contract_kind": "record",
+            "expected_contract_fingerprint": "2.14:ChecksResult:record:expected",
+            "structured_contract": structured_contract,
+            "reusable_variants": [],
+            "artifact_requirements": {
+                "ChecksResult": [
+                    {"field_path": ["checks_report"], "under": "artifacts/work"}
+                ]
+            },
+        },
+    )
+
+    exit_code = validate_reusable_phase_state.main(
+        [
+            "validate_reusable_phase_state",
+            payload_path,
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {
+        "error": {"type": "resume_state_contract_fingerprint_mismatch"}
+    }
+
+
+def test_validate_reusable_phase_state_rejects_contract_fingerprint_dsl_version_mismatch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_version_mismatch.json",
+        {
+            "resume_from": "checks-state.json",
+            "target_dsl_version": "2.14",
+            "return_type_name": "ChecksResult",
+            "structured_contract_kind": "record",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="record",
+                structured_contract=structured_contract,
+                return_type_name="ChecksResult",
+            ).replace("2.14:", "999.99:", 1),
+            "structured_contract": structured_contract,
+            "reusable_variants": [],
+            "artifact_requirements": {
+                "ChecksResult": [
+                    {"field_path": ["checks_report"], "under": "artifacts/work"}
+                ]
+            },
+        },
+    )
+
+    exit_code = validate_reusable_phase_state.main(
+        [
+            "validate_reusable_phase_state",
+            payload_path,
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {
+        "error": {"type": "resume_state_contract_fingerprint_mismatch"}
+    }
+
+
+def test_validate_reusable_phase_state_rejects_contract_fingerprint_return_type_mismatch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/work/checks-report.md"}),
+        encoding="utf-8",
+    )
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_return_type_mismatch.json",
+        {
+            "resume_from": "checks-state.json",
+            "target_dsl_version": "2.14",
+            "return_type_name": "ChecksResult",
+            "structured_contract_kind": "record",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="record",
+                structured_contract=structured_contract,
+                return_type_name="ChecksResult",
+            ).replace(":ChecksResult:", ":WrongType:", 1),
+            "structured_contract": structured_contract,
+            "reusable_variants": [],
+            "artifact_requirements": {
+                "ChecksResult": [
+                    {"field_path": ["checks_report"], "under": "artifacts/work"}
+                ]
+            },
+        },
+    )
+
+    exit_code = validate_reusable_phase_state.main(
+        [
+            "validate_reusable_phase_state",
+            payload_path,
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {
+        "error": {"type": "resume_state_contract_fingerprint_mismatch"}
+    }
 
 
 def test_validate_reusable_phase_state_rejects_pointer_file_authority(
@@ -781,14 +1151,44 @@ def test_validate_reusable_phase_state_rejects_pointer_file_authority(
     monkeypatch.chdir(tmp_path)
     pointer_path = tmp_path / "pointer.txt"
     pointer_path.write_text("state/phase.json\n", encoding="utf-8")
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_pointer.json",
+        {
+            "resume_from": "pointer.txt",
+            "target_dsl_version": "2.14",
+            "return_type_name": "ChecksResult",
+            "structured_contract_kind": "record",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="record",
+                structured_contract=structured_contract,
+                return_type_name="ChecksResult",
+            ),
+            "structured_contract": structured_contract,
+            "reusable_variants": [],
+            "artifact_requirements": {
+                "ChecksResult": [
+                    {"field_path": ["checks_report"], "under": "artifacts/work"}
+                ]
+            },
+        },
+    )
 
     exit_code = validate_reusable_phase_state.main(
         [
             "validate_reusable_phase_state",
-            (
-                '{"resume_from": "pointer.txt", "expected_return_type": "ChecksResult", "valid_variants": [], '
-                + '"required_artifact_fields": {"ChecksResult": ["checks_report"]}}'
-            ),
+            payload_path,
         ]
     )
 
@@ -815,14 +1215,44 @@ def test_validate_reusable_phase_state_rejects_unsafe_required_artifact_path(
         ),
         encoding="utf-8",
     )
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_unsafe.json",
+        {
+            "resume_from": "checks-state.json",
+            "target_dsl_version": "2.14",
+            "return_type_name": "ChecksResult",
+            "structured_contract_kind": "record",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="record",
+                structured_contract=structured_contract,
+                return_type_name="ChecksResult",
+            ),
+            "structured_contract": structured_contract,
+            "reusable_variants": [],
+            "artifact_requirements": {
+                "ChecksResult": [
+                    {"field_path": ["checks_report"], "under": "artifacts/work"}
+                ]
+            },
+        },
+    )
 
     exit_code = validate_reusable_phase_state.main(
         [
             "validate_reusable_phase_state",
-            (
-                '{"resume_from": "checks-state.json", "expected_return_type": "ChecksResult", "valid_variants": [], '
-                + '"required_artifact_fields": {"ChecksResult": ["checks_report"]}}'
-            ),
+            payload_path,
         ]
     )
 
@@ -832,15 +1262,125 @@ def test_validate_reusable_phase_state_rejects_unsafe_required_artifact_path(
     assert json.loads(captured.out) == {"error": {"type": "resume_state_path_unsafe"}}
 
 
+def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reusable_union_variant(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    bundle_path = tmp_path / "plan-gate-state.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "variant": "APPROVED",
+                "execution_report_path": "artifacts/work/missing-execution.md",
+            }
+        ),
+        encoding="utf-8",
+    )
+    structured_contract = {
+        "discriminant": {
+            "name": "variant",
+            "json_pointer": "/variant",
+            "type": "enum",
+            "allowed": ["APPROVED", "BLOCKED"],
+        },
+        "shared_fields": [],
+        "variants": {
+            "APPROVED": {
+                "fields": [
+                    {
+                        "name": "execution_report_path",
+                        "json_pointer": "/execution_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    }
+                ]
+            },
+            "BLOCKED": {
+                "fields": [
+                    {
+                        "name": "progress_report_path",
+                        "json_pointer": "/progress_report_path",
+                        "type": "relpath",
+                        "under": "artifacts/work",
+                        "must_exist_target": True,
+                    },
+                    {
+                        "name": "blocker_class",
+                        "json_pointer": "/blocker_class",
+                        "type": "string",
+                    },
+                ]
+            },
+        },
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_union_missing_artifact.json",
+        {
+            "resume_from": "plan-gate-state.json",
+            "target_dsl_version": "2.14",
+            "return_type_name": "PlanGateResult",
+            "structured_contract_kind": "union",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="union",
+                structured_contract=structured_contract,
+                return_type_name="PlanGateResult",
+            ),
+            "structured_contract": structured_contract,
+            "reusable_variants": ["APPROVED"],
+            "artifact_requirements": {
+                "APPROVED": [
+                    {
+                        "field_path": ["execution_report_path"],
+                        "under": "artifacts/work",
+                    }
+                ]
+            },
+        },
+    )
+
+    exit_code = validate_reusable_phase_state.main(
+        [
+            "validate_reusable_phase_state",
+            payload_path,
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {
+        "error": {"type": "resume_state_required_artifact_missing"}
+    }
+
+
 def test_load_canonical_phase_result_accepts_bundle_path_contract(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
     bundle_path = tmp_path / "checks-state.json"
-    bundle = {"checks_report": "artifacts/checks-report.md"}
+    bundle = {"checks_report": "artifacts/work/checks-report.md"}
     bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+    bundle_sha256 = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
 
     exit_code = load_canonical_phase_result.main(
         [
@@ -848,7 +1388,16 @@ def test_load_canonical_phase_result_accepts_bundle_path_contract(
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "expected_return_type": "ChecksResult",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract=structured_contract,
+                        return_type_name="ChecksResult",
+                    ),
+                    "structured_contract_kind": "record",
+                    "structured_contract": structured_contract,
+                    "source_bundle_sha256": bundle_sha256,
                 }
             ),
         ]
@@ -858,6 +1407,166 @@ def test_load_canonical_phase_result_accepts_bundle_path_contract(
 
     assert exit_code == 0
     assert json.loads(captured.out) == bundle
+
+
+def test_load_canonical_phase_result_rejects_digest_mismatch_before_emit(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    bundle_path = tmp_path / "checks-state.json"
+    bundle_path.write_text(
+        json.dumps({"checks_report": "artifacts/checks-report.md"}),
+        encoding="utf-8",
+    )
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+
+    exit_code = load_canonical_phase_result.main(
+        [
+            "load_canonical_phase_result",
+            json.dumps(
+                {
+                    "bundle_path": "checks-state.json",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract=structured_contract,
+                        return_type_name="ChecksResult",
+                    ),
+                    "structured_contract_kind": "record",
+                    "structured_contract": structured_contract,
+                    "source_bundle_sha256": "not-the-current-digest",
+                }
+            ),
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {
+        "error": {"type": "resume_state_bundle_mutated_before_load"}
+    }
+
+
+def test_load_canonical_phase_result_rejects_contract_fingerprint_dsl_version_mismatch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle = {"checks_report": "artifacts/work/checks-report.md"}
+    bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+    bundle_sha256 = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+
+    exit_code = load_canonical_phase_result.main(
+        [
+            "load_canonical_phase_result",
+            json.dumps(
+                {
+                    "bundle_path": "checks-state.json",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract=structured_contract,
+                        return_type_name="ChecksResult",
+                    ).replace("2.14:", "999.99:", 1),
+                    "structured_contract_kind": "record",
+                    "structured_contract": structured_contract,
+                    "source_bundle_sha256": bundle_sha256,
+                }
+            ),
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {
+        "error": {"type": "resume_state_contract_fingerprint_mismatch"}
+    }
+
+
+def test_load_canonical_phase_result_rejects_contract_fingerprint_return_type_mismatch(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    report_path = tmp_path / "artifacts" / "work" / "checks-report.md"
+    report_path.parent.mkdir(parents=True, exist_ok=True)
+    report_path.write_text("checks", encoding="utf-8")
+    bundle_path = tmp_path / "checks-state.json"
+    bundle = {"checks_report": "artifacts/work/checks-report.md"}
+    bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+    bundle_sha256 = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+
+    exit_code = load_canonical_phase_result.main(
+        [
+            "load_canonical_phase_result",
+            json.dumps(
+                {
+                    "bundle_path": "checks-state.json",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract=structured_contract,
+                        return_type_name="ChecksResult",
+                    ).replace(":ChecksResult:", ":WrongType:", 1),
+                    "structured_contract_kind": "record",
+                    "structured_contract": structured_contract,
+                    "source_bundle_sha256": bundle_sha256,
+                }
+            ),
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {
+        "error": {"type": "resume_state_contract_fingerprint_mismatch"}
+    }
 
 
 def test_load_canonical_phase_result_rejects_unsafe_bundle_path_with_stable_error_code(
@@ -873,7 +1582,36 @@ def test_load_canonical_phase_result_rejects_unsafe_bundle_path_with_stable_erro
             json.dumps(
                 {
                     "bundle_path": "../unsafe.json",
-                    "expected_return_type": "ChecksResult",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract={
+                            "fields": [
+                                {
+                                    "name": "checks_report",
+                                    "json_pointer": "/checks_report",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                        return_type_name="ChecksResult",
+                    ),
+                    "structured_contract_kind": "record",
+                    "structured_contract": {
+                        "fields": [
+                            {
+                                "name": "checks_report",
+                                "json_pointer": "/checks_report",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                            }
+                        ]
+                    },
+                    "source_bundle_sha256": "unused",
                 }
             ),
         ]
@@ -893,6 +1631,7 @@ def test_load_canonical_phase_result_rejects_malformed_bundle_with_stable_error_
     monkeypatch.chdir(tmp_path)
     bundle_path = tmp_path / "checks-state.json"
     bundle_path.write_text("{bad", encoding="utf-8")
+    actual_digest = hashlib.sha256(bundle_path.read_bytes()).hexdigest()
 
     exit_code = load_canonical_phase_result.main(
         [
@@ -900,7 +1639,36 @@ def test_load_canonical_phase_result_rejects_malformed_bundle_with_stable_error_
             json.dumps(
                 {
                     "bundle_path": "checks-state.json",
-                    "expected_return_type": "ChecksResult",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract={
+                            "fields": [
+                                {
+                                    "name": "checks_report",
+                                    "json_pointer": "/checks_report",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                        return_type_name="ChecksResult",
+                    ),
+                    "structured_contract_kind": "record",
+                    "structured_contract": {
+                        "fields": [
+                            {
+                                "name": "checks_report",
+                                "json_pointer": "/checks_report",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                            }
+                        ]
+                    },
+                    "source_bundle_sha256": actual_digest,
                 }
             ),
         ]
