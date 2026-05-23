@@ -133,10 +133,22 @@ def _validate_bundle_against_contract(
             return validate_output_bundle(runtime_contract, workspace=Path.cwd())
         return validate_variant_output_bundle(runtime_contract, workspace=Path.cwd())
     except OutputContractError as error:
-        violation_types = {violation["type"] for violation in error.violations}
-        if violation_types & {"path_escape", "outside_under_root", "invalid_under_root"}:
+        if _is_unsafe_path_contract_error(error):
             raise ValueError("resume_state_path_unsafe") from error
         raise ValueError("resume_state_bundle_schema_invalid") from error
+
+
+def _is_unsafe_path_contract_error(error: OutputContractError) -> bool:
+    violation_types = {violation["type"] for violation in error.violations}
+    return bool(
+        violation_types
+        & {
+            "invalid_bundle_path",
+            "path_escape",
+            "outside_under_root",
+            "invalid_under_root",
+        }
+    )
 
 
 def _relax_contract_artifact_existence(

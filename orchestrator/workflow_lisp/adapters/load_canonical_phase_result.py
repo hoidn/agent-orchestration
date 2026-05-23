@@ -75,6 +75,19 @@ def _validate_contract_fingerprint(
     return parts[3] == digest
 
 
+def _is_unsafe_path_contract_error(error: OutputContractError) -> bool:
+    violation_types = {violation["type"] for violation in error.violations}
+    return bool(
+        violation_types
+        & {
+            "invalid_bundle_path",
+            "path_escape",
+            "outside_under_root",
+            "invalid_under_root",
+        }
+    )
+
+
 def main(argv: list[str] | None = None) -> int:
     """Load a reusable phase bundle and mirror it to stdout as JSON."""
 
@@ -127,7 +140,9 @@ def main(argv: list[str] | None = None) -> int:
             validate_output_bundle(runtime_contract, workspace=Path.cwd())
         else:
             validate_variant_output_bundle(runtime_contract, workspace=Path.cwd())
-    except OutputContractError:
+    except OutputContractError as error:
+        if _is_unsafe_path_contract_error(error):
+            return _emit_error("resume_state_path_unsafe")
         return _emit_error("resume_state_loader_schema_invalid")
     json.dump(bundle, sys.stdout)
     sys.stdout.write("\n")

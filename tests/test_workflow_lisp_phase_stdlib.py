@@ -1357,6 +1357,66 @@ def test_validate_reusable_phase_state_rejects_missing_required_artifact_for_reu
     }
 
 
+def test_validate_reusable_phase_state_rejects_symlinked_external_bundle_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    external_root = tmp_path.parent / f"{tmp_path.name}_external"
+    external_root.mkdir()
+    bundle = {"checks_report": "artifacts/work/checks-report.md"}
+    external_bundle_path = external_root / "checks-state.json"
+    external_bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+    bundle_link = tmp_path / "checks-state-link.json"
+    bundle_link.symlink_to(external_bundle_path)
+    structured_contract = {
+        "fields": [
+            {
+                "name": "checks_report",
+                "json_pointer": "/checks_report",
+                "type": "relpath",
+                "under": "artifacts/work",
+                "must_exist_target": True,
+            }
+        ]
+    }
+    payload_path = _write_payload_file(
+        tmp_path,
+        "validate_symlinked_external_bundle.json",
+        {
+            "resume_from": "checks-state-link.json",
+            "target_dsl_version": "2.14",
+            "return_type_name": "ChecksResult",
+            "structured_contract_kind": "record",
+            "expected_contract_fingerprint": _structured_contract_fingerprint(
+                structured_contract_kind="record",
+                structured_contract=structured_contract,
+                return_type_name="ChecksResult",
+            ),
+            "structured_contract": structured_contract,
+            "reusable_variants": [],
+            "artifact_requirements": {
+                "ChecksResult": [
+                    {"field_path": ["checks_report"], "under": "artifacts/work"}
+                ]
+            },
+        },
+    )
+
+    exit_code = validate_reusable_phase_state.main(
+        [
+            "validate_reusable_phase_state",
+            payload_path,
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {"error": {"type": "resume_state_path_unsafe"}}
+
+
 def test_load_canonical_phase_result_accepts_bundle_path_contract(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -1680,3 +1740,66 @@ def test_load_canonical_phase_result_rejects_malformed_bundle_with_stable_error_
     assert json.loads(captured.out) == {
         "error": {"type": "resume_state_loader_schema_invalid"}
     }
+
+
+def test_load_canonical_phase_result_rejects_symlinked_external_bundle_path(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.chdir(tmp_path)
+    external_root = tmp_path.parent / f"{tmp_path.name}_external"
+    external_root.mkdir()
+    bundle = {"checks_report": "artifacts/work/checks-report.md"}
+    external_bundle_path = external_root / "checks-state.json"
+    external_bundle_path.write_text(json.dumps(bundle), encoding="utf-8")
+    bundle_link = tmp_path / "checks-state-link.json"
+    bundle_link.symlink_to(external_bundle_path)
+
+    exit_code = load_canonical_phase_result.main(
+        [
+            "load_canonical_phase_result",
+            json.dumps(
+                {
+                    "bundle_path": "checks-state-link.json",
+                    "target_dsl_version": "2.14",
+                    "return_type_name": "ChecksResult",
+                    "expected_contract_fingerprint": _structured_contract_fingerprint(
+                        structured_contract_kind="record",
+                        structured_contract={
+                            "fields": [
+                                {
+                                    "name": "checks_report",
+                                    "json_pointer": "/checks_report",
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": True,
+                                }
+                            ]
+                        },
+                        return_type_name="ChecksResult",
+                    ),
+                    "structured_contract_kind": "record",
+                    "structured_contract": {
+                        "fields": [
+                            {
+                                "name": "checks_report",
+                                "json_pointer": "/checks_report",
+                                "type": "relpath",
+                                "under": "artifacts/work",
+                                "must_exist_target": True,
+                            }
+                        ]
+                    },
+                    "source_bundle_sha256": hashlib.sha256(
+                        bundle_link.read_bytes()
+                    ).hexdigest(),
+                }
+            ),
+        ]
+    )
+
+    captured = capsys.readouterr()
+
+    assert exit_code == 1
+    assert json.loads(captured.out) == {"error": {"type": "resume_state_path_unsafe"}}
