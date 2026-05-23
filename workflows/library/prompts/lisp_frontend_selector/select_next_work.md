@@ -12,12 +12,23 @@ Decision rules:
 - Return `SELECT_BACKLOG_ITEM` when an active backlog item directly covers the
   next useful Lisp frontend full-design implementation task.
 - Return `DRAFT_DESIGN_GAP` when no active backlog item is the right next task
-  but the full design clearly contains an unimplemented component that should
-  be turned into an implementation architecture.
+  and the next needed unit is either an unimplemented full-design component or a
+  bounded refactor needed before further feature expansion.
 - Return `DONE` only when there are no active backlog items and no unimplemented
   full-design gaps remain.
 - Return `BLOCKED` only when full-design work remains but the available docs are
   insufficient or contradictory.
+
+Refactoring may be selected when it is the best next step toward completing the
+full design, but only as a bounded expansion-enabling pass.
+
+Do not select refactoring twice in a row. If the most recent completed unit was
+refactoring, select feature work, `DONE`, or `BLOCKED`.
+
+A refactor must leave the frontend ready for the next feature slice. If it
+changes current relied-upon architecture/design docs, update those docs in
+scope. Do not rewrite historical per-gap implementation architecture docs merely
+to match the refactor.
 
 Before returning `DONE`, compare the full design against durable repo evidence:
 source, docs, fixtures, tests, ledgers, and run state. Evaluate obligations from
@@ -34,8 +45,8 @@ claim, prefer `DRAFT_DESIGN_GAP` over `DONE`.
 
 Make only this step's local selection judgment and explain it. Do not edit
 files, move backlog items, or draft architecture content. For design gaps,
-identify one bounded full-design component for the architect step to turn into an
-implementation architecture.
+identify one bounded feature or refactoring unit for the architect step to turn
+into an implementation architecture.
 
 Write the output bundle JSON to the output-contract path.
 
@@ -58,8 +69,8 @@ Design gap:
   "design_gap_id": "parser-syntax",
   "source_design_path": "docs/design/workflow_lisp_frontend_specification.md",
   "source_sections": ["Full-design section name"],
-  "missing_component": "Unimplemented full-design component",
-  "proposed_scope": "Draft one bounded full-design implementation architecture only.",
+  "missing_component": "Unimplemented full-design component or bounded refactoring need",
+  "proposed_scope": "Draft one bounded feature or refactoring implementation architecture only.",
   "selection_rationale": "short reason"
 }
 ```
