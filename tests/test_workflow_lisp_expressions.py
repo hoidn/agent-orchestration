@@ -6,12 +6,15 @@ import pytest
 from orchestrator.workflow_lisp.compiler import PRELUDE_TYPE_NAMES, compile_stage1_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import (
+    ContinueExpr,
     FieldAccessExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopRecurExpr,
     MatchExpr,
     NameExpr,
     RecordExpr,
+    DoneExpr,
     elaborate_expression,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_text
@@ -187,6 +190,44 @@ def test_elaborate_expression_builds_match_arms_with_spans_and_form_paths() -> N
     assert expr.arms[0].form_path == FORM_PATH
     assert isinstance(expr.arms[0].body, FieldAccessExpr)
     assert expr.arms[0].body.base.name == "completed"
+
+
+def test_elaborate_expression_supports_loop_recur() -> None:
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(loop/recur :max 3 :state attempt "
+            "(fn (state) (match state "
+            "((COMPLETED completed) (done completed.execution_report)) "
+            "((BLOCKED blocked) (continue state)))))"
+        ),
+        bound_names=frozenset({"attempt"}),
+    )
+
+    assert isinstance(expr, LoopRecurExpr)
+    assert expr.binding_name == "state"
+    assert isinstance(expr.body_expr, MatchExpr)
+    assert isinstance(expr.body_expr.arms[0].body, DoneExpr)
+    assert isinstance(expr.body_expr.arms[1].body, ContinueExpr)
+
+
+def test_elaborate_expression_rejects_fn_outside_loop_recur() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression_syntax("(fn (state) state)"),
+            bound_names=frozenset({"state"}),
+        )
+
+    _assert_diagnostic_code(excinfo, "loop_recur_fn_outside_loop")
+
+
+def test_elaborate_expression_rejects_malformed_loop_recur_fn() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression_syntax("(loop/recur :max 3 :state attempt (fn (left right) attempt))"),
+            bound_names=frozenset({"attempt"}),
+        )
+
+    _assert_diagnostic_code(excinfo, "loop_recur_fn_invalid")
 
 
 def test_elaborate_expression_rejects_unknown_expression_forms() -> None:

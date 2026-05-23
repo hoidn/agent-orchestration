@@ -25,12 +25,15 @@ from .expressions import (
     BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
+    ContinueExpr,
+    DoneExpr,
     ExprNode,
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
     FunctionCallExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopRecurExpr,
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
@@ -45,6 +48,7 @@ from .expressions import (
     WorkflowRefLiteralExpr,
     WithPhaseExpr,
 )
+from .loops import LoopControlTypeRef, ensure_loop_projectable_type
 from .phase import (
     PhaseScope,
     PHASE_CONTEXT_NAME,
@@ -96,7 +100,7 @@ class TypedExpr:
     """One expression paired with its resolved Workflow Lisp type."""
 
     expr: ExprNode
-    type_ref: TypeRef
+    type_ref: TypeRef | LoopControlTypeRef
     span: SourceSpan
     form_path: tuple[str, ...]
     effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY
@@ -104,6 +108,15 @@ class TypedExpr:
 
 ValueEnvironment = Mapping[str, TypeRef]
 _ACTIVE_FUNCTION_CATALOG = None
+_ACTIVE_LOOP_CONTEXT: list["LoopTypecheckContext"] = []
+
+
+@dataclass(frozen=True)
+class LoopTypecheckContext:
+    """Active loop typing contract for nested `continue` and `done` forms."""
+
+    state_type_ref: TypeRef
+    result_type_ref: TypeRef | None = None
 
 
 @dataclass(frozen=True)
@@ -366,6 +379,80 @@ def _typecheck(
             type_ref=record_type,
             effect=merge_effect_summaries(*field_summaries),
         )
+    if isinstance(expr, ContinueExpr):
+        if not _ACTIVE_LOOP_CONTEXT:
+            _raise_error(
+                "`continue` is valid only inside `loop/recur`",
+                code="loop_recur_continue_outside_loop",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        loop_context = _ACTIVE_LOOP_CONTEXT[-1]
+        typed_state = _typecheck(
+            expr.state_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if typed_state.type_ref != loop_context.state_type_ref:
+            _raise_error(
+                f"`continue` expected `{_type_label(loop_context.state_type_ref)}` but got `{_type_label(typed_state.type_ref)}`",
+                code="loop_recur_continue_type_mismatch",
+                span=expr.state_expr.span,
+                form_path=expr.state_expr.form_path,
+            )
+        return _typed(
+            expr=expr,
+            type_ref=LoopControlTypeRef(
+                state_type_ref=loop_context.state_type_ref,
+                result_type_ref=loop_context.result_type_ref,
+            ),
+            effect=typed_state.effect_summary,
+        )
+    if isinstance(expr, DoneExpr):
+        if not _ACTIVE_LOOP_CONTEXT:
+            _raise_error(
+                "`done` is valid only inside `loop/recur`",
+                code="loop_recur_done_outside_loop",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        loop_context = _ACTIVE_LOOP_CONTEXT[-1]
+        typed_result = _typecheck(
+            expr.result_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if loop_context.result_type_ref is not None and typed_result.type_ref != loop_context.result_type_ref:
+            _raise_error(
+                f"`done` expected `{_type_label(loop_context.result_type_ref)}` but got `{_type_label(typed_result.type_ref)}`",
+                code="loop_recur_done_type_mismatch",
+                span=expr.result_expr.span,
+                form_path=expr.result_expr.form_path,
+            )
+        return _typed(
+            expr=expr,
+            type_ref=LoopControlTypeRef(
+                state_type_ref=loop_context.state_type_ref,
+                result_type_ref=typed_result.type_ref,
+            ),
+            effect=typed_result.effect_summary,
+        )
     if isinstance(expr, LetStarExpr):
         local_env = dict(value_env)
         seen_names: set[str] = set()
@@ -478,14 +565,29 @@ def _typecheck(
             arm_summaries.append(typed_body.effect_summary)
             if arm_result_type is None:
                 arm_result_type = typed_body.type_ref
-            elif typed_body.type_ref != arm_result_type:
-                _raise_error(
-                    f"match arm for `{arm.variant_name}` returned `{_type_label(typed_body.type_ref)}`"
-                    f" but expected `{_type_label(arm_result_type)}`",
-                    code="type_mismatch",
-                    span=arm.body.span,
-                    form_path=arm.body.form_path,
-                )
+            else:
+                unified_loop_control = _unify_loop_control_types(arm_result_type, typed_body.type_ref)
+                if unified_loop_control is not None:
+                    arm_result_type = unified_loop_control
+                    continue
+                if isinstance(arm_result_type, LoopControlTypeRef) and isinstance(
+                    typed_body.type_ref,
+                    LoopControlTypeRef,
+                ):
+                    _raise_error(
+                        f"`done` expected `{_type_label(arm_result_type.result_type_ref)}` but got `{_type_label(typed_body.type_ref.result_type_ref)}`",
+                        code="loop_recur_done_type_mismatch",
+                        span=arm.body.span,
+                        form_path=arm.body.form_path,
+                    )
+                if typed_body.type_ref != arm_result_type:
+                    _raise_error(
+                        f"match arm for `{arm.variant_name}` returned `{_type_label(typed_body.type_ref)}`"
+                        f" but expected `{_type_label(arm_result_type)}`",
+                        code="type_mismatch",
+                        span=arm.body.span,
+                        form_path=arm.body.form_path,
+                    )
         if seen_variants != expected_variants:
             missing = sorted(expected_variants - seen_variants)
             _raise_error(
@@ -505,6 +607,92 @@ def _typecheck(
             expr=expr,
             type_ref=arm_result_type,
             effect=merge_effect_summaries(typed_subject.effect_summary, *arm_summaries),
+        )
+    if isinstance(expr, LoopRecurExpr):
+        typed_max = _typecheck(
+            expr.max_iterations_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
+            _raise_error(
+                "`loop/recur :max` must resolve to `Int`",
+                code="loop_recur_max_invalid",
+                span=expr.max_iterations_expr.span,
+                form_path=expr.max_iterations_expr.form_path,
+            )
+        typed_state = _typecheck(
+            expr.initial_state_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        ensure_loop_projectable_type(
+            typed_state.type_ref,
+            code="loop_recur_state_type_invalid",
+            span=expr.initial_state_expr.span,
+            form_path=expr.initial_state_expr.form_path,
+        )
+        _ACTIVE_LOOP_CONTEXT.append(LoopTypecheckContext(state_type_ref=typed_state.type_ref))
+        try:
+            typed_body = _typecheck(
+                expr.body_expr,
+                type_env=type_env,
+                value_env={**value_env, expr.binding_name: typed_state.type_ref},
+                proof_scope=ProofScope(facts={}),
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+            )
+        finally:
+            loop_context = _ACTIVE_LOOP_CONTEXT.pop()
+        if not isinstance(typed_body.type_ref, LoopControlTypeRef):
+            _raise_error(
+                "`loop/recur` body must terminate with `continue` or `done`",
+                code="loop_recur_missing_done",
+                span=expr.body_expr.span,
+                form_path=expr.body_expr.form_path,
+            )
+        if typed_body.type_ref.result_type_ref is None:
+            _raise_error(
+                "`loop/recur` body must contain at least one reachable `done`",
+                code="loop_recur_missing_done",
+                span=expr.body_expr.span,
+                form_path=expr.body_expr.form_path,
+            )
+        ensure_loop_projectable_type(
+            typed_body.type_ref.result_type_ref,
+            code="loop_recur_result_type_invalid",
+            span=expr.body_expr.span,
+            form_path=expr.body_expr.form_path,
+        )
+        return _typed(
+            expr=expr,
+            type_ref=typed_body.type_ref.result_type_ref,
+            effect=merge_effect_summaries(
+                typed_max.effect_summary,
+                typed_state.effect_summary,
+                typed_body.effect_summary,
+            ),
         )
     if isinstance(expr, CallExpr):
         if workflow_catalog is None:
@@ -2244,7 +2432,42 @@ def _literal_type_name(literal_kind: str) -> str:
     raise ValueError(f"unsupported literal kind: {literal_kind}")
 
 
-def _type_label(type_ref: TypeRef) -> str:
+def _unify_loop_control_types(
+    left: TypeRef | LoopControlTypeRef,
+    right: TypeRef | LoopControlTypeRef,
+) -> LoopControlTypeRef | None:
+    """Unify loop-control payloads across match arms when possible."""
+
+    if not isinstance(left, LoopControlTypeRef) or not isinstance(right, LoopControlTypeRef):
+        return None
+    if left.state_type_ref != right.state_type_ref:
+        return None
+    if left.result_type_ref is None:
+        return LoopControlTypeRef(
+            state_type_ref=left.state_type_ref,
+            result_type_ref=right.result_type_ref,
+        )
+    if right.result_type_ref is None:
+        return LoopControlTypeRef(
+            state_type_ref=left.state_type_ref,
+            result_type_ref=left.result_type_ref,
+        )
+    if left.result_type_ref != right.result_type_ref:
+        return None
+    return LoopControlTypeRef(
+        state_type_ref=left.state_type_ref,
+        result_type_ref=left.result_type_ref,
+    )
+
+
+def _type_label(type_ref: TypeRef | LoopControlTypeRef) -> str:
+    if isinstance(type_ref, LoopControlTypeRef):
+        result_label = (
+            "?"
+            if type_ref.result_type_ref is None
+            else _type_label(type_ref.result_type_ref)
+        )
+        return f"LoopControl[{_type_label(type_ref.state_type_ref)} -> {result_label}]"
     if isinstance(type_ref, VariantCaseTypeRef):
         return f"{type_ref.union_name}.{type_ref.variant_name}"
     return type_ref.name

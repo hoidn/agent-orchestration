@@ -29,6 +29,25 @@ def _enable_v214_loader(monkeypatch: pytest.MonkeyPatch) -> None:
     )
 
 
+def _compile_loop_recur_workflow(workspace: Path) -> dict:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    fixture = Path(__file__).parent / "fixtures" / "workflow_lisp" / "valid" / "loop_recur_minimal.orc"
+    result = compile_stage3_module(
+        fixture,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=workspace,
+    )
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-minimal"
+    )
+    return lowered.authored_mapping
+
+
 class TestLoaderValidation:
     """Test strict DSL validation in the loader."""
 
@@ -1668,6 +1687,28 @@ class TestLoaderValidation:
             == "root.review_loop.iteration_body.route_decision.approve_path.write_approved"
         )
         assert body_steps["RouteDecision"] == "root.review_loop.iteration_body.route_decision"
+
+    def test_frontend_generated_loop_recur_repeat_until_shape_loads(self, monkeypatch: pytest.MonkeyPatch):
+        """Frontend-generated loop/recur workflows should load through the shared repeat_until surface."""
+        _enable_v214_loader(monkeypatch)
+
+        workflow_path = self.workspace / "loop_recur_minimal.yaml"
+        workflow_path.write_text(
+            yaml.safe_dump(_compile_loop_recur_workflow(self.workspace), sort_keys=False),
+            encoding="utf-8",
+        )
+
+        loaded = self.loader.load_bundle(workflow_path)
+        body_steps = {
+            step["name"]: step["step_id"] for step in materialize_projection_body_steps(loaded)
+        }
+
+        assert body_steps["loop-recur-minimal__loop"] == "root.loop_recur_minimal__loop"
+        assert any(
+            checkpoint.node_id == "root.loop_recur_minimal__loop"
+            and checkpoint.checkpoint_kind == "repeat_until_frame"
+            for checkpoint in loaded.runtime_plan.resume_checkpoints
+        )
 
     def test_match_requires_enum_ref(self):
         """Structured match only accepts enum refs."""

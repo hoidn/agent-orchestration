@@ -17,6 +17,7 @@ import yaml
 from orchestrator.cli.commands.resume import resume_workflow
 from orchestrator.state import StateManager
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow.identity import iteration_step_id
 from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.resume_planner import ResumePlanner
@@ -852,6 +853,25 @@ def _build_repeat_until_call_resume_workflow() -> dict:
     }
 
 
+def _write_frontend_loop_recur_workflow(workspace: Path) -> Path:
+    fixture = Path(__file__).parent / "fixtures" / "workflow_lisp" / "valid" / "loop_recur_minimal.orc"
+    result = compile_stage3_module(
+        fixture,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=workspace,
+    )
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-minimal"
+    )
+    workflow_path = workspace / "loop_recur_minimal.yaml"
+    workflow_path.write_text(yaml.safe_dump(lowered.authored_mapping, sort_keys=False), encoding="utf-8")
+    return workflow_path
+
+
 def _build_projection_runtime_plan_snapshot_workflow() -> dict:
     return {
         "version": "2.14",
@@ -1135,6 +1155,36 @@ def test_repeat_until_runtime_plan_checkpoint_metadata_preserves_projection_resu
     assert call_checkpoint.iteration_step_id_suffix == "iteration_body.run_review_loop"
     assert frame_checkpoint.checkpoint_kind == "repeat_until_frame"
     assert restart_index == bundle.projection.compatibility_index_by_node_id["root.review_loop"]
+
+
+def test_frontend_generated_loop_recur_runtime_plan_preserves_repeat_until_resume_authority(
+    tmp_path: Path,
+):
+    workflow_path = _write_frontend_loop_recur_workflow(tmp_path)
+
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    runtime_plan = bundle.runtime_plan
+    planner = ResumePlanner()
+
+    frame_checkpoint = next(
+        checkpoint
+        for checkpoint in runtime_plan.resume_checkpoints
+        if checkpoint.node_id == "root.loop_recur_minimal__loop"
+    )
+    restart_index = planner.determine_restart_index(
+        {
+            "steps": {},
+            "current_step": {
+                "name": "loop-recur-minimal__loop",
+                "status": "running",
+                "step_id": "root.loop_recur_minimal__loop",
+            },
+        },
+        projection=bundle.projection,
+    )
+
+    assert frame_checkpoint.checkpoint_kind == "repeat_until_frame"
+    assert restart_index == bundle.projection.compatibility_index_by_node_id["root.loop_recur_minimal__loop"]
 
 
 def _seed_repeat_until_call_failure(workspace: Path, *, run_id: str) -> tuple[Path, StateManager]:

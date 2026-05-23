@@ -201,6 +201,50 @@ class CommandResultExpr:
 
 
 @dataclass(frozen=True)
+class LoopBodyFnExpr:
+    """One compiler-owned `loop/recur` body binder."""
+
+    binding_name: str
+    body_expr: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class ContinueExpr:
+    """One loop-local `continue` control transfer."""
+
+    state_expr: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class DoneExpr:
+    """One loop-local `done` control transfer."""
+
+    result_expr: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class LoopRecurExpr:
+    """One public bounded `loop/recur` form."""
+
+    max_iterations_expr: "ExprNode"
+    initial_state_expr: "ExprNode"
+    binding_name: str
+    body_expr: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class RunProviderPhaseExpr:
     """One high-level typed phase provider execution form."""
 
@@ -308,6 +352,9 @@ ExprNode = (
     | WorkflowRefLiteralExpr
     | ProviderResultExpr
     | CommandResultExpr
+    | ContinueExpr
+    | DoneExpr
+    | LoopRecurExpr
     | RunProviderPhaseExpr
     | ProduceOneOfExpr
     | ReviewReviseLoopExpr
@@ -322,6 +369,7 @@ _ACTIVE_PROCEDURE_NAME_RESOLVER = None
 _ACTIVE_FUNCTION_NAME_RESOLVER = None
 _ACTIVE_WORKFLOW_NAME_RESOLVER = None
 _ACTIVE_FUNCTION_NAMES = frozenset()
+_ACTIVE_LOOP_BODY_DEPTH = 0
 
 
 def elaborate_expression(
@@ -476,6 +524,51 @@ def _elaborate_list(
         )
     if head.resolved_name == "match":
         return _elaborate_match(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "loop/recur":
+        return _elaborate_loop_recur(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "fn":
+        _raise_error(
+            "`fn` is valid only as the body form of `loop/recur`",
+            code="loop_recur_fn_outside_loop",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    if head.resolved_name == "continue":
+        if _ACTIVE_LOOP_BODY_DEPTH <= 0:
+            _raise_error(
+                "`continue` is valid only inside `loop/recur`",
+                code="loop_recur_continue_outside_loop",
+                span=datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
+        return _elaborate_continue(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "done":
+        if _ACTIVE_LOOP_BODY_DEPTH <= 0:
+            _raise_error(
+                "`done` is valid only inside `loop/recur`",
+                code="loop_recur_done_outside_loop",
+                span=datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
+        return _elaborate_done(
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -772,6 +865,170 @@ def _elaborate_match(
     return MatchExpr(
         subject=subject,
         arms=tuple(arms),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_loop_recur(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> LoopRecurExpr:
+    if len(datum.items) != 6:
+        _raise_error(
+            "`loop/recur` requires :max, :state, and one loop-body `fn`",
+            code="loop_recur_contract_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    sections = _keyword_sections(datum.items[1:5], form_path=form_path, label="`loop/recur`")
+    max_node = sections.get(":max")
+    state_node = sections.get(":state")
+    if max_node is None or state_node is None:
+        _raise_error(
+            "`loop/recur` requires :max and :state",
+            code="loop_recur_contract_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    body_fn = _elaborate_loop_body_fn(
+        datum.items[5],
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+    return LoopRecurExpr(
+        max_iterations_expr=_elaborate(
+            max_node,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        initial_state_expr=_elaborate(
+            state_node,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        binding_name=body_fn.binding_name,
+        body_expr=body_fn.body_expr,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_loop_body_fn(
+    node: object,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> LoopBodyFnExpr:
+    global _ACTIVE_LOOP_BODY_DEPTH
+
+    if not isinstance(node, SyntaxList) or len(node.items) != 3:
+        _raise_error(
+            "`loop/recur` body must be `(fn (state) body)`",
+            code="loop_recur_fn_invalid",
+            span=getattr(node, "span"),
+            form_path=form_path,
+            expansion_stack=getattr(node, "expansion_stack", ()),
+        )
+    head = syntax_identifier(node.items[0])
+    binding_list = node.items[1]
+    if head is None or head.resolved_name != "fn" or not isinstance(binding_list, SyntaxList) or len(binding_list.items) != 1:
+        _raise_error(
+            "`loop/recur` body must be `(fn (state) body)`",
+            code="loop_recur_fn_invalid",
+            span=node.span,
+            form_path=form_path,
+            expansion_stack=node.expansion_stack,
+        )
+    binding_node = syntax_identifier(binding_list.items[0])
+    if binding_node is None:
+        _raise_error(
+            "`loop/recur` body binding must be one symbol",
+            code="loop_recur_fn_invalid",
+            span=binding_list.span,
+            form_path=form_path,
+            expansion_stack=binding_list.expansion_stack,
+        )
+    _ACTIVE_LOOP_BODY_DEPTH += 1
+    try:
+        body_expr = _elaborate(
+            node.items[2],
+            form_path=form_path,
+            bound_names=frozenset(set(bound_names) | {binding_node.resolved_name}),
+            procedure_names=procedure_names,
+        )
+    finally:
+        _ACTIVE_LOOP_BODY_DEPTH -= 1
+    return LoopBodyFnExpr(
+        binding_name=binding_node.resolved_name,
+        body_expr=body_expr,
+        span=node.span,
+        form_path=form_path,
+        expansion_stack=node.expansion_stack,
+    )
+
+
+def _elaborate_continue(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> ContinueExpr:
+    if len(datum.items) != 2:
+        _raise_error(
+            "`continue` requires exactly one state payload",
+            code="loop_recur_contract_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return ContinueExpr(
+        state_expr=_elaborate(
+            datum.items[1],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_done(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> DoneExpr:
+    if len(datum.items) != 2:
+        _raise_error(
+            "`done` requires exactly one result payload",
+            code="loop_recur_contract_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return DoneExpr(
+        result_expr=_elaborate(
+            datum.items[1],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

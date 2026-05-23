@@ -37,6 +37,7 @@ PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
+LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 
 
 def _extern_environment() -> ExternEnvironment:
@@ -72,7 +73,6 @@ def _compiler_module():
 def _write_module(path: Path, body: str) -> Path:
     path.write_text(body, encoding="utf-8")
     return path
-
 
 def _compile_definition_module(path: Path):
     syntax_module = build_syntax_module(read_sexpr_file(path))
@@ -332,6 +332,59 @@ def test_compile_stage3_module_preserves_macro_provenance_in_origin_maps(tmp_pat
 
     assert origin.expansion_stack[0].macro_name == "defworkflow-alias"
     assert origin.expansion_stack[0].expansion_id == "m0001"
+
+
+def test_lowering_loop_recur_uses_repeat_until_with_typed_outputs(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        LOOP_RECUR_MINIMAL_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-minimal"
+    )
+
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+    assert repeat_step["name"] == "loop-recur-minimal__loop"
+    assert repeat_step["repeat_until"]["condition"]["compare"]["right"] == "DONE"
+    assert "state__variant" in repeat_step["repeat_until"]["outputs"]
+    assert "result__status" in repeat_step["repeat_until"]["outputs"]
+    assert "result__report" in repeat_step["repeat_until"]["outputs"]
+
+
+def test_lowering_loop_recur_preserves_origin_map_for_generated_steps(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        LOOP_RECUR_MINIMAL_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "loop-recur-minimal"
+    )
+
+    assert set(lowered.origin_map.step_spans) >= {
+        "loop-recur-minimal__seed",
+        "loop-recur-minimal__loop",
+        "loop-recur-minimal__result",
+    }
+    assert set(lowered.origin_map.generated_output_spans) >= {
+        "return__status",
+        "return__report",
+    }
+    assert any(
+        "__write_root__loop_recur_minimal__attempt__result_bundle" in path
+        for path in lowered.origin_map.generated_path_spans
+    )
 
 
 def test_compile_stage3_module_includes_generated_private_procedure_workflow(tmp_path: Path) -> None:
