@@ -552,3 +552,23 @@ def test_compile_stage1_entrypoint_renders_module_path_mismatch_diagnostic() -> 
 
     assert "[module_path_mismatch]" in rendered
     assert "other/place" in rendered
+
+
+def test_serialize_diagnostic_preserves_lowering_phase_for_source_map_validation_errors() -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    diagnostic = LispFrontendDiagnostic(
+        code="source_map_validation_ref_missing",
+        message="validation subject `generated_input:missing_input` does not resolve to a declared origin",
+        span=SourceSpan(
+            start=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=10, column=3, offset=0),
+            end=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=10, column=12, offset=0),
+        ),
+        form_path=("workflow-lisp", "defworkflow", "command_checks"),
+    )
+
+    payload = serialize_diagnostic(diagnostic)
+
+    assert payload["code"] == "source_map_validation_ref_missing"
+    assert payload["phase"] == "lowering"

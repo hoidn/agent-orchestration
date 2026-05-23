@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -30,6 +31,88 @@ def _build_request(tmp_path: Path, *, manifest_path: Path | None = None):
         provider_externs_path=CLI_FIXTURES / "providers.json",
         prompt_externs_path=CLI_FIXTURES / "prompts.json",
         imported_workflow_bundles_path=manifest_path or (CLI_FIXTURES / "imported_workflow_bundles.json"),
+        command_boundaries_path=CLI_FIXTURES / "commands.json",
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
+def _write_structured_results_module(tmp_path: Path) -> Path:
+    package_dir = tmp_path / "lineage_pkg"
+    package_dir.mkdir(parents=True, exist_ok=True)
+    module_path = package_dir / "entry.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule lineage_pkg/entry)",
+                "  (export command_checks provider_attempt orchestrate)",
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defunion ImplementationState",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow command_checks",
+                "    ((report_path WorkReport))",
+                "    -> ChecksResult",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" report_path)',
+                "      :returns ChecksResult))",
+                "  (defworkflow provider_attempt",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (input report_path)",
+                "               :returns ImplementationState)))",
+                "      (match attempt",
+                "        ((COMPLETED completed)",
+                "         (record ImplementationSummary :report completed.execution_report))",
+                "        ((BLOCKED blocked)",
+                "         (record ImplementationSummary :report blocked.progress_report)))))",
+                "  (defworkflow orchestrate",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (call provider_attempt",
+                "      :input input",
+                "      :report_path report_path)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    return module_path
+
+
+def _structured_results_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    module_path = _write_structured_results_module(tmp_path)
+    return request_cls(
+        source_path=module_path,
+        source_roots=(tmp_path,),
+        entry_workflow="orchestrate",
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        imported_workflow_bundles_path=None,
         command_boundaries_path=CLI_FIXTURES / "commands.json",
         emit_debug_yaml=False,
         workspace_root=tmp_path,
@@ -286,6 +369,24 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
     assert result.manifest.artifact_status["semantic_ir"] == "deferred_shared_contract"
 
 
+def test_build_manifest_records_source_map_schema_and_coverage_for_emitted_artifacts(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+
+    assert result.manifest.source_map_schema_version == "workflow_lisp_source_map.v1"
+    assert result.manifest.source_map_coverage == {
+        "frontend_ast": "covered",
+        "lowered_surface": "covered",
+        "shared_validation_subjects": "covered",
+        "executable_ir": "covered",
+        "runtime_logs": "covered",
+        "core_workflow_ast": "deferred_shared_contract",
+        "semantic_ir": "deferred_shared_contract",
+    }
+
+
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
@@ -320,50 +421,91 @@ def test_build_removes_stale_debug_yaml_when_not_requested(tmp_path: Path) -> No
     assert not (plain_result.build_root / "expanded.debug.yaml").exists()
 
 
-def test_source_map_covers_generated_steps_inputs_outputs_and_paths(tmp_path: Path) -> None:
+def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
-    result = build_frontend_bundle(_build_request(tmp_path))
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
     source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
     boundary_projection = json.loads(
         result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
     )
 
-    entry_workflow = next(
-        workflow
-        for workflow in source_map["workflows"].values()
-        if workflow["selected_entry_workflow"]
-    )
-    assert entry_workflow["workflow_name"] == "neurips/entry::orchestrate"
-    assert entry_workflow["step_ids"]
-    assert set(entry_workflow["generated_inputs"]) == {
-        "input__report",
-        "input__status",
-        "report_path",
+    assert source_map["schema_version"] == "workflow_lisp_source_map.v1"
+    assert source_map["coverage"] == {
+        "frontend_ast": "covered",
+        "lowered_surface": "covered",
+        "shared_validation_subjects": "covered",
+        "executable_ir": "covered",
+        "runtime_logs": "covered",
+        "core_workflow_ast": "deferred_shared_contract",
+        "semantic_ir": "deferred_shared_contract",
     }
-    assert set(entry_workflow["generated_outputs"]) == {"return__report"}
-    assert any(workflow["generated_paths"] for workflow in source_map["workflows"].values())
+
+    command_checks_name = "lineage_pkg/entry::command_checks"
+    provider_attempt_name = "lineage_pkg/entry::provider_attempt"
+    entry_name = "lineage_pkg/entry::orchestrate"
+    command_checks = source_map["workflows"][command_checks_name]
+    provider_attempt = source_map["workflows"][provider_attempt_name]
+    entry_workflow = source_map["workflows"][entry_name]
+    assert entry_workflow["selected_entry_workflow"] is True
+    assert entry_workflow["workflow_name"] == entry_name
+    assert set(source_map["workflows"]) == {command_checks_name, provider_attempt_name, entry_name}
+
+    expected_sections = {
+        "workflow_origin",
+        "step_ids",
+        "generated_inputs",
+        "generated_outputs",
+        "generated_paths",
+        "generated_internal_inputs",
+        "command_boundaries",
+        "validation_subjects",
+        "executable_nodes",
+    }
+    for workflow in source_map["workflows"].values():
+        assert expected_sections.issubset(workflow)
+        assert workflow["workflow_origin"]["origin_key"]
+
+    command_step_ids = {
+        name for name in command_checks["step_ids"] if name.endswith("command_checks__run_checks")
+    }
+    internal_input_name = next(iter(command_checks["generated_internal_inputs"]))
+    command_boundary = command_checks["command_boundaries"][0]
+    assert command_step_ids
+    assert internal_input_name.endswith("__result_bundle")
+    assert len(command_checks["command_boundaries"]) == 1
+    assert command_boundary["step_id"] in command_step_ids
+    assert command_checks["step_ids"][command_boundary["step_id"]]["origin_key"]
+    assert command_boundary["command_name"] == "run_checks"
+    assert command_boundary["boundary_kind"] == "external_tool"
+    assert command_boundary["origin_key"] == command_checks["step_ids"][command_boundary["step_id"]]["origin_key"]
+    assert {
+        subject["subject_ref"]["subject_kind"]
+        for subject in provider_attempt["validation_subjects"]
+    } >= {"step_id", "generated_input", "generated_output", "workflow"}
+    assert any(
+        node["kind"] == "match_join" and node["region"] == "body"
+        for node in provider_attempt["executable_nodes"]
+    )
     assert "contract_definition" not in json.dumps(source_map, sort_keys=True)
     assert boundary_projection["schema_version"] == "workflow_lisp_boundary_projection.v1"
-    assert boundary_projection["entry_workflow"] == "neurips/entry::orchestrate"
+    assert boundary_projection["entry_workflow"] == entry_name
     projection_entry = next(
         workflow
         for workflow in boundary_projection["workflows"]
-        if workflow["workflow_name"] == "neurips/entry::orchestrate"
+        if workflow["workflow_name"] == command_checks_name
     )
-    assert projection_entry["params"] == [
-        {"name": "input", "type_kind": "record"},
-        {"name": "report_path", "type_kind": "relpath"},
-    ]
+    assert projection_entry["params"] == [{"name": "report_path", "type_kind": "relpath"}]
     assert projection_entry["return_kind"] == "record"
-    assert [field["generated_name"] for field in projection_entry["flattened_inputs"]] == [
-        "input__report",
-        "input__status",
-        "report_path",
-    ]
-    assert [field["generated_name"] for field in projection_entry["flattened_outputs"]] == ["return__report"]
-    assert projection_entry["generated_internal_inputs"] == []
+    assert [field["generated_name"] for field in projection_entry["flattened_inputs"]] == ["report_path"]
+    assert {field["generated_name"] for field in projection_entry["flattened_outputs"]} == {
+        "return__report",
+        "return__status",
+    }
+    assert len(projection_entry["generated_internal_inputs"]) == 1
+    assert projection_entry["generated_internal_inputs"][0]["generated_name"].endswith("__result_bundle")
+    assert projection_entry["generated_internal_inputs"][0]["reason"] == "managed_write_root"
 
 
 def test_source_trace_preserves_distinct_workflows_with_shared_display_names(tmp_path: Path) -> None:
@@ -450,6 +592,49 @@ def test_source_trace_preserves_distinct_workflows_with_shared_display_names(tmp
     )
     source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
 
+    assert source_map["schema_version"] == "workflow_lisp_source_map.v1"
     assert set(source_map["workflows"]) >= {"pkg/entry::run", "pkg/helper::run"}
     assert source_map["workflows"]["pkg/entry::run"]["selected_entry_workflow"] is True
     assert source_map["workflows"]["pkg/helper::run"]["selected_entry_workflow"] is False
+    assert source_map["workflows"]["pkg/entry::run"]["display_name"] == "run"
+    assert source_map["workflows"]["pkg/helper::run"]["display_name"] == "run"
+
+
+def test_source_map_validator_rejects_missing_required_validation_subject_bindings(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    build_source_map_document = getattr(source_map_module, "build_source_map_document")
+    validate_source_map_document = getattr(source_map_module, "validate_source_map_document")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    document = build_source_map_document(
+        result.compile_result,
+        selected_name=result.entry_selection.canonical_name,
+        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
+    )
+    workflow_name = "lineage_pkg/entry::command_checks"
+    workflow = document.workflows[workflow_name]
+    broken_workflow = replace(
+        workflow,
+        validation_subjects=tuple(
+            binding
+            for binding in workflow.validation_subjects
+            if not (
+                binding.subject_ref.subject_kind == "generated_output"
+                and binding.subject_ref.subject_name == "return__report"
+            )
+        ),
+    )
+    broken_document = replace(
+        document,
+        workflows={**dict(document.workflows), workflow_name: broken_workflow},
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        validate_source_map_document(broken_document)
+
+    assert excinfo.value.diagnostics[0].code == "source_map_validation_subject_missing"
+    assert "generated_output:return__report" in excinfo.value.diagnostics[0].message

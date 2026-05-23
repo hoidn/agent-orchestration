@@ -203,6 +203,16 @@ def test_run_workflow_persists_compiled_frontend_provenance_for_orc_runs(tmp_pat
     assert frontend["frontend_entry_workflow"] == "neurips/entry::orchestrate"
     assert frontend["frontend_build_root"].endswith("/")
     assert frontend["frontend_source_trace_path"].endswith("source_map.json")
+    assert frontend["source_map_schema_version"] == "workflow_lisp_source_map.v1"
+    assert frontend["source_map_coverage"] == {
+        "frontend_ast": "covered",
+        "lowered_surface": "covered",
+        "shared_validation_subjects": "covered",
+        "executable_ir": "covered",
+        "runtime_logs": "covered",
+        "core_workflow_ast": "deferred_shared_contract",
+        "semantic_ir": "deferred_shared_contract",
+    }
 
 
 def test_run_workflow_logs_compiled_frontend_source_context(

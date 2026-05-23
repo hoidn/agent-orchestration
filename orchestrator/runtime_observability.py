@@ -101,6 +101,8 @@ def record_compiled_frontend_provenance(
     build_root = provenance.frontend_build_root
     source_trace_path = provenance.frontend_source_trace_path
     frontend_entry_workflow = provenance.frontend_entry_workflow
+    source_map_schema_version = provenance.frontend_source_map_schema_version
+    source_map_coverage = provenance.frontend_source_map_coverage
     if not isinstance(build_root, Path) or not isinstance(source_trace_path, Path):
         return
 
@@ -109,6 +111,8 @@ def record_compiled_frontend_provenance(
         "frontend_build_root": f"{build_root.as_posix()}/",
         "frontend_source_trace_path": str(source_trace_path),
         "frontend_entry_workflow": frontend_entry_workflow,
+        "source_map_schema_version": source_map_schema_version,
+        "source_map_coverage": dict(source_map_coverage) if isinstance(source_map_coverage, Mapping) else None,
     }
 
 

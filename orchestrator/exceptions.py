@@ -1,15 +1,24 @@
-"""Orchestrator exceptions."""
-
-from typing import List
 from dataclasses import dataclass
+from typing import List
+
+
+@dataclass
+class ValidationSubjectRef:
+    """Generic validation subject identifier for structured provenance remapping."""
+
+    subject_kind: str
+    subject_name: str
+    workflow_name: str | None = None
 
 
 @dataclass
 class ValidationError:
     """Single validation error."""
+
     message: str
     path: str = ""
     exit_code: int = 2
+    subject_refs: tuple[ValidationSubjectRef, ...] = ()
 
 
 class WorkflowValidationError(Exception):

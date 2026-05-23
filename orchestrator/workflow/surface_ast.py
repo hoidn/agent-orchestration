@@ -125,6 +125,8 @@ class WorkflowProvenance:
     frontend_build_root: Path | None = None
     frontend_source_trace_path: Path | None = None
     frontend_entry_workflow: str | None = None
+    frontend_source_map_schema_version: str | None = None
+    frontend_source_map_coverage: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)

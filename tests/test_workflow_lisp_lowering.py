@@ -1,8 +1,10 @@
 import importlib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
+from orchestrator.exceptions import ValidationError, ValidationSubjectRef
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
@@ -1113,3 +1115,242 @@ def test_compile_stage3_entrypoint_coexists_with_explicit_imported_bundles(tmp_p
 
     assert "selector-run" in result.entry_result.workflow_catalog.signatures_by_name
     assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name
+
+
+def test_origin_map_assigns_stable_origin_keys_and_validation_subject_bindings(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    command_checks = next(
+        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
+    )
+    origin_map = command_checks.origin_map
+
+    assert origin_map.workflow_origin.origin_key
+    assert all(origin.origin_key for origin in origin_map.step_spans.values())
+    assert all(origin.origin_key for origin in origin_map.authored_input_spans.values())
+    assert all(origin.origin_key for origin in origin_map.internal_input_spans.values())
+    assert all(origin.origin_key for origin in origin_map.generated_output_spans.values())
+    assert all(origin.origin_key for origin in origin_map.generated_path_spans.values())
+    assert {
+        binding.subject_ref.subject_kind for binding in origin_map.validation_subject_bindings
+    } >= {"workflow", "step_id", "generated_input", "generated_output", "generated_path"}
+
+
+def test_source_map_remap_prefers_structured_validation_subject_refs(tmp_path: Path) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
+
+    result = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    command_checks = next(
+        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
+    )
+    report_path_origin = next(
+        origin
+        for name, origin in command_checks.origin_map.authored_input_spans.items()
+        if name.endswith("report_path")
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        raise_remapped(
+            command_checks,
+            [
+                ValidationError(
+                    "structured subject ref should win even when the message has no generated names",
+                    subject_refs=(
+                        ValidationSubjectRef(
+                            subject_kind="generated_input",
+                            subject_name=next(
+                                name
+                                for name in command_checks.origin_map.authored_input_spans
+                                if name.endswith("report_path")
+                            ),
+                            workflow_name=command_checks.typed_workflow.definition.name,
+                        ),
+                    ),
+                )
+            ],
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.span == report_path_origin.span
+    assert diagnostic.form_path == report_path_origin.form_path
+
+
+def test_source_map_remap_reports_missing_structured_subject_bindings(tmp_path: Path) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
+
+    result = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        raise_remapped(
+            next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"),
+            [
+                ValidationError(
+                    "subject ref is present but should not silently fall back to the workflow origin",
+                    subject_refs=(
+                        ValidationSubjectRef(
+                            subject_kind="generated_input",
+                            subject_name="missing_input",
+                            workflow_name="command_checks",
+                        ),
+                    ),
+                )
+            ],
+        )
+
+    assert excinfo.value.diagnostics[0].code == "source_map_validation_ref_missing"
+
+
+def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_refs_from_loader(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
+
+    result = compile_stage3_module(
+        REMAP_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    lowered = result.lowered_workflows[0]
+    captured_errors: list[ValidationError] = []
+
+    def capture_errors(lowered_workflow, errors):
+        del lowered_workflow
+        captured_errors.extend(errors)
+        raise RuntimeError("captured shared validation errors")
+
+    monkeypatch.setattr(lowering_module, "_raise_remapped_validation_error", capture_errors)
+
+    with pytest.raises(RuntimeError, match="captured shared validation errors"):
+        validate_one(
+            lowered,
+            workspace_root=tmp_path,
+            imported_bundles={},
+            workflow_is_imported=False,
+        )
+
+    assert [error.message for error in captured_errors] == [
+        "inputs.report_path.under: parent directory traversal ('..') not allowed",
+        "Step 'escaped-summary__run_checks': output_bundle.fields[1] under: parent directory traversal ('..') not allowed",
+        "outputs.return__report.under: parent directory traversal ('..') not allowed",
+    ]
+    assert [
+        tuple(
+            (ref.subject_kind, ref.subject_name, ref.workflow_name)
+            for ref in error.subject_refs
+        )
+        for error in captured_errors
+    ] == [
+        (("generated_input", "report_path", "escaped-summary"),),
+        (("step_id", "escaped-summary__run_checks", "escaped-summary"),),
+        (("generated_output", "return__report", "escaped-summary"),),
+    ]
+
+
+def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_refs_for_output_refs(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    validate_one = getattr(lowering_module, "_validate_one_lowered_workflow")
+
+    result = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    command_checks = next(
+        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
+    )
+    broken_outputs = dict(command_checks.authored_mapping["outputs"])
+    broken_report = dict(broken_outputs["return__report"])
+    broken_report["from"] = {"ref": "bad.ref"}
+    broken_outputs["return__report"] = broken_report
+    broken_workflow = replace(
+        command_checks,
+        authored_mapping={**dict(command_checks.authored_mapping), "outputs": broken_outputs},
+    )
+    captured_errors: list[ValidationError] = []
+
+    def capture_errors(lowered_workflow, errors):
+        del lowered_workflow
+        captured_errors.extend(errors)
+        raise RuntimeError("captured shared validation errors")
+
+    monkeypatch.setattr(lowering_module, "_raise_remapped_validation_error", capture_errors)
+
+    with pytest.raises(RuntimeError, match="captured shared validation errors"):
+        validate_one(
+            broken_workflow,
+            workspace_root=tmp_path,
+            imported_bundles={},
+            workflow_is_imported=False,
+        )
+
+    assert [error.message for error in captured_errors] == [
+        "outputs.return__report.from must reference root.steps.*",
+    ]
+    assert [
+        tuple(
+            (ref.subject_kind, ref.subject_name, ref.workflow_name)
+            for ref in error.subject_refs
+        )
+        for error in captured_errors
+    ] == [
+        (("generated_output", "return__report", "command_checks"),),
+    ]

@@ -36,6 +36,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
+from orchestrator.exceptions import ValidationSubjectRef
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import ProviderStepConfig
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
@@ -100,6 +101,7 @@ from .workflows import (
     TypedWorkflowDef,
     analyze_workflow_boundary_type,
 )
+from .workflow_refs import specialize_workflow_ref_callables
 
 _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
 
@@ -117,8 +119,17 @@ class LoweringOrigin:
 
     span: SourceSpan
     form_path: tuple[str, ...]
+    origin_key: str = ""
     expansion_stack: tuple[object, ...] = ()
     notes: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class ValidationSubjectBinding:
+    """Structured validation subject mapped to one lowering origin."""
+
+    subject_ref: ValidationSubjectRef
+    origin: LoweringOrigin
 
 
 @dataclass(frozen=True)
@@ -132,12 +143,14 @@ class LoweringOriginMap:
     source instead of opaque generated names.
     """
 
+    workflow_name: str
     workflow_origin: LoweringOrigin
     step_spans: Mapping[str, LoweringOrigin]
     authored_input_spans: Mapping[str, LoweringOrigin]
     internal_input_spans: Mapping[str, LoweringOrigin]
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: Mapping[str, LoweringOrigin]
+    validation_subject_bindings: tuple[ValidationSubjectBinding, ...] = ()
 
     @property
     def workflow_span(self) -> SourceSpan:
@@ -189,6 +202,11 @@ def lower_workflow_definitions(
     that can be passed directly into the shared workflow validation pipeline.
     """
 
+    typed_workflows, typed_procedures = specialize_workflow_ref_callables(
+        typed_workflows,
+        typed_procedures=typed_procedures,
+        workflow_catalog=workflow_catalog,
+    )
     typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
     resolved_procedures = _resolve_procedure_lowering(
         typed_procedures,
@@ -463,17 +481,94 @@ def _lower_one_workflow(
         typed_workflow=typed_workflow,
         authored_mapping=authored_mapping,
         origin_map=LoweringOriginMap(
-            workflow_origin=LoweringOrigin(
-                span=workflow_origin.span,
-                form_path=workflow_origin.form_path,
-                expansion_stack=workflow_origin.expansion_stack,
-                notes=context.origin_notes or workflow_origin.notes,
+            workflow_name=typed_workflow.definition.name,
+            workflow_origin=_with_origin_key(
+                LoweringOrigin(
+                    span=workflow_origin.span,
+                    form_path=workflow_origin.form_path,
+                    expansion_stack=workflow_origin.expansion_stack,
+                    notes=context.origin_notes or workflow_origin.notes,
+                ),
+                workflow_name=typed_workflow.definition.name,
+                entity_kind="workflow",
+                subject_name=typed_workflow.definition.name,
             ),
-            step_spans=MappingProxyType(dict(context.step_spans)),
-            authored_input_spans=MappingProxyType(dict(authored_input_spans)),
-            internal_input_spans=MappingProxyType(dict(internal_input_spans)),
-            generated_output_spans=MappingProxyType(dict(context.generated_output_spans)),
-            generated_path_spans=MappingProxyType(dict(context.generated_path_spans)),
+            step_spans=MappingProxyType(
+                _origins_with_keys(
+                    context.step_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="step_id",
+                )
+            ),
+            authored_input_spans=MappingProxyType(
+                _origins_with_keys(
+                    authored_input_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="generated_input",
+                )
+            ),
+            internal_input_spans=MappingProxyType(
+                _origins_with_keys(
+                    internal_input_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="generated_internal_input",
+                )
+            ),
+            generated_output_spans=MappingProxyType(
+                _origins_with_keys(
+                    context.generated_output_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="generated_output",
+                )
+            ),
+            generated_path_spans=MappingProxyType(
+                _origins_with_keys(
+                    context.generated_path_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="generated_path",
+                )
+            ),
+            validation_subject_bindings=_build_validation_subject_bindings(
+                workflow_name=typed_workflow.definition.name,
+                workflow_origin=_with_origin_key(
+                    LoweringOrigin(
+                        span=workflow_origin.span,
+                        form_path=workflow_origin.form_path,
+                        expansion_stack=workflow_origin.expansion_stack,
+                        notes=context.origin_notes or workflow_origin.notes,
+                    ),
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="workflow",
+                    subject_name=typed_workflow.definition.name,
+                ),
+                step_spans=_origins_with_keys(
+                    context.step_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="step_id",
+                ),
+                generated_inputs={
+                    **_origins_with_keys(
+                        authored_input_spans,
+                        workflow_name=typed_workflow.definition.name,
+                        entity_kind="generated_input",
+                    ),
+                    **_origins_with_keys(
+                        internal_input_spans,
+                        workflow_name=typed_workflow.definition.name,
+                        entity_kind="generated_internal_input",
+                    ),
+                },
+                generated_outputs=_origins_with_keys(
+                    context.generated_output_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="generated_output",
+                ),
+                generated_paths=_origins_with_keys(
+                    context.generated_path_spans,
+                    workflow_name=typed_workflow.definition.name,
+                    entity_kind="generated_path",
+                ),
+            ),
         ),
         boundary_projection=finalized_projection,
     )
@@ -637,9 +732,126 @@ def _origin_from_context_source(context: _LoweringContext, source: object, *, sp
     return LoweringOrigin(
         span=base.span,
         form_path=base.form_path,
+        origin_key=base.origin_key,
         expansion_stack=base.expansion_stack,
         notes=context.origin_notes,
     )
+
+
+def _with_origin_key(
+    origin: LoweringOrigin,
+    *,
+    workflow_name: str,
+    entity_kind: str,
+    subject_name: str,
+) -> LoweringOrigin:
+    return replace(
+        origin,
+        origin_key=_lowering_origin_key(
+            workflow_name=workflow_name,
+            entity_kind=entity_kind,
+            subject_name=subject_name,
+        ),
+    )
+
+
+def _origins_with_keys(
+    origins: Mapping[str, LoweringOrigin],
+    *,
+    workflow_name: str,
+    entity_kind: str,
+) -> dict[str, LoweringOrigin]:
+    return {
+        name: _with_origin_key(
+            origin,
+            workflow_name=workflow_name,
+            entity_kind=entity_kind,
+            subject_name=name,
+        )
+        for name, origin in origins.items()
+    }
+
+
+def _lowering_origin_key(
+    *,
+    workflow_name: str,
+    entity_kind: str,
+    subject_name: str,
+) -> str:
+    return f"{workflow_name}::{entity_kind}::{subject_name}"
+
+
+def _build_validation_subject_bindings(
+    *,
+    workflow_name: str,
+    workflow_origin: LoweringOrigin,
+    step_spans: Mapping[str, LoweringOrigin],
+    generated_inputs: Mapping[str, LoweringOrigin],
+    generated_outputs: Mapping[str, LoweringOrigin],
+    generated_paths: Mapping[str, LoweringOrigin],
+) -> tuple[ValidationSubjectBinding, ...]:
+    bindings: list[ValidationSubjectBinding] = [
+        ValidationSubjectBinding(
+            subject_ref=ValidationSubjectRef(
+                subject_kind="workflow",
+                subject_name=workflow_name,
+                workflow_name=workflow_name,
+            ),
+            origin=workflow_origin,
+        )
+    ]
+    bindings.extend(
+        ValidationSubjectBinding(
+            subject_ref=ValidationSubjectRef(
+                subject_kind="step_id",
+                subject_name=name,
+                workflow_name=workflow_name,
+            ),
+            origin=origin,
+        )
+        for name, origin in step_spans.items()
+    )
+    bindings.extend(
+        ValidationSubjectBinding(
+            subject_ref=ValidationSubjectRef(
+                subject_kind="generated_input",
+                subject_name=name,
+                workflow_name=workflow_name,
+            ),
+            origin=origin,
+        )
+        for name, origin in generated_inputs.items()
+    )
+    bindings.extend(
+        ValidationSubjectBinding(
+            subject_ref=ValidationSubjectRef(
+                subject_kind="generated_output",
+                subject_name=name,
+                workflow_name=workflow_name,
+            ),
+            origin=origin,
+        )
+        for name, origin in generated_outputs.items()
+    )
+    bindings.extend(
+        ValidationSubjectBinding(
+            subject_ref=ValidationSubjectRef(
+                subject_kind="generated_path",
+                subject_name=name,
+                workflow_name=workflow_name,
+            ),
+            origin=origin,
+        )
+        for name, origin in generated_paths.items()
+    )
+    bindings.sort(
+        key=lambda binding: (
+            binding.subject_ref.subject_kind,
+            binding.subject_ref.subject_name,
+            binding.origin.origin_key,
+        )
+    )
+    return tuple(bindings)
 
 
 def _record_step_origin(context: _LoweringContext, *, step_name: str, step_id: str, source: object) -> None:
@@ -6487,7 +6699,23 @@ def _raise_remapped_validation_error(
     diagnostics: list[LispFrontendDiagnostic] = []
     for error in errors:
         message = str(error.message)
-        origin = _remap_validation_message(lowered_workflow.origin_map, message)
+        subject_refs = tuple(getattr(error, "subject_refs", ()) or ())
+        origin = None
+        if subject_refs:
+            origin = _origin_for_validation_subject_refs(lowered_workflow.origin_map, subject_refs)
+            if origin is None:
+                diagnostics.append(
+                    LispFrontendDiagnostic(
+                        code="source_map_validation_ref_missing",
+                        message=_missing_validation_subject_message(subject_refs),
+                        span=lowered_workflow.origin_map.workflow_span,
+                        form_path=lowered_workflow.typed_workflow.definition.form_path,
+                        expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
+                    )
+                )
+                continue
+        else:
+            origin = _remap_validation_message(lowered_workflow.origin_map, message)
         if origin is None:
             diagnostics.append(
                 LispFrontendDiagnostic(
@@ -6510,6 +6738,41 @@ def _raise_remapped_validation_error(
             )
         )
     raise LispFrontendCompileError(tuple(diagnostics))
+
+
+def _origin_for_validation_subject_refs(
+    origin_map: LoweringOriginMap,
+    subject_refs: tuple[ValidationSubjectRef, ...],
+) -> LoweringOrigin | None:
+    bindings_by_ref = {
+        (
+            binding.subject_ref.subject_kind,
+            binding.subject_ref.subject_name,
+            binding.subject_ref.workflow_name or origin_map.workflow_name,
+        ): binding.origin
+        for binding in origin_map.validation_subject_bindings
+    }
+    for subject_ref in subject_refs:
+        origin = bindings_by_ref.get(
+            (
+                subject_ref.subject_kind,
+                subject_ref.subject_name,
+                subject_ref.workflow_name or origin_map.workflow_name,
+            )
+        )
+        if origin is not None:
+            return origin
+    return None
+
+
+def _missing_validation_subject_message(
+    subject_refs: tuple[ValidationSubjectRef, ...],
+) -> str:
+    refs = ", ".join(
+        f"{subject_ref.subject_kind}:{subject_ref.subject_name}"
+        for subject_ref in subject_refs
+    )
+    return f"validation subject refs missing from origin map: {refs}"
 
 
 def _remap_validation_message(origin_map: LoweringOriginMap, message: str) -> LoweringOrigin | None:

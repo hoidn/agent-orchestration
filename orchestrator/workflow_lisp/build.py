@@ -17,6 +17,7 @@ from orchestrator.workflow.surface_ast import WorkflowProvenance
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
+from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
 from .workflows import CertifiedAdapterBinding, ExternalToolBinding
 
@@ -99,6 +100,8 @@ class FrontendBuildManifest:
     diagnostic_count: int
     shared_validation_status: str
     debug_yaml_status: str
+    source_map_schema_version: str | None = None
+    source_map_coverage: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -212,6 +215,8 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         frontend_build_root=build_root,
         frontend_source_trace_path=source_map_path,
         frontend_entry_workflow=entry_selection.selected_name,
+        frontend_source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
+        frontend_source_map_coverage=dict(SOURCE_MAP_COVERAGE),
     )
     validated_bundle = LoadedWorkflowBundle(
         surface=replace(selected_bundle.surface, provenance=provenance),
@@ -822,6 +827,8 @@ def _build_manifest(
         diagnostic_count=len(diagnostics),
         shared_validation_status="validated",
         debug_yaml_status="emitted" if emit_debug_yaml else "not_requested",
+        source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
+        source_map_coverage=dict(SOURCE_MAP_COVERAGE),
     )
 
 
@@ -893,34 +900,13 @@ def _serialize_source_map(
     *,
     selected_name: str,
 ) -> dict[str, object]:
-    workflows: dict[str, dict[str, object]] = {}
-    for compiled_result in compile_result.compiled_results_by_name.values():
-        for lowered in compiled_result.lowered_workflows:
-            workflow_name = lowered.typed_workflow.definition.name
-            display_name = _display_workflow_name(workflow_name)
-            workflows[workflow_name] = {
-                "display_name": display_name,
-                "selected_entry_workflow": workflow_name == selected_name,
-                "workflow_name": workflow_name,
-                "workflow_origin": _origin_payload(lowered.origin_map.workflow_origin),
-                "step_ids": {
-                    step_id: _origin_payload(origin)
-                    for step_id, origin in sorted(lowered.origin_map.step_spans.items())
-                },
-                "generated_inputs": {
-                    name: _origin_payload(origin)
-                    for name, origin in sorted(lowered.origin_map.generated_input_spans.items())
-                },
-                "generated_outputs": {
-                    name: _origin_payload(origin)
-                    for name, origin in sorted(lowered.origin_map.generated_output_spans.items())
-                },
-                "generated_paths": {
-                    name: _origin_payload(origin)
-                    for name, origin in sorted(lowered.origin_map.generated_path_spans.items())
-                },
-            }
-    return {"workflows": workflows}
+    return _json_data(
+        build_source_map_document(
+            compile_result,
+            selected_name=selected_name,
+            display_name_resolver=_display_workflow_name,
+        )
+    )
 
 
 def _serialize_workflow_boundary_projection(
@@ -980,6 +966,7 @@ def _serialize_workflow_boundary_projection(
 def _origin_payload(origin: object) -> dict[str, object]:
     span = getattr(origin, "span")
     return {
+        "origin_key": getattr(origin, "origin_key", ""),
         "path": span.start.path,
         "line": span.start.line,
         "column": span.start.column,

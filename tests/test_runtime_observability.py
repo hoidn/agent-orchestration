@@ -14,6 +14,7 @@ from orchestrator.runtime_observability import (
 )
 from orchestrator.monitor.process import write_process_metadata
 from orchestrator.state import StateManager
+from orchestrator.workflow.executor import WorkflowExecutor
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 
@@ -182,6 +183,16 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
             frontend_build_root=Path("/tmp/.orchestrate/build/abc123"),
             frontend_source_trace_path=Path("/tmp/.orchestrate/build/abc123/source_map.json"),
             frontend_entry_workflow="orchestrate",
+            frontend_source_map_schema_version="workflow_lisp_source_map.v1",
+            frontend_source_map_coverage={
+                "frontend_ast": "covered",
+                "lowered_surface": "covered",
+                "shared_validation_subjects": "covered",
+                "executable_ir": "covered",
+                "runtime_logs": "covered",
+                "core_workflow_ast": "deferred_shared_contract",
+                "semantic_ir": "deferred_shared_contract",
+            },
         ),
     )
 
@@ -190,7 +201,327 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
         "frontend_build_root": "/tmp/.orchestrate/build/abc123/",
         "frontend_source_trace_path": "/tmp/.orchestrate/build/abc123/source_map.json",
         "frontend_entry_workflow": "orchestrate",
+        "source_map_schema_version": "workflow_lisp_source_map.v1",
+        "source_map_coverage": {
+            "frontend_ast": "covered",
+            "lowered_surface": "covered",
+            "shared_validation_subjects": "covered",
+            "executable_ir": "covered",
+            "runtime_logs": "covered",
+            "core_workflow_ast": "deferred_shared_contract",
+            "semantic_ir": "deferred_shared_contract",
+        },
     }
+
+
+def test_compiled_frontend_source_context_prefers_executable_node_lineage_over_step_ids(tmp_path: Path):
+    source_map = tmp_path / "source_map.json"
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "coverage": {
+                    "frontend_ast": "covered",
+                    "lowered_surface": "covered",
+                    "shared_validation_subjects": "covered",
+                    "executable_ir": "covered",
+                    "runtime_logs": "covered",
+                    "core_workflow_ast": "deferred_shared_contract",
+                    "semantic_ir": "deferred_shared_contract",
+                },
+                "workflows": {
+                    "pkg/entry::run": {
+                        "display_name": "run",
+                        "selected_entry_workflow": True,
+                        "workflow_name": "pkg/entry::run",
+                        "workflow_origin": {
+                            "origin_key": "pkg/entry::run::workflow::pkg/entry::run",
+                            "entity_kind": "workflow",
+                            "workflow_name": "pkg/entry::run",
+                            "path": "workflow.orc",
+                            "line": 1,
+                            "column": 1,
+                            "end_line": 1,
+                            "end_column": 5,
+                            "form_path": ["workflow-lisp", "defworkflow", "run"],
+                            "module_name": "pkg/entry",
+                            "expansion_stack": [],
+                            "notes": [],
+                            "generated_name_origin": "pkg/entry::run",
+                        },
+                        "step_ids": {
+                            "run__command": {
+                                "origin_key": "pkg/entry::run::step_id::run__command",
+                                "entity_kind": "step_id",
+                                "workflow_name": "pkg/entry::run",
+                                "path": "step.orc",
+                                "line": 10,
+                                "column": 3,
+                                "end_line": 10,
+                                "end_column": 7,
+                                "form_path": ["workflow-lisp", "defworkflow", "run", "command-result"],
+                                "module_name": "pkg/entry",
+                                "expansion_stack": [],
+                                "notes": [],
+                                "generated_name_origin": "run__command",
+                            }
+                        },
+                        "generated_inputs": {},
+                        "generated_outputs": {},
+                        "generated_paths": {},
+                        "generated_internal_inputs": {},
+                        "command_boundaries": [],
+                        "validation_subjects": [],
+                        "executable_nodes": [
+                            {
+                                "node_id": "root.run__command",
+                                "step_id": "run__command",
+                                "kind": "command",
+                                "region": "body",
+                                "origin_key": "pkg/entry::run::workflow::pkg/entry::run",
+                                "presentation_name": "run__command",
+                            }
+                        ],
+                    }
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow="pkg/entry::run",
+    )
+    executor._compiled_frontend_kind = "workflow_lisp"
+    executor._compiled_frontend_step_origins = executor._load_compiled_frontend_step_origins(provenance)
+    executor._compiled_frontend_node_origins = executor._load_compiled_frontend_node_origins(provenance)
+
+    origin = executor._compiled_frontend_origin_for_step(
+        "run__command",
+        "run__command",
+        node_id="root.run__command",
+    )
+
+    assert origin["path"] == "workflow.orc"
+
+
+def test_compiled_frontend_source_context_logs_certified_adapter_metadata(tmp_path: Path, caplog):
+    source_map = tmp_path / "source_map.json"
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "coverage": {
+                    "frontend_ast": "covered",
+                    "lowered_surface": "covered",
+                    "shared_validation_subjects": "covered",
+                    "executable_ir": "covered",
+                    "runtime_logs": "covered",
+                    "core_workflow_ast": "deferred_shared_contract",
+                    "semantic_ir": "deferred_shared_contract",
+                },
+                "workflows": {
+                    "pkg/entry::run": {
+                        "display_name": "run",
+                        "selected_entry_workflow": True,
+                        "workflow_name": "pkg/entry::run",
+                        "workflow_origin": {
+                            "origin_key": "pkg/entry::run::workflow::pkg/entry::run",
+                            "entity_kind": "workflow",
+                            "workflow_name": "pkg/entry::run",
+                            "path": "workflow.orc",
+                            "line": 1,
+                            "column": 1,
+                            "end_line": 1,
+                            "end_column": 5,
+                            "form_path": ["workflow-lisp", "defworkflow", "run"],
+                            "module_name": "pkg/entry",
+                            "expansion_stack": [],
+                            "notes": [],
+                            "generated_name_origin": "pkg/entry::run",
+                        },
+                        "step_ids": {
+                            "run__adapter": {
+                                "origin_key": "pkg/entry::run::step_id::run__adapter",
+                                "entity_kind": "step_id",
+                                "workflow_name": "pkg/entry::run",
+                                "path": "adapter.orc",
+                                "line": 7,
+                                "column": 3,
+                                "end_line": 7,
+                                "end_column": 9,
+                                "form_path": ["workflow-lisp", "defworkflow", "run", "command-result"],
+                                "module_name": "pkg/entry",
+                                "expansion_stack": [],
+                                "notes": [],
+                                "generated_name_origin": "run__adapter",
+                            }
+                        },
+                        "generated_inputs": {},
+                        "generated_outputs": {},
+                        "generated_paths": {},
+                        "generated_internal_inputs": {},
+                        "command_boundaries": [
+                            {
+                                "step_id": "run__adapter",
+                                "command_name": "apply_resource_transition",
+                                "boundary_kind": "certified_adapter",
+                                "origin_key": "pkg/entry::run::step_id::run__adapter",
+                                "adapter_name": "apply_resource_transition",
+                                "source_map_behavior": "step",
+                            }
+                        ],
+                        "validation_subjects": [],
+                        "executable_nodes": [],
+                    }
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow="pkg/entry::run",
+    )
+    executor._compiled_frontend_kind = "workflow_lisp"
+    executor._compiled_frontend_node_origins = executor._load_compiled_frontend_node_origins(provenance)
+    executor._compiled_frontend_step_origins = executor._load_compiled_frontend_step_origins(provenance)
+    executor._compiled_frontend_command_boundaries = executor._load_compiled_frontend_command_boundaries(provenance)
+
+    with caplog.at_level("INFO", logger="orchestrator.workflow.executor"):
+        executor._emit_compiled_frontend_step_display("run__adapter", "run__adapter")
+
+    messages = "\n".join(record.getMessage() for record in caplog.records)
+    assert "certified adapter: apply_resource_transition" in messages
+    assert "source-map behavior: step" in messages
+
+
+def test_compiled_frontend_source_trace_payload_reads_sidecar_once(tmp_path: Path, monkeypatch):
+    source_map = tmp_path / "source_map.json"
+    source_map.write_text(
+        json.dumps(
+            {
+                "schema_version": "workflow_lisp_source_map.v1",
+                "coverage": {
+                    "frontend_ast": "covered",
+                    "lowered_surface": "covered",
+                    "shared_validation_subjects": "covered",
+                    "executable_ir": "covered",
+                    "runtime_logs": "covered",
+                    "core_workflow_ast": "deferred_shared_contract",
+                    "semantic_ir": "deferred_shared_contract",
+                },
+                "workflows": {
+                    "pkg/entry::run": {
+                        "display_name": "run",
+                        "selected_entry_workflow": True,
+                        "workflow_name": "pkg/entry::run",
+                        "workflow_origin": {
+                            "origin_key": "pkg/entry::run::workflow::pkg/entry::run",
+                            "entity_kind": "workflow",
+                            "workflow_name": "pkg/entry::run",
+                            "path": "workflow.orc",
+                            "line": 1,
+                            "column": 1,
+                            "end_line": 1,
+                            "end_column": 5,
+                            "form_path": ["workflow-lisp", "defworkflow", "run"],
+                            "module_name": "pkg/entry",
+                            "expansion_stack": [],
+                            "notes": [],
+                            "generated_name_origin": "pkg/entry::run",
+                        },
+                        "step_ids": {
+                            "run__command": {
+                                "origin_key": "pkg/entry::run::step_id::run__command",
+                                "entity_kind": "step_id",
+                                "workflow_name": "pkg/entry::run",
+                                "path": "step.orc",
+                                "line": 10,
+                                "column": 3,
+                                "end_line": 10,
+                                "end_column": 7,
+                                "form_path": ["workflow-lisp", "defworkflow", "run", "command-result"],
+                                "module_name": "pkg/entry",
+                                "expansion_stack": [],
+                                "notes": [],
+                                "generated_name_origin": "run__command",
+                            }
+                        },
+                        "generated_inputs": {},
+                        "generated_outputs": {},
+                        "generated_paths": {},
+                        "generated_internal_inputs": {},
+                        "command_boundaries": [
+                            {
+                                "step_id": "run__command",
+                                "command_name": "run_checks",
+                                "boundary_kind": "external_tool",
+                                "origin_key": "pkg/entry::run::step_id::run__command",
+                            }
+                        ],
+                        "validation_subjects": [],
+                        "executable_nodes": [
+                            {
+                                "node_id": "root.run__command",
+                                "step_id": "run__command",
+                                "kind": "command",
+                                "region": "body",
+                                "origin_key": "pkg/entry::run::step_id::run__command",
+                                "presentation_name": "run__command",
+                            }
+                        ],
+                    }
+                },
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    original_read_text = Path.read_text
+    read_count = 0
+
+    def counting_read_text(path: Path, *args, **kwargs):
+        nonlocal read_count
+        if path == source_map:
+            read_count += 1
+        return original_read_text(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "read_text", counting_read_text)
+
+    executor = WorkflowExecutor.__new__(WorkflowExecutor)
+    provenance = WorkflowProvenance(
+        workflow_path=tmp_path / "workflow.orc",
+        source_root=tmp_path,
+        frontend_kind="workflow_lisp",
+        frontend_build_root=tmp_path,
+        frontend_source_trace_path=source_map,
+        frontend_entry_workflow="pkg/entry::run",
+    )
+
+    executor._load_compiled_frontend_step_origins(provenance)
+    executor._load_compiled_frontend_node_origins(provenance)
+    executor._load_compiled_frontend_command_boundaries(provenance)
+
+    assert read_count == 1
 
 
 def test_old_state_without_runtime_observability_still_loads(tmp_path: Path):

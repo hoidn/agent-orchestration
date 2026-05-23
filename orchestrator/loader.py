@@ -8,7 +8,7 @@ from typing import Any, Dict, List, Mapping, Optional, Set
 import yaml
 
 from orchestrator.contracts.output_contract import OutputContractError, validate_contract_value
-from orchestrator.exceptions import ValidationError, WorkflowValidationError
+from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 from orchestrator.providers import (
     ProviderRegistry,
     ProviderSessionMetadataMode,
@@ -100,6 +100,7 @@ class WorkflowLoader:
         self._load_stack: List[Path] = []
         self._provider_registry = ProviderRegistry()
         self._current_workflow_is_imported = False
+        self._current_validation_workflow_name: Optional[str] = None
 
     def load(self, workflow_path: Path) -> LoadedWorkflowBundle:
         """Load and validate workflow YAML into the typed bundle surface."""
@@ -111,6 +112,7 @@ class WorkflowLoader:
         self._workflow_input_specs = {}
         self._current_imports = {}
         self._provider_registry = ProviderRegistry()
+        self._current_validation_workflow_name = None
         workflow = self._load_workflow(Path(workflow_path).resolve())
         if self.errors:
             self._raise_validation_errors()
@@ -334,6 +336,9 @@ class WorkflowLoader:
 
     def _validate_top_level(self, workflow: Dict[str, Any], version: str):
         """Validate top-level workflow fields."""
+        workflow_name = workflow.get('name')
+        self._current_validation_workflow_name = workflow_name if isinstance(workflow_name, str) else None
+
         # Known fields at version 1.1/1.1.1
         known_fields = {
             'version', 'name', 'strict_flow', 'context', 'providers', 'secrets',
@@ -554,7 +559,13 @@ class WorkflowLoader:
                 self._add_error(f"{context}: input name must be a non-empty string")
                 continue
 
-            self._validate_workflow_signature_contract(spec, context, version, allow_from=False)
+            self._validate_workflow_signature_contract(
+                spec,
+                context,
+                version,
+                allow_from=False,
+                subject_refs=self._workflow_subject_refs("generated_input", input_name),
+            )
             if isinstance(spec, dict):
                 self._workflow_input_specs[input_name] = spec
 
@@ -579,7 +590,13 @@ class WorkflowLoader:
                 self._add_error(f"{context}: output name must be a non-empty string")
                 continue
 
-            self._validate_workflow_signature_contract(spec, context, version, allow_from=True)
+            self._validate_workflow_signature_contract(
+                spec,
+                context,
+                version,
+                allow_from=True,
+                subject_refs=self._workflow_subject_refs("generated_output", output_name),
+            )
             if not isinstance(spec, dict):
                 continue
 
@@ -588,7 +605,10 @@ class WorkflowLoader:
             if not isinstance(ref, str) or not ref:
                 continue
             if not ref.startswith('root.steps.'):
-                self._add_error(f"{context}.from must reference root.steps.*")
+                self._add_error(
+                    f"{context}.from must reference root.steps.*",
+                    subject_refs=self._workflow_subject_refs("generated_output", output_name),
+                )
                 continue
 
             ref_type = self._validate_structured_ref(
@@ -611,7 +631,8 @@ class WorkflowLoader:
             if declared_type == 'float' and ref_type == 'integer':
                 continue
             self._add_error(
-                f"{context}.from resolves to '{ref_type}' but output declares '{declared_type}'"
+                f"{context}.from resolves to '{ref_type}' but output declares '{declared_type}'",
+                subject_refs=self._workflow_subject_refs("generated_output", output_name),
             )
 
     def _validate_workflow_signature_contract(
@@ -621,10 +642,11 @@ class WorkflowLoader:
         version: str,
         *,
         allow_from: bool,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
     ) -> None:
         """Validate one workflow-boundary input/output contract."""
         if not isinstance(spec, dict):
-            self._add_error(f"{context} must be a dictionary")
+            self._add_error(f"{context} must be a dictionary", subject_refs=subject_refs)
             return
 
         allowed_fields = {'kind', 'type', 'allowed', 'under', 'must_exist_target', 'description'}
@@ -635,72 +657,86 @@ class WorkflowLoader:
 
         for field_name in spec.keys():
             if field_name not in allowed_fields:
-                self._add_error(f"{context}: unknown field '{field_name}'")
+                self._add_error(f"{context}: unknown field '{field_name}'", subject_refs=subject_refs)
 
         kind = spec.get('kind', 'relpath')
         if not isinstance(kind, str):
-            self._add_error(f"{context}.kind must be a string")
+            self._add_error(f"{context}.kind must be a string", subject_refs=subject_refs)
             kind = 'relpath'
         elif kind not in {'relpath', 'scalar'}:
-            self._add_error(f"{context}.kind invalid kind '{kind}'")
+            self._add_error(f"{context}.kind invalid kind '{kind}'", subject_refs=subject_refs)
 
         output_type = spec.get('type')
         if output_type is None:
-            self._add_error(f"{context} missing required 'type'")
+            self._add_error(f"{context} missing required 'type'", subject_refs=subject_refs)
         elif not isinstance(output_type, str):
-            self._add_error(f"{context}.type must be a string")
+            self._add_error(f"{context}.type must be a string", subject_refs=subject_refs)
         elif output_type not in self._supported_output_types(version):
-            self._add_error(f"{context}.type invalid type '{output_type}'")
+            self._add_error(f"{context}.type invalid type '{output_type}'", subject_refs=subject_refs)
 
         if 'description' in spec and not isinstance(spec['description'], str):
-            self._add_error(f"{context}.description must be a string")
+            self._add_error(f"{context}.description must be a string", subject_refs=subject_refs)
 
         if not allow_from and 'required' in spec and not isinstance(spec['required'], bool):
-            self._add_error(f"{context}.required must be a boolean")
+            self._add_error(f"{context}.required must be a boolean", subject_refs=subject_refs)
 
         if kind == 'relpath':
             if output_type is not None and output_type != 'relpath':
-                self._add_error(f"{context}: kind 'relpath' requires type 'relpath'")
+                self._add_error(
+                    f"{context}: kind 'relpath' requires type 'relpath'",
+                    subject_refs=subject_refs,
+                )
             if 'under' in spec:
                 if not isinstance(spec['under'], str):
-                    self._add_error(f"{context}.under must be a string")
+                    self._add_error(f"{context}.under must be a string", subject_refs=subject_refs)
                 else:
-                    self._validate_path_safety(spec['under'], f"{context}.under")
+                    self._validate_path_safety(spec['under'], f"{context}.under", subject_refs=subject_refs)
             if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
-                self._add_error(f"{context}.must_exist_target must be a boolean")
+                self._add_error(
+                    f"{context}.must_exist_target must be a boolean",
+                    subject_refs=subject_refs,
+                )
         elif kind == 'scalar':
             if output_type not in self._supported_scalar_types(version):
                 self._add_error(
-                    f"{context}: kind 'scalar' requires type one of {self._scalar_type_list(version)}"
+                    f"{context}: kind 'scalar' requires type one of {self._scalar_type_list(version)}",
+                    subject_refs=subject_refs,
                 )
             if 'under' in spec:
-                self._add_error(f"{context}: kind 'scalar' forbids 'under'")
+                self._add_error(f"{context}: kind 'scalar' forbids 'under'", subject_refs=subject_refs)
             if 'must_exist_target' in spec:
-                self._add_error(f"{context}: kind 'scalar' forbids 'must_exist_target'")
+                self._add_error(
+                    f"{context}: kind 'scalar' forbids 'must_exist_target'",
+                    subject_refs=subject_refs,
+                )
 
         if output_type == 'enum' and 'allowed' not in spec:
-            self._add_error(f"{context} enum type requires 'allowed'")
+            self._add_error(f"{context} enum type requires 'allowed'", subject_refs=subject_refs)
         if 'allowed' in spec and not isinstance(spec['allowed'], list):
-            self._add_error(f"{context}.allowed must be a list")
+            self._add_error(f"{context}.allowed must be a list", subject_refs=subject_refs)
 
         if not allow_from and 'default' in spec:
             try:
                 validate_contract_value(spec['default'], spec, workspace=self.workspace)
             except OutputContractError as exc:
                 self._add_error(
-                    f"{context}.default is invalid: {exc}"
+                    f"{context}.default is invalid: {exc}",
+                    subject_refs=subject_refs,
                 )
 
         if allow_from:
             binding = spec.get('from')
             if binding is None:
-                self._add_error(f"{context} missing required 'from'")
+                self._add_error(f"{context} missing required 'from'", subject_refs=subject_refs)
             elif not isinstance(binding, dict):
-                self._add_error(f"{context}.from must be a dictionary")
+                self._add_error(f"{context}.from must be a dictionary", subject_refs=subject_refs)
             elif set(binding.keys()) != {'ref'}:
-                self._add_error(f"{context}.from must be exactly {{ref: ...}}")
+                self._add_error(f"{context}.from must be exactly {{ref: ...}}", subject_refs=subject_refs)
             elif not isinstance(binding.get('ref'), str) or not binding.get('ref'):
-                self._add_error(f"{context}.from.ref must be a non-empty string")
+                self._add_error(
+                    f"{context}.from.ref must be a non-empty string",
+                    subject_refs=subject_refs,
+                )
 
     def _validate_secrets(self, secrets: Any):
         """Validate secrets configuration."""
@@ -1096,23 +1132,42 @@ class WorkflowLoader:
             # Path safety for file fields
             for field in ['input_file', 'output_file']:
                 if field in step:
-                    self._validate_path_safety(step[field], f"step '{name}' {field}")
+                    self._validate_path_safety(
+                        step[field],
+                        f"step '{name}' {field}",
+                        subject_refs=self._workflow_subject_refs("step_id", name),
+                    )
 
             # Validate deterministic artifact contracts
             if 'expected_outputs' in step:
-                self._validate_expected_outputs(step['expected_outputs'], name, version)
+                self._validate_expected_outputs(
+                    step['expected_outputs'],
+                    name,
+                    version,
+                    subject_refs=self._workflow_subject_refs("step_id", name),
+                )
 
             if 'output_bundle' in step:
                 if not self._version_at_least(version, "1.3"):
                     self._add_error(f"Step '{name}': output_bundle requires version '1.3'")
                 else:
-                    self._validate_output_bundle(step['output_bundle'], name, version)
+                    self._validate_output_bundle(
+                        step['output_bundle'],
+                        name,
+                        version,
+                        subject_refs=self._workflow_subject_refs("step_id", name),
+                    )
 
             if 'variant_output' in step:
                 if not self._version_at_least(version, "2.14"):
                     self._add_error(f"Step '{name}': variant_output requires version '2.14'")
                 else:
-                    self._validate_variant_output(step['variant_output'], name, version)
+                    self._validate_variant_output(
+                        step['variant_output'],
+                        name,
+                        version,
+                        subject_refs=self._workflow_subject_refs("step_id", name),
+                    )
 
             if 'pre_snapshot' in step and not self._version_at_least(version, "2.14"):
                 self._add_error(f"Step '{name}': pre_snapshot requires version '2.14'")
@@ -2983,171 +3038,188 @@ class WorkflowLoader:
         if conflicts:
             self._add_error(f"Step '{name}': wait_for cannot be combined with {conflicts}")
 
-    def _validate_expected_outputs(self, expected_outputs: Any, step_name: str, version: str):
+    def _validate_expected_outputs(
+        self,
+        expected_outputs: Any,
+        step_name: str,
+        version: str,
+        *,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ):
         """Validate expected_outputs contract entries."""
         if not isinstance(expected_outputs, list):
-            self._add_error(f"Step '{step_name}': expected_outputs must be a list")
+            self._add_error(f"Step '{step_name}': expected_outputs must be a list", subject_refs=subject_refs)
             return
 
         seen_names: Set[str] = set()
         for i, spec in enumerate(expected_outputs):
             context = f"Step '{step_name}': expected_outputs[{i}]"
             if not isinstance(spec, dict):
-                self._add_error(f"{context} must be a dictionary")
+                self._add_error(f"{context} must be a dictionary", subject_refs=subject_refs)
                 continue
 
             if 'name' not in spec:
-                self._add_error(f"{context} missing required 'name'")
+                self._add_error(f"{context} missing required 'name'", subject_refs=subject_refs)
             elif not isinstance(spec['name'], str):
-                self._add_error(f"{context} 'name' must be a string")
+                self._add_error(f"{context} 'name' must be a string", subject_refs=subject_refs)
             elif not spec['name'].strip():
-                self._add_error(f"{context} 'name' cannot be empty")
+                self._add_error(f"{context} 'name' cannot be empty", subject_refs=subject_refs)
             elif spec['name'] in seen_names:
-                self._add_error(f"{context} duplicate artifact name '{spec['name']}'")
+                self._add_error(f"{context} duplicate artifact name '{spec['name']}'", subject_refs=subject_refs)
             else:
                 seen_names.add(spec['name'])
 
             if 'path' not in spec:
-                self._add_error(f"{context} missing required 'path'")
+                self._add_error(f"{context} missing required 'path'", subject_refs=subject_refs)
             elif not isinstance(spec['path'], str):
-                self._add_error(f"{context} 'path' must be a string")
+                self._add_error(f"{context} 'path' must be a string", subject_refs=subject_refs)
             else:
-                self._validate_path_safety(spec['path'], f"{context} path")
+                self._validate_path_safety(spec['path'], f"{context} path", subject_refs=subject_refs)
 
             if 'type' not in spec:
-                self._add_error(f"{context} missing required 'type'")
+                self._add_error(f"{context} missing required 'type'", subject_refs=subject_refs)
             elif not isinstance(spec['type'], str):
-                self._add_error(f"{context} 'type' must be a string")
+                self._add_error(f"{context} 'type' must be a string", subject_refs=subject_refs)
             elif spec['type'] not in self._supported_output_types(version):
-                self._add_error(
-                    f"{context} invalid expected_outputs type '{spec['type']}'"
-                )
+                self._add_error(f"{context} invalid expected_outputs type '{spec['type']}'", subject_refs=subject_refs)
 
             if 'under' in spec:
                 if not isinstance(spec['under'], str):
-                    self._add_error(f"{context} 'under' must be a string")
+                    self._add_error(f"{context} 'under' must be a string", subject_refs=subject_refs)
                 else:
-                    self._validate_path_safety(spec['under'], f"{context} under")
+                    self._validate_path_safety(spec['under'], f"{context} under", subject_refs=subject_refs)
 
             if 'allowed' in spec:
                 if not isinstance(spec['allowed'], list):
-                    self._add_error(f"{context} 'allowed' must be a list")
+                    self._add_error(f"{context} 'allowed' must be a list", subject_refs=subject_refs)
 
             if spec.get('type') == 'enum' and 'allowed' not in spec:
-                self._add_error(f"{context} enum type requires 'allowed'")
+                self._add_error(f"{context} enum type requires 'allowed'", subject_refs=subject_refs)
 
             if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
-                self._add_error(f"{context} 'must_exist_target' must be a boolean")
+                self._add_error(f"{context} 'must_exist_target' must be a boolean", subject_refs=subject_refs)
 
             if 'required' in spec and not isinstance(spec['required'], bool):
-                self._add_error(f"{context} 'required' must be a boolean")
+                self._add_error(f"{context} 'required' must be a boolean", subject_refs=subject_refs)
 
             for guidance_key in ('description', 'format_hint', 'example'):
                 if guidance_key in spec and not isinstance(spec[guidance_key], str):
-                    self._add_error(f"{context} '{guidance_key}' must be a string")
+                    self._add_error(f"{context} '{guidance_key}' must be a string", subject_refs=subject_refs)
 
-    def _validate_output_bundle(self, output_bundle: Any, step_name: str, version: str):
+    def _validate_output_bundle(
+        self,
+        output_bundle: Any,
+        step_name: str,
+        version: str,
+        *,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ):
         """Validate output_bundle contract entries (v1.3)."""
         context = f"Step '{step_name}': output_bundle"
         if not isinstance(output_bundle, dict):
-            self._add_error(f"{context} must be a dictionary")
+            self._add_error(f"{context} must be a dictionary", subject_refs=subject_refs)
             return
 
         if 'path' not in output_bundle:
-            self._add_error(f"{context} missing required 'path'")
+            self._add_error(f"{context} missing required 'path'", subject_refs=subject_refs)
         elif not isinstance(output_bundle['path'], str):
-            self._add_error(f"{context} 'path' must be a string")
+            self._add_error(f"{context} 'path' must be a string", subject_refs=subject_refs)
         else:
-            self._validate_path_safety(output_bundle['path'], f"{context} path")
+            self._validate_path_safety(output_bundle['path'], f"{context} path", subject_refs=subject_refs)
 
         fields = output_bundle.get('fields')
         if not isinstance(fields, list) or not fields:
-            self._add_error(f"{context}.fields must be a non-empty list")
+            self._add_error(f"{context}.fields must be a non-empty list", subject_refs=subject_refs)
             return
 
         seen_names: Set[str] = set()
         for i, spec in enumerate(fields):
             field_context = f"{context}.fields[{i}]"
             if not isinstance(spec, dict):
-                self._add_error(f"{field_context} must be a dictionary")
+                self._add_error(f"{field_context} must be a dictionary", subject_refs=subject_refs)
                 continue
 
             if 'name' not in spec:
-                self._add_error(f"{field_context} missing required 'name'")
+                self._add_error(f"{field_context} missing required 'name'", subject_refs=subject_refs)
             elif not isinstance(spec['name'], str):
-                self._add_error(f"{field_context} 'name' must be a string")
+                self._add_error(f"{field_context} 'name' must be a string", subject_refs=subject_refs)
             elif not spec['name'].strip():
-                self._add_error(f"{field_context} 'name' cannot be empty")
+                self._add_error(f"{field_context} 'name' cannot be empty", subject_refs=subject_refs)
             elif spec['name'] in seen_names:
-                self._add_error(f"{field_context} duplicate artifact name '{spec['name']}'")
+                self._add_error(f"{field_context} duplicate artifact name '{spec['name']}'", subject_refs=subject_refs)
             else:
                 seen_names.add(spec['name'])
 
             if 'json_pointer' not in spec:
-                self._add_error(f"{field_context} missing required 'json_pointer'")
+                self._add_error(f"{field_context} missing required 'json_pointer'", subject_refs=subject_refs)
             elif not isinstance(spec['json_pointer'], str):
-                self._add_error(f"{field_context} 'json_pointer' must be a string")
+                self._add_error(f"{field_context} 'json_pointer' must be a string", subject_refs=subject_refs)
             else:
                 pointer = spec['json_pointer']
                 if pointer and not pointer.startswith('/'):
-                    self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax")
+                    self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax", subject_refs=subject_refs)
 
             if 'type' not in spec:
-                self._add_error(f"{field_context} missing required 'type'")
+                self._add_error(f"{field_context} missing required 'type'", subject_refs=subject_refs)
             elif not isinstance(spec['type'], str):
-                self._add_error(f"{field_context} 'type' must be a string")
+                self._add_error(f"{field_context} 'type' must be a string", subject_refs=subject_refs)
             elif spec['type'] not in self._supported_output_types(version):
-                self._add_error(
-                    f"{field_context} invalid output_bundle field type '{spec['type']}'"
-                )
+                self._add_error(f"{field_context} invalid output_bundle field type '{spec['type']}'", subject_refs=subject_refs)
 
             if 'under' in spec:
                 if not isinstance(spec['under'], str):
-                    self._add_error(f"{field_context} 'under' must be a string")
+                    self._add_error(f"{field_context} 'under' must be a string", subject_refs=subject_refs)
                 else:
-                    self._validate_path_safety(spec['under'], f"{field_context} under")
+                    self._validate_path_safety(spec['under'], f"{field_context} under", subject_refs=subject_refs)
 
             if 'allowed' in spec and not isinstance(spec['allowed'], list):
-                self._add_error(f"{field_context} 'allowed' must be a list")
+                self._add_error(f"{field_context} 'allowed' must be a list", subject_refs=subject_refs)
 
             if spec.get('type') == 'enum' and 'allowed' not in spec:
-                self._add_error(f"{field_context} enum type requires 'allowed'")
+                self._add_error(f"{field_context} enum type requires 'allowed'", subject_refs=subject_refs)
 
             if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
-                self._add_error(f"{field_context} 'must_exist_target' must be a boolean")
+                self._add_error(f"{field_context} 'must_exist_target' must be a boolean", subject_refs=subject_refs)
 
             if 'required' in spec and not isinstance(spec['required'], bool):
-                self._add_error(f"{field_context} 'required' must be a boolean")
+                self._add_error(f"{field_context} 'required' must be a boolean", subject_refs=subject_refs)
 
-    def _validate_variant_output(self, variant_output: Any, step_name: str, version: str) -> None:
+    def _validate_variant_output(
+        self,
+        variant_output: Any,
+        step_name: str,
+        version: str,
+        *,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ) -> None:
         """Validate tagged-union output contract entries (v2.14)."""
         context = f"Step '{step_name}': variant_output"
         if not isinstance(variant_output, dict):
-            self._add_error(f"{context} must be a dictionary")
+            self._add_error(f"{context} must be a dictionary", subject_refs=subject_refs)
             return
 
         if 'path' not in variant_output:
-            self._add_error(f"{context} missing required 'path'")
+            self._add_error(f"{context} missing required 'path'", subject_refs=subject_refs)
         elif not isinstance(variant_output['path'], str):
-            self._add_error(f"{context} 'path' must be a string")
+            self._add_error(f"{context} 'path' must be a string", subject_refs=subject_refs)
         else:
-            self._validate_path_safety(variant_output['path'], f"{context} path")
+            self._validate_path_safety(variant_output['path'], f"{context} path", subject_refs=subject_refs)
 
         discriminant = variant_output.get('discriminant')
         if not isinstance(discriminant, dict):
-            self._add_error(f"{context}.discriminant must be a dictionary")
+            self._add_error(f"{context}.discriminant must be a dictionary", subject_refs=subject_refs)
             return
 
         shared_fields = variant_output.get('shared_fields', [])
         if shared_fields is None:
             shared_fields = []
         if not isinstance(shared_fields, list):
-            self._add_error(f"{context}.shared_fields must be a list")
+            self._add_error(f"{context}.shared_fields must be a list", subject_refs=subject_refs)
             shared_fields = []
 
         variants = variant_output.get('variants')
         if not isinstance(variants, dict) or not variants:
-            self._add_error(f"{context}.variants must be a non-empty dictionary")
+            self._add_error(f"{context}.variants must be a non-empty dictionary", subject_refs=subject_refs)
             return
 
         seen_names: Set[str] = set()
@@ -3155,53 +3227,62 @@ class WorkflowLoader:
 
         def validate_field_spec(spec: Any, field_context: str) -> None:
             if not isinstance(spec, dict):
-                self._add_error(f"{field_context} must be a dictionary")
+                self._add_error(f"{field_context} must be a dictionary", subject_refs=subject_refs)
                 return
 
             name = spec.get('name')
             if not isinstance(name, str):
-                self._add_error(f"{field_context} 'name' must be a string")
+                self._add_error(f"{field_context} 'name' must be a string", subject_refs=subject_refs)
             elif not name.strip():
-                self._add_error(f"{field_context} 'name' cannot be empty")
+                self._add_error(f"{field_context} 'name' cannot be empty", subject_refs=subject_refs)
             elif name in seen_names:
-                self._add_error(f"{field_context} duplicate artifact name '{name}' across discriminant/shared_fields/variants")
+                self._add_error(
+                    f"{field_context} duplicate artifact name '{name}' across discriminant/shared_fields/variants",
+                    subject_refs=subject_refs,
+                )
             else:
                 seen_names.add(name)
 
             pointer = spec.get('json_pointer')
             if not isinstance(pointer, str):
-                self._add_error(f"{field_context} 'json_pointer' must be a string")
+                self._add_error(f"{field_context} 'json_pointer' must be a string", subject_refs=subject_refs)
             else:
                 if pointer and not pointer.startswith('/'):
-                    self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax")
+                    self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax", subject_refs=subject_refs)
                 elif pointer in seen_pointers:
-                    self._add_error(f"{field_context} duplicate json_pointer '{pointer}' across discriminant/shared_fields/variants")
+                    self._add_error(
+                        f"{field_context} duplicate json_pointer '{pointer}' across discriminant/shared_fields/variants",
+                        subject_refs=subject_refs,
+                    )
                 else:
                     seen_pointers.add(pointer)
 
             output_type = spec.get('type', 'enum')
             if not isinstance(output_type, str):
-                self._add_error(f"{field_context} 'type' must be a string")
+                self._add_error(f"{field_context} 'type' must be a string", subject_refs=subject_refs)
             elif output_type not in self._supported_output_types(version):
-                self._add_error(f"{field_context} invalid variant_output field type '{output_type}'")
+                self._add_error(
+                    f"{field_context} invalid variant_output field type '{output_type}'",
+                    subject_refs=subject_refs,
+                )
 
             if 'under' in spec:
                 if not isinstance(spec['under'], str):
-                    self._add_error(f"{field_context} 'under' must be a string")
+                    self._add_error(f"{field_context} 'under' must be a string", subject_refs=subject_refs)
                 else:
-                    self._validate_path_safety(spec['under'], f"{field_context} under")
+                    self._validate_path_safety(spec['under'], f"{field_context} under", subject_refs=subject_refs)
 
             if 'allowed' in spec and not isinstance(spec['allowed'], list):
-                self._add_error(f"{field_context} 'allowed' must be a list")
+                self._add_error(f"{field_context} 'allowed' must be a list", subject_refs=subject_refs)
 
             if output_type == 'enum' and 'allowed' not in spec:
-                self._add_error(f"{field_context} enum type requires 'allowed'")
+                self._add_error(f"{field_context} enum type requires 'allowed'", subject_refs=subject_refs)
 
             if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
-                self._add_error(f"{field_context} 'must_exist_target' must be a boolean")
+                self._add_error(f"{field_context} 'must_exist_target' must be a boolean", subject_refs=subject_refs)
 
             if 'required' in spec and not isinstance(spec['required'], bool):
-                self._add_error(f"{field_context} 'required' must be a boolean")
+                self._add_error(f"{field_context} 'required' must be a boolean", subject_refs=subject_refs)
 
         validate_field_spec(discriminant, f"{context}.discriminant")
 
@@ -3211,11 +3292,11 @@ class WorkflowLoader:
         for variant_name, variant_spec in variants.items():
             variant_context = f"{context}.variants.{variant_name}"
             if not isinstance(variant_spec, dict):
-                self._add_error(f"{variant_context} must be a dictionary")
+                self._add_error(f"{variant_context} must be a dictionary", subject_refs=subject_refs)
                 continue
             fields = variant_spec.get('fields')
             if not isinstance(fields, list):
-                self._add_error(f"{variant_context}.fields must be a list")
+                self._add_error(f"{variant_context}.fields must be a list", subject_refs=subject_refs)
                 continue
             for index, spec in enumerate(fields):
                 validate_field_spec(spec, f"{variant_context}.fields[{index}]")
@@ -4879,7 +4960,13 @@ class WorkflowLoader:
             if 'for_each' in step and 'steps' in step['for_each']:
                 self._check_goto_references(step['for_each']['steps'], valid_names)
 
-    def _validate_path_safety(self, path: str, context: str):
+    def _validate_path_safety(
+        self,
+        path: str,
+        context: str,
+        *,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ):
         """Validate path safety (AT-38, AT-39)."""
         # Skip variable placeholders for now (validated at runtime)
         if '${' in path:
@@ -4887,11 +4974,14 @@ class WorkflowLoader:
 
         # Reject absolute paths
         if Path(path).is_absolute():
-            self._add_error(f"{context}: absolute paths not allowed")
+            self._add_error(f"{context}: absolute paths not allowed", subject_refs=subject_refs)
 
         # Reject parent directory traversal
         if '..' in Path(path).parts:
-            self._add_error(f"{context}: parent directory traversal ('..') not allowed")
+            self._add_error(
+                f"{context}: parent directory traversal ('..') not allowed",
+                subject_refs=subject_refs,
+            )
 
     def _validate_artifacts_registry(self, artifacts: Any, version: str):
         """Validate top-level artifacts registry (v1.2)."""
@@ -5243,9 +5333,31 @@ class WorkflowLoader:
                             f"Step '{step_name}': consumes producer '{producer_name}' does not publish artifact '{artifact_name}'"
                         )
 
-    def _add_error(self, message: str, path: str = "", exit_code: int = 2):
+    def _workflow_subject_refs(
+        self,
+        subject_kind: str,
+        subject_name: str,
+    ) -> tuple[ValidationSubjectRef, ...]:
+        if not isinstance(subject_name, str) or not subject_name.strip():
+            return ()
+        return (
+            ValidationSubjectRef(
+                subject_kind=subject_kind,
+                subject_name=subject_name,
+                workflow_name=self._current_validation_workflow_name,
+            ),
+        )
+
+    def _add_error(
+        self,
+        message: str,
+        path: str = "",
+        exit_code: int = 2,
+        *,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+    ):
         """Add validation error."""
-        self.errors.append(ValidationError(message, path, exit_code))
+        self.errors.append(ValidationError(message, path, exit_code, subject_refs))
 
     def _raise_validation_errors(self):
         """Raise WorkflowValidationError with accumulated errors."""
