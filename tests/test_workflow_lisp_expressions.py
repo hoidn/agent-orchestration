@@ -210,6 +210,32 @@ def test_elaborate_expression_supports_loop_recur() -> None:
     assert isinstance(expr.body_expr.arms[1].body, ContinueExpr)
 
 
+def test_elaborate_expression_supports_if_conditional() -> None:
+    expr = elaborate_expression(
+        _expression_syntax(
+            '(if ready (record ChecksResult :status "ok" :report report-path) '
+            '(record ChecksResult :status "fallback" :report fallback-path))'
+        ),
+        bound_names=frozenset({"ready", "report-path", "fallback-path"}),
+    )
+
+    assert type(expr).__name__ == "IfExpr"
+    assert isinstance(getattr(expr, "condition_expr"), NameExpr)
+    assert getattr(expr, "condition_expr").name == "ready"
+    assert isinstance(getattr(expr, "then_expr"), RecordExpr)
+    assert isinstance(getattr(expr, "else_expr"), RecordExpr)
+
+
+def test_elaborate_expression_rejects_if_wrong_arity() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression_syntax("(if ready report-path)"),
+            bound_names=frozenset({"ready", "report-path"}),
+        )
+
+    _assert_diagnostic_code(excinfo, "if_form_invalid")
+
+
 def test_elaborate_expression_rejects_fn_outside_loop_recur() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         elaborate_expression(

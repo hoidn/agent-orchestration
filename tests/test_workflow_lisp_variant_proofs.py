@@ -180,3 +180,73 @@ def test_typecheck_match_requires_consistent_arm_result_types() -> None:
         )
 
     _assert_diagnostic_code(excinfo, "type_mismatch")
+
+
+def test_typecheck_if_inherits_existing_proof_scope() -> None:
+    type_env = _build_type_env()
+    probe = _expression_syntax('"seed"')
+    attempt_type = type_env.resolve_type(
+        "ImplementationState",
+        span=probe.span,
+        form_path=probe.form_path,
+    )
+    report_type = type_env.resolve_type(
+        "WorkReport",
+        span=probe.span,
+        form_path=probe.form_path,
+    )
+
+    typed = typecheck_expression(
+        elaborate_expression(
+            _expression_syntax(
+                "(match attempt "
+                "((COMPLETED completed) "
+                "(if ready completed.execution_report fallback-report)) "
+                "((BLOCKED blocked) "
+                "(if ready blocked.progress_report fallback-report)))"
+            ),
+            bound_names=frozenset({"attempt", "ready", "fallback-report"}),
+        ),
+        type_env=type_env,
+        value_env={
+            "attempt": attempt_type,
+            "ready": type_env.resolve_type("Bool", span=probe.span, form_path=probe.form_path),
+            "fallback-report": report_type,
+        },
+    )
+
+    assert isinstance(typed.type_ref, PathTypeRef)
+    assert typed.type_ref.name == "WorkReport"
+
+
+def test_typecheck_if_does_not_create_variant_proof() -> None:
+    type_env = _build_type_env()
+    probe = _expression_syntax('"seed"')
+    attempt_type = type_env.resolve_type(
+        "ImplementationState",
+        span=probe.span,
+        form_path=probe.form_path,
+    )
+    report_type = type_env.resolve_type(
+        "WorkReport",
+        span=probe.span,
+        form_path=probe.form_path,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_expression(
+            elaborate_expression(
+                _expression_syntax(
+                    "(if ready attempt.execution_report fallback-report)"
+                ),
+                bound_names=frozenset({"attempt", "ready", "fallback-report"}),
+            ),
+            type_env=type_env,
+            value_env={
+                "attempt": attempt_type,
+                "ready": type_env.resolve_type("Bool", span=probe.span, form_path=probe.form_path),
+                "fallback-report": report_type,
+            },
+        )
+
+    _assert_diagnostic_code(excinfo, "variant_ref_unproved")

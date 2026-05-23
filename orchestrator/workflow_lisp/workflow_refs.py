@@ -10,7 +10,11 @@ from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .expressions import (
     CallExpr,
     CommandResultExpr,
+    ContinueExpr,
+    DoneExpr,
+    IfExpr,
     LetStarExpr,
+    LoopRecurExpr,
     MatchExpr,
     NameExpr,
     ProcedureCallExpr,
@@ -316,6 +320,22 @@ def collect_workflow_extern_names(expr: Any) -> tuple[set[str], set[str]]:
             walk(node.subject)
             for arm in node.arms:
                 walk(arm.body)
+            return
+        if isinstance(node, IfExpr):
+            walk(node.condition_expr)
+            walk(node.then_expr)
+            walk(node.else_expr)
+            return
+        if isinstance(node, LoopRecurExpr):
+            walk(node.max_iterations_expr)
+            walk(node.initial_state_expr)
+            walk(node.body_expr)
+            return
+        if isinstance(node, ContinueExpr):
+            walk(node.state_expr)
+            return
+        if isinstance(node, DoneExpr):
+            walk(node.result_expr)
             return
         if isinstance(node, RecordExpr):
             for _, value in node.fields:

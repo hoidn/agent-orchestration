@@ -15,6 +15,7 @@ INVALID_MISSING_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_missing_done.o
 INVALID_CONTINUE_FIXTURE = FIXTURES / "invalid" / "loop_recur_continue_type_mismatch.orc"
 INVALID_DONE_FIXTURE = FIXTURES / "invalid" / "loop_recur_done_type_mismatch.orc"
 INVALID_FN_OUTSIDE_FIXTURE = FIXTURES / "invalid" / "loop_recur_fn_outside_loop.orc"
+VALID_IF_LOOP_FIXTURE = FIXTURES / "valid" / "if_conditionals_loop_body.orc"
 
 
 def _write_module(path: Path, body: str) -> Path:
@@ -252,3 +253,29 @@ def test_invalid_loop_recur_fn_outside_loop_fixture_fails(tmp_path: Path) -> Non
         _compile(INVALID_FN_OUTSIDE_FIXTURE, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "loop_recur_fn_outside_loop")
+
+
+def test_loop_recur_supports_if_routing_between_continue_and_done(tmp_path: Path) -> None:
+    result = _compile(VALID_IF_LOOP_FIXTURE, tmp_path=tmp_path)
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+    body_if = next(
+        step
+        for step in repeat_step["repeat_until"]["steps"]
+        if "if" in step and step["name"].endswith("__body")
+    )
+
+    assert "if" in body_if
+    assert "then" in body_if
+    assert "else" in body_if
+    assert [step["name"] for step in body_if["then"]["steps"]] == [
+        "loop-report__body__then__summary",
+        "loop-report__body__then",
+    ]
+    assert body_if["then"]["steps"][0]["provider"] == "test-provider"
+    assert body_if["then"]["outputs"]["status"]["from"]["ref"].endswith(".artifacts.status")
+    assert body_if["then"]["outputs"]["result__report"]["from"]["ref"].endswith(
+        ".artifacts.result__report"
+    )
+    assert body_if["else"]["outputs"]["status"]["from"]["ref"].endswith(".artifacts.status")

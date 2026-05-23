@@ -5,6 +5,12 @@ For the package map and links to the design diagrams/specs, see
 """
 
 from .compiler import PRELUDE_TYPE_NAMES, compile_stage1_module, compile_stage3_module
+from .conditionals import (
+    BoolRefCondition,
+    ConditionShape,
+    LiteralBoolCondition,
+    classify_condition_expr,
+)
 from .definitions import (
     DefinitionNode,
     EnumDef,
@@ -43,6 +49,7 @@ from .expressions import (
     ExprNode,
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
+    IfExpr,
     LetStarExpr,
     LiteralExpr,
     LoopRecurExpr,
@@ -104,8 +111,10 @@ __all__ = [
     "CertifiedAdapterBinding",
     "CommandBoundaryEnvironment",
     "CommandResultExpr",
+    "ConditionShape",
     "ContinueExpr",
     "BoolAtom",
+    "BoolRefCondition",
     "BacklogDrainExpr",
     "CallsWorkflowEffect",
     "DefinitionNode",
@@ -118,6 +127,7 @@ __all__ = [
     "FieldAccessExpr",
     "FinalizeSelectedItemExpr",
     "FrontendTypeEnvironment",
+    "IfExpr",
     "IntAtom",
     "KeywordAtom",
     "LetStarExpr",
@@ -125,6 +135,7 @@ __all__ = [
     "LispFrontendDiagnostic",
     "ListExpr",
     "LiteralExpr",
+    "LiteralBoolCondition",
     "LoopRecurExpr",
     "LoweredWorkflow",
     "LoweringOriginMap",
@@ -189,6 +200,7 @@ __all__ = [
     "elaborate_procedure_definitions",
     "elaborate_expression",
     "elaborate_definition_module",
+    "classify_condition_expr",
     "lower_workflow_definitions",
     "read_sexpr_file",
     "read_sexpr_text",

@@ -14,7 +14,11 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
-from orchestrator.workflow_lisp.lowering import lower_workflow_definitions, validate_lowered_workflows
+from orchestrator.workflow_lisp.lowering import (
+    _workflow_extern_requirements,
+    lower_workflow_definitions,
+    validate_lowered_workflows,
+)
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import (
     CommandBoundaryEnvironment,
@@ -38,6 +42,7 @@ REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
+IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
 
 
 def _extern_environment() -> ExternEnvironment:
@@ -385,6 +390,130 @@ def test_lowering_loop_recur_preserves_origin_map_for_generated_steps(tmp_path: 
         "__write_root__loop_recur_minimal__attempt__result_bundle" in path
         for path in lowered.origin_map.generated_path_spans
     )
+
+
+def test_lowering_if_bool_literal_emits_shared_if_step(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "if_bool_literal.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow choose-report",
+                "    ((report_path WorkReport)",
+                "     (fallback_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (if true",
+                "      (record ImplementationSummary :report report_path)",
+                "      (record ImplementationSummary :report fallback_path))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    if_step = lowered["steps"][0]
+
+    assert "if" in if_step
+    assert if_step["if"]["compare"]["left"] is True
+    assert if_step["if"]["compare"]["right"] is True
+    assert "then" in if_step
+    assert "else" in if_step
+
+
+def test_lowering_if_bool_ref_emits_artifact_bool_predicate(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        IF_MINIMAL_FIXTURE,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    if_step = lowered["steps"][0]
+
+    assert if_step["if"] == {
+        "artifact_bool": {
+            "ref": "inputs.ready",
+        }
+    }
+
+
+def test_lowering_if_projects_branch_outputs_for_record_result(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        IF_MINIMAL_FIXTURE,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    if_step = lowered["steps"][0]
+
+    assert lowered["outputs"]["return__report"]["from"]["ref"] == (
+        "root.steps.choose-report.artifacts.return__report"
+    )
+    assert if_step["then"]["outputs"]["return__report"]["from"]["ref"] == "inputs.report_path"
+    assert if_step["else"]["outputs"]["return__report"]["from"]["ref"] == "inputs.fallback_path"
+
+
+def test_workflow_extern_requirements_descend_through_if_expr(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "if_provider_requirements.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (ready Bool)",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defworkflow provider-helper",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (if input.ready",
+                "      (provider-result providers.execute",
+                "        :prompt prompts.implementation.execute",
+                "        :inputs (input.report)",
+                "        :returns WorkflowOutput)",
+                "      (record WorkflowOutput",
+                "        :report input.report))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    typed_workflow = result.typed_workflows[0]
+    provider_names, prompt_names = _workflow_extern_requirements(
+        typed_workflow,
+        typed_procedures={procedure.definition.name: procedure for procedure in result.typed_procedures},
+    )
+
+    assert provider_names == {"providers.execute"}
+    assert prompt_names == {"prompts.implementation.execute"}
 
 
 def test_compile_stage3_module_includes_generated_private_procedure_workflow(tmp_path: Path) -> None:

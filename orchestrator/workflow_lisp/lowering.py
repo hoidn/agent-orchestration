@@ -44,6 +44,7 @@ from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_m
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
 from orchestrator.workflow.surface_ast import SurfaceStepKind
 
+from .conditionals import classify_condition_expr, render_condition_predicate
 from .definitions import elaborate_definition_module
 from .contracts import (
     GeneratedInternalInput,
@@ -66,6 +67,7 @@ from .expressions import (
     DoneExpr,
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
+    IfExpr,
     LetStarExpr,
     LiteralExpr,
     LoopRecurExpr,
@@ -1027,6 +1029,8 @@ def _lower_expression(
         return _lower_record_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, LetStarExpr):
         return _lower_let_star(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, IfExpr):
+        return _lower_if_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, WithPhaseExpr):
         return _lower_with_phase(typed_expr, context=context, local_values=local_values)
     raise _compile_error(
@@ -2854,9 +2858,60 @@ def _lower_loop_body_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
+        if isinstance(binding_expr, (NameExpr, FieldAccessExpr, LiteralExpr, RecordExpr)):
+            loop_local_values = dict(local_values)
+            loop_local_values[binding_name] = _resolve_inline_expr_value(binding_expr, local_values=local_values)
+            return _lower_loop_body_expr(
+                body_expr,
+                loop_binding_name=loop_binding_name,
+                state_projection=state_projection,
+                result_projection=result_projection,
+                result_type=result_type,
+                context=_context_with_local_type_binding(
+                    context,
+                    binding_name=binding_name,
+                    binding_type=_resolve_lowering_expr_type(binding_expr, context=context),
+                ),
+                local_values=loop_local_values,
+                binding_terminal=binding_terminal,
+                body_step_name=body_step_name,
+                active_variant_name=active_variant_name,
+            )
+
+        binding_type = _binding_type_for_expr(binding_expr, context=context)
+        binding_step_name = f"{body_step_name}__{binding_name}"
+        if isinstance(binding_expr, ProviderResultExpr):
+            binding_steps, lowered_binding_terminal = _lower_provider_result(
+                binding_expr,
+                result_type=binding_type,
+                context=context,
+                local_values=local_values,
+                step_name=binding_step_name,
+            )
+        else:
+            binding_steps, lowered_binding_terminal = _lower_expression(
+                TypedExpr(
+                    expr=binding_expr,
+                    type_ref=binding_type,
+                    span=binding_expr.span,
+                    form_path=binding_expr.form_path,
+                ),
+                context=_copy_context_with_step_prefix(
+                    context,
+                    step_name_prefix=binding_step_name,
+                ),
+                local_values=local_values,
+            )
         loop_local_values = dict(local_values)
-        loop_local_values[binding_name] = _resolve_inline_expr_value(binding_expr, local_values=local_values)
-        return _lower_loop_body_expr(
+        if isinstance(binding_type, (RecordTypeRef, UnionTypeRef)):
+            loop_local_values[binding_name] = _build_output_step_local_value(
+                lowered_binding_terminal.output_refs
+            )
+        elif isinstance(binding_type, (PathTypeRef, PrimitiveTypeRef)) and "return" in lowered_binding_terminal.output_refs:
+            loop_local_values[binding_name] = lowered_binding_terminal.output_refs["return"]
+        elif isinstance(binding_expr, LiteralExpr):
+            loop_local_values[binding_name] = binding_expr
+        body_steps, body_terminal = _lower_loop_body_expr(
             body_expr,
             loop_binding_name=loop_binding_name,
             state_projection=state_projection,
@@ -2872,6 +2927,7 @@ def _lower_loop_body_expr(
             body_step_name=body_step_name,
             active_variant_name=active_variant_name,
         )
+        return [*binding_steps, *body_steps], body_terminal
     if isinstance(expr, MatchExpr):
         if not isinstance(expr.subject, NameExpr):
             raise _compile_error(
@@ -2949,6 +3005,101 @@ def _lower_loop_body_expr(
                 )
             },
             output_kind="match",
+            hidden_inputs={},
+        )
+    if isinstance(expr, IfExpr):
+        condition = render_condition_predicate(
+            classify_condition_expr(expr.condition_expr, type_ref=PrimitiveTypeRef(name="Bool")),
+            local_values=local_values,
+        )
+        then_steps, then_terminal = _lower_loop_body_expr(
+            expr.then_expr,
+            loop_binding_name=loop_binding_name,
+            state_projection=state_projection,
+            result_projection=result_projection,
+            result_type=result_type,
+            context=context,
+            local_values=local_values,
+            binding_terminal=binding_terminal,
+            body_step_name=f"{body_step_name}__then",
+            active_variant_name=active_variant_name,
+        )
+        else_steps, else_terminal = _lower_loop_body_expr(
+            expr.else_expr,
+            loop_binding_name=loop_binding_name,
+            state_projection=state_projection,
+            result_projection=result_projection,
+            result_type=result_type,
+            context=context,
+            local_values=local_values,
+            binding_terminal=binding_terminal,
+            body_step_name=f"{body_step_name}__else",
+            active_variant_name=active_variant_name,
+        )
+        loop_output_contracts = _loop_output_contracts(
+            state_projection=state_projection,
+            result_projection=result_projection,
+        )
+        then_outputs = {
+            name: {
+                **dict(definition),
+                "from": {"ref": _loop_case_ref(then_terminal.output_refs[name])},
+            }
+            for name, definition in loop_output_contracts.items()
+        }
+        else_outputs = {
+            name: {
+                **dict(definition),
+                "from": {"ref": _loop_case_ref(else_terminal.output_refs[name])},
+            }
+            for name, definition in loop_output_contracts.items()
+        }
+        if not then_steps:
+            then_steps = [
+                _build_match_projection_anchor_step(
+                    match_step_name=body_step_name,
+                    variant_name="then",
+                    case_outputs=then_outputs,
+                    context=context,
+                    span=expr.then_expr.span,
+                )
+            ]
+        if not else_steps:
+            else_steps = [
+                _build_match_projection_anchor_step(
+                    match_step_name=body_step_name,
+                    variant_name="else",
+                    case_outputs=else_outputs,
+                    context=context,
+                    span=expr.else_expr.span,
+                )
+            ]
+        step_id = _normalize_generated_step_id(body_step_name)
+        _record_step_origin(context, step_name=body_step_name, step_id=step_id, source=expr)
+        return [
+            {
+                "name": body_step_name,
+                "id": step_id,
+                "if": condition,
+                "then": {
+                    "id": _normalize_generated_step_id(f"{body_step_name}__then"),
+                    "outputs": then_outputs,
+                    "steps": then_steps,
+                },
+                "else": {
+                    "id": _normalize_generated_step_id(f"{body_step_name}__else"),
+                    "outputs": else_outputs,
+                    "steps": else_steps,
+                },
+            }
+        ], _TerminalResult(
+            step_name=body_step_name,
+            step_id=step_id,
+            output_refs={
+                name: f"root.steps.{body_step_name}.artifacts.{name}"
+                for name in loop_output_contracts
+            },
+            output_kind="if",
             hidden_inputs={},
         )
     if isinstance(expr, ContinueExpr):
@@ -3790,6 +3941,103 @@ def _lower_match_expr(
         },
         output_kind="match",
         hidden_inputs={},
+    )
+
+
+def _lower_if_expr(
+    typed_expr: TypedExpr,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower one authored conditional through the shared structured `if` step."""
+
+    expr = typed_expr.expr
+    assert isinstance(expr, IfExpr)
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    condition = render_condition_predicate(
+        classify_condition_expr(expr.condition_expr, type_ref=PrimitiveTypeRef(name="Bool")),
+        local_values=local_values,
+    )
+    output_contracts = _output_contracts_for_type(
+        typed_expr.type_ref,
+        context=context,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+    then_steps, then_terminal = _lower_conditional_branch_expr(
+        expr.then_expr,
+        result_type=typed_expr.type_ref,
+        step_name=f"{step_name}__then",
+        context=context,
+        local_values=local_values,
+    )
+    else_steps, else_terminal = _lower_conditional_branch_expr(
+        expr.else_expr,
+        result_type=typed_expr.type_ref,
+        step_name=f"{step_name}__else",
+        context=context,
+        local_values=local_values,
+    )
+    then_outputs = _conditional_case_outputs(
+        then_terminal,
+        output_contracts=output_contracts,
+        span=expr.then_expr.span,
+        form_path=expr.then_expr.form_path,
+    )
+    else_outputs = _conditional_case_outputs(
+        else_terminal,
+        output_contracts=output_contracts,
+        span=expr.else_expr.span,
+        form_path=expr.else_expr.form_path,
+    )
+    if not then_steps:
+        then_steps = [
+            _build_match_projection_anchor_step(
+                match_step_name=step_name,
+                variant_name="then",
+                case_outputs=then_outputs,
+                context=context,
+                span=expr.then_expr.span,
+            )
+        ]
+    if not else_steps:
+        else_steps = [
+            _build_match_projection_anchor_step(
+                match_step_name=step_name,
+                variant_name="else",
+                case_outputs=else_outputs,
+                context=context,
+                span=expr.else_expr.span,
+            )
+        ]
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    return [
+        {
+            "name": step_name,
+            "id": step_id,
+            "if": condition,
+            "then": {
+                "id": _normalize_generated_step_id(f"{step_name}__then"),
+                "outputs": then_outputs,
+                "steps": then_steps,
+            },
+            "else": {
+                "id": _normalize_generated_step_id(f"{step_name}__else"),
+                "outputs": else_outputs,
+                "steps": else_steps,
+            },
+        }
+    ], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs={
+            output_name: f"root.steps.{step_name}.artifacts.{output_name}"
+            for output_name in output_contracts
+        },
+        output_kind="if",
+        hidden_inputs={**then_terminal.hidden_inputs, **else_terminal.hidden_inputs},
     )
 
 
@@ -5506,6 +5754,11 @@ def _workflow_extern_requirements(
             for arm in expr.arms:
                 walk(arm.body)
             return
+        if isinstance(expr, IfExpr):
+            walk(expr.condition_expr)
+            walk(expr.then_expr)
+            walk(expr.else_expr)
+            return
         if isinstance(expr, LoopRecurExpr):
             walk(expr.max_iterations_expr)
             walk(expr.initial_state_expr)
@@ -5731,10 +5984,23 @@ def _render_boolean_predicate(expr: Any | None, *, local_values: Mapping[str, An
     if expr is None:
         return None
     value = _resolve_inline_expr_value(expr, local_values=local_values)
-    if isinstance(value, LiteralExpr):
-        operand: bool | dict[str, str] = bool(value.value)
-    elif isinstance(value, str):
-        operand = {"ref": value}
+    if isinstance(value, LiteralExpr) and value.literal_kind == "bool":
+        return render_condition_predicate(
+            classify_condition_expr(value, type_ref=PrimitiveTypeRef(name="Bool")),
+            local_values=local_values,
+        )
+    if isinstance(value, str):
+        return {"artifact_bool": {"ref": value}}
+    if isinstance(expr, (NameExpr, FieldAccessExpr)):
+        return render_condition_predicate(
+            classify_condition_expr(expr, type_ref=PrimitiveTypeRef(name="Bool")),
+            local_values=local_values,
+        )
+    if isinstance(expr, LiteralExpr) and expr.literal_kind == "bool":
+        return render_condition_predicate(
+            classify_condition_expr(expr, type_ref=PrimitiveTypeRef(name="Bool")),
+            local_values=local_values,
+        )
     else:
         raise _compile_error(
             code="workflow_return_not_exportable",
@@ -5742,13 +6008,6 @@ def _render_boolean_predicate(expr: Any | None, *, local_values: Mapping[str, An
             span=expr.span,
             form_path=expr.form_path,
         )
-    return {
-        "compare": {
-            "left": operand,
-            "op": "eq",
-            "right": True,
-        }
-    }
 
 
 def _render_call_binding_ref(
@@ -5923,6 +6182,12 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
                 return expr
             child_locals[binding_name] = resolved_binding
         return _resolve_inline_expr_value(expr.body, local_values=child_locals)
+    if isinstance(expr, IfExpr):
+        condition_value = _resolve_inline_expr_value(expr.condition_expr, local_values=local_values)
+        if isinstance(condition_value, LiteralExpr) and condition_value.literal_kind == "bool":
+            branch = expr.then_expr if condition_value.value else expr.else_expr
+            return _resolve_inline_expr_value(branch, local_values=local_values)
+        return expr
     resolved = _resolve_expr_local_value(expr, local_values=local_values)
     if isinstance(resolved, (str, Mapping, LiteralExpr, RecordExpr)):
         return resolved
@@ -6819,6 +7084,147 @@ def _first_case_output_ref(case_outputs: Mapping[str, Any]) -> str | None:
     return None
 
 
+def _output_contracts_for_type(
+    type_ref: Any,
+    *,
+    context: _LoweringContext,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, dict[str, Any]]:
+    """Flatten one return-like type into shared output contracts."""
+
+    if isinstance(type_ref, UnionTypeRef):
+        return _union_output_contracts(
+            type_ref,
+            payload=derive_structured_result_contract(
+                type_ref,
+                workflow_name=context.workflow_name,
+                step_id=context.step_name_prefix,
+                span=span,
+                form_path=form_path,
+            ).payload,
+            span=span,
+            form_path=form_path,
+        )
+    return {
+        field.generated_name: dict(field.contract_definition)
+        for field in derive_workflow_boundary_fields(
+            type_ref,
+            generated_name="return",
+            source_path=("return",),
+            span=span,
+            form_path=form_path,
+        )
+    }
+
+
+def _lower_conditional_branch_expr(
+    expr: Any,
+    *,
+    result_type: TypeRef,
+    step_name: str,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower one `if` branch, preserving direct refs when possible."""
+
+    output_refs = _inline_output_refs_for_expr(
+        expr,
+        type_ref=result_type,
+        local_values=local_values,
+        context=context,
+    )
+    if output_refs is not None:
+        return [], _TerminalResult(
+            step_name=step_name,
+            step_id=_normalize_generated_step_id(step_name),
+            output_refs=output_refs,
+            output_kind="projection",
+            hidden_inputs={},
+        )
+    return _lower_expression(
+        TypedExpr(
+            expr=expr,
+            type_ref=result_type,
+            span=expr.span,
+            form_path=expr.form_path,
+        ),
+        context=_copy_context_with_step_prefix(context, step_name_prefix=step_name),
+        local_values=local_values,
+    )
+
+
+def _inline_output_refs_for_expr(
+    expr: Any,
+    *,
+    type_ref: TypeRef,
+    local_values: Mapping[str, Any],
+    context: _LoweringContext,
+) -> dict[str, str] | None:
+    """Resolve direct branch output refs without synthesizing a child step."""
+
+    output_refs: dict[str, str] = {}
+    for field in derive_workflow_boundary_fields(
+        type_ref,
+        generated_name="return",
+        source_path=("return",),
+        span=expr.span,
+        form_path=expr.form_path,
+    ):
+        leaf_value = _inline_expr_field_value(
+            expr,
+            field_path=field.source_path[1:],
+            local_values=local_values,
+        )
+        if not isinstance(leaf_value, str):
+            return None
+        output_refs[field.generated_name] = leaf_value
+    return output_refs
+
+
+def _inline_expr_field_value(
+    expr: Any,
+    *,
+    field_path: tuple[str, ...],
+    local_values: Mapping[str, Any],
+) -> Any:
+    """Resolve one projected leaf from an inline branch expression."""
+
+    if isinstance(expr, RecordExpr):
+        value = _record_expr_value_at_path(expr, field_path)
+        return _resolve_inline_expr_value(value, local_values=local_values)
+    value = _resolve_inline_expr_value(expr, local_values=local_values)
+    if field_path:
+        return _resolve_nested_local_value(value, field_path)
+    return value
+
+
+def _conditional_case_outputs(
+    terminal: _TerminalResult,
+    *,
+    output_contracts: Mapping[str, Mapping[str, Any]],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    """Project one branch terminal into conditional branch outputs."""
+
+    outputs: dict[str, Any] = {}
+    for output_name, contract_definition in output_contracts.items():
+        output_ref = terminal.output_refs.get(output_name)
+        if not isinstance(output_ref, str):
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=f"conditional branch did not expose projected output `{output_name}`",
+                span=span,
+                form_path=form_path,
+            )
+        outputs[output_name] = {
+            **dict(contract_definition),
+            "from": {"ref": output_ref},
+        }
+    return outputs
+
+
 def _surface_contract_from_structured_field(field: Mapping[str, Any]) -> dict[str, Any]:
     """Convert one JSON-bundle field contract to a workflow output contract.
 
@@ -7510,6 +7916,8 @@ def _infer_inline_binding_type(expr: Any, *, context: _LoweringContext) -> TypeR
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(expr, IfExpr):
+        return _resolve_lowering_expr_type(expr, context=context)
     return None
 
 
@@ -7571,6 +7979,16 @@ def _binding_type_for_expr(expr: Any, *, context: _LoweringContext) -> TypeRef:
         raise _compile_error(
             code="workflow_return_not_exportable",
             message="unable to resolve `loop/recur` result type during lowering",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, IfExpr):
+        result_type = _resolve_lowering_expr_type(expr, context=context)
+        if result_type is not None:
+            return result_type
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="unable to resolve `if` result type during lowering",
             span=expr.span,
             form_path=expr.form_path,
         )
@@ -7653,6 +8071,12 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
         ]
         if arm_types and all(arm_type == arm_types[0] for arm_type in arm_types):
             return arm_types[0]
+        return None
+    if isinstance(expr, IfExpr):
+        then_type = _resolve_lowering_expr_type(expr.then_expr, context=context)
+        else_type = _resolve_lowering_expr_type(expr.else_expr, context=context)
+        if then_type is not None and then_type == else_type:
+            return then_type
         return None
     if isinstance(expr, LetStarExpr):
         binding_name, binding_expr = expr.bindings[0]

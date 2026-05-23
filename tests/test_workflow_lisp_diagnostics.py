@@ -22,6 +22,9 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 MODULE_FIXTURES = FIXTURES / "modules"
+INVALID_IF_NOT_BOOL_FIXTURE = FIXTURES / "invalid" / "if_condition_not_bool.orc"
+INVALID_IF_EFFECTFUL_FIXTURE = FIXTURES / "invalid" / "if_condition_effectful.orc"
+INVALID_IF_NOT_PROJECTABLE_FIXTURE = FIXTURES / "invalid" / "if_condition_not_projectable.orc"
 
 
 def _compiler_module():
@@ -1261,3 +1264,38 @@ def test_semantic_ir_invalid_preserves_structured_subject_ref_bridge(
     assert diagnostic.authority_layer == "shared"
     assert diagnostic.span.start.path.endswith("structured_results.orc")
     assert diagnostic.form_path[-1] == "command_checks"
+
+
+@pytest.mark.parametrize(
+    ("fixture_path", "expected_code"),
+    [
+        (INVALID_IF_NOT_BOOL_FIXTURE, "if_condition_not_bool"),
+        (INVALID_IF_EFFECTFUL_FIXTURE, "if_condition_has_effect"),
+        (INVALID_IF_NOT_PROJECTABLE_FIXTURE, "if_condition_not_projectable"),
+    ],
+)
+def test_rendered_diagnostic_reports_if_condition_not_bool(
+    tmp_path: Path,
+    fixture_path: Path,
+    expected_code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            fixture_path,
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    rendered = render_diagnostic(diagnostic)
+
+    assert diagnostic.code == expected_code
+    assert f"[{expected_code}]" in rendered
+    assert fixture_path.name in rendered
+    assert "workflow-lisp > defworkflow" in rendered

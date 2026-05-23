@@ -10,6 +10,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING
 
+from .conditionals import classify_condition_expr
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
@@ -31,6 +32,7 @@ from .expressions import (
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
     FunctionCallExpr,
+    IfExpr,
     LetStarExpr,
     LiteralExpr,
     LoopRecurExpr,
@@ -498,6 +500,92 @@ def _typecheck(
             expr=expr,
             type_ref=typed_body.type_ref,
             effect=merge_effect_summaries(*binding_summaries, typed_body.effect_summary),
+        )
+    if isinstance(expr, IfExpr):
+        typed_condition = _typecheck(
+            expr.condition_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
+            _raise_error(
+                "`if` condition must resolve to exact `Bool`",
+                code="if_condition_not_bool",
+                span=expr.condition_expr.span,
+                form_path=expr.condition_expr.form_path,
+            )
+        if typed_condition.effect_summary != EMPTY_EFFECT_SUMMARY:
+            _raise_error(
+                "`if` condition must be pure",
+                code="if_condition_has_effect",
+                span=expr.condition_expr.span,
+                form_path=expr.condition_expr.form_path,
+            )
+        classify_condition_expr(
+            typed_condition.expr,
+            type_ref=typed_condition.type_ref,
+        )
+        typed_then = _typecheck(
+            expr.then_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        typed_else = _typecheck(
+            expr.else_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+        )
+        result_type = _unify_loop_control_types(typed_then.type_ref, typed_else.type_ref)
+        if result_type is None:
+            if isinstance(typed_then.type_ref, LoopControlTypeRef) and isinstance(
+                typed_else.type_ref,
+                LoopControlTypeRef,
+            ):
+                _raise_error(
+                    f"`done` expected `{_type_label(typed_then.type_ref.result_type_ref)}` but got `{_type_label(typed_else.type_ref.result_type_ref)}`",
+                    code="loop_recur_done_type_mismatch",
+                    span=expr.else_expr.span,
+                    form_path=expr.else_expr.form_path,
+                )
+            if typed_then.type_ref != typed_else.type_ref:
+                _raise_error(
+                    f"`if` branches must return the same type; got `{_type_label(typed_then.type_ref)}` and `{_type_label(typed_else.type_ref)}`",
+                    code="type_mismatch",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            result_type = typed_then.type_ref
+        return _typed(
+            expr=expr,
+            type_ref=result_type,
+            effect=merge_effect_summaries(
+                typed_then.effect_summary,
+                typed_else.effect_summary,
+            ),
         )
     if isinstance(expr, MatchExpr):
         typed_subject = _typecheck(

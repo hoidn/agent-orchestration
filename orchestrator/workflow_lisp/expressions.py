@@ -88,6 +88,18 @@ class LetStarExpr:
 
 
 @dataclass(frozen=True)
+class IfExpr:
+    """One ternary conditional expression."""
+
+    condition_expr: "ExprNode"
+    then_expr: "ExprNode"
+    else_expr: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class MatchArm:
     """One `match` variant arm."""
 
@@ -343,6 +355,7 @@ ExprNode = (
     | FieldAccessExpr
     | RecordExpr
     | LetStarExpr
+    | IfExpr
     | MatchExpr
     | CallExpr
     | FunctionCallExpr
@@ -517,6 +530,13 @@ def _elaborate_list(
         )
     if head.resolved_name == "let*":
         return _elaborate_letstar(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name == "if":
+        return _elaborate_if(
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -865,6 +885,46 @@ def _elaborate_match(
     return MatchExpr(
         subject=subject,
         arms=tuple(arms),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_if(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> IfExpr:
+    if len(datum.items) != 4:
+        _raise_error(
+            "`if` requires exactly a condition, then branch, and else branch",
+            code="if_form_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    return IfExpr(
+        condition_expr=_elaborate(
+            datum.items[1],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        then_expr=_elaborate(
+            datum.items[2],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
+        else_expr=_elaborate(
+            datum.items[3],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

@@ -164,6 +164,7 @@ def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path
         ("workflow_ref_signature_invalid.orc", "workflow_ref_signature_invalid"),
         ("workflow_ref_specialization_cycle.orc", "workflow_ref_specialization_cycle"),
         ("workflow_ref_extern_unsatisfied.orc", "workflow_ref_extern_rebinding_unsatisfied"),
+        ("workflow_ref_extern_unsatisfied_if.orc", "workflow_ref_extern_rebinding_unsatisfied"),
     ],
 )
 def test_workflow_ref_invalid_contracts_raise_targeted_diagnostics(

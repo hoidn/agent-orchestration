@@ -11,12 +11,16 @@ from .expressions import (
     BacklogDrainExpr,
     CallExpr,
     CommandResultExpr,
+    ContinueExpr,
+    DoneExpr,
     ExprNode,
     FieldAccessExpr,
     FinalizeSelectedItemExpr,
     FunctionCallExpr,
+    IfExpr,
     LetStarExpr,
     LiteralExpr,
+    LoopRecurExpr,
     MatchArm,
     MatchExpr,
     NameExpr,
@@ -367,6 +371,22 @@ def _normalize_expr(
             ),
             body=_normalize_expr(expr.body, typed_functions_by_name=typed_functions_by_name),
         )
+    if isinstance(expr, IfExpr):
+        return replace(
+            expr,
+            condition_expr=_normalize_expr(
+                expr.condition_expr,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+            then_expr=_normalize_expr(
+                expr.then_expr,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+            else_expr=_normalize_expr(
+                expr.else_expr,
+                typed_functions_by_name=typed_functions_by_name,
+            ),
+        )
     if isinstance(expr, MatchExpr):
         return replace(
             expr,
@@ -493,6 +513,31 @@ def _clone_function_expr(
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
+    if isinstance(expr, IfExpr):
+        return replace(
+            expr,
+            condition_expr=_clone_function_expr(
+                expr.condition_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            then_expr=_clone_function_expr(
+                expr.then_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            else_expr=_clone_function_expr(
+                expr.else_expr,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
     if isinstance(expr, MatchExpr):
         return replace(
             expr,
@@ -557,11 +602,25 @@ def _function_dependencies(expr: ExprNode) -> set[str]:
             dependencies.update(_function_dependencies(binding_expr))
         dependencies.update(_function_dependencies(expr.body))
         return dependencies
+    if isinstance(expr, IfExpr):
+        dependencies.update(_function_dependencies(expr.condition_expr))
+        dependencies.update(_function_dependencies(expr.then_expr))
+        dependencies.update(_function_dependencies(expr.else_expr))
+        return dependencies
     if isinstance(expr, MatchExpr):
         dependencies.update(_function_dependencies(expr.subject))
         for arm in expr.arms:
             dependencies.update(_function_dependencies(arm.body))
         return dependencies
+    if isinstance(expr, LoopRecurExpr):
+        dependencies.update(_function_dependencies(expr.max_iterations_expr))
+        dependencies.update(_function_dependencies(expr.initial_state_expr))
+        dependencies.update(_function_dependencies(expr.body_expr))
+        return dependencies
+    if isinstance(expr, ContinueExpr):
+        return _function_dependencies(expr.state_expr)
+    if isinstance(expr, DoneExpr):
+        return _function_dependencies(expr.result_expr)
     if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr):
         return dependencies
     raise TypeError(f"unsupported helper dependency expression: {type(expr)!r}")
@@ -614,6 +673,8 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
         return "finalize-selected-item"
     if isinstance(expr, BacklogDrainExpr):
         return "backlog-drain"
+    if isinstance(expr, LoopRecurExpr):
+        return "loop/recur"
     if isinstance(expr, FieldAccessExpr | NameExpr | LiteralExpr):
         return None
     if isinstance(expr, RecordExpr):
@@ -628,6 +689,12 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
             if violation is not None:
                 return violation
         return _find_purity_violation(expr.body)
+    if isinstance(expr, IfExpr):
+        for nested in (expr.condition_expr, expr.then_expr, expr.else_expr):
+            violation = _find_purity_violation(nested)
+            if violation is not None:
+                return violation
+        return None
     if isinstance(expr, MatchExpr):
         violation = _find_purity_violation(expr.subject)
         if violation is not None:
@@ -643,6 +710,10 @@ def _find_purity_violation(expr: ExprNode) -> str | None:
             if violation is not None:
                 return violation
         return None
+    if isinstance(expr, ContinueExpr):
+        return _find_purity_violation(expr.state_expr)
+    if isinstance(expr, DoneExpr):
+        return _find_purity_violation(expr.result_expr)
     return None
 
 
