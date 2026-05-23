@@ -25,6 +25,7 @@ python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loo
 ## Directory Map
 
 - `workflows/examples/`: runnable example workflows and validation fixtures
+- `workflows/templates/`: non-running workflow templates for new workflow families
 - `workflows/library/`: reusable imported subworkflows used by `call`-based examples
 - `workflows/library/prompts/`: repo-owned prompt assets bundled with reusable imported workflows
 - `workflows/examples/prompts/`: prompt files used only by example workflows stored under `workflows/examples/`
@@ -194,5 +195,6 @@ The original `2.7` workflows remain in place as the migration baseline and as th
 ## Related Docs
 
 - `docs/workflow_drafting_guide.md`: authoring guidance for robust workflows
+- `docs/work_definition_model.md`: explanatory split between semantic specs, work instructions, workflow mechanics, work items, and run evidence
 - `workflows/examples/README_v0_artifact_contract.md`: runbook for the artifact-contract prototype examples
 - `docs/runtime_execution_lifecycle.md`: runtime sequencing and state transitions

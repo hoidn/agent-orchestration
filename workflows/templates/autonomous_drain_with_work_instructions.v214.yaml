@@ -1,0 +1,210 @@
+# Template only. Do not run without replacing placeholder imports, scripts,
+# prompts, state paths, and artifact paths for a concrete workflow family.
+version: "2.14"
+name: "autonomous-drain-with-work-instructions-template-v214"
+
+imports:
+  selector: ../library/REPLACE_WITH_SELECTOR.yaml
+  design_gap_architect: ../library/REPLACE_WITH_DESIGN_GAP_ARCHITECT.yaml
+  work_item: ../library/REPLACE_WITH_WORK_ITEM.yaml
+
+inputs:
+  work_instructions_path:
+    type: relpath
+    under: docs
+    must_exist_target: true
+  specification_paths:
+    kind: scalar
+    type: json
+  backlog_root:
+    type: relpath
+    under: docs
+  progress_ledger_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  drain_state_root:
+    type: relpath
+    under: state
+  run_state_target_path:
+    type: relpath
+    under: state
+  drain_summary_target_path:
+    type: relpath
+    under: artifacts/work
+
+outputs:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+    from:
+      ref: root.steps.DrainWork.artifacts.drain_status
+  run_state_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishDrainSummary.artifacts.run_state_path
+  drain_summary_path:
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishDrainSummary.artifacts.drain_summary_path
+
+artifacts:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+
+steps:
+  - name: InitializeDrainState
+    id: initialize_drain_state
+    command:
+      - python
+      - workflows/library/scripts/REPLACE_WITH_STATE_UPDATE_SCRIPT.py
+      - --state-path
+      - ${inputs.run_state_target_path}
+      - init
+      - --run-id
+      - ${run.id}
+
+  - name: DrainWork
+    id: drain_work
+    repeat_until:
+      id: drain_work_iteration
+      max_iterations: 60
+      outputs:
+        drain_status:
+          kind: scalar
+          type: enum
+          allowed: ["CONTINUE", "DONE", "BLOCKED"]
+          from:
+            ref: self.steps.RouteSelection.artifacts.drain_status
+      condition:
+        any_of:
+          - compare:
+              left:
+                ref: self.outputs.drain_status
+              op: eq
+              right: DONE
+          - compare:
+              left:
+                ref: self.outputs.drain_status
+              op: eq
+              right: BLOCKED
+      steps:
+        - name: BuildWorkManifest
+          id: build_work_manifest
+          command:
+            - python
+            - workflows/library/scripts/REPLACE_WITH_MANIFEST_SCRIPT.py
+            - --work-instructions
+            - ${inputs.work_instructions_path}
+            - --specifications
+            - ${inputs.specification_paths}
+            - --backlog-root
+            - ${inputs.backlog_root}
+            - --progress-ledger
+            - ${inputs.progress_ledger_path}
+            - --run-state
+            - ${inputs.run_state_target_path}
+            - --output
+            - ${inputs.drain_state_root}/iterations/${loop.index}/manifest.json
+          output_bundle:
+            path: ${inputs.drain_state_root}/iterations/${loop.index}/manifest.json
+            fields:
+              - name: manifest_path
+                json_pointer: /manifest_path
+                type: relpath
+                under: state
+                must_exist_target: true
+
+        - name: SelectNextWork
+          id: select_next_work
+          call: selector
+          with:
+            state_root: ${inputs.drain_state_root}/iterations/${loop.index}/selector
+            work_instructions_path:
+              ref: inputs.work_instructions_path
+            manifest_path:
+              ref: self.steps.BuildWorkManifest.artifacts.manifest_path
+            progress_ledger_path:
+              ref: inputs.progress_ledger_path
+            run_state_path:
+              ref: inputs.run_state_target_path
+
+        - name: RouteSelection
+          id: route_selection
+          match:
+            input:
+              ref: self.steps.SelectNextWork.outputs.selection_status
+            cases:
+              SELECT_BACKLOG_ITEM:
+                steps:
+                  - name: RunSelectedWorkItem
+                    id: run_selected_work_item
+                    call: work_item
+                    with:
+                      state_root: ${inputs.drain_state_root}/iterations/${loop.index}/work-item
+                      work_instructions_path:
+                        ref: inputs.work_instructions_path
+                      selection_bundle_path:
+                        ref: self.steps.SelectNextWork.outputs.selection_bundle_path
+                outputs:
+                  drain_status:
+                    ref: self.steps.RunSelectedWorkItem.outputs.drain_status
+              DRAFT_DESIGN_GAP:
+                steps:
+                  - name: DraftDesignGap
+                    id: draft_design_gap
+                    call: design_gap_architect
+                    with:
+                      state_root: ${inputs.drain_state_root}/iterations/${loop.index}/design-gap
+                      work_instructions_path:
+                        ref: inputs.work_instructions_path
+                      design_gap_bundle_path:
+                        ref: self.steps.SelectNextWork.outputs.design_gap_bundle_path
+                  - name: RunDesignGapWorkItem
+                    id: run_design_gap_work_item
+                    call: work_item
+                    with:
+                      state_root: ${inputs.drain_state_root}/iterations/${loop.index}/design-gap-work-item
+                      work_instructions_path:
+                        ref: inputs.work_instructions_path
+                      selection_bundle_path:
+                        ref: self.steps.DraftDesignGap.outputs.work_item_bundle_path
+                outputs:
+                  drain_status:
+                    ref: self.steps.RunDesignGapWorkItem.outputs.drain_status
+              DONE:
+                outputs:
+                  drain_status: DONE
+              BLOCKED:
+                outputs:
+                  drain_status: BLOCKED
+
+  - name: PublishDrainSummary
+    id: publish_drain_summary
+    command:
+      - python
+      - workflows/library/scripts/REPLACE_WITH_SUMMARY_SCRIPT.py
+      - --run-state
+      - ${inputs.run_state_target_path}
+      - --target
+      - ${inputs.drain_summary_target_path}
+    output_bundle:
+      path: ${inputs.drain_summary_target_path}
+      fields:
+        - name: run_state_path
+          json_pointer: /run_state_path
+          type: relpath
+          under: state
+          must_exist_target: true
+        - name: drain_summary_path
+          json_pointer: /drain_summary_path
+          type: relpath
+          under: artifacts/work
+          must_exist_target: true

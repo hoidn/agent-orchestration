@@ -56,6 +56,16 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** lisp-frontend, orc, workflow-authoring, typed-results, structured-state
 **Use this when:** Drafting or reviewing high-level Workflow Lisp workflows, or migrating YAML workflows toward `.orc`.
 
+### [Work Definition Model](work_definition_model.md)
+**Description:** Plain model separating semantic invariants, procedural work instructions, bounded work items, workflow mechanics, and run evidence.
+**Keywords:** work-definition, semantics, work-instructions, workflow-mechanics, evidence
+**Use this when:** Deciding whether content belongs in specs/design docs, body-of-work instructions, work items, workflow YAML, or run artifacts.
+
+### [Workflow Lisp Autonomous Drain Work Instructions](plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md)
+**Description:** Procedural prescriptions for the active Workflow Lisp autonomous drain body of work, including objective, source material, work order, constraints, documentation expectations, completion target, and out-of-scope boundaries.
+**Keywords:** lisp-frontend, autonomous-drain, work-instructions, full-design, procedural-prescriptions
+**Use this when:** Preparing or reviewing Workflow Lisp drain work that needs the upfront procedure separated from semantic specs and workflow mechanics.
+
 ### [Local Workflow Steering](steering.md)
 **Description:** Local steering constraints for the DSL v2.14 materialization and variant-output backlog drain, including the released v2.14 runtime surface and current Phase 2 workflow-translation gate.
 **Keywords:** steering, backlog-drain, dsl-v214, roadmap-gate

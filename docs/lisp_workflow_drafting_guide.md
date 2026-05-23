@@ -41,7 +41,7 @@ Author typed workflow procedures and structured results.
 Do not author brittle gates, pointer plumbing, report parsers, candidate-path
 selectors, or manual state-file choreography.
 
-Good high-level workflow code should look like typed composition:
+Good full-design high-level workflow code should look like typed composition:
 
 ```lisp
 (defworkflow run-selected-backlog-item
@@ -92,10 +92,10 @@ Think in five layers.
 
 | Layer | Author concern | Typical `.orc` forms | Runtime/lowering concern |
 | --- | --- | --- | --- |
-| Types and contracts | What values exist? | `defpath`, `defenum`, `defrecord`, `defunion`, `defschema` | Contracts, path safety, artifact shapes |
-| Procedures and workflows | What behavior is reusable? | `defworkflow`, `defproc`, `defun`, `call`, `let*` | Graph structure, workflow calls, sequencing |
+| Types and contracts | What values exist? | `defpath`, `defenum`, `defrecord`, `defunion`, `defschema` (Full) | Contracts, path safety, artifact shapes |
+| Procedures and workflows | What behavior is reusable? | `defworkflow`, `defproc` (Full), `defun` (Full), `call`, `let*` | Graph structure, workflow calls, sequencing |
 | Structured results | What did a provider or command produce? | `provider-result`, `command-result`, `match` | Output validation, prompt contract, variant proof |
-| Transitions | What state changed? | `resume-or-start`, `resource-transition`, `review-revise-loop`, `backlog-drain` | Atomic commit, durable state, effects |
+| Transitions | What state changed? | `resume-or-start` (Full/Library), `resource-transition` (Full/Library), `review-revise-loop` (Full/Library), `backlog-drain` (Full/Library) | Atomic commit, durable state, effects |
 | Runtime substrate | How is it executed? | Usually not hand-authored | Core AST, semantic IR, snapshots, bundles, artifacts |
 
 The authoring pipeline is:
@@ -162,11 +162,18 @@ The MVP authoring surface is intentionally small:
 The MVP intentionally defers:
 
 - `defmacro`
+- `defun`
 - generic `defproc` lowering
 - full modules/import/export
 - higher-order workflow refs
+- `produce-one-of`
+- `run-provider-phase`
+- `resume-or-start`
+- `review-revise-loop`
 - `resource-transition` as a runtime-native effect
+- `finalize-selected-item`
 - `backlog-drain`
+- `loop/recur`
 - full source-map artifacts
 - debug YAML renderer
 - legacy adapter framework
@@ -238,16 +245,14 @@ contract explicitly says so.
 
 Bad:
 
-```lisp
-(publish-artifact execution-report
-  :from "state/execution_report_path.txt")
+```text
+execution-report := "state/execution_report_path.txt"
 ```
 
 Better:
 
-```lisp
-(publish-artifact execution-report
-  :from implementation.execution-report)
+```text
+execution-report := implementation.execution-report
 ```
 
 The runtime may materialize `state/execution_report_path.txt` for a legacy
@@ -259,8 +264,8 @@ Do not use mtime-only freshness for routing or semantic selection.
 
 Use snapshot/hash evidence through the lowered runtime substrate. High-level
 `.orc` should normally express `provider-result`, `command-result`, or
-`produce-one-of`; the compiler/runtime may lower that to snapshots, content
-hashes, validated bundle commits, and variant selection.
+`produce-one-of` (Full); the compiler/runtime may lower that to snapshots,
+content hashes, validated bundle commits, and variant selection.
 
 mtime may be recorded for debugging only.
 
@@ -338,18 +343,18 @@ Use the smallest unit that represents the behavior truthfully.
 
 | Need | Use | Avoid |
 | --- | --- | --- |
-| Exported callable workflow | `defworkflow` | Giant monolith |
-| Reusable effectful graph behavior | `defproc` | Copy-pasted steps |
-| Pure path/record/schema helper | `defun` | Command step |
-| Compile-time syntax abbreviation | `defmacro` | Effectful macro |
+| Exported callable workflow | `defworkflow` (MVP) | Giant monolith |
+| Reusable effectful graph behavior | `defproc` (Full) | Copy-pasted steps |
+| Pure path/record/schema helper | `defun` (Full) | Command step |
+| Compile-time syntax abbreviation | `defmacro` (Full) | Effectful macro |
 | Provider returns structured state | `provider-result` | Markdown parsing |
 | Command returns structured state | `command-result` | Stdout scraping |
-| Outcome-shaped result | `defunion` + `match` | Stringly gates |
-| Fixed-shape result | `defrecord` | Fake tagged union |
-| Queue/ledger movement | `resource-transition` or certified adapter | Shell move + hidden ledger update |
-| Resume prior state or run fresh | `resume-or-start` | Recovery gate |
-| Review/fix loop | `review-revise-loop` | Raw back-edge or shell counter |
-| Select/run/gap/repeat | `backlog-drain` | Hand-authored drain loop |
+| Outcome-shaped result | `defunion` + `match` (MVP) | Stringly gates |
+| Fixed-shape result | `defrecord` (MVP) | Fake tagged union |
+| Queue/ledger movement | `resource-transition` (Full/Library) or certified adapter | Shell move + hidden ledger update |
+| Resume prior state or run fresh | `resume-or-start` (Full/Library) | Recovery gate |
+| Review/fix loop | `review-revise-loop` (Full/Library) | Raw back-edge or shell counter |
+| Select/run/gap/repeat | `backlog-drain` (Full/Library) | Hand-authored drain loop |
 
 ## 5. Types First
 
@@ -379,6 +384,16 @@ Use `defpath` for reusable path contracts.
   :kind relpath
   :under "artifacts/work"
   :must-exist-target false)
+
+(defpath Path.progress-report
+  :kind relpath
+  :under "artifacts/work"
+  :must-exist true)
+
+(defpath Path.check-commands
+  :kind relpath
+  :under "state"
+  :must-exist true)
 ```
 
 A value of type `Path.execution-report` is the report path value. It is not the
@@ -418,7 +433,7 @@ Use `defrecord` for fixed-shape state.
 (defrecord ImplementationInputs
   (design Path.design)
   (plan Path.plan)
-  (check-commands Path.state-existing)
+  (check-commands Path.check-commands)
   (execution-report-target Path.execution-report-target)
   (checks-report-target Path.checks-report-target)
   (review-report-target Path.review-report-target))
@@ -438,7 +453,7 @@ Use `defunion` for outcome-shaped state.
     (execution-report Path.execution-report))
 
   (BLOCKED
-    (progress-report Path.execution-report)
+    (progress-report Path.progress-report)
     (blocker-class BlockerClass)
     (blocker-reason String)))
 ```
@@ -466,7 +481,7 @@ Better:
   (check-commands-path Path.state-existing))
 ```
 
-### 5.5 Schemas
+### 5.5 Schemas (Full)
 
 Use `defschema` when several records share a field group.
 
@@ -481,7 +496,7 @@ A schema is not a workflow. It is reusable contract structure.
 
 ## 6. Workflows, Procedures, Pure Helpers, And Macros
 
-### 6.1 `defworkflow`
+### 6.1 `defworkflow` (MVP)
 
 Use `defworkflow` for exported callable workflow boundaries.
 
@@ -504,7 +519,7 @@ Use `defworkflow` when:
 
 Keep workflow boundaries narrow. Pass typed inputs in and typed outputs out.
 
-### 6.2 `defproc`
+### 6.2 `defproc` (Full)
 
 Use `defproc` for reusable effectful graph behavior that need not be a public
 workflow boundary.
@@ -531,7 +546,7 @@ A macro rewrites syntax. A procedure represents reusable workflow behavior. If
 the abstraction has effects, prefer `defproc` or a compiler-owned
 standard-library form over `defmacro`.
 
-### 6.3 `defun`
+### 6.3 `defun` (Full)
 
 Use `defun` for pure helper logic.
 
@@ -552,7 +567,7 @@ commands, inspect wall-clock time, or generate random values.
 
 If it has an effect, it is not a `defun`.
 
-### 6.4 `defmacro`
+### 6.4 `defmacro` (Full)
 
 Macros are for syntax, not hidden workflow behavior.
 
@@ -567,7 +582,7 @@ Ordinary workflow authors should rarely need user-defined macros. Prefer
 standard-library procedures and compiler-owned forms until there is evidence
 that custom macros are needed.
 
-## 7. Modules, Imports, And Exports
+## 7. Modules, Imports, And Exports (Full)
 
 Use modules to make workflow libraries navigable.
 
@@ -762,8 +777,8 @@ Use `match` to consume union results.
 ```lisp
 (match implementation
   ((COMPLETED c)
-    (publish-artifact execution-report
-      :from c.execution-report))
+    (record-completed
+      :execution-report c.execution-report))
 
   ((BLOCKED b)
     (record-blocked
@@ -805,25 +820,25 @@ Common context records:
 ```lisp
 (defrecord WorkflowCtx
   (state-root Path.state-root)
-  (artifact-root Path.artifacts)
+  (artifact-root Path.artifact-root)
   (run-id RunId))
 
 (defrecord PhaseCtx
   (state-root Path.state-root)
-  (artifact-root Path.artifacts)
+  (artifact-root Path.artifact-root)
   (run-id RunId)
   (phase-name Symbol))
 
 (defrecord ItemCtx
   (state-root Path.state-root)
-  (artifact-root Path.artifacts)
+  (artifact-root Path.artifact-root)
   (run-id RunId)
   (ledger Path.state-existing)
   (design Path.design))
 
 (defrecord DrainCtx
   (state-root Path.state-root)
-  (artifact-root Path.artifacts)
+  (artifact-root Path.artifact-root)
   (run-id RunId)
   (manifest Path.state-existing)
   (ledger Path.state-existing))
@@ -869,19 +884,19 @@ Avoid:
 Prefer:
 
 - `(match result ...)`
-- `(resume-or-start ...)`
-- `(resource-transition ...)`
-- `(review-revise-loop ...)`
+- `(resume-or-start ...)` (Full/Library)
+- `(resource-transition ...)` (Full/Library)
+- `(review-revise-loop ...)` (Full/Library)
 - `(provider-result ...)`
 - `(command-result ...)`
-- `(backlog-drain ...)`
+- `(backlog-drain ...)` (Full/Library)
 
 ## 13. Standard High-Level Forms
 
 This section describes intended high-level forms. Availability depends on the
 frontend stage.
 
-### 13.1 `run-provider-phase`
+### 13.1 `run-provider-phase` (Full/Library)
 
 Use for a provider-driven phase that returns typed structured state.
 
@@ -898,7 +913,7 @@ Expected lowering derives phase state paths, canonical result bundles, provider
 output contracts, typed artifact refs, and validated commits. Authors should not
 provide manual state paths.
 
-### 13.2 `review-revise-loop`
+### 13.2 `review-revise-loop` (Full/Library)
 
 Use for bounded review/fix loops.
 
@@ -917,7 +932,7 @@ Use for bounded review/fix loops.
 A review loop should return a typed result, such as `APPROVED`, `BLOCKED`, or
 `EXHAUSTED`. Do not parse markdown review prose to recover the decision.
 
-### 13.3 `resume-or-start`
+### 13.3 `resume-or-start` (Full/Library)
 
 Use to reuse canonical prior state or run fresh.
 
@@ -944,7 +959,7 @@ Meaning:
 
 This replaces brittle recovery gates. Do not call it a recovery gate.
 
-### 13.4 `resource-transition`
+### 13.4 `resource-transition` (Full/Library)
 
 Use for queue/resource movement plus ledger/state update.
 
@@ -966,7 +981,7 @@ Valid lowerings:
 
 The form must not pretend to be more atomic than the substrate supports.
 
-### 13.5 `finalize-selected-item`
+### 13.5 `finalize-selected-item` (Full/Library)
 
 Use to normalize terminal selected-item outcomes.
 
@@ -989,7 +1004,7 @@ Meaning:
 
 This replaces fan-in through multiple handwritten blocked/completed scripts.
 
-### 13.6 `backlog-drain`
+### 13.6 `backlog-drain` (Full/Library)
 
 Use for select/run/gap/repeat orchestration.
 
@@ -1108,9 +1123,9 @@ compile/module-link time, not by runtime dynamic loading.
 
 Use high-level loop forms when the pattern is known.
 
-Prefer `review-revise-loop` for review/fix loops and `backlog-drain` for
-select/run/gap/repeat. Use direct `loop/recur` only when the loop shape is
-genuinely novel.
+Prefer `review-revise-loop` (Full/Library) for review/fix loops and
+`backlog-drain` (Full/Library) for select/run/gap/repeat. Use direct
+`loop/recur` (Full) only when the loop shape is genuinely novel.
 
 Every loop must have:
 
@@ -1157,7 +1172,7 @@ Effect kinds include:
 - `calls-workflow`
 - `captures-snapshot`
 - `commits-bundle`
-- `publishes-artifact`
+- `publishes`
 - `materializes-artifact`
 
 If a procedure's effects are hard to explain, the procedure is probably too
@@ -1225,8 +1240,8 @@ The frontend and lint tools should warn on brittle authoring patterns.
 | `semantic_field_extracted_from_report` | Parse a markdown line for a decision or blocker | Structured provider/command result |
 | `pointer_used_as_semantic_authority` | Publish a pointer file path as the value | Publish the typed artifact value |
 | `variant_output_without_variant_specific_fields` | Union variants with no fields | Record plus enum |
-| `recovery_gate_without_canonical_state` | File-existence recovery gate | `resume-or-start` |
-| `resource_move_without_transition` | Shell move plus hidden ledger update | `resource-transition` or certified adapter |
+| `recovery_gate_without_canonical_state` | File-existence recovery gate | `resume-or-start` (Full/Library) |
+| `resource_move_without_transition` | Shell move plus hidden ledger update | `resource-transition` (Full/Library) or certified adapter |
 | `manual_when_requires_variant_pair` | Manual condition/proof pairing | `match` |
 | `manual_state_path` | Hand-built state path | Context helper such as `with-phase` |
 
@@ -1240,11 +1255,11 @@ should not usually start here.
 | `expected_outputs` | `defrecord`, `command-result`, simple typed artifact result |
 | `output_bundle` | `defrecord` plus `provider-result` or `command-result` |
 | `variant_output` | `defunion` plus `provider-result` |
-| `pre_snapshot` + `select_variant_output` | `produce-one-of`, `run-provider-phase`, or structured producer result |
+| `pre_snapshot` + `select_variant_output` | `produce-one-of` (Full), `run-provider-phase` (Full/Library), or structured producer result |
 | `materialize_artifacts` | Context-derived materialization or internal lowering |
 | `requires_variant` | Usually generated from `match` |
 | `match` | Same concept, used directly over unions |
-| `repeat_until` | `review-revise-loop`, `backlog-drain`, or `loop/recur` |
+| `repeat_until` | `review-revise-loop` (Full/Library), `backlog-drain` (Full/Library), or `loop/recur` (Full) |
 | Raw `goto` | Avoid; use structured control |
 | Shell gate | Assert, typed result, transition, or certified adapter |
 | Pointer sidecar | Optional representation, not semantic source |
@@ -1293,12 +1308,12 @@ Behavior inventory:
 | Pointer/path setup | Context-derived materialization or certified adapter |
 | Fixed JSON bundle | `defrecord` plus `command-result`/`provider-result` |
 | Completed/blocked output | `defunion` plus `match` |
-| mtime/custom freshness selector | Structured producer result or `produce-one-of` |
-| Recovery gate | `resume-or-start` |
-| Queue move + ledger update | `resource-transition` |
-| Review/fix loop | `review-revise-loop` |
-| Selected-item fan-in scripts | `finalize-selected-item` |
-| Top-level select/run/gap/repeat | `backlog-drain` |
+| mtime/custom freshness selector | Structured producer result or `produce-one-of` (Full) |
+| Recovery gate | `resume-or-start` (Full/Library) |
+| Queue move + ledger update | `resource-transition` (Full/Library) |
+| Review/fix loop | `review-revise-loop` (Full/Library) |
+| Selected-item fan-in scripts | `finalize-selected-item` (Full/Library) |
+| Top-level select/run/gap/repeat | `backlog-drain` (Full/Library) |
 | Markdown line extraction | Structured result; legacy adapter only if necessary |
 
 For each migrated workflow, measure:
@@ -1317,7 +1332,7 @@ The migration is not successful merely because the `.orc` parses. If the `.orc`
 version remains YAML-shaped or requires more boilerplate than v2.14 YAML, stop
 and revise the frontend design before migrating more workflows.
 
-## 23. Example: Implementation Phase
+## 23. Example: Implementation Phase (Full/Library)
 
 Types:
 
@@ -1325,7 +1340,7 @@ Types:
 (defrecord ImplementationInputs
   (design Path.design)
   (plan Path.plan)
-  (check-commands Path.state-existing)
+  (check-commands Path.check-commands)
   (execution-report-target Path.execution-report-target)
   (checks-report-target Path.checks-report-target)
   (review-report-target Path.review-report-target))
@@ -1340,7 +1355,7 @@ Types:
     (execution-report Path.execution-report))
 
   (BLOCKED
-    (progress-report Path.execution-report)
+    (progress-report Path.progress-report)
     (blocker-class BlockerClass)
     (blocker-reason String)))
 
@@ -1352,7 +1367,7 @@ Types:
     (review-decision ReviewDecision))
 
   (BLOCKED
-    (progress-report Path.execution-report)
+    (progress-report Path.progress-report)
     (blocker-class BlockerClass)
     (blocker-reason String))
 
@@ -1413,7 +1428,7 @@ The author does not hand-manage `implementation_state.json`, snapshot names,
 candidate paths, variant selector files, pointer sidecars, `requires_variant`,
 or markdown line extraction.
 
-## 24. Example: Selected Backlog Item
+## 24. Example: Selected Backlog Item (Full/Library)
 
 ```lisp
 (defworkflow selected-item/run
@@ -1476,7 +1491,7 @@ or markdown line extraction.
 This is the target shape for procedural composability. The workflow reads like a
 typed program, not like a list of gates.
 
-## 25. Example: Top-Level Backlog Drain
+## 25. Example: Top-Level Backlog Drain (Full/Library)
 
 ```lisp
 (defworkflow neurips/run-backlog-drain
@@ -1556,7 +1571,7 @@ Before running a new `.orc` workflow, confirm:
 | Variants | Variant-specific fields are used only inside `match`. |
 | State | State paths are derived from contexts. |
 | Effects | Provider, command, write, move, ledger, state, and call effects are visible. |
-| Reuse | Repeated behavior is a `defproc`, `defworkflow`, or standard-library form. |
+| Reuse | Repeated behavior is a `defworkflow` (MVP), `defproc` (Full), or standard-library form. |
 | Gates | Gates have been replaced by typed outcomes or transitions where possible. |
 | Prompts | Prompts describe domain work, not runtime mechanics. |
 | Lowering | Generated Core AST validates through the shared validator. |
@@ -1650,10 +1665,10 @@ writing a compatibility fixture, runtime test, or standard-library lowering.
 | "I need to parse the report." | "The provider/command should return structured state." |
 | "I need a pointer file." | "What artifact value does the downstream step need?" |
 | "I need when status == X." | "This is probably a match over a union." |
-| "I need a recovery step." | "This is `resume-or-start` from canonical state." |
-| "I need to move a file and update the ledger." | "This is a `resource-transition`." |
-| "I need a custom review loop." | "Can this be `review-revise-loop`?" |
-| "I need to select/run/gap/repeat." | "This is `backlog-drain`." |
+| "I need a recovery step." | "This is `resume-or-start` (Full/Library) from canonical state." |
+| "I need to move a file and update the ledger." | "This is a `resource-transition` (Full/Library)." |
+| "I need a custom review loop." | "Can this be `review-revise-loop` (Full/Library)?" |
+| "I need to select/run/gap/repeat." | "This is `backlog-drain` (Full/Library)." |
 | "I need to write a lot of target paths." | "These should derive from context or typed target schemas." |
 | "The generated YAML is weird." | "Inspect the Core AST, semantic IR, and source map; YAML is only a projection." |
 
