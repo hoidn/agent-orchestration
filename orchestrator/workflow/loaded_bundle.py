@@ -8,6 +8,7 @@ from typing import Any, Mapping, Optional
 
 from .executable_ir import ExecutableWorkflow
 from .runtime_plan import WorkflowRuntimePlan
+from .semantic_ir import SemanticWorkflowIR
 from .state_projection import WorkflowStateProjection
 from .surface_ast import ImportedWorkflowMetadata, SurfaceWorkflow, WorkflowProvenance
 
@@ -17,6 +18,7 @@ class LoadedWorkflowBundle:
     """Typed loaded-workflow bundle."""
 
     surface: SurfaceWorkflow
+    semantic_ir: SemanticWorkflowIR
     ir: ExecutableWorkflow
     projection: WorkflowStateProjection
     runtime_plan: WorkflowRuntimePlan
@@ -92,6 +94,14 @@ def workflow_runtime_plan(workflow_or_bundle: Any) -> Optional[WorkflowRuntimePl
     bundle = workflow_bundle(workflow_or_bundle)
     if bundle is not None:
         return bundle.runtime_plan
+    return None
+
+
+def workflow_semantic_ir(workflow_or_bundle: Any) -> Optional[SemanticWorkflowIR]:
+    """Return typed semantic workflow IR for one loaded bundle."""
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        return bundle.semantic_ir
     return None
 
 

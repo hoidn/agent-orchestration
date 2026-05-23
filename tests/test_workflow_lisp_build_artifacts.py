@@ -360,6 +360,7 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
         "typed_frontend_ast.json",
         "lowered_workflows.json",
         "executable_ir.json",
+        "semantic_ir.json",
         "runtime_plan.json",
         "source_map.json",
         "workflow_boundary_projection.json",
@@ -367,10 +368,11 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
     }
 
     assert expected_artifacts.issubset({path.name for path in result.artifact_paths.values()})
+    assert result.artifact_paths["semantic_ir"].name == "semantic_ir.json"
     assert result.artifact_paths["runtime_plan"].name == "runtime_plan.json"
     assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
     assert result.manifest.artifact_status["core_workflow_ast"] == "deferred_shared_contract"
-    assert result.manifest.artifact_status["semantic_ir"] == "deferred_shared_contract"
+    assert result.manifest.artifact_status["semantic_ir"] == "emitted"
 
 
 def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) -> None:
@@ -427,6 +429,7 @@ def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manif
 
     result = build_frontend_bundle(_structured_results_request(tmp_path))
     runtime_plan = json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8"))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
     source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
     selected_workflow = result.validated_bundle.surface.name
     runtime_plan_node_ids = set(runtime_plan["nodes"])
@@ -437,10 +440,12 @@ def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manif
 
     assert runtime_plan["schema_version"] == "workflow_runtime_plan.v1"
     assert runtime_plan["workflow_name"] == selected_workflow
+    assert semantic_ir["schema_version"] == "workflow_semantic_ir.v1"
+    assert semantic_ir["workflows"][selected_workflow]["workflow_name"] == selected_workflow
     assert runtime_plan_node_ids == source_map_node_ids
     assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
     assert result.manifest.artifact_status["core_workflow_ast"] == "deferred_shared_contract"
-    assert result.manifest.artifact_status["semantic_ir"] == "deferred_shared_contract"
+    assert result.manifest.artifact_status["semantic_ir"] == "emitted"
 
 
 def test_build_manifest_records_source_map_schema_and_coverage_for_emitted_artifacts(tmp_path: Path) -> None:
@@ -457,8 +462,52 @@ def test_build_manifest_records_source_map_schema_and_coverage_for_emitted_artif
         "executable_ir": "covered",
         "runtime_logs": "covered",
         "core_workflow_ast": "deferred_shared_contract",
-        "semantic_ir": "deferred_shared_contract",
+        "semantic_ir": "covered",
     }
+
+
+def test_build_semantic_ir_uses_current_source_map_validation_subject_bridges(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    first = build_frontend_bundle(_build_request(tmp_path))
+    selected_workflow = first.entry_selection.canonical_name
+
+    def validation_subject_names(result) -> set[tuple[str, str]]:
+        source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+        return {
+            (
+                binding["subject_ref"]["subject_kind"],
+                binding["subject_ref"]["subject_name"],
+            )
+            for binding in source_map["workflows"][selected_workflow]["validation_subjects"]
+        }
+
+    def semantic_ir_subject_names(result) -> set[tuple[str, str]]:
+        semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+        return {
+            (
+                entry["subject_ref"]["subject_kind"],
+                entry["subject_ref"]["subject_name"],
+            )
+            for entry in semantic_ir["source_map"].values()
+            if entry["bridge_kind"] == "validation_subject" and entry["workflow_name"] == selected_workflow
+        }
+
+    assert semantic_ir_subject_names(first) == validation_subject_names(first)
+
+    stale_source_map = json.loads(first.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    stale_source_map["workflows"][selected_workflow]["validation_subjects"] = stale_source_map["workflows"][
+        selected_workflow
+    ]["validation_subjects"][:1]
+    first.artifact_paths["source_map"].write_text(
+        json.dumps(stale_source_map, indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
+
+    second = build_frontend_bundle(_build_request(tmp_path))
+
+    assert semantic_ir_subject_names(second) == validation_subject_names(second)
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:
@@ -513,7 +562,7 @@ def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path
         "executable_ir": "covered",
         "runtime_logs": "covered",
         "core_workflow_ast": "deferred_shared_contract",
-        "semantic_ir": "deferred_shared_contract",
+        "semantic_ir": "covered",
     }
 
     command_checks_name = "lineage_pkg/entry::command_checks"

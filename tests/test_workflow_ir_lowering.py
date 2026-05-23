@@ -692,3 +692,14 @@ def test_loaded_bundle_exposes_runtime_plan_with_ordered_and_nested_node_metadat
     cleanup_node = runtime_plan.nodes["root.finally.cleanup.write_cleanup_marker"]
     assert cleanup_node.command_boundary_kind is None
     assert cleanup_node.command_boundary_name is None
+
+
+def test_loaded_bundle_exposes_semantic_ir_with_runtime_bridge(tmp_path: Path):
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_ir_workflow(tmp_path))
+    semantic_workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+
+    assert bundle.semantic_ir.schema_version == "workflow_semantic_ir.v1"
+    assert set(semantic_workflow.executable_bridge.node_ids) == set(bundle.ir.nodes)
+    assert set(semantic_workflow.executable_bridge.presentation_keys) == {
+        node.presentation_key for node in bundle.runtime_plan.nodes.values()
+    }

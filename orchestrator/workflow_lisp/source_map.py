@@ -26,7 +26,7 @@ SOURCE_MAP_COVERAGE = {
     "executable_ir": "covered",
     "runtime_logs": "covered",
     "core_workflow_ast": "deferred_shared_contract",
-    "semantic_ir": "deferred_shared_contract",
+    "semantic_ir": "covered",
 }
 _VALID_COVERAGE_KEYS = frozenset(SOURCE_MAP_COVERAGE)
 _VALID_COVERAGE_VALUES = frozenset({"covered", "deferred_shared_contract"})

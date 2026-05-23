@@ -13,6 +13,7 @@ from typing import Any
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
+from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
 from orchestrator.workflow.surface_ast import WorkflowProvenance
 
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
@@ -231,8 +232,21 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         frontend_source_map_schema_version=SOURCE_MAP_SCHEMA_VERSION,
         frontend_source_map_coverage=dict(SOURCE_MAP_COVERAGE),
     )
+    validated_surface = replace(selected_bundle.surface, provenance=provenance)
+    source_map_path.write_text(
+        json.dumps(_json_data(source_map_payload), indent=2, sort_keys=True) + "\n",
+        encoding="utf-8",
+    )
     validated_bundle = LoadedWorkflowBundle(
-        surface=replace(selected_bundle.surface, provenance=provenance),
+        surface=validated_surface,
+        semantic_ir=derive_workflow_semantic_ir(
+            surface=validated_surface,
+            ir=selected_bundle.ir,
+            projection=selected_bundle.projection,
+            runtime_plan=runtime_plan,
+            imports=selected_bundle.imports,
+            provenance=provenance,
+        ),
         ir=selected_bundle.ir,
         projection=selected_bundle.projection,
         runtime_plan=runtime_plan,
@@ -758,6 +772,7 @@ def _write_build_artifacts(
         "typed_frontend_ast": build_root / "typed_frontend_ast.json",
         "lowered_workflows": build_root / "lowered_workflows.json",
         "executable_ir": build_root / "executable_ir.json",
+        "semantic_ir": build_root / "semantic_ir.json",
         "runtime_plan": build_root / "runtime_plan.json",
         "source_map": build_root / "source_map.json",
         "workflow_boundary_projection": build_root / "workflow_boundary_projection.json",
@@ -769,6 +784,7 @@ def _write_build_artifacts(
         "typed_frontend_ast": _serialize_typed_frontend_ast(compile_result),
         "lowered_workflows": _serialize_lowered_workflows(compile_result),
         "executable_ir": _json_data(validated_bundle.ir),
+        "semantic_ir": workflow_semantic_ir_to_json(validated_bundle.semantic_ir),
         "runtime_plan": _json_data(validated_bundle.runtime_plan),
         "source_map": _json_data(source_map_payload),
         "workflow_boundary_projection": _serialize_workflow_boundary_projection(
@@ -837,7 +853,7 @@ def _build_manifest(
         },
         artifact_status={
             "core_workflow_ast": "deferred_shared_contract",
-            "semantic_ir": "deferred_shared_contract",
+            "semantic_ir": "emitted",
         },
         diagnostic_count=len(diagnostics),
         shared_validation_status="validated",
@@ -1024,6 +1040,8 @@ def _command_boundary_metadata_for_workflow(
             and boundary_name
         ):
             metadata[step_id] = (boundary_kind, boundary_name)
+            if not step_id.startswith("root."):
+                metadata[f"root.{step_id}"] = (boundary_kind, boundary_name)
     return metadata
 
 

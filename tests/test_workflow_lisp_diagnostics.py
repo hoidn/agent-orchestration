@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 from orchestrator.workflow_lisp.compiler import compile_stage1_module
 from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
@@ -938,3 +939,77 @@ def test_serialize_diagnostic_classifies_source_map_validation_errors() -> None:
     assert payload["phase"] == "source_map"
     assert payload["validation_pass"] == "source_map"
     assert payload["authority_layer"] == "frontend"
+
+
+def test_serialize_diagnostic_infers_semantic_ir_metadata_from_code() -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    diagnostic = LispFrontendDiagnostic(
+        code="semantic_ir_invalid",
+        message="semantic_ir_invalid: executable bridge references unknown node",
+        span=SourceSpan(
+            start=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=12, column=3, offset=0),
+            end=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=12, column=18, offset=0),
+        ),
+        form_path=("workflow-lisp", "defworkflow", "command_checks"),
+    )
+
+    payload = serialize_diagnostic(diagnostic)
+
+    assert payload["code"] == "semantic_ir_invalid"
+    assert payload["phase"] == "semantic_ir"
+    assert payload["validation_pass"] == "semantic_ir"
+    assert payload["authority_layer"] == "shared"
+
+
+def test_semantic_ir_invalid_preserves_structured_subject_ref_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+
+    def fail_semantic_ir_validation(*args, **kwargs):
+        del args, kwargs
+        raise WorkflowValidationError(
+            [
+                ValidationError(
+                    message="semantic_ir_invalid: executable bridge references unknown node `root.command_checks__run_checks`",
+                    subject_refs=(
+                        ValidationSubjectRef(
+                            subject_kind="step_id",
+                            subject_name="command_checks__run_checks",
+                            workflow_name="command_checks",
+                        ),
+                    ),
+                )
+            ]
+        )
+
+    monkeypatch.setattr(
+        semantic_ir_module,
+        "validate_workflow_semantic_ir",
+        fail_semantic_ir_validation,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            FIXTURES / "valid" / "structured_results.orc",
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "semantic_ir_invalid"
+    assert diagnostic.validation_pass == "semantic_ir"
+    assert diagnostic.authority_layer == "shared"
+    assert diagnostic.span.start.path.endswith("structured_results.orc")
+    assert diagnostic.form_path[-1] == "command_checks"

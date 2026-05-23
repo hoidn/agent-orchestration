@@ -47,6 +47,7 @@ from .executable_ir import (
 from .loaded_bundle import LoadedWorkflowBundle
 from .references import SelfOutputReference, StructuredStepReference, WorkflowInputReference
 from .runtime_plan import derive_workflow_runtime_plan
+from .semantic_ir import derive_workflow_semantic_ir
 from .state_projection import (
     CallBoundaryProjection,
     CompatibilityStepDefinition,
@@ -1220,8 +1221,17 @@ def build_loaded_workflow_bundle(
 
     ir, projection = lower_surface_workflow(surface)
     runtime_plan = derive_workflow_runtime_plan(ir, projection)
+    semantic_ir = derive_workflow_semantic_ir(
+        surface=surface,
+        ir=ir,
+        projection=projection,
+        runtime_plan=runtime_plan,
+        imports=imports,
+        provenance=surface.provenance,
+    )
     return LoadedWorkflowBundle(
         surface=surface,
+        semantic_ir=semantic_ir,
         ir=ir,
         projection=projection,
         runtime_plan=runtime_plan,

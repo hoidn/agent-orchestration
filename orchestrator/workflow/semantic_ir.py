@@ -1,0 +1,1260 @@
+"""Shared semantic workflow IR derived from validated workflow bundle surfaces."""
+
+from __future__ import annotations
+
+import json
+from dataclasses import dataclass, field, fields, is_dataclass
+from pathlib import Path
+from types import MappingProxyType
+from typing import Any, Mapping
+
+from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
+
+from .executable_ir import ExecutableWorkflow
+from .runtime_plan import WorkflowRuntimePlan
+from .state_projection import WorkflowStateProjection
+from .surface_ast import SurfaceStep, SurfaceStepKind, SurfaceWorkflow, WorkflowProvenance, empty_frozen_mapping
+
+
+WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
+
+
+@dataclass(frozen=True)
+class SemanticExecutableBridge:
+    workflow_name: str
+    node_ids: tuple[str, ...]
+    presentation_keys: tuple[str, ...]
+    resume_checkpoint_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SemanticStatement:
+    statement_id: str
+    workflow_name: str
+    step_id: str
+    step_name: str
+    step_kind: str
+    executable_node_ids: tuple[str, ...] = ()
+    presentation_keys: tuple[str, ...] = ()
+    ref_ids: tuple[str, ...] = ()
+    effect_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SemanticTypeEntry:
+    type_id: str
+    workflow_name: str
+    type_kind: str | None
+    value_type: str | None
+    definition: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class SemanticContractEntry:
+    contract_id: str
+    workflow_name: str
+    contract_name: str
+    type_id: str
+    contract_kind: str | None
+    value_type: str | None
+    definition: Mapping[str, Any]
+    source_kind: str
+
+
+@dataclass(frozen=True)
+class SemanticRefEntry:
+    ref_id: str
+    workflow_name: str
+    ref_kind: str
+    subject_name: str
+    contract_id: str | None = None
+    statement_id: str | None = None
+    target: str | None = None
+
+
+@dataclass(frozen=True)
+class SemanticEffectEntry:
+    effect_id: str
+    workflow_name: str
+    statement_id: str
+    effect_kind: str
+    boundary_kind: str | None = None
+    boundary_name: str | None = None
+    call_target: str | None = None
+    output_validation_surface: str | None = None
+    source_map_behavior: str | None = None
+    ref_ids: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class SemanticProofEntry:
+    proof_id: str
+    workflow_name: str
+    proof_kind: str
+    statement_id: str | None = None
+    ref_ids: tuple[str, ...] = ()
+    details: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
+class SemanticStateLayoutEntry:
+    layout_id: str
+    workflow_name: str
+    layout_kind: str
+    node_id: str | None = None
+    presentation_key: str | None = None
+    details: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
+
+
+@dataclass(frozen=True)
+class SemanticSourceMapBridgeEntry:
+    bridge_id: str
+    workflow_name: str
+    bridge_kind: str
+    subject_ref: ValidationSubjectRef | None = None
+    origin_key: str | None = None
+    coverage: str | None = None
+
+
+@dataclass(frozen=True)
+class SemanticCallEdge:
+    edge_id: str
+    workflow_name: str
+    statement_id: str
+    call_alias: str
+    target_workflow_name: str | None = None
+
+
+@dataclass(frozen=True)
+class SemanticPromptSurface:
+    prompt_surface_id: str
+    workflow_name: str
+    statement_id: str
+    provider_name: str | None
+    input_file: Any = None
+    asset_file: Any = None
+    prompt_consumes: tuple[Any, ...] = ()
+    inject_output_contract: bool | None = None
+    inject_consumes: bool | None = None
+
+
+@dataclass(frozen=True)
+class SemanticCommandBoundary:
+    boundary_id: str
+    workflow_name: str
+    statement_id: str
+    step_id: str
+    boundary_kind: str
+    boundary_name: str | None = None
+    output_validation_surface: str | None = None
+    source_map_behavior: str | None = None
+
+
+@dataclass(frozen=True)
+class SemanticWorkflow:
+    workflow_name: str
+    input_contract_ids: Mapping[str, str]
+    output_contract_ids: Mapping[str, str]
+    artifact_contract_ids: Mapping[str, str]
+    authored_statement_ids: tuple[str, ...]
+    statements: Mapping[str, SemanticStatement]
+    call_edge_ids: tuple[str, ...] = ()
+    prompt_surface_ids: tuple[str, ...] = ()
+    command_boundary_ids: tuple[str, ...] = ()
+    publication_ref_ids: tuple[str, ...] = ()
+    executable_bridge: SemanticExecutableBridge = field(
+        default_factory=lambda: SemanticExecutableBridge(workflow_name="", node_ids=(), presentation_keys=())
+    )
+
+
+@dataclass(frozen=True)
+class SemanticWorkflowIR:
+    schema_version: str
+    workflows: Mapping[str, SemanticWorkflow]
+    types: Mapping[str, SemanticTypeEntry]
+    contracts: Mapping[str, SemanticContractEntry]
+    refs: Mapping[str, SemanticRefEntry]
+    effects: Mapping[str, SemanticEffectEntry]
+    proofs: Mapping[str, SemanticProofEntry]
+    state_layout: Mapping[str, SemanticStateLayoutEntry]
+    source_map: Mapping[str, SemanticSourceMapBridgeEntry]
+    call_edges: Mapping[str, SemanticCallEdge] = field(default_factory=empty_frozen_mapping)
+    prompt_surfaces: Mapping[str, SemanticPromptSurface] = field(default_factory=empty_frozen_mapping)
+    command_boundaries: Mapping[str, SemanticCommandBoundary] = field(default_factory=empty_frozen_mapping)
+
+
+def derive_workflow_semantic_ir(
+    *,
+    surface: SurfaceWorkflow,
+    ir: ExecutableWorkflow,
+    projection: WorkflowStateProjection,
+    runtime_plan: WorkflowRuntimePlan,
+    imports: Mapping[str, Any],
+    provenance: WorkflowProvenance,
+) -> SemanticWorkflowIR:
+    workflow_name = surface.name or ""
+    statement_order: list[str] = []
+    statements: dict[str, SemanticStatement] = {}
+    types: dict[str, SemanticTypeEntry] = {}
+    contracts: dict[str, SemanticContractEntry] = {}
+    refs: dict[str, SemanticRefEntry] = {}
+    effects: dict[str, SemanticEffectEntry] = {}
+    proofs: dict[str, SemanticProofEntry] = {}
+    state_layout: dict[str, SemanticStateLayoutEntry] = {}
+    source_map: dict[str, SemanticSourceMapBridgeEntry] = {}
+    call_edges: dict[str, SemanticCallEdge] = {}
+    prompt_surfaces: dict[str, SemanticPromptSurface] = {}
+    command_boundaries: dict[str, SemanticCommandBoundary] = {}
+
+    node_order = list(runtime_plan.ordered_node_ids)
+    node_order.extend(sorted(set(runtime_plan.nodes) - set(node_order)))
+    workflow_bridge = SemanticExecutableBridge(
+        workflow_name=workflow_name,
+        node_ids=tuple(node_order),
+        presentation_keys=tuple(
+            _dedupe(
+                runtime_plan.nodes[node_id].presentation_key
+                for node_id in node_order
+                if node_id in runtime_plan.nodes
+            )
+        ),
+        resume_checkpoint_ids=tuple(
+            _resume_checkpoint_id(workflow_name, checkpoint)
+            for checkpoint in runtime_plan.resume_checkpoints
+        ),
+    )
+
+    for source_kind, catalog in (
+        ("input", surface.inputs),
+        ("output", surface.outputs),
+        ("artifact", surface.artifacts),
+    ):
+        for name, contract in sorted(catalog.items()):
+            contract_id = _contract_id(workflow_name, source_kind, name)
+            type_id = _type_id(workflow_name, source_kind, name)
+            types[type_id] = SemanticTypeEntry(
+                type_id=type_id,
+                workflow_name=workflow_name,
+                type_kind=contract.kind,
+                value_type=contract.value_type,
+                definition=contract.definition,
+            )
+            contracts[contract_id] = SemanticContractEntry(
+                contract_id=contract_id,
+                workflow_name=workflow_name,
+                contract_name=name,
+                type_id=type_id,
+                contract_kind=contract.kind,
+                value_type=contract.value_type,
+                definition=contract.definition,
+                source_kind=source_kind,
+            )
+            refs[_ref_id(workflow_name, source_kind, name)] = SemanticRefEntry(
+                ref_id=_ref_id(workflow_name, source_kind, name),
+                workflow_name=workflow_name,
+                ref_kind=f"workflow_{source_kind}",
+                subject_name=name,
+                contract_id=contract_id,
+            )
+
+    grouped_nodes = _statement_node_groups(runtime_plan)
+    for step in _iter_surface_steps(surface):
+        statement_id = _statement_id(workflow_name, step.step_id)
+        statement_order.append(statement_id)
+        statement_node_ids = tuple(grouped_nodes.get(step.step_id, ()))
+        statement_presentation_keys = tuple(
+            _dedupe(
+                runtime_plan.nodes[node_id].presentation_key
+                for node_id in statement_node_ids
+                if node_id in runtime_plan.nodes
+            )
+        )
+        statement_effect_ids: list[str] = []
+        statement_ref_id = _ref_id(workflow_name, "statement", step.step_id)
+        refs[statement_ref_id] = SemanticRefEntry(
+            ref_id=statement_ref_id,
+            workflow_name=workflow_name,
+            ref_kind="statement",
+            subject_name=step.step_id,
+            statement_id=statement_id,
+            target=step.kind.value,
+        )
+
+        if step.kind is SurfaceStepKind.CALL:
+            edge_id = _call_edge_id(workflow_name, step.step_id)
+            imported = imports.get(step.call_alias or "")
+            imported_metadata = surface.imports.get(step.call_alias or "")
+            call_edges[edge_id] = SemanticCallEdge(
+                edge_id=edge_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                call_alias=step.call_alias or "",
+                target_workflow_name=(
+                    imported.surface.name
+                    if imported is not None
+                    else (
+                        imported_metadata.workflow_name
+                        if imported_metadata is not None
+                        else step.call_alias
+                    )
+                ),
+            )
+            effect_id = _effect_id(workflow_name, step.step_id, "workflow_call")
+            effects[effect_id] = SemanticEffectEntry(
+                effect_id=effect_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                effect_kind="workflow_call",
+                call_target=step.call_alias,
+            )
+            statement_effect_ids.append(effect_id)
+
+        if step.kind is SurfaceStepKind.PROVIDER:
+            prompt_surface_id = _prompt_surface_id(workflow_name, step.step_id)
+            prompt_surfaces[prompt_surface_id] = SemanticPromptSurface(
+                prompt_surface_id=prompt_surface_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                provider_name=step.provider,
+                input_file=step.input_file,
+                asset_file=step.asset_file,
+                prompt_consumes=step.prompt_consumes or (),
+                inject_output_contract=step.inject_output_contract,
+                inject_consumes=step.inject_consumes,
+            )
+            effect_id = _effect_id(workflow_name, step.step_id, "provider_call")
+            effects[effect_id] = SemanticEffectEntry(
+                effect_id=effect_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                effect_kind="provider_call",
+                output_validation_surface=_output_validation_surface(step),
+            )
+            statement_effect_ids.append(effect_id)
+
+        if step.kind is SurfaceStepKind.COMMAND:
+            boundary_kind, boundary_name = _command_boundary_identity(
+                step,
+                grouped_nodes.get(step.step_id, ()),
+                runtime_plan,
+            )
+            boundary_id = _command_boundary_id(workflow_name, step.step_id)
+            command_boundaries[boundary_id] = SemanticCommandBoundary(
+                boundary_id=boundary_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                step_id=step.step_id,
+                boundary_kind=boundary_kind,
+                boundary_name=boundary_name,
+                output_validation_surface=_output_validation_surface(step),
+            )
+            effect_id = _effect_id(workflow_name, step.step_id, "command_call")
+            effects[effect_id] = SemanticEffectEntry(
+                effect_id=effect_id,
+                workflow_name=workflow_name,
+                statement_id=statement_id,
+                effect_kind="command_call",
+                boundary_kind=boundary_kind,
+                boundary_name=boundary_name,
+                output_validation_surface=_output_validation_surface(step),
+            )
+            statement_effect_ids.append(effect_id)
+
+        if step.common.requires_variant is not None or step.common.variant_output is not None:
+            proof_id = _proof_id(workflow_name, step.step_id)
+            proofs[proof_id] = SemanticProofEntry(
+                proof_id=proof_id,
+                workflow_name=workflow_name,
+                proof_kind="variant_surface",
+                statement_id=statement_id,
+                details=MappingProxyType(
+                    {
+                        "requires_variant": step.common.requires_variant,
+                        "variant_output": step.common.variant_output,
+                    }
+                ),
+            )
+
+        statements[statement_id] = SemanticStatement(
+            statement_id=statement_id,
+            workflow_name=workflow_name,
+            step_id=step.step_id,
+            step_name=step.name,
+            step_kind=step.kind.value,
+            executable_node_ids=statement_node_ids,
+            presentation_keys=statement_presentation_keys,
+            ref_ids=(statement_ref_id,),
+            effect_ids=tuple(statement_effect_ids),
+        )
+
+    for alias, metadata in sorted(surface.imports.items()):
+        ref_id = _ref_id(workflow_name, "import", alias)
+        refs[ref_id] = SemanticRefEntry(
+            ref_id=ref_id,
+            workflow_name=workflow_name,
+            ref_kind="import_alias",
+            subject_name=alias,
+            target=metadata.workflow_name or str(metadata.workflow_path),
+        )
+
+    publication_ref_ids: list[str] = []
+    for artifact_plan in runtime_plan.artifacts:
+        step_id = runtime_plan.nodes.get(artifact_plan.source_node_id).step_id if artifact_plan.source_node_id in runtime_plan.nodes else None
+        statement_id = _statement_id(workflow_name, step_id) if isinstance(step_id, str) else None
+        ref_id = _ref_id(workflow_name, "publication", artifact_plan.plan_key)
+        refs[ref_id] = SemanticRefEntry(
+            ref_id=ref_id,
+            workflow_name=workflow_name,
+            ref_kind="publication_plan",
+            subject_name=artifact_plan.contract_name,
+            contract_id=(
+                _contract_id(workflow_name, "artifact", artifact_plan.contract_name)
+                if artifact_plan.contract_name in surface.artifacts
+                else None
+            ),
+            statement_id=statement_id,
+            target=artifact_plan.publication_mode,
+        )
+        publication_ref_ids.append(ref_id)
+
+    for node_id, node in sorted(runtime_plan.nodes.items()):
+        state_layout[_state_layout_id(workflow_name, "presentation", node_id)] = SemanticStateLayoutEntry(
+            layout_id=_state_layout_id(workflow_name, "presentation", node_id),
+            workflow_name=workflow_name,
+            layout_kind="presentation_key",
+            node_id=node_id,
+            presentation_key=node.presentation_key,
+            details=MappingProxyType({"region": node.region, "kind": node.kind}),
+        )
+    for checkpoint in runtime_plan.resume_checkpoints:
+        checkpoint_layout_id = _resume_checkpoint_id(workflow_name, checkpoint)
+        state_layout[checkpoint_layout_id] = SemanticStateLayoutEntry(
+            layout_id=checkpoint_layout_id,
+            workflow_name=workflow_name,
+            layout_kind="resume_checkpoint",
+            node_id=checkpoint.node_id,
+            presentation_key=checkpoint.presentation_key,
+            details=MappingProxyType({"checkpoint_kind": checkpoint.checkpoint_kind}),
+        )
+    for input_name in provenance.managed_write_root_inputs:
+        state_layout[_state_layout_id(workflow_name, "managed_write_root_input", input_name)] = SemanticStateLayoutEntry(
+            layout_id=_state_layout_id(workflow_name, "managed_write_root_input", input_name),
+            workflow_name=workflow_name,
+            layout_kind="managed_write_root_input",
+            details=MappingProxyType({"input_name": input_name}),
+        )
+
+    if provenance.frontend_source_map_coverage is not None:
+        for key, value in sorted(provenance.frontend_source_map_coverage.items()):
+            source_map[_source_map_id(workflow_name, "coverage", key)] = SemanticSourceMapBridgeEntry(
+                bridge_id=_source_map_id(workflow_name, "coverage", key),
+                workflow_name=workflow_name,
+                bridge_kind="coverage",
+                origin_key=key,
+                coverage=value,
+            )
+    if isinstance(provenance.frontend_source_trace_path, Path) and provenance.frontend_source_trace_path.exists():
+        source_map.update(_load_frontend_source_map_bridges(workflow_name, provenance.frontend_source_trace_path))
+
+    semantic_ir = SemanticWorkflowIR(
+        schema_version=WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION,
+        workflows=MappingProxyType(
+            {
+                workflow_name: SemanticWorkflow(
+                    workflow_name=workflow_name,
+                    input_contract_ids=MappingProxyType({
+                        name: _contract_id(workflow_name, "input", name)
+                        for name in sorted(surface.inputs)
+                    }),
+                    output_contract_ids=MappingProxyType({
+                        name: _contract_id(workflow_name, "output", name)
+                        for name in sorted(surface.outputs)
+                    }),
+                    artifact_contract_ids=MappingProxyType({
+                        name: _contract_id(workflow_name, "artifact", name)
+                        for name in sorted(surface.artifacts)
+                    }),
+                    authored_statement_ids=tuple(statement_order),
+                    statements=MappingProxyType(statements),
+                    call_edge_ids=tuple(sorted(call_edges)),
+                    prompt_surface_ids=tuple(sorted(prompt_surfaces)),
+                    command_boundary_ids=tuple(sorted(command_boundaries)),
+                    publication_ref_ids=tuple(publication_ref_ids),
+                    executable_bridge=workflow_bridge,
+                )
+            }
+        ),
+        types=MappingProxyType(types),
+        contracts=MappingProxyType(contracts),
+        refs=MappingProxyType(refs),
+        effects=MappingProxyType(effects),
+        proofs=MappingProxyType(proofs),
+        state_layout=MappingProxyType(state_layout),
+        source_map=MappingProxyType(source_map),
+        call_edges=MappingProxyType(call_edges),
+        prompt_surfaces=MappingProxyType(prompt_surfaces),
+        command_boundaries=MappingProxyType(command_boundaries),
+    )
+    validate_workflow_semantic_ir(
+        semantic_ir,
+        ir=ir,
+        projection=projection,
+        runtime_plan=runtime_plan,
+    )
+    return semantic_ir
+
+
+def validate_workflow_semantic_ir(
+    semantic_ir: SemanticWorkflowIR,
+    *,
+    ir: ExecutableWorkflow,
+    projection: WorkflowStateProjection,
+    runtime_plan: WorkflowRuntimePlan,
+) -> None:
+    workflow_name = ir.name or ""
+    workflow = semantic_ir.workflows.get(workflow_name)
+
+    if semantic_ir.schema_version != WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: unsupported semantic IR schema `{semantic_ir.schema_version}`",
+            workflow_name=workflow_name,
+        )
+    if workflow is None:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: missing workflow entry `{workflow_name}`",
+            workflow_name=workflow_name,
+            subject_refs=(ValidationSubjectRef(subject_kind="workflow", subject_name=workflow_name),),
+        )
+
+    if len(set(workflow.authored_statement_ids)) != len(workflow.authored_statement_ids):
+        _raise_semantic_ir_invalid(
+            "semantic_ir_invalid: authored statement ids must be unique",
+            workflow_name=workflow_name,
+        )
+    if set(workflow.statements) != set(workflow.authored_statement_ids):
+        _raise_semantic_ir_invalid(
+            "semantic_ir_invalid: workflow statement catalog must exactly match authored statement ids",
+            workflow_name=workflow_name,
+        )
+    for edge_id in workflow.call_edge_ids:
+        if edge_id not in semantic_ir.call_edges:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: missing call-edge catalog entry `{edge_id}`",
+                workflow_name=workflow_name,
+            )
+    for prompt_surface_id in workflow.prompt_surface_ids:
+        if prompt_surface_id not in semantic_ir.prompt_surfaces:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: missing prompt-surface catalog entry `{prompt_surface_id}`",
+                workflow_name=workflow_name,
+            )
+    for command_boundary_id in workflow.command_boundary_ids:
+        if command_boundary_id not in semantic_ir.command_boundaries:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: missing command-boundary catalog entry `{command_boundary_id}`",
+                workflow_name=workflow_name,
+            )
+    for publication_ref_id in workflow.publication_ref_ids:
+        publication_ref = semantic_ir.refs.get(publication_ref_id)
+        if publication_ref is None or publication_ref.ref_kind != "publication_plan":
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: missing publication-plan ref `{publication_ref_id}`",
+                workflow_name=workflow_name,
+            )
+    for input_name, contract_id in workflow.input_contract_ids.items():
+        _validate_workflow_contract_binding(
+            semantic_ir,
+            workflow_name=workflow_name,
+            subject_name=input_name,
+            subject_kind="input",
+            contract_id=contract_id,
+        )
+    for output_name, contract_id in workflow.output_contract_ids.items():
+        _validate_workflow_contract_binding(
+            semantic_ir,
+            workflow_name=workflow_name,
+            subject_name=output_name,
+            subject_kind="output",
+            contract_id=contract_id,
+        )
+    for artifact_name, contract_id in workflow.artifact_contract_ids.items():
+        _validate_workflow_contract_binding(
+            semantic_ir,
+            workflow_name=workflow_name,
+            subject_name=artifact_name,
+            subject_kind="artifact",
+            contract_id=contract_id,
+        )
+
+    expected_node_ids = set(ir.nodes)
+    actual_node_ids = set(workflow.executable_bridge.node_ids)
+    if actual_node_ids != expected_node_ids:
+        missing_node_id = next(iter(sorted(expected_node_ids - actual_node_ids)), None)
+        _raise_semantic_ir_invalid(
+            "semantic_ir_invalid: executable bridge must cover every executable node id exactly once",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_node(workflow_name, missing_node_id, runtime_plan),
+        )
+
+    expected_presentation_keys = {node.presentation_key for node in runtime_plan.nodes.values()}
+    actual_presentation_keys = set(workflow.executable_bridge.presentation_keys)
+    if actual_presentation_keys != expected_presentation_keys:
+        missing_key = next(iter(sorted(expected_presentation_keys - actual_presentation_keys)), None)
+        _raise_semantic_ir_invalid(
+            "semantic_ir_invalid: executable bridge must cover every runtime presentation key exactly once",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_presentation_key(workflow_name, missing_key, projection),
+        )
+    expected_checkpoints = {
+        _resume_checkpoint_id(workflow_name, checkpoint): checkpoint
+        for checkpoint in runtime_plan.resume_checkpoints
+    }
+    actual_checkpoint_ids = tuple(workflow.executable_bridge.resume_checkpoint_ids)
+    if len(actual_checkpoint_ids) != len(expected_checkpoints) or set(actual_checkpoint_ids) != set(expected_checkpoints):
+        unexpected_checkpoint_id = next(iter(sorted(set(actual_checkpoint_ids) - set(expected_checkpoints))), None)
+        missing_checkpoint_id = next(iter(sorted(set(expected_checkpoints) - set(actual_checkpoint_ids))), None)
+        checkpoint_id = unexpected_checkpoint_id or missing_checkpoint_id
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: executable bridge references unknown resume checkpoint `{checkpoint_id}`",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_checkpoint_id(
+                workflow_name,
+                expected_checkpoints,
+                missing_checkpoint_id,
+                projection,
+                runtime_plan,
+            ),
+        )
+
+    for statement in workflow.statements.values():
+        unknown_nodes = [node_id for node_id in statement.executable_node_ids if node_id not in expected_node_ids]
+        if unknown_nodes:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: statement `{statement.step_id}` references unknown executable node `{unknown_nodes[0]}`",
+                workflow_name=workflow_name,
+                subject_refs=(
+                    ValidationSubjectRef(
+                        subject_kind="step_id",
+                        subject_name=statement.step_id,
+                        workflow_name=workflow_name,
+                    ),
+                ),
+            )
+        if any(node_id not in workflow.executable_bridge.node_ids for node_id in statement.executable_node_ids):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: statement `{statement.step_id}` references an executable node outside the workflow bridge",
+                workflow_name=workflow_name,
+                subject_refs=(
+                    ValidationSubjectRef(
+                        subject_kind="step_id",
+                        subject_name=statement.step_id,
+                        workflow_name=workflow_name,
+                    ),
+                ),
+            )
+        for ref_id in statement.ref_ids:
+            ref = semantic_ir.refs.get(ref_id)
+            if ref is None:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: statement `{statement.step_id}` references missing ref `{ref_id}`",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement(workflow_name, statement),
+                )
+        for effect_id in statement.effect_ids:
+            effect = semantic_ir.effects.get(effect_id)
+            if effect is None:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: statement `{statement.step_id}` references missing effect `{effect_id}`",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement(workflow_name, statement),
+                )
+            if effect.statement_id != statement.statement_id:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: effect `{effect_id}` is bound to the wrong statement",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement(workflow_name, statement),
+                )
+
+    for effect in semantic_ir.effects.values():
+        if effect.statement_id not in workflow.statements:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: effect `{effect.effect_id}` references unknown statement `{effect.statement_id}`",
+                workflow_name=workflow_name,
+            )
+        for ref_id in effect.ref_ids:
+            ref = semantic_ir.refs.get(ref_id)
+            if ref is None:
+                step_id = workflow.statements[effect.statement_id].step_id
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: effect `{effect.effect_id}` references missing ref `{ref_id}`",
+                    workflow_name=workflow_name,
+                    subject_refs=(
+                        ValidationSubjectRef(
+                            subject_kind="step_id",
+                            subject_name=step_id,
+                            workflow_name=workflow_name,
+                        ),
+                    ),
+                )
+
+        if effect.boundary_kind == "certified_adapter" and not effect.boundary_name:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: certified adapter effect `{effect.effect_id}` requires a declared adapter name",
+                workflow_name=workflow_name,
+                subject_refs=(
+                    ValidationSubjectRef(
+                        subject_kind="step_id",
+                        subject_name=workflow.statements[effect.statement_id].step_id,
+                        workflow_name=workflow_name,
+                    ),
+                ),
+            )
+
+    for proof in semantic_ir.proofs.values():
+        if proof.statement_id is not None and proof.statement_id not in workflow.statements:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: proof `{proof.proof_id}` references unknown statement `{proof.statement_id}`",
+                workflow_name=workflow_name,
+            )
+        for ref_id in proof.ref_ids:
+            ref = semantic_ir.refs.get(ref_id)
+            if ref is None:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: proof `{proof.proof_id}` references missing ref `{ref_id}`",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_statement_id(workflow_name, proof.statement_id, workflow),
+                )
+
+    state_layout_by_checkpoint = {
+        layout.layout_id: layout
+        for layout in semantic_ir.state_layout.values()
+        if layout.layout_kind == "resume_checkpoint"
+    }
+    if len(state_layout_by_checkpoint) != len(expected_checkpoints) or set(state_layout_by_checkpoint) != set(expected_checkpoints):
+        unexpected_checkpoint_id = next(iter(sorted(set(state_layout_by_checkpoint) - set(expected_checkpoints))), None)
+        missing_checkpoint_id = next(iter(sorted(set(expected_checkpoints) - set(state_layout_by_checkpoint))), None)
+        checkpoint_id = unexpected_checkpoint_id or missing_checkpoint_id
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: resume-checkpoint layout references unknown checkpoint `{checkpoint_id}`",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_layout_checkpoint(
+                workflow_name,
+                state_layout_by_checkpoint.get(unexpected_checkpoint_id),
+                missing_checkpoint_id,
+                expected_checkpoints,
+                projection,
+                runtime_plan,
+            ),
+        )
+    for layout in semantic_ir.state_layout.values():
+        if layout.layout_kind == "presentation_key":
+            if layout.node_id not in runtime_plan.nodes:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: presentation layout `{layout.layout_id}` references unknown node `{layout.node_id}`",
+                    workflow_name=workflow_name,
+                )
+            if layout.presentation_key != runtime_plan.nodes[layout.node_id].presentation_key:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: presentation layout `{layout.layout_id}` references inconsistent presentation key",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_node(workflow_name, layout.node_id, runtime_plan),
+                )
+        if layout.layout_kind == "resume_checkpoint":
+            expected_checkpoint = expected_checkpoints.get(layout.layout_id)
+            if expected_checkpoint is None:
+                continue
+            if layout.node_id != expected_checkpoint.node_id:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: resume-checkpoint layout `{layout.layout_id}` references inconsistent node `{layout.node_id}`",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_checkpoint_id(
+                        workflow_name,
+                        expected_checkpoints,
+                        layout.layout_id,
+                        projection,
+                        runtime_plan,
+                    ),
+                )
+            if layout.presentation_key != expected_checkpoint.presentation_key:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: resume-checkpoint layout `{layout.layout_id}` references inconsistent presentation key",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_checkpoint_id(
+                        workflow_name,
+                        expected_checkpoints,
+                        layout.layout_id,
+                        projection,
+                        runtime_plan,
+                    ),
+                )
+            checkpoint_kind = layout.details.get("checkpoint_kind") if isinstance(layout.details, Mapping) else None
+            if checkpoint_kind != expected_checkpoint.checkpoint_kind:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: resume-checkpoint layout `{layout.layout_id}` references inconsistent checkpoint kind",
+                    workflow_name=workflow_name,
+                    subject_refs=_subject_refs_for_checkpoint_id(
+                        workflow_name,
+                        expected_checkpoints,
+                        layout.layout_id,
+                        projection,
+                        runtime_plan,
+                    ),
+                )
+        if layout.layout_kind == "managed_write_root_input":
+            input_name = layout.details.get("input_name") if isinstance(layout.details, Mapping) else None
+            if not isinstance(input_name, str) or input_name not in workflow.input_contract_ids:
+                _raise_semantic_ir_invalid(
+                    f"semantic_ir_invalid: managed-write-root layout `{layout.layout_id}` references unknown input `{input_name}`",
+                    workflow_name=workflow_name,
+                )
+
+
+def workflow_semantic_ir_to_json(semantic_ir: SemanticWorkflowIR) -> dict[str, Any]:
+    return _json_value(semantic_ir)
+
+
+def _iter_surface_steps(surface: SurfaceWorkflow) -> tuple[SurfaceStep, ...]:
+    steps: list[SurfaceStep] = []
+
+    def visit(items: tuple[SurfaceStep, ...]) -> None:
+        for step in items:
+            steps.append(step)
+            if step.then_branch is not None:
+                visit(step.then_branch.steps)
+            if step.else_branch is not None:
+                visit(step.else_branch.steps)
+            for case in step.match_cases.values():
+                visit(case.steps)
+            if step.for_each_steps:
+                visit(step.for_each_steps)
+            if step.repeat_until is not None:
+                visit(step.repeat_until.steps)
+
+    visit(surface.steps)
+    if surface.finalization is not None:
+        visit(surface.finalization.steps)
+    return tuple(steps)
+
+
+def _statement_node_groups(runtime_plan: WorkflowRuntimePlan) -> Mapping[str, tuple[str, ...]]:
+    grouped: dict[str, list[str]] = {}
+    for node_id, node in runtime_plan.nodes.items():
+        grouped.setdefault(node.step_id, []).append(node_id)
+    order = {node_id: index for index, node_id in enumerate(runtime_plan.ordered_node_ids)}
+    return {
+        step_id: tuple(sorted(node_ids, key=lambda node_id: (order.get(node_id, len(order)), node_id)))
+        for step_id, node_ids in grouped.items()
+    }
+
+
+def _dedupe(values: Any) -> tuple[Any, ...]:
+    seen: list[Any] = []
+    for value in values:
+        if value not in seen:
+            seen.append(value)
+    return tuple(seen)
+
+
+def _command_boundary_identity(
+    step: SurfaceStep,
+    node_ids: tuple[str, ...],
+    runtime_plan: WorkflowRuntimePlan,
+) -> tuple[str, str | None]:
+    for node_id in node_ids:
+        node = runtime_plan.nodes.get(node_id)
+        if node is None:
+            continue
+        if node.command_boundary_kind:
+            return node.command_boundary_kind, node.command_boundary_name
+    return "external_tool", step.name
+
+
+def _output_validation_surface(step: SurfaceStep) -> str | None:
+    if step.common.variant_output is not None:
+        return "variant_output"
+    if step.common.output_bundle is not None:
+        return "output_bundle"
+    if step.common.expected_outputs:
+        return "expected_outputs"
+    return None
+
+
+def _load_frontend_source_map_bridges(
+    workflow_name: str,
+    source_map_path: Path,
+) -> dict[str, SemanticSourceMapBridgeEntry]:
+    try:
+        payload = json.loads(source_map_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+    workflows = payload.get("workflows")
+    if not isinstance(workflows, Mapping):
+        return {}
+    workflow_payload = workflows.get(workflow_name)
+    if not isinstance(workflow_payload, Mapping):
+        return {}
+    origin_keys = _source_map_origin_keys(workflow_payload)
+    supported_subject_keys = _supported_source_map_subject_keys(workflow_name, workflow_payload)
+    validation_subjects = workflow_payload.get("validation_subjects")
+    if not isinstance(validation_subjects, list):
+        return {}
+
+    bridges: dict[str, SemanticSourceMapBridgeEntry] = {}
+    for binding in validation_subjects:
+        if not isinstance(binding, Mapping):
+            continue
+        subject_ref = binding.get("subject_ref")
+        origin_key = binding.get("origin_key")
+        if not isinstance(subject_ref, Mapping):
+            continue
+        subject_kind = subject_ref.get("subject_kind")
+        subject_name = subject_ref.get("subject_name")
+        if not isinstance(subject_kind, str) or not isinstance(subject_name, str):
+            continue
+        ref = ValidationSubjectRef(
+            subject_kind=subject_kind,
+            subject_name=subject_name,
+            workflow_name=subject_ref.get("workflow_name")
+            if isinstance(subject_ref.get("workflow_name"), str)
+            else workflow_name,
+        )
+        if not isinstance(origin_key, str) or origin_key not in origin_keys:
+            _raise_semantic_ir_invalid(
+                "semantic_ir_invalid: source-map validation subject does not resolve to a declared source-map origin",
+                workflow_name=workflow_name,
+                subject_refs=(ref,),
+            )
+        if _validation_subject_key(ref, workflow_name) not in supported_subject_keys:
+            _raise_semantic_ir_invalid(
+                (
+                    "semantic_ir_invalid: source-map validation subject "
+                    f"`{subject_kind}:{subject_name}` references unsupported source-map subject"
+                ),
+                workflow_name=workflow_name,
+                subject_refs=(ref,),
+            )
+        bridge_id = _source_map_id(workflow_name, subject_kind, subject_name)
+        bridges[bridge_id] = SemanticSourceMapBridgeEntry(
+            bridge_id=bridge_id,
+            workflow_name=workflow_name,
+            bridge_kind="validation_subject",
+            subject_ref=ref,
+            origin_key=origin_key,
+        )
+    return bridges
+
+
+def _subject_refs_for_node(
+    workflow_name: str,
+    node_id: str | None,
+    runtime_plan: WorkflowRuntimePlan,
+) -> tuple[ValidationSubjectRef, ...]:
+    if node_id is None:
+        return ()
+    node = runtime_plan.nodes.get(node_id)
+    if node is None:
+        return ()
+    return (
+        ValidationSubjectRef(
+            subject_kind="step_id",
+            subject_name=node.step_id,
+            workflow_name=workflow_name,
+        ),
+    )
+
+
+def _subject_refs_for_presentation_key(
+    workflow_name: str,
+    presentation_key: str | None,
+    projection: WorkflowStateProjection,
+) -> tuple[ValidationSubjectRef, ...]:
+    if presentation_key is None:
+        return ()
+    for node_id, key in projection.presentation_key_by_node_id.items():
+        if key != presentation_key:
+            continue
+        entry = projection.entries_by_node_id.get(node_id)
+        if entry is None:
+            break
+        return (
+            ValidationSubjectRef(
+                subject_kind="step_id",
+                subject_name=entry.step_id,
+                workflow_name=workflow_name,
+            ),
+        )
+    return ()
+
+
+def _validate_workflow_contract_binding(
+    semantic_ir: SemanticWorkflowIR,
+    *,
+    workflow_name: str,
+    subject_name: str,
+    subject_kind: str,
+    contract_id: str,
+) -> None:
+    contract = semantic_ir.contracts.get(contract_id)
+    if contract is None or contract.source_kind != subject_kind:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: {subject_kind} contract `{subject_name}` references missing contract `{contract_id}`",
+            workflow_name=workflow_name,
+            subject_refs=(
+                ValidationSubjectRef(
+                    subject_kind="workflow",
+                    subject_name=workflow_name,
+                    workflow_name=workflow_name,
+                ),
+            ),
+        )
+    if contract.type_id not in semantic_ir.types:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: contract `{contract_id}` references missing type `{contract.type_id}`",
+            workflow_name=workflow_name,
+        )
+
+
+def _subject_refs_for_statement(
+    workflow_name: str,
+    statement: SemanticStatement,
+) -> tuple[ValidationSubjectRef, ...]:
+    return (
+        ValidationSubjectRef(
+            subject_kind="step_id",
+            subject_name=statement.step_id,
+            workflow_name=workflow_name,
+        ),
+    )
+
+
+def _subject_refs_for_statement_id(
+    workflow_name: str,
+    statement_id: str | None,
+    workflow: SemanticWorkflow,
+) -> tuple[ValidationSubjectRef, ...]:
+    if not isinstance(statement_id, str):
+        return ()
+    statement = workflow.statements.get(statement_id)
+    if statement is None:
+        return ()
+    return _subject_refs_for_statement(workflow_name, statement)
+
+
+def _subject_refs_for_layout_checkpoint(
+    workflow_name: str,
+    layout: SemanticStateLayoutEntry | None,
+    missing_checkpoint_id: str | None,
+    expected_checkpoints: Mapping[str, RuntimeResumeCheckpoint],
+    projection: WorkflowStateProjection,
+    runtime_plan: WorkflowRuntimePlan,
+) -> tuple[ValidationSubjectRef, ...]:
+    if layout is not None and isinstance(layout.presentation_key, str):
+        subject_refs = _subject_refs_for_presentation_key(
+            workflow_name,
+            layout.presentation_key,
+            projection,
+        )
+        if subject_refs:
+            return subject_refs
+    return _subject_refs_for_checkpoint_id(
+        workflow_name,
+        expected_checkpoints,
+        missing_checkpoint_id,
+        projection,
+        runtime_plan,
+    )
+
+
+def _subject_refs_for_checkpoint_id(
+    workflow_name: str,
+    expected_checkpoints: Mapping[str, RuntimeResumeCheckpoint],
+    checkpoint_id: str | None,
+    projection: WorkflowStateProjection,
+    runtime_plan: WorkflowRuntimePlan,
+) -> tuple[ValidationSubjectRef, ...]:
+    if not isinstance(checkpoint_id, str):
+        return ()
+    checkpoint = expected_checkpoints.get(checkpoint_id)
+    if checkpoint is not None:
+        subject_refs = _subject_refs_for_presentation_key(
+            workflow_name,
+            checkpoint.presentation_key,
+            projection,
+        )
+        if subject_refs:
+            return subject_refs
+        return _subject_refs_for_node(workflow_name, checkpoint.node_id, runtime_plan)
+    return ()
+
+
+def _source_map_origin_keys(workflow_payload: Mapping[str, Any]) -> set[str]:
+    origin_keys: set[str] = set()
+    workflow_origin = workflow_payload.get("workflow_origin")
+    if isinstance(workflow_origin, Mapping):
+        origin_key = workflow_origin.get("origin_key")
+        if isinstance(origin_key, str):
+            origin_keys.add(origin_key)
+    for section_name in (
+        "step_ids",
+        "generated_inputs",
+        "generated_outputs",
+        "generated_paths",
+        "generated_internal_inputs",
+    ):
+        section = workflow_payload.get(section_name)
+        if not isinstance(section, Mapping):
+            continue
+        for entry in section.values():
+            if not isinstance(entry, Mapping):
+                continue
+            origin_key = entry.get("origin_key")
+            if isinstance(origin_key, str):
+                origin_keys.add(origin_key)
+    return origin_keys
+
+
+def _supported_source_map_subject_keys(
+    workflow_name: str,
+    workflow_payload: Mapping[str, Any],
+) -> set[tuple[str, str, str]]:
+    supported = {("workflow", workflow_name, workflow_name)}
+    supported.update(
+        ("step_id", name, workflow_name)
+        for name in _mapping_string_keys(workflow_payload.get("step_ids"))
+    )
+    supported.update(
+        ("generated_input", name, workflow_name)
+        for name in _mapping_string_keys(workflow_payload.get("generated_inputs"))
+    )
+    supported.update(
+        ("generated_input", name, workflow_name)
+        for name in _mapping_string_keys(workflow_payload.get("generated_internal_inputs"))
+    )
+    supported.update(
+        ("generated_output", name, workflow_name)
+        for name in _mapping_string_keys(workflow_payload.get("generated_outputs"))
+    )
+    supported.update(
+        ("generated_path", name, workflow_name)
+        for name in _mapping_string_keys(workflow_payload.get("generated_paths"))
+    )
+    return supported
+
+
+def _mapping_string_keys(value: Any) -> tuple[str, ...]:
+    if not isinstance(value, Mapping):
+        return ()
+    return tuple(key for key in value if isinstance(key, str))
+
+
+def _validation_subject_key(
+    subject_ref: ValidationSubjectRef,
+    workflow_name: str,
+) -> tuple[str, str, str]:
+    return (
+        subject_ref.subject_kind,
+        subject_ref.subject_name,
+        subject_ref.workflow_name or workflow_name,
+    )
+
+
+def _raise_semantic_ir_invalid(
+    message: str,
+    *,
+    workflow_name: str,
+    subject_refs: tuple[ValidationSubjectRef, ...] = (),
+) -> None:
+    raise WorkflowValidationError(
+        [
+            ValidationError(
+                message=message,
+                subject_refs=subject_refs or (
+                    ValidationSubjectRef(
+                        subject_kind="workflow",
+                        subject_name=workflow_name,
+                        workflow_name=workflow_name or None,
+                    ),
+                ),
+            )
+        ]
+    )
+
+
+def _json_value(value: Any) -> Any:
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if isinstance(value, Path):
+        return str(value)
+    if isinstance(value, Mapping):
+        return {str(key): _json_value(item) for key, item in value.items()}
+    if isinstance(value, tuple):
+        return [_json_value(item) for item in value]
+    if isinstance(value, list):
+        return [_json_value(item) for item in value]
+    if is_dataclass(value):
+        return {field.name: _json_value(getattr(value, field.name)) for field in fields(value)}
+    return value
+
+
+def _statement_id(workflow_name: str, step_id: str) -> str:
+    return f"statement:{workflow_name}:{step_id}"
+
+
+def _type_id(workflow_name: str, source_kind: str, name: str) -> str:
+    return f"type:{workflow_name}:{source_kind}:{name}"
+
+
+def _contract_id(workflow_name: str, source_kind: str, name: str) -> str:
+    return f"contract:{workflow_name}:{source_kind}:{name}"
+
+
+def _ref_id(workflow_name: str, ref_kind: str, name: str) -> str:
+    return f"ref:{workflow_name}:{ref_kind}:{name}"
+
+
+def _effect_id(workflow_name: str, step_id: str, effect_kind: str) -> str:
+    return f"effect:{workflow_name}:{step_id}:{effect_kind}"
+
+
+def _proof_id(workflow_name: str, step_id: str) -> str:
+    return f"proof:{workflow_name}:{step_id}"
+
+
+def _state_layout_id(workflow_name: str, layout_kind: str, name: str) -> str:
+    return f"state:{workflow_name}:{layout_kind}:{name}"
+
+
+def _resume_checkpoint_id(
+    workflow_name: str,
+    checkpoint: RuntimeResumeCheckpoint,
+) -> str:
+    parts = [
+        checkpoint.checkpoint_kind,
+        checkpoint.node_id,
+        checkpoint.runtime_step_id_mode,
+    ]
+    if checkpoint.iteration_owner_node_id is not None:
+        parts.append(checkpoint.iteration_owner_node_id)
+    if checkpoint.iteration_step_id_suffix is not None:
+        parts.append(checkpoint.iteration_step_id_suffix)
+    return _state_layout_id(
+        workflow_name,
+        "checkpoint",
+        "::".join(parts),
+    )
+
+
+def _source_map_id(workflow_name: str, bridge_kind: str, name: str) -> str:
+    return f"source_map:{workflow_name}:{bridge_kind}:{name}"
+
+
+def _call_edge_id(workflow_name: str, step_id: str) -> str:
+    return f"call:{workflow_name}:{step_id}"
+
+
+def _prompt_surface_id(workflow_name: str, step_id: str) -> str:
+    return f"prompt:{workflow_name}:{step_id}"
+
+
+def _command_boundary_id(workflow_name: str, step_id: str) -> str:
+    return f"command:{workflow_name}:{step_id}"

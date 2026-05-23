@@ -75,7 +75,7 @@ def explain_workflow(args: Namespace) -> int:
     print(f"Form: {form_name}")
     print(f"Entry workflow: {result.selected_workflow_name}")
     print(f"Build root: {result.build_root}")
-    print("Deferred artifacts: core_workflow_ast, semantic_ir")
+    print("Deferred artifacts: core_workflow_ast")
     print("")
     imported_payload = selection.get("imported_target")
     if imported_payload is not None:
@@ -93,6 +93,9 @@ def explain_workflow(args: Namespace) -> int:
     print("")
     print("Executable nodes:")
     print(json.dumps(selection["executable_payload"], indent=2, sort_keys=True))
+    print("")
+    print("Semantic IR:")
+    print(json.dumps(selection["semantic_ir_payload"], indent=2, sort_keys=True))
     print("")
     print("Source trace:")
     print(json.dumps(selection["source_trace_payload"], indent=2, sort_keys=True))
@@ -201,6 +204,7 @@ def _select_local_explain_workflow(
                 }
             }
         },
+        "semantic_ir_payload": _semantic_ir_payload(bundle, workflow_name),
         "source_trace_payload": {
             "workflows": {
                 display_name: {
@@ -302,6 +306,16 @@ def _select_local_explain_procedure(
                 for workflow_name, workflow in sorted(related_workflows.items())
             }
         },
+        "semantic_ir_payload": {
+            "schema_version": "workflow_semantic_ir.v1",
+            "workflows": {
+                workflow_name: _semantic_ir_payload(
+                    workflow["bundle"],
+                    workflow_name,
+                )["workflow"]
+                for workflow_name, workflow in sorted(related_workflows.items())
+            },
+        },
         "source_trace_payload": {
             "workflows": {
                 workflow_name: {
@@ -393,6 +407,7 @@ def _collect_procedure_related_workflows(
                 origins.append(workflow_origin)
 
             related_workflows[workflow_name] = {
+                "bundle": bundle,
                 "display_name": display_name,
                 "generated_inputs": {
                     name: _origin_payload(origin)
@@ -512,6 +527,10 @@ def _select_imported_explain_target(
                 for call_site in call_sites
             ]
         },
+        "semantic_ir_payload": _semantic_ir_payload(
+            binding.bundle,
+            binding.workflow_name or binding.bundle.surface.name or "",
+        ),
         "source_trace_payload": {
             "call_sites": [
                 {
@@ -596,6 +615,28 @@ def _workflow_executable_node_ids(bundle: object) -> list[str]:
     if bundle is None:
         return []
     return list((*bundle.ir.body_region, *bundle.ir.finalization_region))
+
+
+def _semantic_ir_payload(bundle: object | None, workflow_name: str) -> dict[str, object]:
+    if bundle is None:
+        return {
+            "schema_version": None,
+            "workflow_name": workflow_name,
+            "workflow": None,
+        }
+    semantic_ir = getattr(bundle, "semantic_ir", None)
+    if semantic_ir is None:
+        return {
+            "schema_version": None,
+            "workflow_name": workflow_name,
+            "workflow": None,
+        }
+    workflow = semantic_ir.workflows.get(workflow_name)
+    return {
+        "schema_version": semantic_ir.schema_version,
+        "workflow_name": workflow_name,
+        "workflow": _json_data(workflow),
+    }
 
 
 def _collect_expansion_frames(origins: Iterable[LoweringOrigin]) -> list[dict[str, object]]:

@@ -193,7 +193,7 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
                 "executable_ir": "covered",
                 "runtime_logs": "covered",
                 "core_workflow_ast": "deferred_shared_contract",
-                "semantic_ir": "deferred_shared_contract",
+                "semantic_ir": "covered",
             },
         ),
     )
@@ -211,7 +211,7 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
             "executable_ir": "covered",
             "runtime_logs": "covered",
             "core_workflow_ast": "deferred_shared_contract",
-            "semantic_ir": "deferred_shared_contract",
+            "semantic_ir": "covered",
         },
     }
 
@@ -229,7 +229,7 @@ def test_compiled_frontend_source_context_prefers_executable_node_lineage_over_s
                     "executable_ir": "covered",
                     "runtime_logs": "covered",
                     "core_workflow_ast": "deferred_shared_contract",
-                    "semantic_ir": "deferred_shared_contract",
+                    "semantic_ir": "covered",
                 },
                 "workflows": {
                     "pkg/entry::run": {
@@ -328,7 +328,7 @@ def test_compiled_frontend_source_context_logs_certified_adapter_metadata(tmp_pa
                     "executable_ir": "covered",
                     "runtime_logs": "covered",
                     "core_workflow_ast": "deferred_shared_contract",
-                    "semantic_ir": "deferred_shared_contract",
+                    "semantic_ir": "covered",
                 },
                 "workflows": {
                     "pkg/entry::run": {
@@ -462,7 +462,7 @@ def test_compiled_frontend_source_context_can_use_runtime_plan_command_hints(tmp
                     "executable_ir": "covered",
                     "runtime_logs": "covered",
                     "core_workflow_ast": "deferred_shared_contract",
-                    "semantic_ir": "deferred_shared_contract",
+                    "semantic_ir": "covered",
                 },
                 "workflows": {
                     "pkg/entry::run": {
@@ -577,7 +577,7 @@ def test_compiled_frontend_source_trace_payload_reads_sidecar_once(tmp_path: Pat
                     "executable_ir": "covered",
                     "runtime_logs": "covered",
                     "core_workflow_ast": "deferred_shared_contract",
-                    "semantic_ir": "deferred_shared_contract",
+                    "semantic_ir": "covered",
                 },
                 "workflows": {
                     "pkg/entry::run": {

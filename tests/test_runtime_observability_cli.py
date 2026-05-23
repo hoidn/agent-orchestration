@@ -211,7 +211,7 @@ def test_run_workflow_persists_compiled_frontend_provenance_for_orc_runs(tmp_pat
         "executable_ir": "covered",
         "runtime_logs": "covered",
         "core_workflow_ast": "deferred_shared_contract",
-        "semantic_ir": "deferred_shared_contract",
+        "semantic_ir": "covered",
     }
 
 

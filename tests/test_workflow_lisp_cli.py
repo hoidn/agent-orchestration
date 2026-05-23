@@ -408,6 +408,24 @@ def test_explain_workflow_selects_requested_form(
     assert '"workflow_name": "neurips/entry::orchestrate"' not in captured.out
 
 
+def test_explain_workflow_prints_semantic_ir_and_only_core_ast_as_deferred(
+    tmp_path: Path,
+    monkeypatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    result = explain_workflow(_orc_explain_args(form="orchestrate"))
+    captured = capsys.readouterr()
+
+    assert result == 0
+    assert "Deferred artifacts: core_workflow_ast" in captured.out
+    assert "Deferred artifacts: core_workflow_ast, semantic_ir" not in captured.out
+    assert "Semantic IR:" in captured.out
+    assert '"schema_version": "workflow_semantic_ir.v1"' in captured.out
+    assert '"workflow_name": "neurips/entry::orchestrate"' in captured.out
+
+
 def test_explain_workflow_supports_imported_call_targets(
     tmp_path: Path,
     monkeypatch,

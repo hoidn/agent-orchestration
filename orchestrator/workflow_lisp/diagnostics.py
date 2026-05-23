@@ -21,6 +21,7 @@ _VALIDATION_PASS_TO_PHASE = {
     "lowering_surface": "lowering",
     "source_map": "source_map",
     "shared_validation": "shared_validation",
+    "semantic_ir": "semantic_ir",
     "executable": "executable",
 }
 _VALIDATION_PASS_ORDER = (
@@ -36,6 +37,7 @@ _VALIDATION_PASS_ORDER = (
     "lowering_surface",
     "source_map",
     "shared_validation",
+    "semantic_ir",
     "executable",
 )
 _VALIDATION_PASS_ORDER_INDEX = {
@@ -49,6 +51,7 @@ _PHASE_TO_VALIDATION_PASS = {
     "lowering": "lowering_surface",
     "source_map": "source_map",
     "shared_validation": "shared_validation",
+    "semantic_ir": "semantic_ir",
     "executable": "executable",
 }
 _SHARED_VALIDATION_CODES = frozenset(
@@ -69,6 +72,7 @@ _SHARED_VALIDATION_CODES = frozenset(
         "variant_unavailable",
         "atomic_commit_failed",
         "bundle_commit_aborted_invalid_candidate",
+        "semantic_ir_invalid",
     }
 )
 _AUTHORITY_CODES = frozenset(
@@ -288,9 +292,12 @@ def with_diagnostic_metadata(
         resolved_phase = _VALIDATION_PASS_TO_PHASE.get(resolved_pass, resolved_phase or _infer_phase(diagnostic.code))
     resolved_authority_layer = authority_layer or diagnostic.authority_layer
     if resolved_authority_layer is None:
-        resolved_authority_layer = (
-            "shared_validation" if resolved_pass == "shared_validation" else "frontend"
-        )
+        if resolved_pass == "shared_validation":
+            resolved_authority_layer = "shared_validation"
+        elif resolved_pass == "semantic_ir":
+            resolved_authority_layer = "shared"
+        else:
+            resolved_authority_layer = "frontend"
     return replace(
         diagnostic,
         phase=resolved_phase,
@@ -303,6 +310,8 @@ def _infer_validation_pass(code: str, phase: str | None) -> str:
     if phase == "cli_request":
         return "module"
     if code in _SHARED_VALIDATION_CODES:
+        if code == "semantic_ir_invalid":
+            return "semantic_ir"
         return "shared_validation"
     if code.startswith("source_map_") or code in _SOURCE_MAP_CODES:
         return "source_map"

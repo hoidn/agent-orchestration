@@ -4279,6 +4279,29 @@ class TestLoaderValidation:
         assert provenance.workflow_path == path.resolve()
         assert provenance.source_root == path.parent.resolve()
 
+    def test_load_returns_typed_bundle_with_semantic_ir(self):
+        loaded_bundle_module = __import__(
+            "orchestrator.workflow.loaded_bundle",
+            fromlist=["workflow_semantic_ir"],
+        )
+        workflow = {
+            "version": "2.7",
+            "name": "typed-semantic-ir",
+            "steps": [{
+                "name": "Echo",
+                "id": "echo",
+                "command": ["echo", "ok"],
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        semantic_ir = loaded_bundle_module.workflow_semantic_ir(loaded)
+
+        assert semantic_ir is not None
+        assert semantic_ir.schema_version == "workflow_semantic_ir.v1"
+        assert semantic_ir.workflows["typed-semantic-ir"].workflow_name == "typed-semantic-ir"
+
     def test_load_bundle_surface_ast_exposes_no_raw_payloads(self):
         """Typed surface AST records should not retain authored raw payload copies."""
         workflow = {
