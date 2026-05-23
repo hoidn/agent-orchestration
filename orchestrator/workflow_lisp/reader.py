@@ -39,6 +39,8 @@ class _Reader:
 
     def _read_expr(self) -> SExpr:
         current = self._peek()
+        if self.source.startswith("WorkflowRef[", self.index):
+            return self._read_workflow_ref_type_atom()
         if current == "(":
             return self._read_list()
         if current == '"':
@@ -60,6 +62,29 @@ class _Reader:
                 end=self._position(),
             )
         return self._read_atom()
+
+    def _read_workflow_ref_type_atom(self) -> SymbolAtom:
+        start = self._position()
+        token_chars: list[str] = []
+        bracket_depth = 0
+        while not self._at_end():
+            current = self._peek()
+            token_chars.append(current)
+            self._advance()
+            if current == "[":
+                bracket_depth += 1
+            elif current == "]":
+                bracket_depth -= 1
+                if bracket_depth == 0:
+                    return SymbolAtom(
+                        value="".join(token_chars),
+                        span=SourceSpan(start=start, end=self._position()),
+                    )
+        self._raise_error(
+            "unclosed workflow-ref type expression",
+            start=start,
+            end=self._position(),
+        )
 
     def _read_list(self) -> ListExpr:
         start = self._position()

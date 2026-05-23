@@ -1788,6 +1788,8 @@ def _validate_field_types(
 
     diagnostics: list[LispFrontendDiagnostic] = []
     for field in fields:
+        if field.type_name.startswith("WorkflowRef[") and field.type_name.endswith("]"):
+            continue
         if field.type_name not in available_type_names:
             diagnostics.append(
                 LispFrontendDiagnostic(

@@ -34,6 +34,7 @@ EFFECT_MISMATCH_FIXTURE = FIXTURES / "invalid" / "procedure_effect_mismatch.orc"
 CYCLE_FIXTURE = FIXTURES / "invalid" / "procedure_cycle.orc"
 PRIVATE_BOUNDARY_FIXTURE = FIXTURES / "invalid" / "procedure_private_boundary_invalid.orc"
 ARITY_FIXTURE = FIXTURES / "invalid" / "procedure_arity_mismatch.orc"
+WORKFLOW_REF_FORWARDING_FIXTURE = FIXTURES / "valid" / "workflow_refs_forwarding.orc"
 
 
 def _compile(path: Path, *, tmp_path: Path):
@@ -761,3 +762,59 @@ def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_
     procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == "wrap-summary")
 
     assert procedure.transitive_effect_summary.transitive_effects == frozenset()
+
+
+def test_compile_stage3_supports_forwarded_workflow_ref_procedure_calls(tmp_path: Path) -> None:
+    result = _compile_validated(WORKFLOW_REF_FORWARDING_FIXTURE, tmp_path=tmp_path)
+
+    assert "entry" in result.validated_bundles
+    assert result.typed_procedures[0].definition.name == "invoke-runner"
+
+
+def test_higher_order_procedure_specializations_reuse_private_workflow_lowering(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "higher_order_private_reuse.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defworkflow echo-helper",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" input.report)',
+            "      :returns WorkflowOutput))",
+            "  (defproc invoke-runner",
+            "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ((calls-workflow runner))",
+            "    :lowering auto",
+            "    (call runner",
+            "      :input input))",
+            "  (defworkflow first",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (invoke-runner echo-helper input))",
+            "  (defworkflow second",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (invoke-runner echo-helper input)))",
+        ],
+    )
+
+    result = _compile_validated(path, tmp_path=tmp_path)
+    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
+    private_names = [name for name in lowered_names if name.startswith("%higher_order_private_reuse.")]
+
+    assert len(private_names) == 1
+    assert "invoke-runner__spec__runner__echo_helper" in private_names[0]
+    assert private_names[0] in result.validated_bundles

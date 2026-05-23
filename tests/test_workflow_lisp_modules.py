@@ -12,6 +12,7 @@ from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "modules"
 VALID_FIXTURES = FIXTURES / "valid"
 INVALID_FIXTURES = FIXTURES / "invalid"
+WORKFLOW_REF_FIXTURES = VALID_FIXTURES / "workflow_refs"
 
 
 def _compiler_module():
@@ -190,6 +191,28 @@ def test_compile_stage3_entrypoint_registers_canonical_callable_keys(tmp_path: P
     assert "neurips/procedures::build-checks" in result.entry_result.procedure_catalog.signatures_by_name
     assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name
     assert "neurips/helper::secondary" in result.validated_bundles_by_name
+
+
+def test_compile_stage3_entrypoint_resolves_imported_workflow_refs_to_canonical_keys(tmp_path: Path) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    path = WORKFLOW_REF_FIXTURES / "workflow_refs" / "imported_entry.orc"
+    result = compile_fn(
+        path,
+        source_roots=(WORKFLOW_REF_FIXTURES,),
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "workflow_refs/imported_helper::echo-helper" in result.entry_result.workflow_catalog.signatures_by_name
+    assert "workflow_refs/imported_entry::entry" in result.validated_bundles_by_name
 
 
 def test_compile_stage3_entrypoint_preserves_wrapper_behavior_for_single_file_fixtures(tmp_path: Path) -> None:

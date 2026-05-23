@@ -166,6 +166,16 @@ class PhaseTargetExpr:
 
 
 @dataclass(frozen=True)
+class WorkflowRefLiteralExpr:
+    """One compile-time workflow reference literal."""
+
+    target_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -295,6 +305,7 @@ ExprNode = (
     | ProcedureCallExpr
     | WithPhaseExpr
     | PhaseTargetExpr
+    | WorkflowRefLiteralExpr
     | ProviderResultExpr
     | CommandResultExpr
     | RunProviderPhaseExpr
@@ -486,6 +497,8 @@ def _elaborate_list(
         )
     if head.resolved_name == "phase-target":
         return _elaborate_phase_target(datum, form_path=form_path)
+    if head.resolved_name == "workflow-ref":
+        return _elaborate_workflow_ref_literal(datum, form_path=form_path)
     if head.resolved_name == "provider-result":
         return _elaborate_provider_result(
             datum,
@@ -815,13 +828,15 @@ def _elaborate_call(
         )
     return CallExpr(
         callee_name=(
-            _ACTIVE_WORKFLOW_NAME_RESOLVER(
+            callee_identifier.resolved_name
+            if callee_identifier.resolved_name in bound_names
+            else callee_identifier.resolved_name
+            if _ACTIVE_WORKFLOW_NAME_RESOLVER is None
+            else _ACTIVE_WORKFLOW_NAME_RESOLVER(
                 callee_identifier.resolved_name,
                 callee_identifier.span,
                 form_path,
             )
-            if _ACTIVE_WORKFLOW_NAME_RESOLVER is not None
-            else callee_identifier.resolved_name
         ),
         bindings=tuple(bindings),
         span=datum.span,
@@ -935,6 +950,43 @@ def _elaborate_with_phase(
             bound_names=bound_names,
             procedure_names=procedure_names,
         ),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_workflow_ref_literal(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+) -> WorkflowRefLiteralExpr:
+    if len(datum.items) != 2:
+        _raise_error(
+            "`workflow-ref` requires exactly one workflow symbol",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    target_identifier = syntax_identifier(datum.items[1])
+    if target_identifier is None:
+        _raise_error(
+            "`workflow-ref` target must be a symbol",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    target_name = (
+        _ACTIVE_WORKFLOW_NAME_RESOLVER(
+            target_identifier.resolved_name,
+            target_identifier.span,
+            form_path,
+        )
+        if _ACTIVE_WORKFLOW_NAME_RESOLVER is not None
+        else target_identifier.resolved_name
+    )
+    return WorkflowRefLiteralExpr(
+        target_name=target_name,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

@@ -39,7 +39,15 @@ from .syntax import (
     syntax_node_datum,
     syntax_resolved_name,
 )
-from .type_env import FrontendTypeEnvironment, PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
+from .type_env import (
+    FrontendTypeEnvironment,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    UnionTypeRef,
+    WorkflowRefTypeRef,
+)
 from .typecheck import TypedExpr, typecheck_expression
 
 if TYPE_CHECKING:
@@ -165,6 +173,7 @@ class TypedWorkflowDef:
     signature: WorkflowSignature
     typed_body: TypedExpr
     effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY
+    specialization: object | None = None
 
 
 @dataclass(frozen=True)
@@ -199,6 +208,7 @@ class WorkflowBoundaryAnalysis:
     lowerable: bool
     contains_json: bool
     contains_provider_or_prompt: bool
+    contains_workflow_ref: bool
     contains_union: bool
     offending_path: tuple[str, ...] = ()
     offending_type_name: str | None = None
@@ -217,6 +227,7 @@ def analyze_workflow_boundary_type(
             lowerable=True,
             contains_json=False,
             contains_provider_or_prompt=False,
+            contains_workflow_ref=False,
             contains_union=False,
         )
     if isinstance(type_ref, PrimitiveTypeRef):
@@ -225,6 +236,7 @@ def analyze_workflow_boundary_type(
                 lowerable=False,
                 contains_json=True,
                 contains_provider_or_prompt=False,
+                contains_workflow_ref=False,
                 contains_union=False,
                 offending_path=source_path,
                 offending_type_name=type_ref.name,
@@ -234,6 +246,7 @@ def analyze_workflow_boundary_type(
                 lowerable=False,
                 contains_json=False,
                 contains_provider_or_prompt=True,
+                contains_workflow_ref=False,
                 contains_union=False,
                 offending_path=source_path,
                 offending_type_name=type_ref.name,
@@ -242,7 +255,18 @@ def analyze_workflow_boundary_type(
             lowerable=True,
             contains_json=False,
             contains_provider_or_prompt=False,
+            contains_workflow_ref=False,
             contains_union=False,
+        )
+    if isinstance(type_ref, WorkflowRefTypeRef):
+        return WorkflowBoundaryAnalysis(
+            lowerable=False,
+            contains_json=False,
+            contains_provider_or_prompt=False,
+            contains_workflow_ref=True,
+            contains_union=False,
+            offending_path=source_path,
+            offending_type_name=type_ref.name,
         )
     if isinstance(type_ref, RecordTypeRef):
         for field in type_ref.definition.fields:
@@ -260,6 +284,7 @@ def analyze_workflow_boundary_type(
             lowerable=True,
             contains_json=False,
             contains_provider_or_prompt=False,
+            contains_workflow_ref=False,
             contains_union=False,
         )
     if isinstance(type_ref, UnionTypeRef):
@@ -278,12 +303,14 @@ def analyze_workflow_boundary_type(
                 lowerable=True,
                 contains_json=False,
                 contains_provider_or_prompt=False,
+                contains_workflow_ref=False,
                 contains_union=False,
             )
         return WorkflowBoundaryAnalysis(
             lowerable=False,
             contains_json=False,
             contains_provider_or_prompt=False,
+            contains_workflow_ref=False,
             contains_union=True,
             offending_path=source_path,
             offending_type_name=type_ref.name,
@@ -376,18 +403,19 @@ def build_workflow_catalog(
                 form_path=param.form_path,
                 expansion_stack=param.expansion_stack,
             )
-            param_analysis = analyze_workflow_boundary_type(param_type, source_path=(param.name,))
-            param_diagnostic = _boundary_diagnostic(
-                workflow_name=workflow_def.name,
-                analysis=param_analysis,
-                span=param.span,
-                form_path=param.form_path,
-                expansion_stack=param.expansion_stack,
-            )
-            if param_diagnostic is not None:
-                diagnostics.append(param_diagnostic)
-                workflow_invalid = True
-                continue
+            if not isinstance(param_type, WorkflowRefTypeRef):
+                param_analysis = analyze_workflow_boundary_type(param_type, source_path=(param.name,))
+                param_diagnostic = _boundary_diagnostic(
+                    workflow_name=workflow_def.name,
+                    analysis=param_analysis,
+                    span=param.span,
+                    form_path=param.form_path,
+                    expansion_stack=param.expansion_stack,
+                )
+                if param_diagnostic is not None:
+                    diagnostics.append(param_diagnostic)
+                    workflow_invalid = True
+                    continue
             params.append((param.name, param_type))
         if workflow_invalid:
             continue
@@ -731,6 +759,17 @@ def _boundary_diagnostic(
             code="workflow_boundary_type_invalid",
             message=(
                 f"`{analysis.offending_type_name}` cannot cross a Stage 3 workflow boundary "
+                f"(`{path_label}`)"
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if analysis.contains_workflow_ref:
+        return LispFrontendDiagnostic(
+            code="workflow_ref_runtime_transport_forbidden",
+            message=(
+                f"`{analysis.offending_type_name}` cannot cross a runtime workflow boundary "
                 f"(`{path_label}`)"
             ),
             span=span,

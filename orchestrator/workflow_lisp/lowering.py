@@ -77,6 +77,7 @@ from .expressions import (
     ResumeOrStartExpr,
     ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
+    WorkflowRefLiteralExpr,
     WithPhaseExpr,
 )
 from .phase import (
@@ -89,9 +90,18 @@ from .macros import collect_macro_catalog, expand_module_forms
 from .reader import read_sexpr_file
 from .spans import SourceSpan
 from .syntax import WorkflowLispSyntaxModule, build_syntax_module, syntax_head_name, syntax_node_datum
-from .type_env import FrontendTypeEnvironment, PathTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
+from .type_env import FrontendTypeEnvironment, PathTypeRef, RecordTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
 from .typecheck import TypedExpr
 from .procedures import ProcedureCatalog, ProcedureLoweringMode, TypedProcedureDef
+from .workflow_refs import (
+    ResolvedWorkflowRef,
+    WorkflowCallableSpecialization,
+    resolve_workflow_ref_literal,
+    resolve_workflow_ref_name,
+    specialization_name,
+    workflow_ref_binding_names,
+    workflow_ref_target_name,
+)
 from .workflows import (
     CertifiedAdapterBinding,
     CommandBoundaryEnvironment,
@@ -243,13 +253,56 @@ def lower_workflow_definitions(
         if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW
         and procedure.generated_workflow_name is not None
     }
-    workflows_by_name = {
+    workflows_by_name: dict[str, TypedWorkflowDef] = {
         **{workflow.definition.name: workflow for workflow in typed_workflows},
         **private_workflows,
     }
     resolved_type_env = type_env or FrontendTypeEnvironment.from_module(_definition_only_module(workflow_path))
     lowered_by_name: dict[str, LoweredWorkflow] = {}
     visiting: set[str] = set()
+    specialized_workflows: dict[tuple[str, tuple[tuple[str, str], ...]], TypedWorkflowDef] = {}
+
+    def specialize_workflow(
+        base_workflow_name: str,
+        bindings: Mapping[str, ResolvedWorkflowRef],
+    ) -> TypedWorkflowDef:
+        key = (
+            base_workflow_name,
+            tuple(sorted((name, resolved.workflow_name) for name, resolved in bindings.items())),
+        )
+        existing = specialized_workflows.get(key)
+        if existing is not None:
+            return existing
+        base = workflows_by_name[base_workflow_name]
+        specialized_name = specialization_name(base.signature.name, bindings)
+        specialized = TypedWorkflowDef(
+            definition=WorkflowDef(
+                name=specialized_name,
+                params=tuple(param for param in base.definition.params if param.name not in bindings),
+                return_type_name=base.definition.return_type_name,
+                body=base.definition.body,
+                span=base.definition.span,
+                form_path=base.definition.form_path,
+                expansion_stack=base.definition.expansion_stack,
+            ),
+            signature=WorkflowSignature(
+                name=specialized_name,
+                params=tuple((name, type_ref) for name, type_ref in base.signature.params if name not in bindings),
+                return_type_ref=base.signature.return_type_ref,
+                span=base.signature.span,
+                form_path=base.signature.form_path,
+            ),
+            typed_body=base.typed_body,
+            effect_summary=base.effect_summary,
+            specialization=WorkflowCallableSpecialization(
+                base_name=base.signature.name,
+                workflow_ref_bindings=dict(bindings),
+                specialized_name=specialized_name,
+            ),
+        )
+        workflows_by_name[specialized_name] = specialized
+        specialized_workflows[key] = specialized
+        return specialized
 
     def lower_one(workflow_name: str) -> LoweredWorkflow:
         """Lower one workflow after recursively lowering local callees."""
@@ -259,10 +312,16 @@ def lower_workflow_definitions(
             return existing
         if workflow_name in visiting:
             workflow = workflows_by_name[workflow_name]
+            cycle_code = (
+                "workflow_ref_specialization_cycle"
+                if workflow.specialization is not None
+                or any(workflows_by_name[name].specialization is not None for name in visiting)
+                else "workflow_signature_mismatch"
+            )
             raise LispFrontendCompileError(
                 (
                     LispFrontendDiagnostic(
-                        code="workflow_signature_mismatch",
+                        code=cycle_code,
                         message=f"cyclic same-file workflow call detected for `{workflow_name}`",
                         span=workflow.definition.span,
                         form_path=workflow.definition.form_path,
@@ -276,6 +335,7 @@ def lower_workflow_definitions(
         for dependency in _typed_workflow_dependencies(
             typed_workflow,
             typed_procedures=resolved_procedures,
+            workflow_catalog=workflow_catalog,
         ):
             if dependency in workflows_by_name:
                 lower_one(dependency)
@@ -290,6 +350,9 @@ def lower_workflow_definitions(
             lowered_callees=lowered_by_name,
             type_env=resolved_type_env,
             typed_procedures=resolved_procedures,
+            workflows_by_name=workflows_by_name,
+            ensure_workflow_lowered=lower_one,
+            specialize_workflow=specialize_workflow,
         )
         lowered_by_name[workflow_name] = lowered
         visiting.remove(workflow_name)
@@ -302,6 +365,8 @@ def lower_workflow_definitions(
     ordered: list[LoweredWorkflow] = []
     included_names: set[str] = set()
     for workflow in typed_workflows:
+        if any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in workflow.signature.params):
+            continue
         lowered = lower_one(workflow.definition.name)
         ordered.append(lowered)
         included_names.add(lowered.typed_workflow.definition.name)
@@ -388,6 +453,9 @@ def _lower_one_workflow(
     lowered_callees: Mapping[str, LoweredWorkflow],
     type_env: FrontendTypeEnvironment,
     typed_procedures: Mapping[str, TypedProcedureDef],
+    workflows_by_name: Mapping[str, TypedWorkflowDef],
+    ensure_workflow_lowered: Any,
+    specialize_workflow: Any,
 ) -> LoweredWorkflow:
     """Lower one typed workflow body and assemble its shared mapping.
 
@@ -416,6 +484,9 @@ def _lower_one_workflow(
         command_boundary_environment=command_boundary_environment,
         lowered_callees=lowered_callees,
         typed_procedures=typed_procedures,
+        workflows_by_name=workflows_by_name,
+        ensure_workflow_lowered=ensure_workflow_lowered,
+        specialize_workflow=specialize_workflow,
         type_env=type_env,
         step_spans={},
         generated_input_spans=origin_inputs,
@@ -633,6 +704,9 @@ class _LoweringContext:
     command_boundary_environment: CommandBoundaryEnvironment
     lowered_callees: Mapping[str, LoweredWorkflow]
     typed_procedures: Mapping[str, TypedProcedureDef]
+    workflows_by_name: Mapping[str, TypedWorkflowDef]
+    ensure_workflow_lowered: Any
+    specialize_workflow: Any
     type_env: FrontendTypeEnvironment
     step_spans: dict[str, LoweringOrigin]
     generated_input_spans: dict[str, LoweringOrigin]
@@ -2311,9 +2385,62 @@ def _lower_call_expr(
     expr = typed_expr.expr
     assert isinstance(expr, CallExpr)
     signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
-    canonical_name = signature.name if signature is not None else expr.callee_name
-    callee = context.lowered_callees.get(canonical_name)
-    imported_bundle = context.imported_workflow_bundles.get(canonical_name)
+    resolved_ref = _resolved_workflow_ref_value(
+        local_values.get(expr.callee_name),
+        context=context,
+        expected_type=None,
+    )
+    binding_by_name = dict(expr.bindings)
+    if resolved_ref is not None:
+        canonical_name = resolved_ref.workflow_name
+        callee_signature = type("WorkflowRefSignature", (), {"params": resolved_ref.signature_params, "return_type_ref": resolved_ref.return_type_ref})()
+        callee = context.lowered_callees.get(canonical_name)
+        if callee is None and canonical_name in context.workflows_by_name:
+            callee = context.ensure_workflow_lowered(canonical_name)
+        imported_bundle = context.imported_workflow_bundles.get(canonical_name)
+    elif signature is not None and any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in signature.params):
+        workflow_ref_bindings: dict[str, ResolvedWorkflowRef] = {}
+        for param_name, param_type in signature.params:
+            if not isinstance(param_type, WorkflowRefTypeRef):
+                continue
+            binding_expr = binding_by_name.get(param_name)
+            if binding_expr is None:
+                raise _compile_error(
+                    code="workflow_signature_mismatch",
+                    message=f"call is missing required binding `{param_name}`",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            resolved_binding = _resolved_workflow_ref_value(
+                _resolve_inline_expr_value(binding_expr, local_values=local_values) or binding_expr,
+                context=context,
+                expected_type=param_type,
+            )
+            if resolved_binding is None:
+                raise _compile_error(
+                    code="workflow_ref_literal_required",
+                    message="workflow-ref arguments must be literals or forwarded workflow-ref bindings",
+                    span=binding_expr.span,
+                    form_path=binding_expr.form_path,
+                )
+            workflow_ref_bindings[param_name] = resolved_binding
+        specialized = context.specialize_workflow(signature.name, workflow_ref_bindings)
+        canonical_name = specialized.signature.name
+        callee_signature = specialized.signature
+        callee = context.ensure_workflow_lowered(canonical_name)
+        imported_bundle = context.imported_workflow_bundles.get(canonical_name)
+        binding_by_name = {
+            name: value
+            for name, value in binding_by_name.items()
+            if name not in workflow_ref_bindings
+        }
+    else:
+        canonical_name = signature.name if signature is not None else expr.callee_name
+        callee = context.lowered_callees.get(canonical_name)
+        imported_bundle = context.imported_workflow_bundles.get(canonical_name)
+        callee_signature = callee.typed_workflow.signature if callee is not None else signature
+        if callee is None and imported_bundle is None and canonical_name in context.workflows_by_name:
+            callee = context.ensure_workflow_lowered(canonical_name)
     if callee is None and imported_bundle is None:
         raise _compile_error(
             code="workflow_call_unknown",
@@ -2324,12 +2451,6 @@ def _lower_call_expr(
     step_name = f"{context.step_name_prefix}__call_{canonical_name}"
     step_id = _normalize_generated_step_id(step_name)
     with_bindings: dict[str, Any] = {}
-    binding_by_name = dict(expr.bindings)
-    callee_signature = (
-        callee.typed_workflow.signature
-        if callee is not None
-        else signature
-    )
     assert callee_signature is not None
     for param_name, param_type in callee_signature.params:
         value_expr = binding_by_name[param_name]
@@ -2389,7 +2510,6 @@ def _lower_procedure_call_expr(
     expr = typed_expr.expr
     assert isinstance(expr, ProcedureCallExpr)
     procedure = context.typed_procedures.get(expr.callee_name)
-    canonical_name = procedure.signature.name if procedure is not None else expr.callee_name
     if procedure is None:
         raise _compile_error(
             code="procedure_call_unknown",
@@ -2397,10 +2517,49 @@ def _lower_procedure_call_expr(
             span=expr.span,
             form_path=expr.form_path,
         )
+    arg_exprs = expr.args
+    if any(isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in procedure.signature.params):
+        workflow_ref_bindings: dict[str, ResolvedWorkflowRef] = {}
+        remaining_params: list[tuple[str, TypeRef]] = []
+        remaining_args: list[Any] = []
+        for arg_expr, (param_name, param_type) in zip(arg_exprs, procedure.signature.params, strict=True):
+            if isinstance(param_type, WorkflowRefTypeRef):
+                resolved_binding = _resolved_workflow_ref_value(
+                    _resolve_inline_expr_value(arg_expr, local_values=local_values) or arg_expr,
+                    context=context,
+                    expected_type=param_type,
+                )
+                if resolved_binding is None:
+                    raise _compile_error(
+                        code="workflow_ref_literal_required",
+                        message="workflow-ref arguments must be literals or forwarded workflow-ref bindings",
+                        span=arg_expr.span,
+                        form_path=arg_expr.form_path,
+                    )
+                workflow_ref_bindings[param_name] = resolved_binding
+                continue
+            remaining_params.append((param_name, param_type))
+            remaining_args.append(arg_expr)
+        procedure = _specialize_typed_procedure(
+            procedure,
+            bindings=workflow_ref_bindings,
+            remaining_params=tuple(remaining_params),
+            workflow_path=context.workflow_path,
+            type_env=context.type_env,
+            typed_procedures_by_name=context.typed_procedures,
+        )
+        arg_exprs = tuple(remaining_args)
+    canonical_name = procedure.signature.name if procedure is not None else expr.callee_name
     if procedure.resolved_lowering_mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
         context.origin_notes = _procedure_provenance_notes(expr, procedure)
         assert procedure.generated_workflow_name is not None
+        if procedure.generated_workflow_name not in context.workflows_by_name:
+            mutable_workflows = context.workflows_by_name
+            if isinstance(mutable_workflows, dict):
+                mutable_workflows[procedure.generated_workflow_name] = _private_workflow_from_procedure(procedure)
         callee = context.lowered_callees.get(procedure.generated_workflow_name)
+        if callee is None:
+            callee = context.ensure_workflow_lowered(procedure.generated_workflow_name)
         if callee is None:
             raise _compile_error(
                 code="proc_private_workflow_boundary_invalid",
@@ -2411,7 +2570,7 @@ def _lower_procedure_call_expr(
         step_name = f"{context.step_name_prefix}__call_{canonical_name}"
         step_id = _normalize_generated_step_id(step_name)
         with_bindings: dict[str, Any] = {}
-        for arg_expr, (param_name, param_type) in zip(expr.args, procedure.signature.params, strict=True):
+        for arg_expr, (param_name, param_type) in zip(arg_exprs, procedure.signature.params, strict=True):
             if isinstance(param_type, RecordTypeRef):
                 for generated_name, field_path in _flatten_boundary_leaf_paths(param_type, generated_name=param_name):
                     with_bindings[generated_name] = _render_call_binding_ref(
@@ -2441,7 +2600,9 @@ def _lower_procedure_call_expr(
     context.inline_call_counters[expr.callee_name] = prefix_ordinal
     context.origin_notes = _procedure_provenance_notes(expr, procedure)
     child_locals = dict(local_values)
-    for arg_expr, (param_name, _) in zip(expr.args, procedure.signature.params, strict=True):
+    if procedure.specialization is not None:
+        child_locals.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
+    for arg_expr, (param_name, _) in zip(arg_exprs, procedure.signature.params, strict=True):
         child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
     child_context = _LoweringContext(
         workflow_name=context.workflow_name,
@@ -2455,6 +2616,9 @@ def _lower_procedure_call_expr(
         command_boundary_environment=context.command_boundary_environment,
         lowered_callees=context.lowered_callees,
         typed_procedures=context.typed_procedures,
+        workflows_by_name=context.workflows_by_name,
+        ensure_workflow_lowered=context.ensure_workflow_lowered,
+        specialize_workflow=context.specialize_workflow,
         type_env=context.type_env,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,
@@ -3021,22 +3185,63 @@ def _lower_backlog_drain(
     selector_call_name = f"{step_name}__selector"
     run_item_call_name = f"{step_name}__run_item"
     gap_drafter_call_name = f"{step_name}__gap_drafter"
-    selector_signature = context.workflow_catalog.signatures_by_name.get(expr.spec.selector_name)
-    run_item_signature = context.workflow_catalog.signatures_by_name.get(expr.spec.run_item_name)
-    gap_drafter_signature = context.workflow_catalog.signatures_by_name.get(expr.spec.gap_drafter_name)
-    if selector_signature is None or run_item_signature is None or gap_drafter_signature is None:
-        raise _compile_error(
-            code="workflow_call_unknown",
-            message="`backlog-drain` lowering requires all referenced workflows to resolve before lowering",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    selector_callee = context.lowered_callees.get(expr.spec.selector_name)
-    run_item_callee = context.lowered_callees.get(expr.spec.run_item_name)
-    gap_drafter_callee = context.lowered_callees.get(expr.spec.gap_drafter_name)
-    selector_imported = context.imported_workflow_bundles.get(expr.spec.selector_name)
-    run_item_imported = context.imported_workflow_bundles.get(expr.spec.run_item_name)
-    gap_drafter_imported = context.imported_workflow_bundles.get(expr.spec.gap_drafter_name)
+    selector_ref = resolve_workflow_ref_name(
+        expr.spec.selector_name,
+        workflow_catalog=context.workflow_catalog,
+        span=expr.span,
+        form_path=expr.form_path,
+        typed_workflows_by_name=context.workflows_by_name,
+        allow_extern_rebinding=True,
+    )
+    run_item_ref = resolve_workflow_ref_name(
+        expr.spec.run_item_name,
+        workflow_catalog=context.workflow_catalog,
+        span=expr.span,
+        form_path=expr.form_path,
+        typed_workflows_by_name=context.workflows_by_name,
+        allow_extern_rebinding=True,
+    )
+    gap_drafter_ref = resolve_workflow_ref_name(
+        expr.spec.gap_drafter_name,
+        workflow_catalog=context.workflow_catalog,
+        span=expr.span,
+        form_path=expr.form_path,
+        typed_workflows_by_name=context.workflows_by_name,
+        allow_extern_rebinding=True,
+    )
+    selector_signature = type(
+        "WorkflowRefSignature",
+        (),
+        {
+            "name": selector_ref.workflow_name,
+            "params": selector_ref.signature_params,
+            "return_type_ref": selector_ref.return_type_ref,
+        },
+    )()
+    run_item_signature = type(
+        "WorkflowRefSignature",
+        (),
+        {
+            "name": run_item_ref.workflow_name,
+            "params": run_item_ref.signature_params,
+            "return_type_ref": run_item_ref.return_type_ref,
+        },
+    )()
+    gap_drafter_signature = type(
+        "WorkflowRefSignature",
+        (),
+        {
+            "name": gap_drafter_ref.workflow_name,
+            "params": gap_drafter_ref.signature_params,
+            "return_type_ref": gap_drafter_ref.return_type_ref,
+        },
+    )()
+    selector_callee = context.lowered_callees.get(selector_ref.workflow_name)
+    run_item_callee = context.lowered_callees.get(run_item_ref.workflow_name)
+    gap_drafter_callee = context.lowered_callees.get(gap_drafter_ref.workflow_name)
+    selector_imported = context.imported_workflow_bundles.get(selector_ref.workflow_name)
+    run_item_imported = context.imported_workflow_bundles.get(run_item_ref.workflow_name)
+    gap_drafter_imported = context.imported_workflow_bundles.get(gap_drafter_ref.workflow_name)
     if (
         (selector_callee is None and selector_imported is None)
         or (run_item_callee is None and run_item_imported is None)
@@ -3068,25 +3273,22 @@ def _lower_backlog_drain(
         gap_drafter_imported=gap_drafter_imported,
     )
     selector_call_target = _specialize_backlog_drain_call_target(
-        workflow_name=expr.spec.selector_name,
+        resolved_ref=selector_ref,
         role_name="selector",
-        imported_bundle=selector_imported,
         providers_expr=expr.spec.providers_expr,
         context=context,
         local_values=local_values,
     )
     run_item_call_target = _specialize_backlog_drain_call_target(
-        workflow_name=expr.spec.run_item_name,
+        resolved_ref=run_item_ref,
         role_name="run-item",
-        imported_bundle=run_item_imported,
         providers_expr=expr.spec.providers_expr,
         context=context,
         local_values=local_values,
     )
     gap_drafter_call_target = _specialize_backlog_drain_call_target(
-        workflow_name=expr.spec.gap_drafter_name,
+        resolved_ref=gap_drafter_ref,
         role_name="gap-drafter",
-        imported_bundle=gap_drafter_imported,
         providers_expr=expr.spec.providers_expr,
         context=context,
         local_values=local_values,
@@ -3992,15 +4194,16 @@ def _surface_nested_steps(step: Any) -> tuple[Any, ...]:
 
 def _specialize_backlog_drain_call_target(
     *,
-    workflow_name: str,
+    resolved_ref: ResolvedWorkflowRef,
     role_name: str,
-    imported_bundle: LoadedWorkflowBundle | None,
     providers_expr: Any | None,
     context: _LoweringContext,
     local_values: Mapping[str, Any],
 ) -> str:
     """Create a provider/prompt-rebound call target for a drain role if needed."""
 
+    workflow_name = resolved_ref.workflow_name
+    imported_bundle = context.imported_workflow_bundles.get(workflow_name)
     same_file_callee = context.lowered_callees.get(workflow_name)
     if (imported_bundle is None and same_file_callee is None) or providers_expr is None:
         return workflow_name
@@ -4204,14 +4407,74 @@ def _specialize_same_file_lowered_workflow_provider_metadata(
         definition=definition,
         signature=signature,
     )
+    origin_map = _rekey_origin_map(
+        lowered_workflow.origin_map,
+        workflow_name=alias,
+    )
     authored_mapping = rewrite(lowered_workflow.authored_mapping)
     assert isinstance(authored_mapping, dict)
     authored_mapping["name"] = alias
     return LoweredWorkflow(
         typed_workflow=typed_workflow,
         authored_mapping=authored_mapping,
-        origin_map=lowered_workflow.origin_map,
+        origin_map=origin_map,
         boundary_projection=lowered_workflow.boundary_projection,
+    )
+
+
+def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> LoweringOriginMap:
+    """Rebuild one origin map for a renamed lowered workflow clone."""
+
+    workflow_origin = _with_origin_key(
+        origin_map.workflow_origin,
+        workflow_name=workflow_name,
+        entity_kind="workflow",
+        subject_name=workflow_name,
+    )
+    step_spans = _origins_with_keys(
+        origin_map.step_spans,
+        workflow_name=workflow_name,
+        entity_kind="step_id",
+    )
+    authored_input_spans = _origins_with_keys(
+        origin_map.authored_input_spans,
+        workflow_name=workflow_name,
+        entity_kind="generated_input",
+    )
+    internal_input_spans = _origins_with_keys(
+        origin_map.internal_input_spans,
+        workflow_name=workflow_name,
+        entity_kind="generated_internal_input",
+    )
+    generated_output_spans = _origins_with_keys(
+        origin_map.generated_output_spans,
+        workflow_name=workflow_name,
+        entity_kind="generated_output",
+    )
+    generated_path_spans = _origins_with_keys(
+        origin_map.generated_path_spans,
+        workflow_name=workflow_name,
+        entity_kind="generated_path",
+    )
+    return LoweringOriginMap(
+        workflow_name=workflow_name,
+        workflow_origin=workflow_origin,
+        step_spans=MappingProxyType(step_spans),
+        authored_input_spans=MappingProxyType(authored_input_spans),
+        internal_input_spans=MappingProxyType(internal_input_spans),
+        generated_output_spans=MappingProxyType(generated_output_spans),
+        generated_path_spans=MappingProxyType(generated_path_spans),
+        validation_subject_bindings=_build_validation_subject_bindings(
+            workflow_name=workflow_name,
+            workflow_origin=workflow_origin,
+            step_spans=step_spans,
+            generated_inputs={
+                **authored_input_spans,
+                **internal_input_spans,
+            },
+            generated_outputs=generated_output_spans,
+            generated_paths=generated_path_spans,
+        ),
     )
 
 
@@ -4427,6 +4690,9 @@ def _signature_local_values(typed_workflow: TypedWorkflowDef | _LoweringContext)
             local_values[param_name] = _build_record_local_value(param_type, generated_name=param_name)
         else:
             local_values[param_name] = f"inputs.{param_name}"
+    specialization = getattr(typed_workflow, "specialization", None)
+    if specialization is not None:
+        local_values.update(dict(getattr(specialization, "workflow_ref_bindings", {})))
     return local_values
 
 
@@ -4442,6 +4708,8 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
             )
             continue
         local_values[param_name] = f"inputs.{param_name}"
+    if procedure.specialization is not None:
+        local_values.update(dict(getattr(procedure.specialization, "workflow_ref_bindings", {})))
     return local_values
 
 
@@ -4674,6 +4942,8 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
 
     if isinstance(expr, LiteralExpr):
         return expr
+    if isinstance(expr, WorkflowRefLiteralExpr):
+        return expr
     if isinstance(expr, LetStarExpr):
         child_locals = dict(local_values)
         for binding_name, binding_expr in expr.bindings:
@@ -4705,6 +4975,50 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
             local_values=local_values,
         )
     return expr
+
+
+def _resolved_workflow_ref_value(
+    value: Any,
+    *,
+    context: _LoweringContext,
+    expected_type: WorkflowRefTypeRef | None,
+) -> ResolvedWorkflowRef | None:
+    if isinstance(value, ResolvedWorkflowRef):
+        return value
+    if isinstance(value, WorkflowRefLiteralExpr):
+        if expected_type is None:
+            signature = context.workflow_catalog.signatures_by_name.get(value.target_name)
+            if signature is None:
+                raise _compile_error(
+                    code="workflow_ref_unknown",
+                    message=f"unknown workflow ref `{value.target_name}`",
+                    span=value.span,
+                    form_path=value.form_path,
+                )
+            expected_type = WorkflowRefTypeRef(
+                name=f"WorkflowRef[{ ' '.join(type_ref.name for _, type_ref in signature.params) } -> {signature.return_type_ref.name}]",
+                param_type_refs=tuple(type_ref for _, type_ref in signature.params),
+                return_type_ref=signature.return_type_ref,
+            )
+        return resolve_workflow_ref_literal(
+            value,
+            expected_type=expected_type,
+            workflow_catalog=context.workflow_catalog,
+            typed_workflows_by_name=context.workflows_by_name,
+            allow_extern_rebinding=False,
+        )
+    if isinstance(value, NameExpr):
+        return resolve_workflow_ref_name(
+            workflow_ref_target_name(value),
+            workflow_catalog=context.workflow_catalog,
+            span=value.span,
+            form_path=value.form_path,
+            expansion_stack=value.expansion_stack,
+            expected_type=expected_type,
+            typed_workflows_by_name=context.workflows_by_name,
+            allow_extern_rebinding=False,
+        )
+    return None
 
 
 def _resolve_inline_field_value(
@@ -6107,6 +6421,9 @@ def _copy_context_with_phase_scope(
         command_boundary_environment=context.command_boundary_environment,
         lowered_callees=context.lowered_callees,
         typed_procedures=context.typed_procedures,
+        workflows_by_name=context.workflows_by_name,
+        ensure_workflow_lowered=context.ensure_workflow_lowered,
+        specialize_workflow=context.specialize_workflow,
         type_env=context.type_env,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,
@@ -6138,6 +6455,9 @@ def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefi
         command_boundary_environment=context.command_boundary_environment,
         lowered_callees=context.lowered_callees,
         typed_procedures=context.typed_procedures,
+        workflows_by_name=context.workflows_by_name,
+        ensure_workflow_lowered=context.ensure_workflow_lowered,
+        specialize_workflow=context.specialize_workflow,
         type_env=context.type_env,
         step_spans=context.step_spans,
         generated_input_spans=context.generated_input_spans,
@@ -6582,6 +6902,76 @@ def _record_outputs_are_step_backed(
     return True
 
 
+def _specialize_typed_procedure(
+    procedure: TypedProcedureDef,
+    *,
+    bindings: Mapping[str, ResolvedWorkflowRef],
+    remaining_params: tuple[tuple[str, TypeRef], ...],
+    workflow_path: Path,
+    type_env: FrontendTypeEnvironment,
+    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
+) -> TypedProcedureDef:
+    specialized_name = specialization_name(procedure.signature.name, bindings)
+    specialization = WorkflowCallableSpecialization(
+        base_name=procedure.signature.name,
+        workflow_ref_bindings=dict(bindings),
+        specialized_name=specialized_name,
+    )
+    specialized = TypedProcedureDef(
+        definition=replace(
+            procedure.definition,
+            name=specialized_name,
+            params=tuple(param for param in procedure.definition.params if param.name not in bindings),
+        ),
+        signature=replace(
+            procedure.signature,
+            name=specialized_name,
+            params=remaining_params,
+        ),
+        typed_body=procedure.typed_body,
+        direct_effect_summary=procedure.direct_effect_summary,
+        transitive_effect_summary=procedure.transitive_effect_summary,
+        resolved_lowering_mode=ProcedureLoweringMode.INLINE,
+        generated_workflow_name=None,
+        specialization=specialization,
+    )
+    boundary_valid = _procedure_private_boundary_valid(specialized)
+    body_valid = _procedure_private_body_valid(
+        specialized,
+        typed_procedures_by_name=typed_procedures_by_name,
+        type_env=type_env,
+    )
+    requested = procedure.signature.requested_lowering_mode
+    mode = ProcedureLoweringMode.INLINE
+    if requested == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+        if not boundary_valid or not body_valid:
+            raise LispFrontendCompileError(
+                (
+                    LispFrontendDiagnostic(
+                        code="proc_private_workflow_boundary_invalid",
+                        message=(
+                            f"procedure `{procedure.definition.name}` cannot lower as `private-workflow` in Stage 3 "
+                            "after workflow-ref specialization because its body would not export step-backed outputs "
+                            "through the shared-validation seam"
+                        ),
+                        span=procedure.definition.span,
+                        form_path=procedure.definition.form_path,
+                    ),
+                )
+            )
+        mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+    elif requested == ProcedureLoweringMode.AUTO and boundary_valid and body_valid:
+        mode = ProcedureLoweringMode.PRIVATE_WORKFLOW
+    generated_name = None
+    if mode == ProcedureLoweringMode.PRIVATE_WORKFLOW:
+        generated_name = f"%{workflow_path.stem}.{specialized_name}.v1"
+    return replace(
+        specialized,
+        resolved_lowering_mode=mode,
+        generated_workflow_name=generated_name,
+    )
+
+
 def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkflowDef:
     """Synthesize a typed private workflow wrapper for a procedure body."""
 
@@ -6617,6 +7007,7 @@ def _private_workflow_from_procedure(procedure: TypedProcedureDef) -> TypedWorkf
         signature=signature,
         typed_body=procedure.typed_body,
         effect_summary=procedure.transitive_effect_summary,
+        specialization=procedure.specialization,
     )
 
 
@@ -6686,6 +7077,7 @@ def _typed_workflow_dependencies(
     typed_workflow: TypedWorkflowDef,
     *,
     typed_procedures: Mapping[str, TypedProcedureDef],
+    workflow_catalog: WorkflowCatalog,
 ) -> set[str]:
     """Find same-file workflow dependencies required before lowering."""
 
@@ -6694,7 +7086,11 @@ def _typed_workflow_dependencies(
 
     def walk(expr: Any) -> None:
         if isinstance(expr, CallExpr):
-            dependencies.add(expr.callee_name)
+            signature = workflow_catalog.signatures_by_name.get(expr.callee_name)
+            if signature is not None and not any(
+                isinstance(type_ref, WorkflowRefTypeRef) for _, type_ref in signature.params
+            ):
+                dependencies.add(expr.callee_name)
             for _, value in expr.bindings:
                 walk(value)
             return

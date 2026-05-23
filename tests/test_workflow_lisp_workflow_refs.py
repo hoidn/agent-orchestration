@@ -2,12 +2,10 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.compiler import compile_stage3_module
-from orchestrator.workflow_lisp.diagnostics import (
-    LispFrontendCompileError,
-    serialize_diagnostic,
-)
+from orchestrator.workflow_lisp.compiler import compile_stage3_entrypoint, compile_stage3_module
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import CertifiedAdapterBinding
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileError], code: str) -> None:
@@ -15,8 +13,9 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
-VALID_DRAIN_FIXTURE = FIXTURES / "valid" / "drain_stdlib_backlog_drain.orc"
-INVALID_SIGNATURE_FIXTURE = FIXTURES / "invalid" / "backlog_drain_workflow_ref_signature_invalid.orc"
+VALID_FIXTURES = FIXTURES / "valid"
+INVALID_FIXTURES = FIXTURES / "invalid"
+MODULE_FIXTURES = FIXTURES / "modules" / "valid" / "workflow_refs"
 
 
 def _command_boundaries() -> dict[str, CertifiedAdapterBinding]:
@@ -57,45 +56,33 @@ def _command_boundaries() -> dict[str, CertifiedAdapterBinding]:
     }
 
 
-def test_workflow_ref_type_surface_remains_out_of_scope_for_required_lints_slice(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "workflow_ref_type_surface.orc"
-    path.write_text(
-        "\n".join(
-            [
-                "(workflow-lisp",
-                '  (:language "0.1")',
-                '  (:target-dsl "2.14")',
-                "  (defpath WorkReport",
-                "    :kind relpath",
-                '    :under "artifacts/work"',
-                "    :must-exist true)",
-                "  (defrecord WorkflowInput",
-                "    (report WorkReport))",
-                "  (defrecord WorkflowOutput",
-                "    (report WorkReport))",
-                "  (defworkflow invoke-runner",
-                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
-                "     (input WorkflowInput))",
-                "    -> WorkflowOutput",
-                "    (record WorkflowOutput",
-                "      :report input.report)))",
-            ]
-        ),
-        encoding="utf-8",
+def _workflow_ref_command_boundaries() -> dict[str, ExternalToolBinding]:
+    return {
+        "run_checks": ExternalToolBinding(
+            name="run_checks",
+            stable_command=("python", "scripts/run_checks.py"),
+        )
+    }
+
+
+def test_workflow_ref_same_file_higher_order_calls_compile_and_validate(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        VALID_FIXTURES / "workflow_refs_same_file.orc",
+        command_boundaries=_workflow_ref_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(path, validate_shared=False)
+    lowered_input_sets = {workflow.typed_workflow.definition.name: set(workflow.authored_mapping["inputs"]) for workflow in result.lowered_workflows}
 
-    _assert_diagnostic_code(excinfo, "frontend_parse_error")
+    assert "echo-helper" in result.validated_bundles
+    assert "entry" in result.validated_bundles
+    assert any(name != "call-runner" and name.startswith("call-runner") for name in lowered_input_sets)
+    assert all("runner" not in inputs for inputs in lowered_input_sets.values())
 
 
-def test_workflow_ref_literal_surface_remains_out_of_scope_for_required_lints_slice(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "workflow_ref_literal_surface.orc"
+def test_workflow_ref_explicit_literal_calls_still_compile_and_validate(tmp_path: Path) -> None:
+    path = tmp_path / "workflow_ref_literal.orc"
     path.write_text(
         "\n".join(
             [
@@ -113,68 +100,85 @@ def test_workflow_ref_literal_surface_remains_out_of_scope_for_required_lints_sl
                 "  (defworkflow echo-helper",
                 "    ((input WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    (record WorkflowOutput",
-                "      :report input.report))",
-                "  (defworkflow orchestrate",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report)',
+                "      :returns WorkflowOutput))",
+                "  (defworkflow call-runner",
+                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (call runner",
+                "      :input input))",
+                "  (defworkflow entry",
                 "    ((input WorkflowInput))",
                 "    -> WorkflowOutput",
-                "    (let* ((runner",
-                "             (workflow-ref echo-helper)))",
-                "      (record WorkflowOutput",
-                "        :report input.report))))",
+                "    (call call-runner",
+                "      :runner (workflow-ref echo-helper)",
+                "      :input input)))",
             ]
         ),
         encoding="utf-8",
     )
 
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(path, validate_shared=False)
-
-    _assert_diagnostic_code(excinfo, "procedure_call_unknown")
-
-
-def test_signature_erased_required_lint_replaces_live_workflow_ref_signature_failures(
-    tmp_path: Path,
-) -> None:
-    with pytest.raises(LispFrontendCompileError) as excinfo:
-        compile_stage3_module(
-            INVALID_SIGNATURE_FIXTURE,
-            command_boundaries=_command_boundaries(),
-            validate_shared=False,
-            workspace_root=tmp_path,
-        )
-
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_call_signature_erased"
-    payload = serialize_diagnostic(diagnostic)
-    assert payload["diagnostic_kind"] == "required_lint"
-    assert payload["validation_pass"] == "reference"
-    assert payload["authority_layer"] == "frontend"
-
-
-def test_signature_erased_required_lint_replaces_unknown_workflow_ref_failures(
-    tmp_path: Path,
-) -> None:
-    path = tmp_path / "workflow_ref_unknown.orc"
-    path.write_text(
-        VALID_DRAIN_FIXTURE.read_text(encoding="utf-8").replace(
-            ":selector selector-run",
-            ":selector missing-selector",
-            1,
-        ),
-        encoding="utf-8",
+    result = compile_stage3_module(
+        path,
+        command_boundaries=_workflow_ref_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
     )
 
+    assert "echo-helper" in result.validated_bundles
+    assert "entry" in result.validated_bundles
+
+
+def test_workflow_ref_forwarding_through_defproc_compiles_and_validates(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        VALID_FIXTURES / "workflow_refs_forwarding.orc",
+        command_boundaries=_workflow_ref_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "echo-helper" in result.validated_bundles
+    assert "entry" in result.validated_bundles
+
+
+def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path: Path) -> None:
+    result = compile_stage3_entrypoint(
+        MODULE_FIXTURES / "workflow_refs" / "imported_entry.orc",
+        source_roots=(MODULE_FIXTURES,),
+        command_boundaries=_workflow_ref_command_boundaries(),
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "workflow_refs/imported_entry::entry" in result.validated_bundles_by_name
+    assert "workflow_refs/imported_helper::echo-helper" in result.entry_result.workflow_catalog.signatures_by_name
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "expected_code"),
+    [
+        ("workflow_ref_literal_required.orc", "workflow_ref_literal_required"),
+        ("workflow_ref_runtime_transport_invalid.orc", "workflow_ref_runtime_transport_forbidden"),
+        ("workflow_ref_signature_invalid.orc", "workflow_ref_signature_invalid"),
+        ("workflow_ref_specialization_cycle.orc", "workflow_ref_specialization_cycle"),
+        ("workflow_ref_extern_unsatisfied.orc", "workflow_ref_extern_rebinding_unsatisfied"),
+    ],
+)
+def test_workflow_ref_invalid_contracts_raise_targeted_diagnostics(
+    fixture_name: str,
+    expected_code: str,
+    tmp_path: Path,
+) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(
-            path,
+            INVALID_FIXTURES / fixture_name,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
             command_boundaries=_command_boundaries(),
             validate_shared=False,
             workspace_root=tmp_path,
         )
 
-    diagnostic = excinfo.value.diagnostics[0]
-
-    assert diagnostic.code == "workflow_call_signature_erased"
-    assert "missing-selector" in diagnostic.message
+    _assert_diagnostic_code(excinfo, expected_code)

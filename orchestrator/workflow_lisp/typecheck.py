@@ -42,6 +42,7 @@ from .expressions import (
     ResumeOrStartExpr,
     ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
+    WorkflowRefLiteralExpr,
     WithPhaseExpr,
 )
 from .phase import (
@@ -70,6 +71,12 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
     VariantCaseTypeRef,
+    WorkflowRefTypeRef,
+)
+from .workflow_refs import (
+    resolve_workflow_ref_name,
+    workflow_ref_target_name,
+    workflow_ref_type_from_signature,
 )
 
 if TYPE_CHECKING:
@@ -106,6 +113,58 @@ class ProofFact:
     subject_name: str
     variant_name: str
     variant_type: VariantCaseTypeRef
+
+
+def _typecheck_workflow_ref_argument(
+    expr: ExprNode,
+    *,
+    expected_type: WorkflowRefTypeRef,
+    value_env: dict[str, TypeRef],
+    workflow_catalog: "WorkflowCatalog | None",
+) -> TypedExpr:
+    if workflow_catalog is None:
+        raise TypeError("workflow_catalog is required for workflow-ref arguments")
+    if isinstance(expr, NameExpr):
+        bound_type = value_env.get(expr.name)
+        if isinstance(bound_type, WorkflowRefTypeRef):
+            return _typed(expr=expr, type_ref=bound_type, effect=EMPTY_EFFECT_SUMMARY)
+        if bound_type is not None:
+            _raise_error(
+                "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
+                code="workflow_ref_literal_required",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+    if isinstance(expr, (WorkflowRefLiteralExpr, NameExpr)):
+        resolved_ref = resolve_workflow_ref_name(
+            workflow_ref_target_name(expr),
+            workflow_catalog=workflow_catalog,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=getattr(expr, "expansion_stack", ()),
+            allow_extern_rebinding=True,
+        )
+        return _typed(
+            expr=expr,
+            type_ref=workflow_ref_type_from_signature(
+                type(
+                    "WorkflowRefSignature",
+                    (),
+                    {
+                        "params": resolved_ref.signature_params,
+                        "return_type_ref": resolved_ref.return_type_ref,
+                    },
+                )()
+            ),
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
+    _raise_error(
+        "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
+        code="workflow_ref_literal_required",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
 
 
 @dataclass(frozen=True)
@@ -187,6 +246,31 @@ def _typecheck(
                 expansion_stack=expr.expansion_stack,
             )
         return _typed(expr=expr, type_ref=type_ref, effect=EMPTY_EFFECT_SUMMARY)
+    if isinstance(expr, WorkflowRefLiteralExpr):
+        if workflow_catalog is None:
+            raise TypeError("workflow_catalog is required for workflow-ref literals")
+        resolved_ref = resolve_workflow_ref_name(
+            expr.target_name,
+            workflow_catalog=workflow_catalog,
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+            allow_extern_rebinding=True,
+        )
+        return _typed(
+            expr=expr,
+            type_ref=workflow_ref_type_from_signature(
+                type(
+                    "WorkflowRefSignature",
+                    (),
+                    {
+                        "params": resolved_ref.signature_params,
+                        "return_type_ref": resolved_ref.return_type_ref,
+                    },
+                )()
+            ),
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
     if isinstance(expr, FieldAccessExpr):
         typed_base = _typecheck(
             expr.base,
@@ -425,15 +509,46 @@ def _typecheck(
     if isinstance(expr, CallExpr):
         if workflow_catalog is None:
             raise TypeError("workflow_catalog is required for CallExpr typechecking")
-        signature = workflow_catalog.signatures_by_name.get(expr.callee_name)
-        if signature is None:
-            _raise_error(
-                f"unknown workflow callee `{expr.callee_name}`",
-                code="workflow_call_unknown",
-                span=expr.span,
-                form_path=expr.form_path,
+        workflow_ref_type = value_env.get(expr.callee_name)
+        if isinstance(workflow_ref_type, WorkflowRefTypeRef):
+            if len(expr.bindings) != len(workflow_ref_type.param_type_refs):
+                _raise_error(
+                    f"call is missing required binding for workflow ref `{expr.callee_name}`",
+                    code="workflow_signature_mismatch",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            expected_bindings = {
+                binding_name: type_ref
+                for (binding_name, _), type_ref in zip(
+                    expr.bindings,
+                    workflow_ref_type.param_type_refs,
+                    strict=True,
+                )
+            }
+            signature_name = expr.callee_name
+            return_type = workflow_ref_type.return_type_ref
+            ordered_params = tuple(
+                (binding_name, type_ref)
+                for (binding_name, _), type_ref in zip(
+                    expr.bindings,
+                    workflow_ref_type.param_type_refs,
+                    strict=True,
+                )
             )
-        expected_bindings = dict(signature.params)
+        else:
+            signature = workflow_catalog.signatures_by_name.get(expr.callee_name)
+            if signature is None:
+                _raise_error(
+                    f"unknown workflow callee `{expr.callee_name}`",
+                    code="workflow_call_unknown",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                )
+            expected_bindings = dict(signature.params)
+            signature_name = signature.name
+            return_type = signature.return_type_ref
+            ordered_params = signature.params
         seen_bindings: set[str] = set()
         binding_summaries: list[EffectSummary] = []
         for binding_name, binding_expr in expr.bindings:
@@ -453,6 +568,29 @@ def _typecheck(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
+            if isinstance(expected_type, WorkflowRefTypeRef):
+                typed_binding = _typecheck_workflow_ref_argument(
+                    binding_expr,
+                    expected_type=expected_type,
+                    value_env=value_env,
+                    workflow_catalog=workflow_catalog,
+                )
+                binding_summaries.append(typed_binding.effect_summary)
+                if not isinstance(binding_expr, (WorkflowRefLiteralExpr, NameExpr)):
+                    _raise_error(
+                        "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
+                        code="workflow_ref_literal_required",
+                        span=binding_expr.span,
+                        form_path=binding_expr.form_path,
+                    )
+                if typed_binding.type_ref != expected_type:
+                    _raise_error(
+                        f"workflow ref argument `{binding_name}` does not match `{expected_type.name}`",
+                        code="workflow_ref_signature_invalid",
+                        span=binding_expr.span,
+                        form_path=binding_expr.form_path,
+                    )
+                continue
             typed_binding = _typecheck(
                 binding_expr,
                 type_env=type_env,
@@ -475,7 +613,7 @@ def _typecheck(
                     span=binding_expr.span,
                     form_path=binding_expr.form_path,
                 )
-        missing_bindings = [name for name, _ in signature.params if name not in seen_bindings]
+        missing_bindings = [name for name, _ in ordered_params if name not in seen_bindings]
         if missing_bindings:
             _raise_error(
                 f"call is missing required binding `{missing_bindings[0]}`",
@@ -484,15 +622,15 @@ def _typecheck(
                 form_path=expr.form_path,
             )
         call_summary = effect_summary_from_direct(
-            direct_effects=(CallsWorkflowEffect(subject=(signature.name,)),),
+            direct_effects=(CallsWorkflowEffect(subject=(signature_name,)),),
         )
         return _typed(
             expr=expr,
-            type_ref=signature.return_type_ref,
+            type_ref=return_type,
             effect=merge_effect_summaries(
                 *binding_summaries,
                 call_summary,
-                workflow_effects_by_name.get(signature.name, EMPTY_EFFECT_SUMMARY),
+                workflow_effects_by_name.get(signature_name, EMPTY_EFFECT_SUMMARY),
             ),
         )
     if isinstance(expr, ProcedureCallExpr):
@@ -515,6 +653,29 @@ def _typecheck(
             )
         arg_summaries: list[EffectSummary] = []
         for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
+            if isinstance(expected_type, WorkflowRefTypeRef):
+                typed_arg = _typecheck_workflow_ref_argument(
+                    arg_expr,
+                    expected_type=expected_type,
+                    value_env=value_env,
+                    workflow_catalog=workflow_catalog,
+                )
+                arg_summaries.append(typed_arg.effect_summary)
+                if not isinstance(arg_expr, (WorkflowRefLiteralExpr, NameExpr)):
+                    _raise_error(
+                        "workflow-ref arguments must be literals or forwarded workflow-ref bindings",
+                        code="workflow_ref_literal_required",
+                        span=arg_expr.span,
+                        form_path=arg_expr.form_path,
+                    )
+                if typed_arg.type_ref != expected_type:
+                    _raise_error(
+                        f"workflow ref argument `{param_name}` does not match `{expected_type.name}`",
+                        code="workflow_ref_signature_invalid",
+                        span=arg_expr.span,
+                        form_path=arg_expr.form_path,
+                    )
+                continue
             typed_arg = _typecheck(
                 arg_expr,
                 type_env=type_env,
@@ -2219,15 +2380,31 @@ def _workflow_ref_signature(
 ) -> "WorkflowSignature":
     if workflow_catalog is None:
         raise TypeError("workflow_catalog is required for workflow ref validation")
-    signature = workflow_catalog.signatures_by_name.get(workflow_name)
-    if signature is None:
+    try:
+        resolved_ref = resolve_workflow_ref_name(
+            workflow_name,
+            workflow_catalog=workflow_catalog,
+            span=span,
+            form_path=form_path,
+            allow_extern_rebinding=True,
+        )
+    except LispFrontendCompileError as exc:
+        diagnostic = exc.diagnostics[0]
         _raise_required_lint(
-            f"unknown workflow ref `{workflow_name}`",
-            code="workflow_call_signature_erased",
+            diagnostic.message,
+            code=diagnostic.code,
             span=span,
             form_path=form_path,
         )
-    return signature
+    return type(
+        "WorkflowRefSignature",
+        (),
+        {
+            "name": resolved_ref.workflow_name,
+            "params": resolved_ref.signature_params,
+            "return_type_ref": resolved_ref.return_type_ref,
+        },
+    )()
 
 
 def _validate_selector_workflow_ref(

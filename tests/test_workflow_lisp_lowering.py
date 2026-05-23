@@ -36,6 +36,7 @@ STRUCTURED_RESULTS_FIXTURE = FIXTURES / "valid" / "structured_results.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
+WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 
 
 def _extern_environment() -> ExternEnvironment:
@@ -398,7 +399,6 @@ def test_compile_stage3_module_supports_terminal_record_projection_returns(tmp_p
     assert lowered["outputs"]["return__status"]["from"]["ref"].endswith(".artifacts.status")
     assert lowered["outputs"]["return__report"]["from"]["ref"].endswith(".artifacts.report")
 
-
 def test_lower_workflow_definitions_supports_generic_match_outputs(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "generic_match_outputs.orc",
@@ -485,11 +485,10 @@ def test_compile_stage3_module_rejects_literal_only_match_exports(tmp_path: Path
                 '    :under "artifacts/work"',
                 "    :must-exist true)",
                 "  (defrecord ImplementationSummary",
-                "    (status String)",
                 "    (report WorkReport))",
                 "  (defunion ImplementationState",
                 "    (COMPLETED",
-                "      (execution_report WorkReport))",
+                    "      (execution_report WorkReport))",
                 "    (BLOCKED",
                 "      (progress_report WorkReport)",
                 "      (blocker_class BlockerClass)))",
@@ -1532,6 +1531,99 @@ def test_compile_stage3_module_supports_helper_alias_then_match_lowering(tmp_pat
     )
 
     assert result.typed_workflows[0].definition.name == "orchestrate"
+
+
+def test_lower_workflow_definitions_specialize_same_file_workflow_ref_calls(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        WORKFLOW_REF_FIXTURE,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    entry = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
+    call_step = entry.authored_mapping["steps"][0]
+
+    assert call_step["call"] != "call-runner"
+    assert call_step["call"].startswith("call-runner")
+
+
+def test_lower_workflow_definitions_reuse_workflow_ref_specialized_procedure_private_workflow_calls(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "workflow_ref_private_procedure.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defworkflow echo-helper",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report)',
+                "      :returns WorkflowOutput))",
+                "  (defproc invoke-runner",
+                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ((calls-workflow runner))",
+                "    :lowering auto",
+                "    (call runner",
+                "      :input input))",
+                "  (defworkflow first",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (invoke-runner echo-helper input))",
+                "  (defworkflow second",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (invoke-runner echo-helper input)))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    private_workflows = [
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.startswith("%workflow_ref_private_procedure.")
+    ]
+    assert len(private_workflows) == 1
+
+    private_name = private_workflows[0].typed_workflow.definition.name
+    assert "invoke-runner__spec__runner__echo_helper" in private_name
+
+    first = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "first")
+    second = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "second")
+
+    assert first.authored_mapping["steps"][0]["call"] == private_name
+    assert second.authored_mapping["steps"][0]["call"] == private_name
 
 
 def test_compile_stage3_module_renders_helper_provenance_notes_for_shared_validation_errors(

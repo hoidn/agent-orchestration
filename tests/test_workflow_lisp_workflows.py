@@ -39,6 +39,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 MODULE_FIXTURES = FIXTURES / "modules"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
+WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 FORM_PATH = ("workflow-lisp", "workflow-expression-test")
 
 
@@ -584,3 +585,22 @@ def test_compile_stage3_module_supports_local_and_imported_helpers(tmp_path: Pat
 
     assert local_result.typed_workflows[0].definition.name == "orchestrate"
     assert imported_result.entry_result.typed_workflows[0].definition.name == "entry::orchestrate"
+
+
+def test_compile_stage3_strips_workflow_ref_params_from_lowered_runtime_boundaries(tmp_path: Path) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    result = compile_stage3_module(
+        WORKFLOW_REF_FIXTURE,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    for lowered in result.lowered_workflows:
+        assert "runner" not in lowered.authored_mapping["inputs"]

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -30,71 +29,6 @@ class DrainLayout:
     iteration_root_prefix: str
     summary_target_path: str
     gap_request_path: str
-
-
-@dataclass(frozen=True)
-class WorkflowRefAuthoritySource:
-    """Where a checked higher-order workflow reference came from."""
-
-    kind: str
-    workflow_name: str
-
-
-@dataclass(frozen=True)
-class WorkflowRefRequirement:
-    """Required signature shape for a stdlib workflow-reference role."""
-
-    role_name: str
-    required_param_types: tuple[TypeRef, ...]
-    required_return_type: TypeRef
-
-
-@dataclass(frozen=True)
-class WorkflowExternRebindingPlan:
-    """Provider and prompt externs that must be rebound at a call boundary."""
-
-    provider_bindings: Mapping[str, tuple[str, ...]]
-    prompt_bindings: Mapping[str, tuple[str, ...]]
-
-
-@dataclass(frozen=True)
-class ResolvedWorkflowRef:
-    """Signature-checked workflow reference available to drain lowering."""
-
-    role_name: str
-    workflow_name: str
-    signature_params: tuple[tuple[str, TypeRef], ...]
-    return_type_ref: RecordTypeRef | UnionTypeRef
-    authority_source: WorkflowRefAuthoritySource
-    extern_rebinding_plan: WorkflowExternRebindingPlan
-
-
-@dataclass(frozen=True)
-class WorkflowRefCallPlan:
-    """Concrete call target and bindings for one higher-order workflow role."""
-
-    role_name: str
-    workflow_name: str
-    binding_names: tuple[str, ...]
-    return_type_ref: RecordTypeRef | UnionTypeRef
-    extern_rebinding_plan: WorkflowExternRebindingPlan
-
-
-@dataclass(frozen=True)
-class WorkflowRefEnvironment:
-    """Collection of resolved workflow references by authored role name."""
-
-    refs_by_name: Mapping[str, ResolvedWorkflowRef]
-
-
-@dataclass(frozen=True)
-class DrainLoopPlan:
-    """Resolved selector, runner, and gap-drafter calls for a drain loop."""
-
-    drain_name: str
-    selector_call: WorkflowRefCallPlan
-    run_item_call: WorkflowRefCallPlan
-    gap_drafter_call: WorkflowRefCallPlan
 
 
 @dataclass(frozen=True)

@@ -81,6 +81,7 @@ class TypedProcedureDef:
     transitive_effect_summary: EffectSummary = EMPTY_EFFECT_SUMMARY
     resolved_lowering_mode: ProcedureLoweringMode = ProcedureLoweringMode.AUTO
     generated_workflow_name: str | None = None
+    specialization: object | None = None
 
 
 @dataclass(frozen=True)
