@@ -1,27 +1,27 @@
 Read the consumed steering, full design, MVP design, backlog manifest, progress
 ledger, and run state before acting.
 
-Select exactly one next Lisp frontend MVP implementation work item.
+Select exactly one next Lisp frontend implementation work item.
 
-Use the MVP design as the target contract. Use the full design only as
-background for terminology, boundaries, and later compatibility. Do not select
-full-design-only work unless the MVP design requires it.
+Use the full design as the target contract. Use the MVP design only as
+historical context for the initial proof slice and already-completed MVP work.
+Do not return `DONE` just because the MVP is complete.
 
 Decision rules:
 
 - Return `SELECT_BACKLOG_ITEM` when an active backlog item directly covers the
-  next useful Lisp frontend MVP implementation task.
+  next useful Lisp frontend full-design implementation task.
 - Return `DRAFT_DESIGN_GAP` when no active backlog item is the right next task
-  but the MVP design clearly contains an unimplemented component that should be
-  turned into an implementation architecture.
+  but the full design clearly contains an unimplemented component that should
+  be turned into an implementation architecture.
 - Return `DONE` only when there are no active backlog items and no unimplemented
-  MVP design gaps remain.
-- Return `BLOCKED` only when MVP work remains but the available docs are
+  full-design gaps remain.
+- Return `BLOCKED` only when full-design work remains but the available docs are
   insufficient or contradictory.
 
 Make only this step's local selection judgment and explain it. Do not edit
 files, move backlog items, or draft architecture content. For design gaps,
-identify one bounded MVP component for the architect step to turn into an
+identify one bounded full-design component for the architect step to turn into an
 implementation architecture.
 
 Write the output bundle JSON to the output-contract path.
@@ -43,10 +43,10 @@ Design gap:
 {
   "selection_status": "DRAFT_DESIGN_GAP",
   "design_gap_id": "parser-syntax",
-  "source_design_path": "docs/design/workflow_lisp_frontend_mvp_specification.md",
-  "source_sections": ["Stage 1: Frontend Core Without Workflow Execution"],
-  "missing_component": "Parser and syntax objects",
-  "proposed_scope": "Draft parser and syntax-object implementation architecture only.",
+  "source_design_path": "docs/design/workflow_lisp_frontend_specification.md",
+  "source_sections": ["Full-design section name"],
+  "missing_component": "Unimplemented full-design component",
+  "proposed_scope": "Draft one bounded full-design implementation architecture only.",
   "selection_rationale": "short reason"
 }
 ```
@@ -56,7 +56,7 @@ Done:
 ```json
 {
   "selection_status": "DONE",
-  "selection_rationale": "No active backlog items or design gaps remain."
+  "selection_rationale": "No active backlog items or full-design gaps remain."
 }
 ```
 
