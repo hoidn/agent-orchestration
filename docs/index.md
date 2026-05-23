@@ -51,6 +51,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** authoring, prompts, contracts, deterministic-handoff, managed-jobs, gates, git
 **Use this when:** You are writing or refactoring workflow YAML and prompt patterns.
 
+### [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
+**Description:** Lisp-first authoring guidance for `.orc` workflows, focused on typed procedures, structured results, semantic authority, and avoiding YAML-shaped Lisp.
+**Keywords:** lisp-frontend, orc, workflow-authoring, typed-results, structured-state
+**Use this when:** Drafting or reviewing high-level Workflow Lisp workflows, or migrating YAML workflows toward `.orc`.
+
 ### [Local Workflow Steering](steering.md)
 **Description:** Local steering constraints for the DSL v2.14 materialization and variant-output backlog drain, including the released v2.14 runtime surface and current Phase 2 workflow-translation gate.
 **Keywords:** steering, backlog-drain, dsl-v214, roadmap-gate
