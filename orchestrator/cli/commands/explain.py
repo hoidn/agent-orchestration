@@ -8,6 +8,7 @@ from collections.abc import Iterable, Mapping
 from argparse import Namespace
 from pathlib import Path
 
+from orchestrator.workflow.core_ast import workflow_core_ast_to_json
 from orchestrator.workflow_lisp.build import (
     FrontendBuildRequest,
     _cli_request_diagnostic,
@@ -75,8 +76,6 @@ def explain_workflow(args: Namespace) -> int:
     print(f"Form: {form_name}")
     print(f"Entry workflow: {result.selected_workflow_name}")
     print(f"Build root: {result.build_root}")
-    print("Deferred artifacts: core_workflow_ast")
-    print("")
     imported_payload = selection.get("imported_target")
     if imported_payload is not None:
         print("Imported target:")
@@ -93,6 +92,9 @@ def explain_workflow(args: Namespace) -> int:
     print("")
     print("Executable nodes:")
     print(json.dumps(selection["executable_payload"], indent=2, sort_keys=True))
+    print("")
+    print("Core Workflow AST:")
+    print(json.dumps(selection["core_ast_payload"], indent=2, sort_keys=True))
     print("")
     print("Semantic IR:")
     print(json.dumps(selection["semantic_ir_payload"], indent=2, sort_keys=True))
@@ -204,6 +206,7 @@ def _select_local_explain_workflow(
                 }
             }
         },
+        "core_ast_payload": _core_ast_payload(bundle, workflow_name),
         "semantic_ir_payload": _semantic_ir_payload(bundle, workflow_name),
         "source_trace_payload": {
             "workflows": {
@@ -305,6 +308,16 @@ def _select_local_explain_procedure(
                 }
                 for workflow_name, workflow in sorted(related_workflows.items())
             }
+        },
+        "core_ast_payload": {
+            "schema_version": "core_workflow_ast.v1",
+            "workflows": {
+                workflow_name: _core_ast_payload(
+                    workflow["bundle"],
+                    workflow_name,
+                )["workflow"]
+                for workflow_name, workflow in sorted(related_workflows.items())
+            },
         },
         "semantic_ir_payload": {
             "schema_version": "workflow_semantic_ir.v1",
@@ -527,6 +540,10 @@ def _select_imported_explain_target(
                 for call_site in call_sites
             ]
         },
+        "core_ast_payload": _core_ast_payload(
+            binding.bundle,
+            binding.workflow_name or binding.bundle.surface.name or "",
+        ),
         "semantic_ir_payload": _semantic_ir_payload(
             binding.bundle,
             binding.workflow_name or binding.bundle.surface.name or "",
@@ -636,6 +653,27 @@ def _semantic_ir_payload(bundle: object | None, workflow_name: str) -> dict[str,
         "schema_version": semantic_ir.schema_version,
         "workflow_name": workflow_name,
         "workflow": _json_data(workflow),
+    }
+
+
+def _core_ast_payload(bundle: object | None, workflow_name: str) -> dict[str, object]:
+    if bundle is None:
+        return {
+            "schema_version": None,
+            "workflow_name": workflow_name,
+            "workflow": None,
+        }
+    core_workflow_ast = getattr(bundle, "core_workflow_ast", None)
+    if core_workflow_ast is None:
+        return {
+            "schema_version": None,
+            "workflow_name": workflow_name,
+            "workflow": None,
+        }
+    return {
+        "schema_version": core_workflow_ast.schema_version,
+        "workflow_name": workflow_name,
+        "workflow": workflow_core_ast_to_json(core_workflow_ast),
     }
 
 

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from orchestrator.exceptions import ValidationSubjectRef
+from orchestrator.workflow.core_ast import CoreForEach, CoreIf, CoreMatch, CoreRepeatUntil, CoreWorkflowAST
 from orchestrator.workflow.executable_ir import ExecutableNodeBase
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
@@ -25,11 +26,11 @@ SOURCE_MAP_COVERAGE = {
     "shared_validation_subjects": "covered",
     "executable_ir": "covered",
     "runtime_logs": "covered",
-    "core_workflow_ast": "deferred_shared_contract",
+    "core_workflow_ast": "covered",
     "semantic_ir": "covered",
 }
 _VALID_COVERAGE_KEYS = frozenset(SOURCE_MAP_COVERAGE)
-_VALID_COVERAGE_VALUES = frozenset({"covered", "deferred_shared_contract"})
+_VALID_COVERAGE_VALUES = frozenset({"covered"})
 
 
 @dataclass(frozen=True)
@@ -84,6 +85,16 @@ class ExecutableNodeLineage:
 
 
 @dataclass(frozen=True)
+class CoreNodeLineage:
+    """One serialized Core AST statement mapped to authored provenance."""
+
+    statement_id: str
+    step_id: str
+    step_kind: str
+    origin_key: str
+
+
+@dataclass(frozen=True)
 class WorkflowSourceMap:
     """Per-workflow lineage sections nested under the top-level document."""
 
@@ -96,6 +107,7 @@ class WorkflowSourceMap:
     generated_outputs: Mapping[str, SourceMapEntry]
     generated_paths: Mapping[str, SourceMapEntry]
     generated_internal_inputs: Mapping[str, SourceMapEntry]
+    core_nodes: tuple[CoreNodeLineage, ...]
     command_boundaries: tuple[CommandBoundaryLineage, ...]
     validation_subjects: tuple[ValidationSubjectBinding, ...]
     executable_nodes: tuple[ExecutableNodeLineage, ...]
@@ -175,6 +187,12 @@ def build_source_map_document(
                 step_ids=step_ids,
                 validated_bundle=validated_bundle,
             )
+            core_nodes = _core_nodes_for_workflow(
+                lowered=lowered,
+                workflow_origin=workflow_origin,
+                step_ids=step_ids,
+                validated_bundle=validated_bundle,
+            )
             workflows[workflow_name] = WorkflowSourceMap(
                 display_name=display_name_resolver(workflow_name),
                 selected_entry_workflow=workflow_name == selected_name,
@@ -185,6 +203,7 @@ def build_source_map_document(
                 generated_outputs=generated_outputs,
                 generated_paths=generated_paths,
                 generated_internal_inputs=generated_internal_inputs,
+                core_nodes=core_nodes,
                 command_boundaries=command_boundaries,
                 validation_subjects=validation_subjects,
                 executable_nodes=executable_nodes,
@@ -265,8 +284,42 @@ def validate_source_map_document(document: WorkflowLispSourceMap) -> None:
                         "required validation subject "
                         f"`{subject_kind}:{subject_name}` missing for workflow `{workflow_name}`"
                     ),
+                    )
+                )
+        if workflow.step_ids and not workflow.core_nodes:
+            diagnostics.append(
+                _diagnostic_for_entry(
+                    workflow_origin,
+                    code="source_map_core_node_missing",
+                    message=(
+                        "core-workflow-ast coverage is declared but workflow "
+                        f"`{workflow.workflow_name}` has no persisted core node lineage"
+                    ),
                 )
             )
+        for node in workflow.core_nodes:
+            if node.origin_key not in origin_keys:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_core_node_missing",
+                        message=(
+                            "core-workflow-ast lineage entry "
+                            f"`{node.statement_id}` does not resolve to a declared origin"
+                        ),
+                    )
+                )
+            if node.step_id not in workflow.step_ids:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_core_node_missing",
+                        message=(
+                            "core-workflow-ast lineage entry "
+                            f"`{node.statement_id}` references unknown step `{node.step_id}`"
+                        ),
+                    )
+                )
         for node in workflow.executable_nodes:
             if node.origin_key not in origin_keys:
                 diagnostics.append(
@@ -566,6 +619,72 @@ def _executable_nodes_for_workflow(
     return tuple(entries)
 
 
+def _core_nodes_for_workflow(
+    *,
+    lowered: "LoweredWorkflow",
+    workflow_origin: SourceMapEntry,
+    step_ids: Mapping[str, SourceMapEntry],
+    validated_bundle,
+) -> tuple[CoreNodeLineage, ...]:
+    if validated_bundle is None:
+        return _core_nodes_from_authored_mapping(
+            lowered=lowered,
+            workflow_origin=workflow_origin,
+            step_ids=step_ids,
+        )
+    core_workflow_ast = getattr(validated_bundle, "core_workflow_ast", None)
+    if not isinstance(core_workflow_ast, CoreWorkflowAST):
+        return _core_nodes_from_authored_mapping(
+            lowered=lowered,
+            workflow_origin=workflow_origin,
+            step_ids=step_ids,
+        )
+    entries: list[CoreNodeLineage] = []
+    for statement in _iter_core_statements(core_workflow_ast):
+        meta = getattr(statement, "meta", None)
+        if meta is None:
+            continue
+        origin = _origin_for_core_statement(
+            statement,
+            step_ids=step_ids,
+            workflow_origin=workflow_origin,
+        )
+        entries.append(
+            CoreNodeLineage(
+                statement_id=meta.id,
+                step_id=origin.generated_name_origin or meta.step_id,
+                step_kind=meta.step_kind,
+                origin_key=origin.origin_key,
+            )
+        )
+    entries.sort(key=lambda entry: entry.statement_id)
+    return tuple(entries)
+
+
+def _core_nodes_from_authored_mapping(
+    *,
+    lowered: "LoweredWorkflow",
+    workflow_origin: SourceMapEntry,
+    step_ids: Mapping[str, SourceMapEntry],
+) -> tuple[CoreNodeLineage, ...]:
+    entries: list[CoreNodeLineage] = []
+    for step in _walk_steps(lowered.authored_mapping.get("steps")):
+        step_id = step.get("id")
+        if not isinstance(step_id, str) or not step_id:
+            continue
+        origin = _lookup_step_origin(step_id, step_ids=step_ids) or workflow_origin
+        entries.append(
+            CoreNodeLineage(
+                statement_id=step_id,
+                step_id=origin.generated_name_origin or step_id,
+                step_kind=_step_kind_from_mapping(step),
+                origin_key=origin.origin_key,
+            )
+        )
+    entries.sort(key=lambda entry: entry.statement_id)
+    return tuple(entries)
+
+
 def _origin_for_node(
     node: ExecutableNodeBase,
     *,
@@ -589,6 +708,35 @@ def _origin_for_node(
     return workflow_origin
 
 
+def _origin_for_core_statement(
+    statement: Any,
+    *,
+    step_ids: Mapping[str, SourceMapEntry],
+    workflow_origin: SourceMapEntry,
+) -> SourceMapEntry:
+    meta = getattr(statement, "meta", None)
+    if meta is None:
+        return workflow_origin
+    candidates = [
+        meta.step_id,
+        meta.id,
+        meta.id.split(".")[-1],
+    ]
+    for candidate in candidates:
+        if not isinstance(candidate, str) or not candidate:
+            continue
+        matched = _lookup_step_origin(candidate, step_ids=step_ids)
+        if matched is not None:
+            return matched
+    if isinstance(meta.origin_key, str) and meta.origin_key:
+        for entry in step_ids.values():
+            if entry.origin_key == meta.origin_key:
+                return entry
+        if workflow_origin.origin_key == meta.origin_key:
+            return workflow_origin
+    return workflow_origin
+
+
 def _lookup_step_origin(
     candidate: str,
     *,
@@ -607,6 +755,50 @@ def _lookup_step_origin(
 
 def _strip_root_prefix(value: str) -> str:
     return value.removeprefix("root.") if value.startswith("root.") else value
+
+
+def _step_kind_from_mapping(step: Mapping[str, Any]) -> str:
+    for key in (
+        "command",
+        "provider",
+        "adjudicated_provider",
+        "wait_for",
+        "assert",
+        "set_scalar",
+        "increment_scalar",
+        "materialize_artifacts",
+        "select_variant_output",
+        "call",
+        "if",
+        "match",
+        "for_each",
+        "repeat_until",
+    ):
+        if key in step:
+            return key
+    return "step"
+
+
+def _iter_core_statements(core_workflow_ast: CoreWorkflowAST) -> Iterable[Any]:
+    yield from _iter_nested_core_statements(core_workflow_ast.body)
+    if core_workflow_ast.finalization is not None:
+        yield from _iter_nested_core_statements(core_workflow_ast.finalization.statements)
+
+
+def _iter_nested_core_statements(statements: Sequence[Any]) -> Iterable[Any]:
+    for statement in statements:
+        yield statement
+        if isinstance(statement, CoreIf):
+            yield from _iter_nested_core_statements(statement.then_branch.statements)
+            if statement.else_branch is not None:
+                yield from _iter_nested_core_statements(statement.else_branch.statements)
+        elif isinstance(statement, CoreMatch):
+            for case in statement.cases.values():
+                yield from _iter_nested_core_statements(case.statements)
+        elif isinstance(statement, CoreForEach):
+            yield from _iter_nested_core_statements(statement.statements)
+        elif isinstance(statement, CoreRepeatUntil):
+            yield from _iter_nested_core_statements(statement.statements)
 
 
 def _walk_steps(raw_steps: Any) -> Iterable[Mapping[str, Any]]:

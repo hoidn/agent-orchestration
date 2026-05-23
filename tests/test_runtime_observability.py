@@ -192,7 +192,7 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
                 "shared_validation_subjects": "covered",
                 "executable_ir": "covered",
                 "runtime_logs": "covered",
-                "core_workflow_ast": "deferred_shared_contract",
+                "core_workflow_ast": "covered",
                 "semantic_ir": "covered",
             },
         ),
@@ -210,7 +210,7 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
             "shared_validation_subjects": "covered",
             "executable_ir": "covered",
             "runtime_logs": "covered",
-            "core_workflow_ast": "deferred_shared_contract",
+            "core_workflow_ast": "covered",
             "semantic_ir": "covered",
         },
     }
@@ -223,14 +223,14 @@ def test_compiled_frontend_source_context_prefers_executable_node_lineage_over_s
             {
                 "schema_version": "workflow_lisp_source_map.v1",
                 "coverage": {
-                    "frontend_ast": "covered",
-                    "lowered_surface": "covered",
-                    "shared_validation_subjects": "covered",
-                    "executable_ir": "covered",
-                    "runtime_logs": "covered",
-                    "core_workflow_ast": "deferred_shared_contract",
-                    "semantic_ir": "covered",
-                },
+                "frontend_ast": "covered",
+                "lowered_surface": "covered",
+                "shared_validation_subjects": "covered",
+                "executable_ir": "covered",
+                "runtime_logs": "covered",
+                "core_workflow_ast": "covered",
+                "semantic_ir": "covered",
+            },
                 "workflows": {
                     "pkg/entry::run": {
                         "display_name": "run",
@@ -327,7 +327,7 @@ def test_compiled_frontend_source_context_logs_certified_adapter_metadata(tmp_pa
                     "shared_validation_subjects": "covered",
                     "executable_ir": "covered",
                     "runtime_logs": "covered",
-                    "core_workflow_ast": "deferred_shared_contract",
+                    "core_workflow_ast": "covered",
                     "semantic_ir": "covered",
                 },
                 "workflows": {
@@ -461,7 +461,7 @@ def test_compiled_frontend_source_context_can_use_runtime_plan_command_hints(tmp
                     "shared_validation_subjects": "covered",
                     "executable_ir": "covered",
                     "runtime_logs": "covered",
-                    "core_workflow_ast": "deferred_shared_contract",
+                    "core_workflow_ast": "covered",
                     "semantic_ir": "covered",
                 },
                 "workflows": {
@@ -576,7 +576,7 @@ def test_compiled_frontend_source_trace_payload_reads_sidecar_once(tmp_path: Pat
                     "shared_validation_subjects": "covered",
                     "executable_ir": "covered",
                     "runtime_logs": "covered",
-                    "core_workflow_ast": "deferred_shared_contract",
+                    "core_workflow_ast": "covered",
                     "semantic_ir": "covered",
                 },
                 "workflows": {

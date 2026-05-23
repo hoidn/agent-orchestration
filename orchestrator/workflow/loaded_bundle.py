@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Any, Mapping, Optional
 
+from .core_ast import CoreWorkflowAST
 from .executable_ir import ExecutableWorkflow
 from .runtime_plan import WorkflowRuntimePlan
 from .semantic_ir import SemanticWorkflowIR
@@ -18,6 +19,7 @@ class LoadedWorkflowBundle:
     """Typed loaded-workflow bundle."""
 
     surface: SurfaceWorkflow
+    core_workflow_ast: CoreWorkflowAST
     semantic_ir: SemanticWorkflowIR
     ir: ExecutableWorkflow
     projection: WorkflowStateProjection
@@ -55,6 +57,14 @@ def _require_bundle(workflow_or_bundle: Any) -> LoadedWorkflowBundle:
 def workflow_context(workflow_or_bundle: Any) -> Mapping[str, Any]:
     """Return workflow context values from the typed bundle."""
     return _require_bundle(workflow_or_bundle).surface.context
+
+
+def workflow_core_ast(workflow_or_bundle: Any) -> Optional[CoreWorkflowAST]:
+    """Return typed Core Workflow AST for one loaded bundle."""
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is not None:
+        return bundle.core_workflow_ast
+    return None
 
 
 def workflow_input_contracts(workflow_or_bundle: Any) -> Mapping[str, Mapping[str, Any]]:

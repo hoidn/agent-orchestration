@@ -1,5 +1,9 @@
 """Characterization tests for typed executable IR lowering."""
 
+from collections.abc import Mapping
+from dataclasses import fields, is_dataclass, replace
+from types import MappingProxyType
+
 from pathlib import Path
 
 import yaml
@@ -22,6 +26,26 @@ from orchestrator.workflow.executable_ir import (
 from orchestrator.workflow import lowering
 from orchestrator.workflow import executable_ir
 from tests.workflow_bundle_helpers import materialize_execution_config_for_test
+
+
+def _detach_core_ast_surface_links(value):
+    if isinstance(value, tuple):
+        return tuple(_detach_core_ast_surface_links(item) for item in value)
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _detach_core_ast_surface_links(item) for key, item in value.items()})
+    if not is_dataclass(value):
+        return value
+
+    updates = {}
+    for field_def in fields(value):
+        field_value = getattr(value, field_def.name)
+        if field_def.name in {"_surface_step", "_surface_workflow"}:
+            updates[field_def.name] = None
+            continue
+        detached = _detach_core_ast_surface_links(field_value)
+        if detached is not field_value:
+            updates[field_def.name] = detached
+    return replace(value, **updates) if updates else value
 
 
 def _write_yaml(path: Path, payload: dict) -> Path:
@@ -511,6 +535,26 @@ def test_ir_lowering_uses_typed_surface_goto_without_raw_payloads(tmp_path: Path
     assert goto_node.execution_config is not None
     assert goto_node.execution_config.common.on["success"]["goto"] == "Done"
     assert goto_node.routed_transfers["on_success_goto"].target_node_id == "root.done"
+
+
+def test_lower_core_workflow_ast_matches_surface_lowering_characterization(tmp_path: Path, monkeypatch):
+    workflow_path = _write_ir_workflow(tmp_path)
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+    detached_core_ast = _detach_core_ast_surface_links(bundle.core_workflow_ast)
+
+    def _unexpected_surface_lowering(*args, **kwargs):
+        raise AssertionError("lower_core_workflow_ast should not delegate to lower_surface_workflow")
+
+    surface_ir, surface_projection = lowering.lower_surface_workflow(bundle.surface)
+    monkeypatch.setattr(lowering, "lower_surface_workflow", _unexpected_surface_lowering)
+    core_ir, core_projection = lowering.lower_core_workflow_ast(detached_core_ast)
+
+    assert core_ir.body_region == surface_ir.body_region
+    assert core_ir.finalization_region == surface_ir.finalization_region
+    assert set(core_ir.nodes) == set(surface_ir.nodes)
+    assert core_projection.node_id_by_step_id == surface_projection.node_id_by_step_id
+    assert bundle.runtime_plan.ordered_node_ids == surface_projection.ordered_execution_node_ids()
+    assert bundle.runtime_plan.ordered_node_ids == core_projection.ordered_execution_node_ids()
 
 
 def test_ir_lowering_preserves_scalar_commands_and_provider_dependency_mappings(tmp_path: Path):

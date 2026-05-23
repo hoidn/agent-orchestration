@@ -6,6 +6,7 @@ from dataclasses import replace
 from types import MappingProxyType
 from typing import Any, Dict, List, Mapping, Optional
 
+from .core_ast import build_core_workflow_ast, lower_core_workflow_ast
 from .executable_ir import (
     AdjudicatedProviderStepConfig,
     AssertStepConfig,
@@ -1208,7 +1209,13 @@ def _bind_predicate(predicate: Any, context: _BindingContext) -> Any:
 
 
 def lower_surface_workflow(surface: SurfaceWorkflow) -> tuple[ExecutableWorkflow, WorkflowStateProjection]:
-    """Lower the immutable authored surface AST into executable IR + compatibility projection."""
+    """Compatibility shim that lowers through the shared Core Workflow AST seam."""
+    core_workflow_ast = build_core_workflow_ast(surface, {}, surface.provenance)
+    return lower_core_workflow_ast(core_workflow_ast)
+
+
+def _lower_surface_workflow_impl(surface: SurfaceWorkflow) -> tuple[ExecutableWorkflow, WorkflowStateProjection]:
+    """Lower one validated surface workflow into executable IR + compatibility projection."""
     return _IRBuilder(surface).build()
 
 
@@ -1219,9 +1226,11 @@ def build_loaded_workflow_bundle(
 ) -> LoadedWorkflowBundle:
     """Lower one validated surface workflow into the shared loaded bundle contract."""
 
-    ir, projection = lower_surface_workflow(surface)
+    core_workflow_ast = build_core_workflow_ast(surface, imports, surface.provenance)
+    ir, projection = lower_core_workflow_ast(core_workflow_ast)
     runtime_plan = derive_workflow_runtime_plan(ir, projection)
     semantic_ir = derive_workflow_semantic_ir(
+        core_workflow_ast=core_workflow_ast,
         surface=surface,
         ir=ir,
         projection=projection,
@@ -1231,6 +1240,7 @@ def build_loaded_workflow_bundle(
     )
     return LoadedWorkflowBundle(
         surface=surface,
+        core_workflow_ast=core_workflow_ast,
         semantic_ir=semantic_ir,
         ir=ir,
         projection=projection,

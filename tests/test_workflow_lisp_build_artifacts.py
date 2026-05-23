@@ -360,6 +360,7 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
         "typed_frontend_ast.json",
         "lowered_workflows.json",
         "executable_ir.json",
+        "core_workflow_ast.json",
         "semantic_ir.json",
         "runtime_plan.json",
         "source_map.json",
@@ -368,10 +369,11 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
     }
 
     assert expected_artifacts.issubset({path.name for path in result.artifact_paths.values()})
+    assert result.artifact_paths["core_workflow_ast"].name == "core_workflow_ast.json"
     assert result.artifact_paths["semantic_ir"].name == "semantic_ir.json"
     assert result.artifact_paths["runtime_plan"].name == "runtime_plan.json"
     assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
-    assert result.manifest.artifact_status["core_workflow_ast"] == "deferred_shared_contract"
+    assert result.manifest.artifact_status["core_workflow_ast"] == "emitted"
     assert result.manifest.artifact_status["semantic_ir"] == "emitted"
 
 
@@ -442,9 +444,12 @@ def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manif
     assert runtime_plan["workflow_name"] == selected_workflow
     assert semantic_ir["schema_version"] == "workflow_semantic_ir.v1"
     assert semantic_ir["workflows"][selected_workflow]["workflow_name"] == selected_workflow
+    assert json.loads(result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8"))["schema_version"] == (
+        "core_workflow_ast.v1"
+    )
     assert runtime_plan_node_ids == source_map_node_ids
     assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
-    assert result.manifest.artifact_status["core_workflow_ast"] == "deferred_shared_contract"
+    assert result.manifest.artifact_status["core_workflow_ast"] == "emitted"
     assert result.manifest.artifact_status["semantic_ir"] == "emitted"
 
 
@@ -461,7 +466,7 @@ def test_build_manifest_records_source_map_schema_and_coverage_for_emitted_artif
         "shared_validation_subjects": "covered",
         "executable_ir": "covered",
         "runtime_logs": "covered",
-        "core_workflow_ast": "deferred_shared_contract",
+        "core_workflow_ast": "covered",
         "semantic_ir": "covered",
     }
 
@@ -561,7 +566,7 @@ def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path
         "shared_validation_subjects": "covered",
         "executable_ir": "covered",
         "runtime_logs": "covered",
-        "core_workflow_ast": "deferred_shared_contract",
+        "core_workflow_ast": "covered",
         "semantic_ir": "covered",
     }
 
@@ -582,6 +587,7 @@ def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path
         "generated_outputs",
         "generated_paths",
         "generated_internal_inputs",
+        "core_nodes",
         "command_boundaries",
         "validation_subjects",
         "executable_nodes",
@@ -589,12 +595,15 @@ def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path
     for workflow in source_map["workflows"].values():
         assert expected_sections.issubset(workflow)
         assert workflow["workflow_origin"]["origin_key"]
+        assert workflow["core_nodes"]
+        assert all(node["origin_key"] for node in workflow["core_nodes"])
 
     command_step_ids = {
         name for name in command_checks["step_ids"] if name.endswith("command_checks__run_checks")
     }
     internal_input_name = next(iter(command_checks["generated_internal_inputs"]))
     command_boundary = command_checks["command_boundaries"][0]
+    core_node = command_checks["core_nodes"][0]
     assert command_step_ids
     assert internal_input_name.endswith("__result_bundle")
     assert len(command_checks["command_boundaries"]) == 1
@@ -603,6 +612,9 @@ def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path
     assert command_boundary["command_name"] == "run_checks"
     assert command_boundary["boundary_kind"] == "external_tool"
     assert command_boundary["origin_key"] == command_checks["step_ids"][command_boundary["step_id"]]["origin_key"]
+    assert core_node["statement_id"]
+    assert core_node["step_id"] in command_step_ids
+    assert core_node["origin_key"] == command_checks["step_ids"][core_node["step_id"]]["origin_key"]
     assert {
         subject["subject_ref"]["subject_kind"]
         for subject in provider_attempt["validation_subjects"]
@@ -761,3 +773,33 @@ def test_source_map_validator_rejects_missing_required_validation_subject_bindin
 
     assert excinfo.value.diagnostics[0].code == "source_map_validation_subject_missing"
     assert "generated_output:return__report" in excinfo.value.diagnostics[0].message
+
+
+def test_source_map_validator_rejects_missing_core_node_lineage_when_coverage_claimed(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    build_source_map_document = getattr(source_map_module, "build_source_map_document")
+    validate_source_map_document = getattr(source_map_module, "validate_source_map_document")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    document = build_source_map_document(
+        result.compile_result,
+        selected_name=result.entry_selection.canonical_name,
+        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
+    )
+    workflow_name = "lineage_pkg/entry::command_checks"
+    workflow = document.workflows[workflow_name]
+    broken_workflow = replace(workflow, core_nodes=())
+    broken_document = replace(
+        document,
+        workflows={**dict(document.workflows), workflow_name: broken_workflow},
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        validate_source_map_document(broken_document)
+
+    assert excinfo.value.diagnostics[0].code == "source_map_core_node_missing"
+    assert workflow_name in excinfo.value.diagnostics[0].message

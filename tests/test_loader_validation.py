@@ -258,6 +258,7 @@ class TestLoaderValidation:
 
         assert surface["version"] == "2.10"
         assert surface["steps"][0]["name"] == "Echo"
+        assert loaded.core_workflow_ast.workflow_name == "provider-session-release-version"
 
     def test_version_2_12_is_supported(self):
         """repeat_until.on_exhausted release version should load successfully."""

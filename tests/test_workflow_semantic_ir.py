@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import importlib
 import json
-from dataclasses import replace
+from collections.abc import Mapping
+from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 import yaml
@@ -17,6 +19,26 @@ def _write_yaml(path: Path, payload: dict[str, object]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(payload, sort_keys=False), encoding="utf-8")
     return path
+
+
+def _detach_core_ast_surface_links(value):
+    if isinstance(value, tuple):
+        return tuple(_detach_core_ast_surface_links(item) for item in value)
+    if isinstance(value, Mapping):
+        return MappingProxyType({key: _detach_core_ast_surface_links(item) for key, item in value.items()})
+    if not is_dataclass(value):
+        return value
+
+    updates = {}
+    for field_def in fields(value):
+        field_value = getattr(value, field_def.name)
+        if field_def.name in {"_surface_step", "_surface_workflow"}:
+            updates[field_def.name] = None
+            continue
+        detached = _detach_core_ast_surface_links(field_value)
+        if detached is not field_value:
+            updates[field_def.name] = detached
+    return replace(value, **updates) if updates else value
 
 
 def _write_review_loop_library(workspace: Path) -> None:
@@ -125,6 +147,24 @@ def _statement_step_ids(workflow) -> list[str]:
         workflow.statements[statement_id].step_id.split(".")[-1]
         for statement_id in workflow.authored_statement_ids
     ]
+
+
+def _core_command_steps(statements: tuple[object, ...]) -> list[object]:
+    command_steps: list[object] = []
+    for statement in statements:
+        if getattr(getattr(statement, "meta", None), "step_kind", None) == "command":
+            command_steps.append(statement)
+        if hasattr(statement, "then_branch"):
+            command_steps.extend(_core_command_steps(statement.then_branch.statements))
+            else_branch = getattr(statement, "else_branch", None)
+            if else_branch is not None:
+                command_steps.extend(_core_command_steps(else_branch.statements))
+        elif hasattr(statement, "cases"):
+            for case in statement.cases.values():
+                command_steps.extend(_core_command_steps(case.statements))
+        elif hasattr(statement, "statements"):
+            command_steps.extend(_core_command_steps(statement.statements))
+    return command_steps
 
 
 def test_derive_semantic_ir_from_yaml_bundle_records_contracts_refs_effects_and_bridges(
@@ -443,9 +483,87 @@ def test_derive_semantic_ir_rejects_invalid_frontend_source_map_bridges(
 def test_load_returns_typed_bundle_with_semantic_ir(tmp_path: Path) -> None:
     semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
     loaded = WorkflowLoader(tmp_path).load(_write_semantic_ir_workflow(tmp_path))
+    semantic_workflow = loaded.semantic_ir.workflows[loaded.surface.name]
 
     assert loaded.semantic_ir.schema_version == semantic_ir_module.WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION
-    assert loaded.semantic_ir.workflows[loaded.surface.name].workflow_name == loaded.surface.name
+    assert semantic_workflow.workflow_name == loaded.surface.name
+    assert [statement.meta.step_id for statement in loaded.core_workflow_ast.body] == [
+        semantic_workflow.statements[statement_id].step_id.split(".")[-1]
+        for statement_id in semantic_workflow.authored_statement_ids
+    ]
+
+
+def test_semantic_ir_derivation_uses_detached_core_ast_payload(tmp_path: Path) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_semantic_ir_workflow(tmp_path))
+    detached_core_ast = _detach_core_ast_surface_links(bundle.core_workflow_ast)
+
+    detached_semantic_ir = semantic_ir_module.derive_workflow_semantic_ir(
+        core_workflow_ast=detached_core_ast,
+        surface=bundle.surface,
+        ir=bundle.ir,
+        projection=bundle.projection,
+        runtime_plan=bundle.runtime_plan,
+        imports=bundle.imports,
+        provenance=bundle.provenance,
+    )
+    workflow = detached_semantic_ir.workflows[bundle.surface.name]
+    original_workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+
+    assert workflow.authored_statement_ids == original_workflow.authored_statement_ids
+    assert workflow.authored_statement_ids
+    assert tuple(workflow.statements) == tuple(original_workflow.statements)
+
+
+def test_semantic_ir_derivation_prefers_core_ast_contracts_and_import_catalog(tmp_path: Path) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    bundle = WorkflowLoader(tmp_path).load_bundle(_write_semantic_ir_workflow(tmp_path))
+    detached_core_ast = _detach_core_ast_surface_links(bundle.core_workflow_ast)
+
+    mutated_surface = replace(
+        bundle.surface,
+        inputs=MappingProxyType(
+            {
+                **dict(bundle.surface.inputs),
+                "write_root": replace(bundle.surface.inputs["write_root"], value_type="integer"),
+            }
+        ),
+        imports=MappingProxyType(
+            {
+                **dict(bundle.surface.imports),
+                "review_loop": replace(
+                    bundle.surface.imports["review_loop"],
+                    workflow_name="wrong/workflow::name",
+                ),
+            }
+        ),
+    )
+
+    detached_semantic_ir = semantic_ir_module.derive_workflow_semantic_ir(
+        core_workflow_ast=detached_core_ast,
+        surface=mutated_surface,
+        ir=bundle.ir,
+        projection=bundle.projection,
+        runtime_plan=bundle.runtime_plan,
+        imports=bundle.imports,
+        provenance=bundle.provenance,
+    )
+
+    input_contract = next(
+        contract
+        for contract in detached_semantic_ir.contracts.values()
+        if contract.source_kind == "input" and contract.contract_name == "write_root"
+    )
+    import_ref = next(
+        ref
+        for ref in detached_semantic_ir.refs.values()
+        if ref.ref_kind == "import_alias" and ref.subject_name == "review_loop"
+    )
+
+    assert input_contract.value_type == bundle.core_workflow_ast.inputs["write_root"].value_type
+    assert input_contract.value_type == "relpath"
+    assert import_ref.target == bundle.core_workflow_ast.imports["review_loop"].workflow_name
+    assert import_ref.target != "wrong/workflow::name"
 
 
 def test_compiled_bundle_semantic_ir_preserves_command_boundary_classification(tmp_path: Path) -> None:
@@ -505,8 +623,13 @@ def test_compiled_bundle_semantic_ir_preserves_command_boundary_classification(t
         for effect in resource_bundle.semantic_ir.effects.values()
         if effect.effect_kind == "command_call"
     ]
+    resource_command_steps = _core_command_steps(resource_bundle.core_workflow_ast.body)
 
     assert any(effect.boundary_kind == "certified_adapter" for effect in resource_effects)
+    assert any(
+        step.boundary_kind == "certified_adapter" and step.boundary_name == "apply_resource_transition"
+        for step in resource_command_steps
+    )
 
 
 def test_compiled_bundle_semantic_ir_preserves_distinct_resume_checkpoints(tmp_path: Path) -> None:

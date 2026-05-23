@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from orchestrator.loader import WorkflowLoader
+from orchestrator.workflow.core_ast import build_core_workflow_ast, workflow_core_ast_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
 from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
@@ -237,9 +238,12 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         json.dumps(_json_data(source_map_payload), indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+    core_workflow_ast = build_core_workflow_ast(validated_surface, selected_bundle.imports, provenance)
     validated_bundle = LoadedWorkflowBundle(
         surface=validated_surface,
+        core_workflow_ast=core_workflow_ast,
         semantic_ir=derive_workflow_semantic_ir(
+            core_workflow_ast=core_workflow_ast,
             surface=validated_surface,
             ir=selected_bundle.ir,
             projection=selected_bundle.projection,
@@ -772,6 +776,7 @@ def _write_build_artifacts(
         "typed_frontend_ast": build_root / "typed_frontend_ast.json",
         "lowered_workflows": build_root / "lowered_workflows.json",
         "executable_ir": build_root / "executable_ir.json",
+        "core_workflow_ast": build_root / "core_workflow_ast.json",
         "semantic_ir": build_root / "semantic_ir.json",
         "runtime_plan": build_root / "runtime_plan.json",
         "source_map": build_root / "source_map.json",
@@ -784,6 +789,7 @@ def _write_build_artifacts(
         "typed_frontend_ast": _serialize_typed_frontend_ast(compile_result),
         "lowered_workflows": _serialize_lowered_workflows(compile_result),
         "executable_ir": _json_data(validated_bundle.ir),
+        "core_workflow_ast": workflow_core_ast_to_json(validated_bundle.core_workflow_ast),
         "semantic_ir": workflow_semantic_ir_to_json(validated_bundle.semantic_ir),
         "runtime_plan": _json_data(validated_bundle.runtime_plan),
         "source_map": _json_data(source_map_payload),
@@ -852,7 +858,7 @@ def _build_manifest(
             for name, path in artifact_paths.items()
         },
         artifact_status={
-            "core_workflow_ast": "deferred_shared_contract",
+            "core_workflow_ast": "emitted",
             "semantic_ir": "emitted",
         },
         diagnostic_count=len(diagnostics),

@@ -10,6 +10,14 @@ from typing import Any, Mapping
 
 from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 
+from .core_ast import (
+    CoreForEach,
+    CoreIf,
+    CoreMatch,
+    CoreRepeatUntil,
+    CoreWorkflowAST,
+    _surface_step_from_core_statement,
+)
 from .executable_ir import ExecutableWorkflow
 from .runtime_plan import WorkflowRuntimePlan
 from .state_projection import WorkflowStateProjection
@@ -185,6 +193,7 @@ class SemanticWorkflowIR:
 
 def derive_workflow_semantic_ir(
     *,
+    core_workflow_ast: CoreWorkflowAST | None = None,
     surface: SurfaceWorkflow,
     ir: ExecutableWorkflow,
     projection: WorkflowStateProjection,
@@ -192,7 +201,15 @@ def derive_workflow_semantic_ir(
     imports: Mapping[str, Any],
     provenance: WorkflowProvenance,
 ) -> SemanticWorkflowIR:
-    workflow_name = surface.name or ""
+    workflow_name = (
+        core_workflow_ast.workflow_name
+        if core_workflow_ast is not None
+        else (surface.name or "")
+    )
+    input_catalog = core_workflow_ast.inputs if core_workflow_ast is not None else surface.inputs
+    output_catalog = core_workflow_ast.outputs if core_workflow_ast is not None else surface.outputs
+    artifact_catalog = core_workflow_ast.artifacts if core_workflow_ast is not None else surface.artifacts
+    import_catalog = core_workflow_ast.imports if core_workflow_ast is not None else surface.imports
     statement_order: list[str] = []
     statements: dict[str, SemanticStatement] = {}
     types: dict[str, SemanticTypeEntry] = {}
@@ -225,9 +242,9 @@ def derive_workflow_semantic_ir(
     )
 
     for source_kind, catalog in (
-        ("input", surface.inputs),
-        ("output", surface.outputs),
-        ("artifact", surface.artifacts),
+        ("input", input_catalog),
+        ("output", output_catalog),
+        ("artifact", artifact_catalog),
     ):
         for name, contract in sorted(catalog.items()):
             contract_id = _contract_id(workflow_name, source_kind, name)
@@ -258,10 +275,11 @@ def derive_workflow_semantic_ir(
             )
 
     grouped_nodes = _statement_node_groups(runtime_plan)
-    for step in _iter_surface_steps(surface):
-        statement_id = _statement_id(workflow_name, step.step_id)
+    for statement_surface in _iter_semantic_statements(core_workflow_ast, surface):
+        step = statement_surface.surface_step
+        statement_id = _statement_id(workflow_name, statement_surface.surface_step_id)
         statement_order.append(statement_id)
-        statement_node_ids = tuple(grouped_nodes.get(step.step_id, ()))
+        statement_node_ids = tuple(grouped_nodes.get(statement_surface.surface_step_id, ()))
         statement_presentation_keys = tuple(
             _dedupe(
                 runtime_plan.nodes[node_id].presentation_key
@@ -270,20 +288,20 @@ def derive_workflow_semantic_ir(
             )
         )
         statement_effect_ids: list[str] = []
-        statement_ref_id = _ref_id(workflow_name, "statement", step.step_id)
+        statement_ref_id = _ref_id(workflow_name, "statement", statement_surface.surface_step_id)
         refs[statement_ref_id] = SemanticRefEntry(
             ref_id=statement_ref_id,
             workflow_name=workflow_name,
             ref_kind="statement",
-            subject_name=step.step_id,
+            subject_name=statement_surface.surface_step_id,
             statement_id=statement_id,
-            target=step.kind.value,
+            target=statement_surface.step_kind,
         )
 
         if step.kind is SurfaceStepKind.CALL:
-            edge_id = _call_edge_id(workflow_name, step.step_id)
+            edge_id = _call_edge_id(workflow_name, statement_surface.surface_step_id)
             imported = imports.get(step.call_alias or "")
-            imported_metadata = surface.imports.get(step.call_alias or "")
+            imported_metadata = import_catalog.get(step.call_alias or "")
             call_edges[edge_id] = SemanticCallEdge(
                 edge_id=edge_id,
                 workflow_name=workflow_name,
@@ -299,7 +317,7 @@ def derive_workflow_semantic_ir(
                     )
                 ),
             )
-            effect_id = _effect_id(workflow_name, step.step_id, "workflow_call")
+            effect_id = _effect_id(workflow_name, statement_surface.surface_step_id, "workflow_call")
             effects[effect_id] = SemanticEffectEntry(
                 effect_id=effect_id,
                 workflow_name=workflow_name,
@@ -310,7 +328,7 @@ def derive_workflow_semantic_ir(
             statement_effect_ids.append(effect_id)
 
         if step.kind is SurfaceStepKind.PROVIDER:
-            prompt_surface_id = _prompt_surface_id(workflow_name, step.step_id)
+            prompt_surface_id = _prompt_surface_id(workflow_name, statement_surface.surface_step_id)
             prompt_surfaces[prompt_surface_id] = SemanticPromptSurface(
                 prompt_surface_id=prompt_surface_id,
                 workflow_name=workflow_name,
@@ -322,7 +340,7 @@ def derive_workflow_semantic_ir(
                 inject_output_contract=step.inject_output_contract,
                 inject_consumes=step.inject_consumes,
             )
-            effect_id = _effect_id(workflow_name, step.step_id, "provider_call")
+            effect_id = _effect_id(workflow_name, statement_surface.surface_step_id, "provider_call")
             effects[effect_id] = SemanticEffectEntry(
                 effect_id=effect_id,
                 workflow_name=workflow_name,
@@ -335,20 +353,20 @@ def derive_workflow_semantic_ir(
         if step.kind is SurfaceStepKind.COMMAND:
             boundary_kind, boundary_name = _command_boundary_identity(
                 step,
-                grouped_nodes.get(step.step_id, ()),
+                grouped_nodes.get(statement_surface.surface_step_id, ()),
                 runtime_plan,
             )
-            boundary_id = _command_boundary_id(workflow_name, step.step_id)
+            boundary_id = _command_boundary_id(workflow_name, statement_surface.surface_step_id)
             command_boundaries[boundary_id] = SemanticCommandBoundary(
                 boundary_id=boundary_id,
                 workflow_name=workflow_name,
                 statement_id=statement_id,
-                step_id=step.step_id,
+                step_id=statement_surface.surface_step_id,
                 boundary_kind=boundary_kind,
                 boundary_name=boundary_name,
                 output_validation_surface=_output_validation_surface(step),
             )
-            effect_id = _effect_id(workflow_name, step.step_id, "command_call")
+            effect_id = _effect_id(workflow_name, statement_surface.surface_step_id, "command_call")
             effects[effect_id] = SemanticEffectEntry(
                 effect_id=effect_id,
                 workflow_name=workflow_name,
@@ -361,7 +379,7 @@ def derive_workflow_semantic_ir(
             statement_effect_ids.append(effect_id)
 
         if step.common.requires_variant is not None or step.common.variant_output is not None:
-            proof_id = _proof_id(workflow_name, step.step_id)
+            proof_id = _proof_id(workflow_name, statement_surface.surface_step_id)
             proofs[proof_id] = SemanticProofEntry(
                 proof_id=proof_id,
                 workflow_name=workflow_name,
@@ -378,16 +396,16 @@ def derive_workflow_semantic_ir(
         statements[statement_id] = SemanticStatement(
             statement_id=statement_id,
             workflow_name=workflow_name,
-            step_id=step.step_id,
+            step_id=statement_surface.step_id,
             step_name=step.name,
-            step_kind=step.kind.value,
+            step_kind=statement_surface.step_kind,
             executable_node_ids=statement_node_ids,
             presentation_keys=statement_presentation_keys,
             ref_ids=(statement_ref_id,),
             effect_ids=tuple(statement_effect_ids),
         )
 
-    for alias, metadata in sorted(surface.imports.items()):
+    for alias, metadata in sorted(import_catalog.items()):
         ref_id = _ref_id(workflow_name, "import", alias)
         refs[ref_id] = SemanticRefEntry(
             ref_id=ref_id,
@@ -409,7 +427,7 @@ def derive_workflow_semantic_ir(
             subject_name=artifact_plan.contract_name,
             contract_id=(
                 _contract_id(workflow_name, "artifact", artifact_plan.contract_name)
-                if artifact_plan.contract_name in surface.artifacts
+                if artifact_plan.contract_name in artifact_catalog
                 else None
             ),
             statement_id=statement_id,
@@ -464,15 +482,15 @@ def derive_workflow_semantic_ir(
                     workflow_name=workflow_name,
                     input_contract_ids=MappingProxyType({
                         name: _contract_id(workflow_name, "input", name)
-                        for name in sorted(surface.inputs)
+                        for name in sorted(input_catalog)
                     }),
                     output_contract_ids=MappingProxyType({
                         name: _contract_id(workflow_name, "output", name)
-                        for name in sorted(surface.outputs)
+                        for name in sorted(output_catalog)
                     }),
                     artifact_contract_ids=MappingProxyType({
                         name: _contract_id(workflow_name, "artifact", name)
-                        for name in sorted(surface.artifacts)
+                        for name in sorted(artifact_catalog)
                     }),
                     authored_statement_ids=tuple(statement_order),
                     statements=MappingProxyType(statements),
@@ -834,6 +852,62 @@ def _iter_surface_steps(surface: SurfaceWorkflow) -> tuple[SurfaceStep, ...]:
     if surface.finalization is not None:
         visit(surface.finalization.steps)
     return tuple(steps)
+
+
+@dataclass(frozen=True)
+class _SemanticStatementSurface:
+    step_id: str
+    surface_step_id: str
+    step_kind: str
+    surface_step: SurfaceStep
+
+
+def _iter_semantic_statements(
+    core_workflow_ast: CoreWorkflowAST | None,
+    surface: SurfaceWorkflow,
+) -> tuple[_SemanticStatementSurface, ...]:
+    if core_workflow_ast is None:
+        return tuple(
+            _SemanticStatementSurface(
+                step_id=step.step_id,
+                surface_step_id=step.step_id,
+                step_kind=step.kind.value,
+                surface_step=step,
+            )
+            for step in _iter_surface_steps(surface)
+        )
+
+    statements: list[_SemanticStatementSurface] = []
+
+    def visit(items: tuple[Any, ...]) -> None:
+        for statement in items:
+            meta = getattr(statement, "meta", None)
+            if meta is not None:
+                surface_step = _surface_step_from_core_statement(statement)
+                statements.append(
+                    _SemanticStatementSurface(
+                        step_id=surface_step.step_id,
+                        surface_step_id=surface_step.step_id,
+                        step_kind=meta.step_kind,
+                        surface_step=surface_step,
+                    )
+                )
+            if isinstance(statement, CoreIf):
+                visit(statement.then_branch.statements)
+                if statement.else_branch is not None:
+                    visit(statement.else_branch.statements)
+            elif isinstance(statement, CoreMatch):
+                for case in statement.cases.values():
+                    visit(case.statements)
+            elif isinstance(statement, CoreForEach):
+                visit(statement.statements)
+            elif isinstance(statement, CoreRepeatUntil):
+                visit(statement.statements)
+
+    visit(core_workflow_ast.body)
+    if core_workflow_ast.finalization is not None:
+        visit(core_workflow_ast.finalization.statements)
+    return tuple(statements)
 
 
 def _statement_node_groups(runtime_plan: WorkflowRuntimePlan) -> Mapping[str, tuple[str, ...]]:
