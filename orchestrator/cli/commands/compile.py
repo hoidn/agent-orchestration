@@ -11,6 +11,8 @@ from orchestrator.workflow_lisp.build import (
     FrontendBuildRequest,
     _cli_request_diagnostic,
     build_frontend_bundle,
+    emit_requested_frontend_artifact_exports,
+    normalize_frontend_artifact_exports,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 
@@ -34,6 +36,16 @@ def compile_workflow(args: Namespace) -> int:
         )
         return 2
     try:
+        export_requests = normalize_frontend_artifact_exports(
+            {
+                "core_workflow_ast": list(getattr(args, "emit_core_ast", ()) or ()),
+                "semantic_ir": list(getattr(args, "emit_semantic_ir", ()) or ()),
+                "source_map": list(getattr(args, "emit_source_map", ()) or ()),
+                "expanded_debug_yaml": list(getattr(args, "emit_debug_yaml", ()) or ()),
+            },
+            cwd=Path.cwd(),
+            source_path=workflow_path,
+        )
         result = build_frontend_bundle(
             FrontendBuildRequest(
                 source_path=workflow_path,
@@ -47,13 +59,20 @@ def compile_workflow(args: Namespace) -> int:
                 if args.imported_workflow_bundles_file else None,
                 command_boundaries_path=Path(args.command_boundaries_file).resolve()
                 if args.command_boundaries_file else None,
-                emit_debug_yaml=bool(getattr(args, "emit_debug_yaml", False)),
+                emit_debug_yaml="expanded_debug_yaml" in export_requests,
                 workspace_root=Path.cwd(),
             )
+        )
+        exported_artifacts = emit_requested_frontend_artifact_exports(
+            result=result,
+            export_requests=export_requests,
         )
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
             logger.error(render_diagnostic(diagnostic))
+        return 2
+    except OSError as exc:
+        logger.error(str(exc))
         return 2
 
     summary = {
@@ -67,6 +86,10 @@ def compile_workflow(args: Namespace) -> int:
         "artifact_paths": {
             name: str(path)
             for name, path in sorted(result.artifact_paths.items())
+        },
+        "exported_artifacts": {
+            name: str(path)
+            for name, path in sorted(exported_artifacts.items())
         },
         "diagnostic_count": len(result.diagnostics),
     }

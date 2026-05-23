@@ -15,6 +15,8 @@ from orchestrator.workflow_lisp.build import (
     _json_data,
     _origin_payload,
     build_frontend_bundle,
+    emit_requested_frontend_artifact_exports,
+    normalize_frontend_artifact_exports,
 )
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.lowering import LoweringOrigin
@@ -39,6 +41,16 @@ def explain_workflow(args: Namespace) -> int:
         )
         return 2
     try:
+        export_requests = normalize_frontend_artifact_exports(
+            {
+                "core_workflow_ast": list(getattr(args, "emit_core_ast", ()) or ()),
+                "semantic_ir": list(getattr(args, "emit_semantic_ir", ()) or ()),
+                "source_map": list(getattr(args, "emit_source_map", ()) or ()),
+                "expanded_debug_yaml": list(getattr(args, "emit_debug_yaml", ()) or ()),
+            },
+            cwd=Path.cwd(),
+            source_path=workflow_path,
+        )
         result = build_frontend_bundle(
             FrontendBuildRequest(
                 source_path=workflow_path,
@@ -52,12 +64,16 @@ def explain_workflow(args: Namespace) -> int:
                 if args.imported_workflow_bundles_file else None,
                 command_boundaries_path=Path(args.command_boundaries_file).resolve()
                 if args.command_boundaries_file else None,
+                emit_debug_yaml="expanded_debug_yaml" in export_requests,
                 workspace_root=Path.cwd(),
             )
         )
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
             logger.error(render_diagnostic(diagnostic))
+        return 2
+    except OSError as exc:
+        logger.error(str(exc))
         return 2
 
     form_name = args.form or result.selected_workflow_name
@@ -66,6 +82,18 @@ def explain_workflow(args: Namespace) -> int:
             result,
             requested_form=form_name,
             source_path=workflow_path,
+        )
+    except LispFrontendCompileError as exc:
+        for diagnostic in exc.diagnostics:
+            logger.error(render_diagnostic(diagnostic))
+        return 2
+    except OSError as exc:
+        logger.error(str(exc))
+        return 2
+    try:
+        exported_artifacts = emit_requested_frontend_artifact_exports(
+            result=result,
+            export_requests=export_requests,
         )
     except LispFrontendCompileError as exc:
         for diagnostic in exc.diagnostics:
@@ -103,6 +131,19 @@ def explain_workflow(args: Namespace) -> int:
     print(json.dumps(selection["source_trace_payload"], indent=2, sort_keys=True))
     print("")
     print(f"Manifest fingerprint: {manifest.fingerprint}")
+    if exported_artifacts:
+        print("")
+        print("Emitted artifacts:")
+        print(
+            json.dumps(
+                {
+                    name: str(path)
+                    for name, path in sorted(exported_artifacts.items())
+                },
+                indent=2,
+                sort_keys=True,
+            )
+        )
     return 0
 
 

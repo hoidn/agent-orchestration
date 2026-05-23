@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass, replace
 from enum import Enum
@@ -27,6 +28,12 @@ from .workflows import CertifiedAdapterBinding, ExternalToolBinding
 
 
 BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
+FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
+    "core_workflow_ast": "core_workflow_ast.json",
+    "semantic_ir": "semantic_ir.json",
+    "source_map": "source_map.json",
+    "expanded_debug_yaml": "expanded.debug.yaml",
+}
 
 
 @dataclass(frozen=True)
@@ -142,6 +149,14 @@ class FrontendBuildResult:
     entry_selection: FrontendEntrySelection
     imported_workflow_bundles: tuple[ImportedWorkflowBundleBinding, ...]
     compile_result: LinkedStage3CompileResult
+
+
+@dataclass(frozen=True)
+class FrontendArtifactExportRequest:
+    """One caller-requested convenience export of a canonical build artifact."""
+
+    artifact_name: str
+    destination: Path
 
 
 def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
@@ -300,6 +315,94 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         imported_workflow_bundles=imported_bindings,
         compile_result=compile_result,
     )
+
+
+def normalize_frontend_artifact_exports(
+    raw_requests: Mapping[str, list[str | None] | tuple[str | None, ...]],
+    *,
+    cwd: Path,
+    source_path: Path,
+) -> dict[str, FrontendArtifactExportRequest]:
+    """Resolve CLI emit flags into concrete export requests.
+
+    Export paths are convenience destinations only and must stay outside build
+    fingerprinting and manifest authority.
+    """
+
+    normalized: dict[str, FrontendArtifactExportRequest] = {}
+    resolved_cwd = cwd.resolve()
+    for artifact_name, default_filename in FRONTEND_ARTIFACT_EXPORT_FILENAMES.items():
+        values = list(raw_requests.get(artifact_name, ()))
+        if not values:
+            continue
+        if len(values) > 1:
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="artifact_export_requested_multiple_times",
+                        message=f"artifact export `{artifact_name}` was requested more than once",
+                        path=source_path,
+                    ),
+                )
+            )
+        raw_destination = values[0]
+        destination = Path(raw_destination) if raw_destination is not None else Path(default_filename)
+        if not destination.is_absolute():
+            destination = resolved_cwd / destination
+        destination = destination.resolve()
+        if destination.exists() and destination.is_dir():
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="artifact_export_destination_is_directory",
+                        message=f"artifact export destination `{destination}` resolves to an existing directory",
+                        path=source_path,
+                    ),
+                )
+            )
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        normalized[artifact_name] = FrontendArtifactExportRequest(
+            artifact_name=artifact_name,
+            destination=destination,
+        )
+    return normalized
+
+
+def emit_requested_frontend_artifact_exports(
+    *,
+    result: FrontendBuildResult,
+    export_requests: Mapping[str, FrontendArtifactExportRequest],
+) -> dict[str, Path]:
+    """Copy canonical build artifacts to requested convenience destinations."""
+
+    exported: dict[str, Path] = {}
+    for artifact_name, request in sorted(export_requests.items()):
+        canonical_path = result.artifact_paths.get(artifact_name)
+        if canonical_path is None:
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="artifact_export_unavailable",
+                        message=f"canonical artifact `{artifact_name}` is not available for export",
+                        path=Path(result.manifest.source_path),
+                    ),
+                )
+            )
+        try:
+            shutil.copyfile(canonical_path, request.destination)
+        except OSError as exc:
+            raise LispFrontendCompileError(
+                (
+                    _cli_request_diagnostic(
+                        code="artifact_export_failed",
+                        message=f"failed to export `{artifact_name}` to `{request.destination}`: {exc}",
+                        path=request.destination,
+                        notes=(f"canonical artifact: {canonical_path}",),
+                    ),
+                )
+            ) from exc
+        exported[artifact_name] = request.destination
+    return exported
 
 
 def load_imported_workflow_bundle_manifest(

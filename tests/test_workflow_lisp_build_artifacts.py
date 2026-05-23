@@ -562,6 +562,93 @@ def test_build_semantic_ir_uses_current_source_map_validation_subject_bridges(tm
     assert semantic_ir_subject_names(second) == validation_subject_names(second)
 
 
+def test_export_request_normalization_resolves_default_and_explicit_destinations(tmp_path: Path) -> None:
+    build = _build_module()
+    normalize_exports = getattr(build, "normalize_frontend_artifact_exports")
+
+    requests = normalize_exports(
+        {
+            "core_workflow_ast": [None],
+            "semantic_ir": ["exports/semantic_ir.snapshot.json"],
+            "source_map": [None],
+        },
+        cwd=tmp_path,
+        source_path=ENTRYPOINT,
+    )
+
+    assert requests["core_workflow_ast"].destination == (tmp_path / "core_workflow_ast.json").resolve()
+    assert requests["semantic_ir"].destination == (tmp_path / "exports" / "semantic_ir.snapshot.json").resolve()
+    assert requests["source_map"].destination == (tmp_path / "source_map.json").resolve()
+    assert (tmp_path / "exports").is_dir()
+
+
+def test_export_request_normalization_rejects_duplicate_requests(tmp_path: Path) -> None:
+    build = _build_module()
+    normalize_exports = getattr(build, "normalize_frontend_artifact_exports")
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        normalize_exports(
+            {
+                "core_workflow_ast": [None, "exports/core_workflow_ast.json"],
+            },
+            cwd=tmp_path,
+            source_path=ENTRYPOINT,
+        )
+
+    assert excinfo.value.diagnostics[0].phase == "cli_request"
+    assert "requested more than once" in excinfo.value.diagnostics[0].message
+
+
+def test_export_request_normalization_rejects_existing_directory_destination(tmp_path: Path) -> None:
+    build = _build_module()
+    normalize_exports = getattr(build, "normalize_frontend_artifact_exports")
+    destination = tmp_path / "exports"
+    destination.mkdir()
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        normalize_exports(
+            {
+                "semantic_ir": ["exports"],
+            },
+            cwd=tmp_path,
+            source_path=ENTRYPOINT,
+        )
+
+    assert excinfo.value.diagnostics[0].phase == "cli_request"
+    assert "existing directory" in excinfo.value.diagnostics[0].message
+
+
+def test_exported_artifacts_copy_canonical_bytes_without_mutating_manifest_or_canonical_paths(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    emit_exports = getattr(build, "emit_requested_frontend_artifact_exports")
+    normalize_exports = getattr(build, "normalize_frontend_artifact_exports")
+
+    request = replace(_build_request(tmp_path), emit_debug_yaml=True)
+    result = build_frontend_bundle(request)
+    original_manifest_paths = dict(result.manifest.artifact_paths)
+    original_artifact_paths = dict(result.artifact_paths)
+    export_requests = normalize_exports(
+        {
+            "core_workflow_ast": ["exports/core/core_workflow_ast.json"],
+            "semantic_ir": ["exports/semantic/semantic_ir.json"],
+            "source_map": ["exports/maps/source_map.json"],
+            "expanded_debug_yaml": ["exports/debug/expanded.debug.yaml"],
+        },
+        cwd=tmp_path,
+        source_path=ENTRYPOINT,
+    )
+
+    exported = emit_exports(result=result, export_requests=export_requests)
+
+    assert exported["core_workflow_ast"].read_bytes() == result.artifact_paths["core_workflow_ast"].read_bytes()
+    assert exported["semantic_ir"].read_bytes() == result.artifact_paths["semantic_ir"].read_bytes()
+    assert exported["source_map"].read_bytes() == result.artifact_paths["source_map"].read_bytes()
+    assert exported["expanded_debug_yaml"].read_bytes() == result.artifact_paths["expanded_debug_yaml"].read_bytes()
+    assert result.manifest.artifact_paths == original_manifest_paths
+    assert dict(result.artifact_paths) == original_artifact_paths
+
+
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")

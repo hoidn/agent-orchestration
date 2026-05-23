@@ -10,8 +10,8 @@ from .commands import run_workflow
 def _add_frontend_flags(
     parser: argparse.ArgumentParser,
     *,
-    include_emit_debug_yaml: bool = False,
     include_form: bool = False,
+    include_emit_artifact_exports: bool = False,
 ) -> None:
     if include_form:
         parser.add_argument(
@@ -49,11 +49,38 @@ def _add_frontend_flags(
         type=str,
         help='Path to JSON command boundary manifest for .orc compilation'
     )
-    if include_emit_debug_yaml:
+    if include_emit_artifact_exports:
+        parser.add_argument(
+            '--emit-core-ast',
+            action='append',
+            nargs='?',
+            const=None,
+            metavar='PATH',
+            help='Export canonical Core Workflow AST JSON to PATH or cwd default filename'
+        )
+        parser.add_argument(
+            '--emit-semantic-ir',
+            action='append',
+            nargs='?',
+            const=None,
+            metavar='PATH',
+            help='Export canonical Semantic IR JSON to PATH or cwd default filename'
+        )
+        parser.add_argument(
+            '--emit-source-map',
+            action='append',
+            nargs='?',
+            const=None,
+            metavar='PATH',
+            help='Export canonical source map JSON to PATH or cwd default filename'
+        )
         parser.add_argument(
             '--emit-debug-yaml',
-            action='store_true',
-            help='Emit non-authoritative debug YAML for validated .orc builds'
+            action='append',
+            nargs='?',
+            const=None,
+            metavar='PATH',
+            help='Export non-authoritative debug YAML to PATH or cwd default filename'
         )
 
 
@@ -234,7 +261,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         help='Path to workflow .orc file'
     )
-    _add_frontend_flags(compile_parser, include_emit_debug_yaml=True)
+    _add_frontend_flags(compile_parser, include_emit_artifact_exports=True)
 
     explain_parser = subparsers.add_parser('explain', help='Explain a compiled Workflow Lisp form')
     explain_parser.add_argument(
@@ -242,7 +269,7 @@ def create_parser() -> argparse.ArgumentParser:
         type=str,
         help='Path to workflow .orc file'
     )
-    _add_frontend_flags(explain_parser, include_form=True)
+    _add_frontend_flags(explain_parser, include_form=True, include_emit_artifact_exports=True)
 
     # Resume command (minimal for now)
     resume_parser = subparsers.add_parser('resume', help='Resume a workflow run')
