@@ -120,10 +120,12 @@ class FrontendTypeEnvironment:
         *,
         import_scope: "ModuleImportScope | None" = None,
         canonical_name_overrides: dict[str, str] | None = None,
+        schema_names: frozenset[str] = frozenset(),
     ):
         self._type_refs = dict(type_refs)
         self._import_scope = import_scope
         self._canonical_name_overrides = dict(canonical_name_overrides or {})
+        self._schema_names = frozenset(schema_names)
 
     @classmethod
     def from_module(
@@ -164,6 +166,17 @@ class FrontendTypeEnvironment:
                 )
         if imported_type_refs:
             type_refs.update(imported_type_refs)
+        schema_names = {schema.name for schema in module.schemas}
+        if import_scope is not None:
+            schema_names.update(import_scope.schema_bindings)
+            schema_names.update(import_scope.unqualified_schema_bindings)
+            schema_names.update(
+                binding.canonical_name
+                for binding in (
+                    *import_scope.schema_bindings.values(),
+                    *import_scope.unqualified_schema_bindings.values(),
+                )
+            )
         for definition in module.definitions:
             if isinstance(definition, RecordDef):
                 record_ref = type_refs.get(definition.name)
@@ -198,7 +211,11 @@ class FrontendTypeEnvironment:
                             for variant in definition.variants
                         }
                     )
-        return cls(type_refs, import_scope=import_scope)
+        return cls(
+            type_refs,
+            import_scope=import_scope,
+            schema_names=frozenset(schema_names),
+        )
 
     def resolve_type(
         self,
@@ -213,6 +230,7 @@ class FrontendTypeEnvironment:
             type_refs=self._type_refs,
             import_scope=self._import_scope,
             canonical_name_overrides=self._canonical_name_overrides,
+            schema_names=self._schema_names,
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
@@ -308,6 +326,7 @@ class FrontendTypeEnvironment:
         span: SourceSpan,
         form_path: tuple[str, ...],
         canonical_name_overrides: dict[str, str] | None = None,
+        schema_names: frozenset[str] = frozenset(),
         expansion_stack: tuple[object, ...] = (),
     ) -> TypeRef:
         lookup_name = (canonical_name_overrides or {}).get(name, name)
@@ -320,6 +339,7 @@ class FrontendTypeEnvironment:
                 type_refs=type_refs,
                 import_scope=import_scope,
                 canonical_name_overrides=canonical_name_overrides or {},
+                schema_names=schema_names,
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
@@ -336,6 +356,16 @@ class FrontendTypeEnvironment:
         local_ref = type_refs.get(resolved_name)
         if local_ref is not None:
             return local_ref
+        if lookup_name in schema_names or resolved_name in schema_names or (
+            import_scope is not None and import_scope.has_visible_schema_name(lookup_name)
+        ):
+            _raise_error(
+                f"schema `{name}` cannot be used as a type",
+                code="schema_used_as_type",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
         _raise_error(
             f"unknown type `{name}`",
             code="type_unknown",
@@ -351,6 +381,7 @@ def _parse_workflow_ref_type(
     type_refs: dict[str, TypeRef],
     import_scope: "ModuleImportScope | None",
     canonical_name_overrides: dict[str, str],
+    schema_names: frozenset[str],
     span: SourceSpan,
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...] = (),
@@ -379,6 +410,7 @@ def _parse_workflow_ref_type(
             type_refs=type_refs,
             import_scope=import_scope,
             canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
@@ -398,6 +430,7 @@ def _parse_workflow_ref_type(
         type_refs=type_refs,
         import_scope=import_scope,
         canonical_name_overrides=canonical_name_overrides,
+        schema_names=schema_names,
         span=span,
         form_path=form_path,
         expansion_stack=expansion_stack,

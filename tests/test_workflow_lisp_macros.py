@@ -139,6 +139,36 @@ def test_compile_stage1_rejects_macro_expansions_that_emit_top_level_defmacro(tm
     assert "top-level `defmacro`" in diagnostic.message
 
 
+def test_compile_stage1_allows_macro_emitted_defschema_forms(tmp_path: Path) -> None:
+    fixture = tmp_path / "macro_emits_defschema.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (emit-schema ReportTargets)",
+                "  (defrecord ImplementationSummary",
+                "    (:include ReportTargets))",
+                "  (defmacro emit-schema (name)",
+                "    (defschema name",
+                "      (report WorkReport))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    module = compile_stage1_module(fixture)
+
+    implementation_summary = module.definitions[1]
+    assert implementation_summary.name == "ImplementationSummary"
+    assert [field.name for field in implementation_summary.fields] == ["report"]
+
+
 def test_compile_stage3_module_accepts_macro_emitted_provider_and_command_results(tmp_path: Path) -> None:
     result = compile_stage3_module(
         VALID_ALIAS_FIXTURE,

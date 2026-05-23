@@ -25,9 +25,11 @@ from .definitions import (
     PathDef,
     RecordDef,
     RecordField,
+    SchemaDef,
     UnionDef,
     UnionVariant,
     WorkflowLispModule,
+    _expand_schema_fields,
     elaborate_definition_module,
 )
 from .diagnostics import (
@@ -163,17 +165,36 @@ def compile_stage1_entrypoint(
     graph = resolve_module_graph(path, source_roots=source_roots)
     compiled_modules_by_name: dict[str, WorkflowLispModule] = {}
     export_surfaces = dict(graph.export_surfaces_by_name)
+    exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
     for module_name in graph.topological_order:
         module_source = graph.modules_by_name[module_name]
+        preliminary_module = WorkflowLispModule(
+            language_version=module_source.syntax_module.language_version,
+            target_dsl_version=module_source.syntax_module.target_dsl_version,
+            module_name=module_source.syntax_module.module_name,
+            imports=module_source.syntax_module.imports,
+            exports=module_source.syntax_module.exports,
+            definitions=(),
+            span=module_source.syntax_module.span,
+            schemas=(),
+        )
+        import_scope = build_import_scope(preliminary_module, export_surfaces_by_name=export_surfaces)
         module = _compile_stage1_syntax_module(
             module_source.syntax_module,
             validate_top_level_forms=False,
+            import_scope=import_scope,
+            imported_schema_defs=_imported_schema_defs(import_scope, exported_schema_defs_by_module),
         )
-        build_import_scope(module, export_surfaces_by_name=export_surfaces)
         export_surfaces[module_name] = derive_export_surface(
             module_source.syntax_module,
             local_macros=collect_macro_catalog(module_source.syntax_module),
             local_module=module,
+        )
+        exported_schema_defs_by_module[module_name] = _exported_schema_defs(
+            module,
+            export_surfaces[module_name],
+            import_scope=import_scope,
+            imported_schema_defs=_imported_schema_defs(import_scope, exported_schema_defs_by_module),
         )
         compiled_modules_by_name[module_name] = module
     return LinkedStage1CompileResult(
@@ -381,6 +402,8 @@ def _run_stage1_validation_pipeline(
     path: Path | None = None,
     syntax_module: WorkflowLispSyntaxModule | None = None,
     validate_top_level_forms: bool,
+    import_scope: ModuleImportScope | None = None,
+    imported_schema_defs: Mapping[str, SchemaDef] | None = None,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
     if (path is None) == (syntax_module is None):
         raise ValueError("exactly one of `path` or `syntax_module` is required")
@@ -405,9 +428,11 @@ def _run_stage1_validation_pipeline(
         if validate_top_level_forms:
             _validate_stage1_top_level_forms(state.expanded_syntax_module)
         module = elaborate_definition_module(
-            _definition_only_from_expanded_syntax_module(state.expanded_syntax_module)
+            _definition_only_from_expanded_syntax_module(state.expanded_syntax_module),
+            import_scope=import_scope,
+            imported_schemas=imported_schema_defs,
         )
-        _validate_definition_module(module)
+        _validate_definition_module(module, import_scope=import_scope)
         return replace(state, module=module)
 
     passes: list[ValidationPipelinePass] = []
@@ -574,10 +599,14 @@ def _compile_stage1_syntax_module(
     syntax_module: WorkflowLispSyntaxModule,
     *,
     validate_top_level_forms: bool,
+    import_scope: ModuleImportScope | None = None,
+    imported_schema_defs: Mapping[str, SchemaDef] | None = None,
 ) -> WorkflowLispModule:
     state, results = _run_stage1_validation_pipeline(
         syntax_module=syntax_module,
         validate_top_level_forms=validate_top_level_forms,
+        import_scope=import_scope,
+        imported_schema_defs=imported_schema_defs,
     )
     raise_pipeline_diagnostics(results)
     return state.module
@@ -903,6 +932,7 @@ def _compile_stage3_graph(
 
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
+    exported_schema_defs_by_module: dict[str, dict[str, SchemaDef]] = {}
     exported_macro_defs_by_module: dict[str, dict[str, object]] = {}
     exported_function_signatures_by_module: dict[str, dict[str, FunctionSignature]] = {}
     exported_procedure_signatures_by_module: dict[str, dict[str, ProcedureSignature]] = {}
@@ -926,8 +956,10 @@ def _compile_stage3_graph(
             exports=module_source.syntax_module.exports,
             definitions=(),
             span=module_source.syntax_module.span,
+            schemas=(),
         )
         import_scope = build_import_scope(preliminary_module, export_surfaces_by_name=export_surfaces)
+        imported_schema_defs = _imported_schema_defs(import_scope, exported_schema_defs_by_module)
         imported_macros = imported_macro_catalog(
             import_scope,
             exported_macros_by_module=exported_macro_defs_by_module,
@@ -940,9 +972,11 @@ def _compile_stage3_graph(
             ),
         )
         definition_module = elaborate_definition_module(
-            _definition_only_from_expanded_syntax_module(expanded_syntax)
+            _definition_only_from_expanded_syntax_module(expanded_syntax),
+            import_scope=import_scope,
+            imported_schemas=imported_schema_defs,
         )
-        _validate_definition_module(definition_module)
+        _validate_definition_module(definition_module, import_scope=import_scope)
 
         raw_function_defs = elaborate_function_definitions(expanded_syntax)
         raw_procedure_defs = elaborate_procedure_definitions(expanded_syntax)
@@ -954,6 +988,12 @@ def _compile_stage3_graph(
             function_names=tuple(function.name for function in raw_function_defs),
             procedure_names=tuple(procedure.name for procedure in raw_procedure_defs),
             workflow_names=tuple(workflow.name for workflow in raw_workflow_defs),
+        )
+        exported_schema_defs_by_module[module_name] = _exported_schema_defs(
+            definition_module,
+            export_surfaces[module_name],
+            import_scope=import_scope,
+            imported_schema_defs=imported_schema_defs,
         )
         import_scope = build_import_scope(definition_module, export_surfaces_by_name=export_surfaces)
         _validate_visible_callable_name_collisions(
@@ -1303,6 +1343,24 @@ def _imported_type_refs(
     return imported
 
 
+def _imported_schema_defs(
+    import_scope: ModuleImportScope,
+    exported_schema_defs_by_module: Mapping[str, Mapping[str, SchemaDef]],
+) -> dict[str, SchemaDef]:
+    """Collect schema definitions visible through imports."""
+
+    imported: dict[str, SchemaDef] = {}
+    seen_bindings = {
+        **dict(import_scope.schema_bindings),
+        **dict(import_scope.unqualified_schema_bindings),
+    }
+    for binding in seen_bindings.values():
+        schema_def = exported_schema_defs_by_module.get(binding.module_name, {}).get(binding.member_name)
+        if schema_def is not None:
+            imported[binding.canonical_name] = schema_def
+    return imported
+
+
 def _exported_type_refs(
     module: WorkflowLispModule,
     export_surface: ModuleExportSurface,
@@ -1316,6 +1374,42 @@ def _exported_type_refs(
             binding.member_name,
             span=module.span,
             form_path=("workflow-lisp", binding.member_name),
+        )
+    return exported
+
+
+def _exported_schema_defs(
+    module: WorkflowLispModule,
+    export_surface: ModuleExportSurface,
+    *,
+    import_scope: ModuleImportScope | None = None,
+    imported_schema_defs: Mapping[str, SchemaDef] | None = None,
+) -> dict[str, SchemaDef]:
+    """Resolve exported schema names into importer-ready frontend metadata."""
+
+    local_schema_by_name = {schema.name: schema for schema in module.schemas}
+    imported_schema_map = dict(imported_schema_defs or {})
+    schema_cache: dict[str, tuple[RecordField, ...]] = {}
+    active_schema_stack: list[str] = []
+    exported: dict[str, SchemaDef] = {}
+    for binding in export_surface.schemas_by_name.values():
+        schema = local_schema_by_name.get(binding.member_name)
+        if schema is None:
+            continue
+        exported[binding.member_name] = SchemaDef(
+            name=binding.canonical_name,
+            members=_expand_schema_fields(
+                schema.name,
+                schema=schema,
+                local_schema_map=local_schema_by_name,
+                imported_schema_map=imported_schema_map,
+                import_scope=import_scope,
+                schema_cache=schema_cache,
+                active_schema_stack=active_schema_stack,
+                include_span=schema.span,
+                form_path=("workflow-lisp", "defschema", schema.name),
+            ),
+            span=schema.span,
         )
     return exported
 
@@ -1692,7 +1786,11 @@ def _validate_visible_callable_name_collisions(
         )
 
 
-def _validate_definition_module(module: WorkflowLispModule) -> None:
+def _validate_definition_module(
+    module: WorkflowLispModule,
+    *,
+    import_scope: ModuleImportScope | None = None,
+) -> None:
     """Validate definition names and type references for one module."""
 
     diagnostics: list[LispFrontendDiagnostic] = []
@@ -1709,14 +1807,57 @@ def _validate_definition_module(module: WorkflowLispModule) -> None:
             )
         else:
             definition_names[definition.name] = definition
+    for schema in module.schemas:
+        if schema.name in definition_names:
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="definition_duplicate",
+                    message=f"duplicate definition `{schema.name}`",
+                    span=schema.span,
+                    form_path=_definition_form_path(schema),
+                )
+            )
+        else:
+            definition_names[schema.name] = schema
 
-    available_type_names = PRELUDE_TYPE_NAMES | frozenset(definition_names)
+    imported_type_names = frozenset()
+    visible_schema_names = frozenset(schema.name for schema in module.schemas)
+    if import_scope is not None:
+        imported_type_names = frozenset(
+            binding.canonical_name
+            for binding in (
+                *import_scope.type_bindings.values(),
+                *import_scope.unqualified_type_bindings.values(),
+            )
+        )
+        visible_schema_names = visible_schema_names | frozenset(import_scope.schema_bindings) | frozenset(
+            import_scope.unqualified_schema_bindings
+        )
+
+    available_type_names = PRELUDE_TYPE_NAMES | frozenset(
+        name for name, definition in definition_names.items() if not isinstance(definition, SchemaDef)
+    ) | imported_type_names
     for definition in module.definitions:
         if isinstance(definition, RecordDef):
             diagnostics.extend(_validate_field_list(definition.fields, _definition_form_path(definition)))
-            diagnostics.extend(_validate_field_types(definition.fields, _definition_form_path(definition), available_type_names))
+            diagnostics.extend(
+                _validate_field_types(
+                    definition.fields,
+                    _definition_form_path(definition),
+                    available_type_names,
+                    visible_schema_names=visible_schema_names,
+                    import_scope=import_scope,
+                )
+            )
         elif isinstance(definition, UnionDef):
-            diagnostics.extend(_validate_union_definition(definition, available_type_names))
+            diagnostics.extend(
+                _validate_union_definition(
+                    definition,
+                    available_type_names,
+                    visible_schema_names=visible_schema_names,
+                    import_scope=import_scope,
+                )
+            )
 
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))
@@ -1725,6 +1866,9 @@ def _validate_definition_module(module: WorkflowLispModule) -> None:
 def _validate_union_definition(
     definition: UnionDef,
     available_type_names: frozenset[str],
+    *,
+    visible_schema_names: frozenset[str],
+    import_scope: ModuleImportScope | None,
 ) -> list[LispFrontendDiagnostic]:
     """Validate one union's variant names and variant field types."""
 
@@ -1750,7 +1894,15 @@ def _validate_union_definition(
                 scope_label=f"union variant `{variant.name}`",
             )
         )
-        diagnostics.extend(_validate_field_types(variant.fields, form_path, available_type_names))
+        diagnostics.extend(
+            _validate_field_types(
+                variant.fields,
+                form_path,
+                available_type_names,
+                visible_schema_names=visible_schema_names,
+                import_scope=import_scope,
+            )
+        )
     return diagnostics
 
 
@@ -1783,6 +1935,9 @@ def _validate_field_types(
     fields: tuple[RecordField, ...],
     form_path: tuple[str, ...],
     available_type_names: frozenset[str],
+    *,
+    visible_schema_names: frozenset[str],
+    import_scope: ModuleImportScope | None,
 ) -> list[LispFrontendDiagnostic]:
     """Validate that each field references a known type name."""
 
@@ -1790,7 +1945,30 @@ def _validate_field_types(
     for field in fields:
         if field.type_name.startswith("WorkflowRef[") and field.type_name.endswith("]"):
             continue
+        if field.type_name in visible_schema_names or (
+            import_scope is not None and import_scope.has_visible_schema_name(field.type_name)
+        ):
+            diagnostics.append(
+                LispFrontendDiagnostic(
+                    code="schema_used_as_type",
+                    message=f"schema `{field.type_name}` cannot be used as a type",
+                    span=field.span,
+                    form_path=form_path,
+                )
+            )
+            continue
         if field.type_name not in available_type_names:
+            resolved_name = (
+                import_scope.resolve_type_name(
+                    field.type_name,
+                    span=field.span,
+                    form_path=form_path,
+                )
+                if import_scope is not None
+                else field.type_name
+            )
+            if resolved_name in available_type_names:
+                continue
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="type_unknown",
@@ -1802,13 +1980,15 @@ def _validate_field_types(
     return diagnostics
 
 
-def _definition_form_path(definition: EnumDef | PathDef | RecordDef | UnionDef) -> tuple[str, ...]:
+def _definition_form_path(definition: EnumDef | PathDef | RecordDef | UnionDef | SchemaDef) -> tuple[str, ...]:
     """Return a stable frontend form path for a type definition."""
 
     if isinstance(definition, EnumDef):
         return ("workflow-lisp", "defenum", definition.name)
     if isinstance(definition, PathDef):
         return ("workflow-lisp", "defpath", definition.name)
+    if isinstance(definition, SchemaDef):
+        return ("workflow-lisp", "defschema", definition.name)
     if isinstance(definition, RecordDef):
         return ("workflow-lisp", "defrecord", definition.name)
     return ("workflow-lisp", "defunion", definition.name)
@@ -1817,7 +1997,7 @@ def _definition_form_path(definition: EnumDef | PathDef | RecordDef | UnionDef) 
 def _validate_stage1_top_level_forms(module_syntax: WorkflowLispSyntaxModule) -> None:
     """Reject executable top-level forms in definition-only compilation."""
 
-    allowed_heads = {"defenum", "defpath", "defrecord", "defunion", "defworkflow", "defun", "defproc"}
+    allowed_heads = {"defenum", "defpath", "defschema", "defrecord", "defunion", "defworkflow", "defun", "defproc"}
     for form in module_syntax.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
         if head_name not in allowed_heads:

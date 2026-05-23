@@ -257,6 +257,34 @@ def test_build_workflow_catalog_accepts_macro_expanded_top_level_workflows() -> 
 
     assert tuple(workflow_catalog.signatures_by_name) == ("command_checks", "provider_attempt")
 
+
+def test_compile_stage3_module_keeps_schema_built_records_transparent_to_workflow_typing(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    result = compile_stage3_module(
+        FIXTURES / "valid" / "defschema_workflow_inputs.orc",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    signature = result.workflow_catalog.signatures_by_name["summarize"]
+    input_name, input_type = signature.params[0]
+
+    assert input_name == "input"
+    assert isinstance(input_type, RecordTypeRef)
+    assert [field.name for field in input_type.definition.fields] == [
+        "status",
+        "execution_report",
+        "review_report",
+    ]
+    assert isinstance(signature.return_type_ref, RecordTypeRef)
+    assert [field.name for field in signature.return_type_ref.definition.fields] == [
+        "status",
+        "execution_report",
+    ]
+
 def test_compile_stage3_module_exposes_procedure_catalog_without_changing_workflow_signatures(tmp_path: Path) -> None:
     from orchestrator.workflow_lisp.compiler import compile_stage3_module
 

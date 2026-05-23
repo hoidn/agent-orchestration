@@ -103,6 +103,7 @@ _TYPE_CODES = frozenset(
         "record_field_missing",
         "union_variant_unknown",
         "union_match_non_exhaustive",
+        "schema_used_as_type",
         "function_call_unknown",
         "function_arity_mismatch",
         "function_return_type_invalid",
@@ -122,6 +123,10 @@ _LOWERING_SURFACE_CODES = frozenset(
 _MODULE_CODES = frozenset(
     {
         "definition_duplicate",
+        "schema_definition_invalid",
+        "schema_unknown",
+        "schema_cycle",
+        "schema_field_duplicate",
         "function_definition_duplicate",
         "record_field_duplicate",
         "union_variant_duplicate",

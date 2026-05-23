@@ -56,6 +56,7 @@ class ModuleExportSurface:
 
     module_name: str
     types_by_name: Mapping[str, ModuleMemberBinding]
+    schemas_by_name: Mapping[str, ModuleMemberBinding]
     macros_by_name: Mapping[str, ModuleMemberBinding]
     functions_by_name: Mapping[str, ModuleMemberBinding]
     procedures_by_name: Mapping[str, ModuleMemberBinding]
@@ -66,6 +67,7 @@ class ModuleExportSurface:
 
         for bindings in (
             self.types_by_name,
+            self.schemas_by_name,
             self.macros_by_name,
             self.functions_by_name,
             self.procedures_by_name,
@@ -90,11 +92,13 @@ class ModuleImportScope:
     alias_to_module: Mapping[str, str]
     explicitly_imported_modules: frozenset[str]
     type_bindings: Mapping[str, ModuleMemberBinding]
+    schema_bindings: Mapping[str, ModuleMemberBinding]
     macro_bindings: Mapping[str, ModuleMemberBinding]
     function_bindings: Mapping[str, ModuleMemberBinding]
     procedure_bindings: Mapping[str, ModuleMemberBinding]
     workflow_bindings: Mapping[str, ModuleMemberBinding]
     unqualified_type_bindings: Mapping[str, ModuleMemberBinding]
+    unqualified_schema_bindings: Mapping[str, ModuleMemberBinding]
 
     def resolve_type_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
         """Resolve a type reference or leave it local when no import matches."""
@@ -113,6 +117,29 @@ class ModuleImportScope:
         if qualified is not None:
             return qualified.canonical_name
         return name
+
+    def resolve_schema_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
+        """Resolve a schema include target or leave it local when no import matches."""
+
+        if name in self.unqualified_schema_bindings:
+            return self.unqualified_schema_bindings[name].canonical_name
+        qualified = _resolve_qualified_binding(
+            name,
+            alias_to_module=self.alias_to_module,
+            explicitly_imported_modules=self.explicitly_imported_modules,
+            imported_bindings=self.schema_bindings,
+            kind_label="schema",
+            span=span,
+            form_path=form_path,
+        )
+        if qualified is not None:
+            return qualified.canonical_name
+        return name
+
+    def has_visible_schema_name(self, name: str) -> bool:
+        """Return whether `name` is an imported schema alias or qualified reference."""
+
+        return name in self.unqualified_schema_bindings or name in self.schema_bindings
 
     def resolve_procedure_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
         """Resolve a procedure call head to the canonical callable key."""
@@ -320,6 +347,10 @@ def derive_export_surface(
         definition.name
         for definition in (local_module.definitions if local_module is not None else ())
     }
+    schema_names = {
+        schema.name
+        for schema in (local_module.schemas if local_module is not None else ())
+    }
     macro_catalog = local_macros or MacroCatalog(definitions_by_name={})
     local_form_names = {
         "defun": set(function_names),
@@ -336,9 +367,12 @@ def derive_export_surface(
             if head == "defrecord" or head == "defenum" or head == "defunion" or head == "defpath":
                 if name is not None:
                     type_names.add(name)
+            if head == "defschema" and name is not None:
+                schema_names.add(name)
             if head in local_form_names and name is not None:
                 local_form_names[head].add(name)
     exported_types: dict[str, ModuleMemberBinding] = {}
+    exported_schemas: dict[str, ModuleMemberBinding] = {}
     exported_macros: dict[str, ModuleMemberBinding] = {}
     exported_functions: dict[str, ModuleMemberBinding] = {}
     exported_procedures: dict[str, ModuleMemberBinding] = {}
@@ -363,6 +397,14 @@ def derive_export_surface(
                 module_name=module_name,
                 member_name=exported_name,
                 canonical_name=f"{module_name}::{exported_name}",
+            )
+            continue
+        if exported_name in schema_names:
+            exported_schemas[exported_name] = ModuleMemberBinding(
+                kind="schema",
+                module_name=module_name,
+                member_name=exported_name,
+                canonical_name=canonical_callable_key(module_name, exported_name),
             )
             continue
         if exported_name in macro_catalog.definitions_by_name:
@@ -411,6 +453,7 @@ def derive_export_surface(
     return ModuleExportSurface(
         module_name=module_name,
         types_by_name=exported_types,
+        schemas_by_name=exported_schemas,
         macros_by_name=exported_macros,
         functions_by_name=exported_functions,
         procedures_by_name=exported_procedures,
@@ -432,11 +475,13 @@ def build_import_scope(
 
     alias_to_module: dict[str, str] = {}
     type_bindings: dict[str, ModuleMemberBinding] = {}
+    schema_bindings: dict[str, ModuleMemberBinding] = {}
     macro_bindings: dict[str, ModuleMemberBinding] = {}
     function_bindings: dict[str, ModuleMemberBinding] = {}
     procedure_bindings: dict[str, ModuleMemberBinding] = {}
     workflow_bindings: dict[str, ModuleMemberBinding] = {}
     unqualified_type_bindings: dict[str, ModuleMemberBinding] = {}
+    unqualified_schema_bindings: dict[str, ModuleMemberBinding] = {}
     for import_directive in module.imports:
         if import_directive.alias in alias_to_module:
             raise LispFrontendCompileError(
@@ -466,6 +511,7 @@ def build_import_scope(
             import_directive.alias,
             surface,
             type_bindings,
+            schema_bindings,
             macro_bindings,
             function_bindings,
             procedure_bindings,
@@ -500,6 +546,21 @@ def build_import_scope(
                         )
                     )
                 unqualified_type_bindings[member_name] = binding
+                continue
+            if binding.kind == "schema":
+                existing = unqualified_schema_bindings.get(member_name)
+                if existing is not None and existing.canonical_name != binding.canonical_name:
+                    raise LispFrontendCompileError(
+                        (
+                            LispFrontendDiagnostic(
+                                code="module_import_ambiguous",
+                                message=f"ambiguous imported name `{member_name}`",
+                                span=import_directive.span,
+                                form_path=import_directive.form_path,
+                            ),
+                        )
+                    )
+                unqualified_schema_bindings[member_name] = binding
                 continue
             target_bindings = {
                 "macro": macro_bindings,
@@ -539,11 +600,13 @@ def build_import_scope(
         alias_to_module=alias_to_module,
         explicitly_imported_modules=frozenset(import_directive.module_name for import_directive in module.imports),
         type_bindings=type_bindings,
+        schema_bindings=schema_bindings,
         macro_bindings=macro_bindings,
         function_bindings=function_bindings,
         procedure_bindings=procedure_bindings,
         workflow_bindings=workflow_bindings,
         unqualified_type_bindings=unqualified_type_bindings,
+        unqualified_schema_bindings=unqualified_schema_bindings,
     )
 
 
@@ -567,6 +630,7 @@ def _register_alias_bindings(
     alias: str,
     surface: ModuleExportSurface,
     type_bindings: dict[str, ModuleMemberBinding],
+    schema_bindings: dict[str, ModuleMemberBinding],
     macro_bindings: dict[str, ModuleMemberBinding],
     function_bindings: dict[str, ModuleMemberBinding],
     procedure_bindings: dict[str, ModuleMemberBinding],
@@ -575,6 +639,9 @@ def _register_alias_bindings(
     for member_name, binding in surface.types_by_name.items():
         type_bindings[f"{alias}.{member_name}"] = binding
         type_bindings[f"{surface.module_name}/{member_name}"] = binding
+    for member_name, binding in surface.schemas_by_name.items():
+        schema_bindings[f"{alias}.{member_name}"] = binding
+        schema_bindings[f"{surface.module_name}/{member_name}"] = binding
     for member_name, binding in surface.macros_by_name.items():
         macro_bindings[f"{alias}.{member_name}"] = binding
         macro_bindings[f"{surface.module_name}/{member_name}"] = binding

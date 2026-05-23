@@ -69,6 +69,44 @@ def test_elaborate_definition_module_supports_stage1_type_forms() -> None:
     assert union_def.variants[1].fields[1].type_name == "BlockerClass"
 
 
+def test_elaborate_definition_module_supports_defschema_and_expands_schema_includes() -> None:
+    syntax_module = build_syntax_module(
+        read_sexpr_file(FIXTURES / "valid" / "defschema_type_definitions.orc")
+    )
+
+    module = elaborate_definition_module(syntax_module)
+
+    assert len(module.definitions) == 4
+    assert hasattr(module, "schemas")
+    assert [schema.name for schema in module.schemas] == ["ReportTargets", "ReviewTargets"]
+
+    implementation_summary = module.definitions[2]
+    implementation_state = module.definitions[3]
+
+    assert isinstance(implementation_summary, RecordDef)
+    assert [field.name for field in implementation_summary.fields] == [
+        "status",
+        "execution_report",
+        "review_report",
+    ]
+    assert [field.type_name for field in implementation_summary.fields] == [
+        "String",
+        "WorkReport",
+        "WorkReport",
+    ]
+
+    assert isinstance(implementation_state, UnionDef)
+    assert [field.name for field in implementation_state.variants[0].fields] == [
+        "execution_report"
+    ]
+    assert [field.name for field in implementation_state.variants[1].fields] == [
+        "status",
+        "execution_report",
+        "review_report",
+        "blocker_class",
+    ]
+
+
 def test_elaboration_rejects_unknown_top_level_form() -> None:
     syntax_module = build_syntax_module(
         read_sexpr_file(FIXTURES / "invalid" / "unknown_top_level_form.orc")
@@ -113,6 +151,42 @@ def test_compile_stage1_reports_unknown_type_with_field_span() -> None:
     assert "MissingType" in diagnostic.message
     assert diagnostic.span.start.line == 5
     assert diagnostic.span.start.column == 5
+
+
+def test_compile_stage1_reports_unknown_schema_include() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "invalid" / "defschema_unknown_schema.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "schema_unknown"
+    assert "MissingTargets" in diagnostic.message
+
+
+def test_compile_stage1_reports_schema_cycles() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "invalid" / "defschema_cycle.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "schema_cycle"
+    assert "ReportTargets" in diagnostic.message
+
+
+def test_compile_stage1_reports_duplicate_fields_from_schema_expansion() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "invalid" / "defschema_duplicate_field.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "record_field_duplicate"
+    assert "report" in diagnostic.message
+
+
+def test_compile_stage1_reports_schema_used_as_type() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(FIXTURES / "invalid" / "defschema_used_as_type.orc")
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "schema_used_as_type"
+    assert "ReportTargets" in diagnostic.message
 
 
 def test_compile_stage1_rejects_defworkflow_top_level_forms() -> None:

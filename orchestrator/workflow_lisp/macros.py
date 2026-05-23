@@ -35,6 +35,7 @@ _RESERVED_MACRO_NAMES = frozenset(
         "workflow-lisp",
         "defenum",
         "defpath",
+        "defschema",
         "defrecord",
         "defunion",
         "defworkflow",
@@ -67,6 +68,7 @@ _ALLOWED_TOP_LEVEL_HEADS = frozenset(
     {
         "defenum",
         "defpath",
+        "defschema",
         "defrecord",
         "defunion",
         "defworkflow",

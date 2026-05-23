@@ -94,6 +94,42 @@ def test_compile_stage1_entrypoint_supports_default_aliases_and_only_bindings() 
     assert only_result.entry_module.imports[0].only == ("WorkReport", "ImplementationSummary")
 
 
+def test_compile_stage1_entrypoint_imports_exported_schemas_for_includes() -> None:
+    source_root = VALID_FIXTURES / "schema_import"
+    path = source_root / "neurips" / "entry.orc"
+
+    result = _compile_stage1_entrypoint(path, source_root=source_root)
+
+    workflow_inputs = next(
+        definition for definition in result.entry_module.definitions if definition.name == "WorkflowInputs"
+    )
+
+    assert workflow_inputs.name == "WorkflowInputs"
+    assert [field.name for field in workflow_inputs.fields] == [
+        "status",
+        "execution_report",
+        "review_report",
+    ]
+
+
+def test_compile_stage1_entrypoint_imports_transitively_reexported_schemas_for_includes() -> None:
+    source_root = VALID_FIXTURES / "schema_reexport_import"
+    path = source_root / "neurips" / "entry.orc"
+
+    result = _compile_stage1_entrypoint(path, source_root=source_root)
+
+    workflow_inputs = next(
+        definition for definition in result.entry_module.definitions if definition.name == "WorkflowInputs"
+    )
+
+    assert workflow_inputs.name == "WorkflowInputs"
+    assert [field.name for field in workflow_inputs.fields] == [
+        "status",
+        "execution_report",
+        "review_report",
+    ]
+
+
 def test_compile_stage1_entrypoint_validates_export_surfaces() -> None:
     source_root = INVALID_FIXTURES / "missing_export"
     path = source_root / "neurips" / "entry.orc"
@@ -165,6 +201,16 @@ def test_compile_stage1_entrypoint_rejects_module_cycles() -> None:
 def test_compile_stage1_entrypoint_rejects_ambiguous_only_imports() -> None:
     source_root = INVALID_FIXTURES / "ambiguous"
     path = source_root / "ambiguous" / "entry.orc"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage1_entrypoint(path, source_root=source_root)
+
+    _assert_diagnostic_code(excinfo, "module_import_ambiguous")
+
+
+def test_compile_stage1_entrypoint_rejects_ambiguous_unqualified_schema_imports() -> None:
+    source_root = INVALID_FIXTURES / "schema_only_ambiguous"
+    path = source_root / "neurips" / "entry.orc"
 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile_stage1_entrypoint(path, source_root=source_root)

@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
+
+from typing import TYPE_CHECKING
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
@@ -20,6 +23,9 @@ from .syntax import (
     syntax_node_datum,
 )
 
+if TYPE_CHECKING:
+    from .modules import ModuleImportScope
+
 
 @dataclass(frozen=True)
 class EnumValue:
@@ -35,6 +41,23 @@ class RecordField:
 
     name: str
     type_name: str
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class SchemaInclude:
+    """One schema include member inside a schema, record, or variant."""
+
+    schema_name: str
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class SchemaDef:
+    """One reusable field-schema definition."""
+
+    name: str
+    members: tuple[RecordField | SchemaInclude, ...]
     span: SourceSpan
 
 
@@ -89,6 +112,30 @@ DefinitionNode = EnumDef | PathDef | RecordDef | UnionDef
 
 
 @dataclass(frozen=True)
+class _AuthoredRecordDef:
+    name: str
+    members: tuple[RecordField | SchemaInclude, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class _AuthoredUnionVariant:
+    name: str
+    members: tuple[RecordField | SchemaInclude, ...]
+    span: SourceSpan
+
+
+@dataclass(frozen=True)
+class _AuthoredUnionDef:
+    name: str
+    variants: tuple[_AuthoredUnionVariant, ...]
+    span: SourceSpan
+
+
+_TopLevelForm = EnumDef | PathDef | SchemaDef | _AuthoredRecordDef | _AuthoredUnionDef
+
+
+@dataclass(frozen=True)
 class WorkflowLispModule:
     """Module header, imports, exports, and type definitions after elaboration."""
 
@@ -99,26 +146,302 @@ class WorkflowLispModule:
     exports: tuple[str, ...]
     definitions: tuple[DefinitionNode, ...]
     span: SourceSpan
+    schemas: tuple[SchemaDef, ...] = ()
 
 
-def elaborate_definition_module(module: WorkflowLispSyntaxModule) -> WorkflowLispModule:
+def elaborate_definition_module(
+    module: WorkflowLispSyntaxModule,
+    *,
+    import_scope: "ModuleImportScope | None" = None,
+    imported_schemas: Mapping[str, SchemaDef] | None = None,
+) -> WorkflowLispModule:
     """Elaborate syntax-layer top-level forms into typed definitions."""
 
-    definitions: list[DefinitionNode] = []
+    elaborated_forms: list[_TopLevelForm] = []
+    local_schemas: list[SchemaDef] = []
     for form in module.forms:
-        definitions.append(_elaborate_top_level_form(form))
+        elaborated = _elaborate_top_level_form(form)
+        elaborated_forms.append(elaborated)
+        if isinstance(elaborated, SchemaDef):
+            local_schemas.append(elaborated)
+
+    concrete_definitions = _expand_concrete_definitions(
+        elaborated_forms,
+        local_schemas=tuple(local_schemas),
+        import_scope=import_scope,
+        imported_schemas=imported_schemas or {},
+    )
     return WorkflowLispModule(
         language_version=module.language_version,
         target_dsl_version=module.target_dsl_version,
         module_name=module.module_name,
         imports=module.imports,
         exports=module.exports,
-        definitions=tuple(definitions),
+        definitions=concrete_definitions,
         span=module.span,
+        schemas=tuple(local_schemas),
     )
 
 
-def _elaborate_top_level_form(form: SyntaxNode) -> DefinitionNode:
+def _expand_concrete_definitions(
+    forms: tuple[_TopLevelForm, ...] | list[_TopLevelForm],
+    *,
+    local_schemas: tuple[SchemaDef, ...],
+    import_scope: "ModuleImportScope | None",
+    imported_schemas: Mapping[str, SchemaDef],
+) -> tuple[DefinitionNode, ...]:
+    local_schema_map = {schema.name: schema for schema in local_schemas}
+    imported_schema_map = dict(imported_schemas)
+    schema_cache: dict[str, tuple[RecordField, ...]] = {}
+    active_schema_stack: list[str] = []
+
+    for schema in local_schemas:
+        _expand_schema_fields(
+            schema.name,
+            schema=schema,
+            local_schema_map=local_schema_map,
+            imported_schema_map=imported_schema_map,
+            import_scope=import_scope,
+            schema_cache=schema_cache,
+            active_schema_stack=active_schema_stack,
+            include_span=schema.span,
+            form_path=("workflow-lisp", "defschema", schema.name),
+        )
+
+    definitions: list[DefinitionNode] = []
+    for form in forms:
+        if isinstance(form, (EnumDef, PathDef)):
+            definitions.append(form)
+            continue
+        if isinstance(form, SchemaDef):
+            continue
+        if isinstance(form, _AuthoredRecordDef):
+            definitions.append(
+                RecordDef(
+                    name=form.name,
+                    fields=_expand_member_fields(
+                        form.members,
+                        local_schema_map=local_schema_map,
+                        imported_schema_map=imported_schema_map,
+                        import_scope=import_scope,
+                        schema_cache=schema_cache,
+                        active_schema_stack=active_schema_stack,
+                        form_path=("workflow-lisp", "defrecord", form.name),
+                    ),
+                    span=form.span,
+                )
+            )
+            continue
+        definitions.append(
+            UnionDef(
+                name=form.name,
+                variants=tuple(
+                    UnionVariant(
+                        name=variant.name,
+                        fields=_expand_member_fields(
+                            variant.members,
+                            local_schema_map=local_schema_map,
+                            imported_schema_map=imported_schema_map,
+                            import_scope=import_scope,
+                            schema_cache=schema_cache,
+                            active_schema_stack=active_schema_stack,
+                            form_path=("workflow-lisp", "defunion", form.name, variant.name),
+                        ),
+                        span=variant.span,
+                    )
+                    for variant in form.variants
+                ),
+                span=form.span,
+            )
+        )
+    return tuple(definitions)
+
+
+def _expand_member_fields(
+    members: tuple[RecordField | SchemaInclude, ...],
+    *,
+    local_schema_map: Mapping[str, SchemaDef],
+    imported_schema_map: Mapping[str, SchemaDef],
+    import_scope: "ModuleImportScope | None",
+    schema_cache: dict[str, tuple[RecordField, ...]],
+    active_schema_stack: list[str],
+    form_path: tuple[str, ...],
+) -> tuple[RecordField, ...]:
+    contains_schema_include = any(isinstance(member, SchemaInclude) for member in members)
+    if not contains_schema_include:
+        return tuple(member for member in members if isinstance(member, RecordField))
+
+    expanded_fields: list[RecordField] = []
+    seen_fields: set[str] = set()
+    for member in members:
+        if isinstance(member, RecordField):
+            _append_field(
+                member,
+                seen_fields=seen_fields,
+                expanded_fields=expanded_fields,
+                form_path=form_path,
+                code="record_field_duplicate",
+                message=f"duplicate field `{member.name}` in expanded fields",
+            )
+            continue
+        resolved_name, schema = _resolve_schema_reference(
+            member.schema_name,
+            span=member.span,
+            form_path=form_path,
+            local_schema_map=local_schema_map,
+            imported_schema_map=imported_schema_map,
+            import_scope=import_scope,
+        )
+        for field in _expand_schema_fields(
+            resolved_name,
+            schema=schema,
+            local_schema_map=local_schema_map,
+            imported_schema_map=imported_schema_map,
+            import_scope=import_scope,
+            schema_cache=schema_cache,
+            active_schema_stack=active_schema_stack,
+            include_span=member.span,
+            form_path=form_path,
+        ):
+            _append_field(
+                field,
+                seen_fields=seen_fields,
+                expanded_fields=expanded_fields,
+                form_path=form_path,
+                code="record_field_duplicate",
+                message=f"duplicate field `{field.name}` in expanded fields",
+            )
+    return tuple(expanded_fields)
+
+
+def _expand_schema_fields(
+    resolved_name: str,
+    *,
+    schema: SchemaDef,
+    local_schema_map: Mapping[str, SchemaDef],
+    imported_schema_map: Mapping[str, SchemaDef],
+    import_scope: "ModuleImportScope | None",
+    schema_cache: dict[str, tuple[RecordField, ...]],
+    active_schema_stack: list[str],
+    include_span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[RecordField, ...]:
+    cached = schema_cache.get(resolved_name)
+    if cached is not None:
+        return cached
+    if resolved_name in active_schema_stack:
+        cycle = " -> ".join([*active_schema_stack, resolved_name])
+        _raise_error(
+            f"schema cycle detected through `{resolved_name}`: {cycle}",
+            code="schema_cycle",
+            span=include_span,
+            form_path=form_path,
+        )
+
+    active_schema_stack.append(resolved_name)
+    expanded_fields: list[RecordField] = []
+    seen_fields: set[str] = set()
+    schema_form_path = ("workflow-lisp", "defschema", schema.name)
+    try:
+        for member in schema.members:
+            if isinstance(member, RecordField):
+                _append_field(
+                    member,
+                    seen_fields=seen_fields,
+                    expanded_fields=expanded_fields,
+                    form_path=schema_form_path,
+                    code="schema_field_duplicate",
+                    message=f"duplicate field `{member.name}` after schema expansion",
+                )
+                continue
+            child_name, child_schema = _resolve_schema_reference(
+                member.schema_name,
+                span=member.span,
+                form_path=schema_form_path,
+                local_schema_map=local_schema_map,
+                imported_schema_map=imported_schema_map,
+                import_scope=import_scope,
+            )
+            for field in _expand_schema_fields(
+                child_name,
+                schema=child_schema,
+                local_schema_map=local_schema_map,
+                imported_schema_map=imported_schema_map,
+                import_scope=import_scope,
+                schema_cache=schema_cache,
+                active_schema_stack=active_schema_stack,
+                include_span=member.span,
+                form_path=schema_form_path,
+            ):
+                _append_field(
+                    field,
+                    seen_fields=seen_fields,
+                    expanded_fields=expanded_fields,
+                    form_path=schema_form_path,
+                    code="schema_field_duplicate",
+                    message=f"duplicate field `{field.name}` after schema expansion",
+                )
+    finally:
+        active_schema_stack.pop()
+
+    result = tuple(expanded_fields)
+    schema_cache[resolved_name] = result
+    return result
+
+
+def _append_field(
+    field: RecordField,
+    *,
+    seen_fields: set[str],
+    expanded_fields: list[RecordField],
+    form_path: tuple[str, ...],
+    code: str,
+    message: str,
+) -> None:
+    if field.name in seen_fields:
+        _raise_error(
+            message,
+            code=code,
+            span=field.span,
+            form_path=form_path,
+        )
+    seen_fields.add(field.name)
+    expanded_fields.append(field)
+
+
+def _resolve_schema_reference(
+    name: str,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    local_schema_map: Mapping[str, SchemaDef],
+    imported_schema_map: Mapping[str, SchemaDef],
+    import_scope: "ModuleImportScope | None",
+) -> tuple[str, SchemaDef]:
+    local_schema = local_schema_map.get(name)
+    if local_schema is not None:
+        return name, local_schema
+    imported_schema = imported_schema_map.get(name)
+    if imported_schema is not None:
+        return name, imported_schema
+    if import_scope is not None:
+        resolved_name = import_scope.resolve_schema_name(
+            name,
+            span=span,
+            form_path=form_path,
+        )
+        resolved_schema = imported_schema_map.get(resolved_name)
+        if resolved_schema is not None:
+            return resolved_name, resolved_schema
+    _raise_error(
+        f"unknown schema `{name}`",
+        code="schema_unknown",
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _elaborate_top_level_form(form: SyntaxNode) -> _TopLevelForm:
     datum = syntax_node_datum(form)
     if not isinstance(datum, SyntaxList) or not datum.items:
         _raise_error("top-level forms must be non-empty lists", span=form.span, form_path=form.form_path)
@@ -129,6 +452,8 @@ def _elaborate_top_level_form(form: SyntaxNode) -> DefinitionNode:
         return _elaborate_defenum(form, datum)
     if head.resolved_name == "defpath":
         return _elaborate_defpath(form, datum)
+    if head.resolved_name == "defschema":
+        return _elaborate_defschema(form, datum)
     if head.resolved_name == "defrecord":
         return _elaborate_defrecord(form, datum)
     if head.resolved_name == "defunion":
@@ -227,21 +552,41 @@ def _elaborate_defpath(form: SyntaxNode, datum: SyntaxList) -> PathDef:
     )
 
 
-def _elaborate_defrecord(form: SyntaxNode, datum: SyntaxList) -> RecordDef:
+def _elaborate_defschema(form: SyntaxNode, datum: SyntaxList) -> SchemaDef:
+    name = _expect_symbol(datum, 1, "schema name", form_path=form.form_path)
+    raw_members = datum.items[2:]
+    if not raw_members:
+        _raise_error(
+            "`defschema` requires at least one field or include",
+            code="schema_definition_invalid",
+            span=datum.span,
+            form_path=form.form_path,
+        )
+    return SchemaDef(
+        name=name.resolved_name,
+        members=tuple(_elaborate_field_member(raw_member, form.form_path) for raw_member in raw_members),
+        span=datum.span,
+    )
+
+
+def _elaborate_defrecord(form: SyntaxNode, datum: SyntaxList) -> _AuthoredRecordDef:
     name = _expect_symbol(datum, 1, "record name", form_path=form.form_path)
-    raw_fields = datum.items[2:]
-    if not raw_fields:
+    raw_members = datum.items[2:]
+    if not raw_members:
         _raise_error("`defrecord` requires at least one field", span=datum.span, form_path=form.form_path)
-    fields = tuple(_elaborate_field(raw_field, form.form_path) for raw_field in raw_fields)
-    return RecordDef(name=name.resolved_name, fields=fields, span=datum.span)
+    return _AuthoredRecordDef(
+        name=name.resolved_name,
+        members=tuple(_elaborate_field_member(raw_member, form.form_path) for raw_member in raw_members),
+        span=datum.span,
+    )
 
 
-def _elaborate_defunion(form: SyntaxNode, datum: SyntaxList) -> UnionDef:
+def _elaborate_defunion(form: SyntaxNode, datum: SyntaxList) -> _AuthoredUnionDef:
     name = _expect_symbol(datum, 1, "union name", form_path=form.form_path)
     raw_variants = datum.items[2:]
     if not raw_variants:
         _raise_error("`defunion` requires at least one variant", span=datum.span, form_path=form.form_path)
-    variants: list[UnionVariant] = []
+    variants: list[_AuthoredUnionVariant] = []
     for raw_variant in raw_variants:
         if not isinstance(raw_variant, SyntaxList) or not raw_variant.items:
             _raise_error("union variants must be non-empty lists", span=raw_variant.span, form_path=form.form_path)
@@ -252,25 +597,41 @@ def _elaborate_defunion(form: SyntaxNode, datum: SyntaxList) -> UnionDef:
                 span=raw_variant.items[0].span,
                 form_path=form.form_path,
             )
-        fields = tuple(_elaborate_field(raw_field, form.form_path) for raw_field in raw_variant.items[1:])
+        fields = tuple(
+            _elaborate_field_member(raw_field, form.form_path)
+            for raw_field in raw_variant.items[1:]
+        )
         variants.append(
-            UnionVariant(
+            _AuthoredUnionVariant(
                 name=variant_name.resolved_name,
-                fields=fields,
+                members=fields,
                 span=raw_variant.span,
             )
         )
-    return UnionDef(name=name.resolved_name, variants=tuple(variants), span=datum.span)
+    return _AuthoredUnionDef(name=name.resolved_name, variants=tuple(variants), span=datum.span)
 
 
-def _elaborate_field(raw_field: object, form_path: tuple[str, ...]) -> RecordField:
-    if not isinstance(raw_field, SyntaxList) or len(raw_field.items) != 2:
+def _elaborate_field_member(
+    raw_field: object,
+    form_path: tuple[str, ...],
+) -> RecordField | SchemaInclude:
+    if not isinstance(raw_field, SyntaxList) or not raw_field.items:
         span = raw_field.span if hasattr(raw_field, "span") else None
         if span is None:
             raise TypeError("field entries must carry spans")
         _raise_error(
-            "field entries must be two-item lists of `(name Type)`",
+            "field entries must be `(name Type)` or `(:include SchemaName)`",
+            code="schema_definition_invalid",
             span=span,
+            form_path=form_path,
+        )
+    if isinstance(raw_field.items[0], SyntaxKeyword):
+        return _elaborate_schema_include(raw_field, form_path)
+    if len(raw_field.items) != 2:
+        _raise_error(
+            "field entries must be two-item lists of `(name Type)`",
+            code="schema_definition_invalid",
+            span=raw_field.span,
             form_path=form_path,
         )
     field_name = raw_field.items[0]
@@ -278,14 +639,45 @@ def _elaborate_field(raw_field: object, form_path: tuple[str, ...]) -> RecordFie
     field_name_identifier = syntax_identifier(field_name)
     field_type_identifier = syntax_identifier(field_type)
     if field_name_identifier is None:
-        _raise_error("field names must be symbols", span=field_name.span, form_path=form_path)
+        _raise_error(
+            "field names must be symbols",
+            code="schema_definition_invalid",
+            span=field_name.span,
+            form_path=form_path,
+        )
     if field_type_identifier is None:
-        _raise_error("field type references must be symbols", span=field_type.span, form_path=form_path)
+        _raise_error(
+            "field type references must be symbols",
+            code="schema_definition_invalid",
+            span=field_type.span,
+            form_path=form_path,
+        )
     return RecordField(
         name=field_name_identifier.resolved_name,
         type_name=field_type_identifier.resolved_name,
         span=raw_field.span,
     )
+
+
+def _elaborate_schema_include(raw_field: SyntaxList, form_path: tuple[str, ...]) -> SchemaInclude:
+    include_keyword = raw_field.items[0]
+    assert isinstance(include_keyword, SyntaxKeyword)
+    if include_keyword.value != ":include" or len(raw_field.items) != 2:
+        _raise_error(
+            "schema includes must be exactly `(:include SchemaName)`",
+            code="schema_definition_invalid",
+            span=raw_field.span,
+            form_path=form_path,
+        )
+    schema_name = syntax_identifier(raw_field.items[1])
+    if schema_name is None:
+        _raise_error(
+            "schema include targets must be symbols",
+            code="schema_definition_invalid",
+            span=raw_field.items[1].span,
+            form_path=form_path,
+        )
+    return SchemaInclude(schema_name=schema_name.resolved_name, span=raw_field.span)
 
 
 def _expect_symbol(
