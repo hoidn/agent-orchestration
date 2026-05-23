@@ -8483,7 +8483,11 @@ def _procedure_private_boundary_valid(procedure: TypedProcedureDef) -> bool:
     if not analyze_workflow_boundary_type(procedure.signature.return_type_ref, source_path=("return",)).lowerable:
         return False
     return all(
-        analyze_workflow_boundary_type(type_ref, source_path=(param_name,)).lowerable
+        analyze_workflow_boundary_type(
+            type_ref,
+            source_path=(param_name,),
+            allow_top_level_workflow_ref=True,
+        ).lowerable
         for param_name, type_ref in procedure.signature.params
     )
 
@@ -8907,6 +8911,7 @@ def _validate_one_lowered_workflow(
     """Validate one lowered workflow mapping through the shared loader path."""
 
     loader = WorkflowLoader(workspace_root)
+    loader._allow_private_collection_output_schemas = True
     workflow = dict(lowered_workflow.authored_mapping)
     loader.errors = []
     loader._workflow_input_specs = {

@@ -156,6 +156,48 @@ def test_workflow_ref_imported_module_resolution_compiles_and_validates(tmp_path
     assert "workflow_refs/imported_helper::echo-helper" in result.entry_result.workflow_catalog.signatures_by_name
 
 
+def test_workflow_ref_top_level_param_is_allowed_but_nested_return_transport_is_rejected(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "workflow_ref_nested_return_invalid.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord WorkflowInput",
+                "    (report String))",
+                "  (defrecord WorkflowOutput",
+                "    (report String))",
+                "  (defrecord WorkflowEnvelope",
+                "    (runner WorkflowRef[WorkflowInput -> WorkflowOutput]))",
+                "  (defworkflow echo-helper",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (record WorkflowOutput",
+                "      :report input.report))",
+                "  (defworkflow entry",
+                "    ((runner WorkflowRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput))",
+                "    -> WorkflowEnvelope",
+                "    (record WorkflowEnvelope",
+                "      :runner runner)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "workflow_ref_runtime_transport_forbidden")
+
+
 @pytest.mark.parametrize(
     ("fixture_name", "expected_code"),
     [

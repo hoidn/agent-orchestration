@@ -8,6 +8,15 @@ from typing import TYPE_CHECKING
 from .definitions import EnumDef, PathDef, RecordDef, UnionDef, UnionVariant, WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourcePosition, SourceSpan
+from .type_expressions import (
+    ListTypeExpr,
+    MapTypeExpr,
+    NamedTypeExpr,
+    OptionalTypeExpr,
+    ParsedTypeExpr,
+    WorkflowRefTypeExpr,
+    parse_type_expression,
+)
 
 if TYPE_CHECKING:
     from .modules import ModuleImportScope
@@ -108,7 +117,42 @@ class WorkflowRefTypeRef:
     return_type_ref: RecordTypeRef | UnionTypeRef
 
 
-TypeRef = PrimitiveTypeRef | PathTypeRef | RecordTypeRef | UnionTypeRef | VariantCaseTypeRef | WorkflowRefTypeRef
+@dataclass(frozen=True)
+class OptionalTypeRef:
+    """One resolved optional type reference."""
+
+    name: str
+    item_type_ref: "TypeRef"
+
+
+@dataclass(frozen=True)
+class ListTypeRef:
+    """One resolved list type reference."""
+
+    name: str
+    item_type_ref: "TypeRef"
+
+
+@dataclass(frozen=True)
+class MapTypeRef:
+    """One resolved map type reference."""
+
+    name: str
+    key_type_ref: "TypeRef"
+    value_type_ref: "TypeRef"
+
+
+TypeRef = (
+    PrimitiveTypeRef
+    | PathTypeRef
+    | RecordTypeRef
+    | UnionTypeRef
+    | VariantCaseTypeRef
+    | WorkflowRefTypeRef
+    | OptionalTypeRef
+    | ListTypeRef
+    | MapTypeRef
+)
 
 
 class FrontendTypeEnvironment:
@@ -329,84 +373,40 @@ class FrontendTypeEnvironment:
         schema_names: frozenset[str] = frozenset(),
         expansion_stack: tuple[object, ...] = (),
     ) -> TypeRef:
-        lookup_name = (canonical_name_overrides or {}).get(name, name)
-        local_ref = type_refs.get(lookup_name)
-        if local_ref is not None:
-            return local_ref
-        if lookup_name.startswith("WorkflowRef[") and lookup_name.endswith("]"):
-            return _parse_workflow_ref_type(
-                lookup_name,
-                type_refs=type_refs,
-                import_scope=import_scope,
-                canonical_name_overrides=canonical_name_overrides or {},
-                schema_names=schema_names,
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        resolved_name = (
-            import_scope.resolve_type_name(
-                lookup_name,
-                span=span,
-                form_path=form_path,
-            )
-            if import_scope is not None
-            else lookup_name
+        parsed = parse_type_expression(
+            name,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
         )
-        local_ref = type_refs.get(resolved_name)
-        if local_ref is not None:
-            return local_ref
-        if lookup_name in schema_names or resolved_name in schema_names or (
-            import_scope is not None and import_scope.has_visible_schema_name(lookup_name)
-        ):
-            _raise_error(
-                f"schema `{name}` cannot be used as a type",
-                code="schema_used_as_type",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        _raise_error(
-            f"unknown type `{name}`",
-            code="type_unknown",
+        return _resolve_parsed_type_expr(
+            parsed,
+            authored_name=name,
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides or {},
+            schema_names=schema_names,
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
 
 
-def _parse_workflow_ref_type(
-    authored_name: str,
+def _resolve_parsed_type_expr(
+    parsed: ParsedTypeExpr,
     *,
+    authored_name: str,
     type_refs: dict[str, TypeRef],
     import_scope: "ModuleImportScope | None",
     canonical_name_overrides: dict[str, str],
     schema_names: frozenset[str],
     span: SourceSpan,
     form_path: tuple[str, ...],
-    expansion_stack: tuple[object, ...] = (),
-) -> WorkflowRefTypeRef:
-    inner = authored_name[len("WorkflowRef[") : -1].strip()
-    split_index = _top_level_arrow_index(inner)
-    if split_index is None:
-        _raise_error(
-            f"invalid workflow-ref type `{authored_name}`",
-            code="workflow_ref_type_invalid",
-            span=span,
-            form_path=form_path,
-            expansion_stack=expansion_stack,
-        )
-    params_text = inner[:split_index].strip()
-    return_text = inner[split_index + 2 :].strip()
-    param_names = _parse_workflow_ref_param_names(
-        params_text,
-        span=span,
-        form_path=form_path,
-        expansion_stack=expansion_stack,
-    )
-    param_refs = tuple(
-        FrontendTypeEnvironment._resolve_inline_type(
-            param_name,
+    expansion_stack: tuple[object, ...],
+) -> TypeRef:
+    if isinstance(parsed, NamedTypeExpr):
+        return _resolve_named_type(
+            parsed.name,
             type_refs=type_refs,
             import_scope=import_scope,
             canonical_name_overrides=canonical_name_overrides,
@@ -415,127 +415,220 @@ def _parse_workflow_ref_type(
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
-        for param_name in param_names
-    )
-    if any(_type_ref_contains_workflow_ref(param_ref) for param_ref in param_refs):
-        _raise_error(
-            f"workflow-ref parameters cannot contain workflow refs in `{authored_name}`",
-            code="workflow_ref_type_invalid",
+    if isinstance(parsed, OptionalTypeExpr):
+        item_type_ref = _resolve_parsed_type_expr(
+            parsed.item_type,
+            authored_name=_render_type_expr(parsed.item_type),
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
-    return_type_ref = FrontendTypeEnvironment._resolve_inline_type(
-        return_text,
-        type_refs=type_refs,
-        import_scope=import_scope,
-        canonical_name_overrides=canonical_name_overrides,
-        schema_names=schema_names,
-        span=span,
-        form_path=form_path,
-        expansion_stack=expansion_stack,
-    )
-    if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
-        _raise_error(
-            f"workflow-ref return type must resolve to a record or union in `{authored_name}`",
-            code="workflow_ref_type_invalid",
-            span=span,
-            form_path=form_path,
-            expansion_stack=expansion_stack,
-        )
-    if _type_ref_contains_workflow_ref(return_type_ref):
-        _raise_error(
-            f"workflow-ref return types cannot transport workflow refs in `{authored_name}`",
-            code="workflow_ref_runtime_transport_forbidden",
-            span=span,
-            form_path=form_path,
-            expansion_stack=expansion_stack,
-        )
-    return WorkflowRefTypeRef(
-        name=authored_name,
-        param_type_refs=param_refs,
-        return_type_ref=return_type_ref,
-    )
-
-
-def _parse_workflow_ref_param_names(
-    params_text: str,
-    *,
-    span: SourceSpan,
-    form_path: tuple[str, ...],
-    expansion_stack: tuple[object, ...],
-) -> tuple[str, ...]:
-    if params_text.startswith("("):
-        if not params_text.endswith(")"):
+        if _type_ref_contains_workflow_ref(item_type_ref):
             _raise_error(
-                f"invalid workflow-ref parameter list `{params_text}`",
+                f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
+                code="workflow_ref_runtime_transport_forbidden",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return OptionalTypeRef(name=authored_name, item_type_ref=item_type_ref)
+    if isinstance(parsed, ListTypeExpr):
+        item_type_ref = _resolve_parsed_type_expr(
+            parsed.item_type,
+            authored_name=_render_type_expr(parsed.item_type),
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+        if _type_ref_contains_workflow_ref(item_type_ref):
+            _raise_error(
+                f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
+                code="workflow_ref_runtime_transport_forbidden",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return ListTypeRef(name=authored_name, item_type_ref=item_type_ref)
+    if isinstance(parsed, MapTypeExpr):
+        key_type_ref = _resolve_parsed_type_expr(
+            parsed.key_type,
+            authored_name=_render_type_expr(parsed.key_type),
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+        if not isinstance(key_type_ref, PrimitiveTypeRef) or key_type_ref.name != "String":
+            _raise_error(
+                f"`Map` keys must resolve to `String` in `{authored_name}`",
+                code="collection_key_type_invalid",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        value_type_ref = _resolve_parsed_type_expr(
+            parsed.value_type,
+            authored_name=_render_type_expr(parsed.value_type),
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+        if _type_ref_contains_workflow_ref(value_type_ref):
+            _raise_error(
+                f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
+                code="workflow_ref_runtime_transport_forbidden",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return MapTypeRef(
+            name=authored_name,
+            key_type_ref=key_type_ref,
+            value_type_ref=value_type_ref,
+        )
+    if isinstance(parsed, WorkflowRefTypeExpr):
+        param_refs = tuple(
+            _resolve_parsed_type_expr(
+                param_type,
+                authored_name=_render_type_expr(param_type),
+                type_refs=type_refs,
+                import_scope=import_scope,
+                canonical_name_overrides=canonical_name_overrides,
+                schema_names=schema_names,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+            for param_type in parsed.param_types
+        )
+        if any(_type_ref_contains_workflow_ref(param_ref) for param_ref in param_refs):
+            _raise_error(
+                f"workflow-ref parameters cannot contain workflow refs in `{authored_name}`",
                 code="workflow_ref_type_invalid",
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
             )
-        params = tuple(_split_top_level_tokens(params_text[1:-1].strip()))
-    else:
-        params = (params_text,) if params_text else ()
-    if not params or any(not param for param in params):
-        _raise_error(
-            "workflow-ref types require at least one parameter type",
-            code="workflow_ref_type_invalid",
+        return_type_ref = _resolve_parsed_type_expr(
+            parsed.return_type,
+            authored_name=_render_type_expr(parsed.return_type),
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
-    return params
+        if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
+            _raise_error(
+                f"workflow-ref return type must resolve to a record or union in `{authored_name}`",
+                code="workflow_ref_type_invalid",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        if _type_ref_contains_workflow_ref(return_type_ref):
+            _raise_error(
+                f"workflow-ref return types cannot transport workflow refs in `{authored_name}`",
+                code="workflow_ref_runtime_transport_forbidden",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        return WorkflowRefTypeRef(
+            name=authored_name,
+            param_type_refs=param_refs,
+            return_type_ref=return_type_ref,
+        )
+    raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
 
 
-def _top_level_arrow_index(text: str) -> int | None:
-    paren_depth = 0
-    bracket_depth = 0
-    for index in range(len(text) - 1):
-        char = text[index]
-        if char == "(":
-            paren_depth += 1
-        elif char == ")":
-            paren_depth -= 1
-        elif char == "[":
-            bracket_depth += 1
-        elif char == "]":
-            bracket_depth -= 1
-        elif char == "-" and text[index + 1] == ">" and paren_depth == 0 and bracket_depth == 0:
-            return index
-    return None
+def _resolve_named_type(
+    name: str,
+    *,
+    type_refs: dict[str, TypeRef],
+    import_scope: "ModuleImportScope | None",
+    canonical_name_overrides: dict[str, str],
+    schema_names: frozenset[str],
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...],
+) -> TypeRef:
+    lookup_name = canonical_name_overrides.get(name, name)
+    local_ref = type_refs.get(lookup_name)
+    if local_ref is not None:
+        return local_ref
+    resolved_name = (
+        import_scope.resolve_type_name(
+            lookup_name,
+            span=span,
+            form_path=form_path,
+        )
+        if import_scope is not None
+        else lookup_name
+    )
+    local_ref = type_refs.get(resolved_name)
+    if local_ref is not None:
+        return local_ref
+    if lookup_name in schema_names or resolved_name in schema_names or (
+        import_scope is not None and import_scope.has_visible_schema_name(lookup_name)
+    ):
+        _raise_error(
+            f"schema `{name}` cannot be used as a type",
+            code="schema_used_as_type",
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    _raise_error(
+        f"unknown type `{name}`",
+        code="type_unknown",
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+    )
 
 
-def _split_top_level_tokens(text: str) -> list[str]:
-    tokens: list[str] = []
-    current: list[str] = []
-    paren_depth = 0
-    bracket_depth = 0
-    for char in text:
-        if char == "(":
-            paren_depth += 1
-        elif char == ")":
-            paren_depth -= 1
-        elif char == "[":
-            bracket_depth += 1
-        elif char == "]":
-            bracket_depth -= 1
-        if char.isspace() and paren_depth == 0 and bracket_depth == 0:
-            token = "".join(current).strip()
-            if token:
-                tokens.append(token)
-            current = []
-            continue
-        current.append(char)
-    token = "".join(current).strip()
-    if token:
-        tokens.append(token)
-    return tokens
+def _render_type_expr(parsed: ParsedTypeExpr) -> str:
+    if isinstance(parsed, NamedTypeExpr):
+        return parsed.name
+    if isinstance(parsed, OptionalTypeExpr):
+        return f"Optional[{_render_type_expr(parsed.item_type)}]"
+    if isinstance(parsed, ListTypeExpr):
+        return f"List[{_render_type_expr(parsed.item_type)}]"
+    if isinstance(parsed, MapTypeExpr):
+        return f"Map[{_render_type_expr(parsed.key_type)}, {_render_type_expr(parsed.value_type)}]"
+    if isinstance(parsed, WorkflowRefTypeExpr):
+        params = " ".join(_render_type_expr(param_type) for param_type in parsed.param_types)
+        return f"WorkflowRef[({params}) -> {_render_type_expr(parsed.return_type)}]"
+    raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
 
 
 def _type_ref_contains_workflow_ref(type_ref: TypeRef) -> bool:
     if isinstance(type_ref, WorkflowRefTypeRef):
         return True
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+        return _type_ref_contains_workflow_ref(type_ref.item_type_ref)
+    if isinstance(type_ref, MapTypeRef):
+        return _type_ref_contains_workflow_ref(type_ref.key_type_ref) or _type_ref_contains_workflow_ref(
+            type_ref.value_type_ref
+        )
     if isinstance(type_ref, RecordTypeRef):
         return any(_type_ref_contains_workflow_ref(field_type) for field_type in type_ref.field_types.values())
     if isinstance(type_ref, UnionTypeRef):

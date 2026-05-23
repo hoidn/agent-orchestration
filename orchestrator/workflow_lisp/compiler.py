@@ -93,6 +93,7 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
 )
+from .type_expressions import ListTypeExpr, MapTypeExpr, NamedTypeExpr, OptionalTypeExpr, WorkflowRefTypeExpr, parse_type_expression
 from .typecheck import typecheck_expression
 from .validation import (
     VALIDATION_PASS_CATALOG,
@@ -1943,41 +1944,154 @@ def _validate_field_types(
 
     diagnostics: list[LispFrontendDiagnostic] = []
     for field in fields:
-        if field.type_name.startswith("WorkflowRef[") and field.type_name.endswith("]"):
-            continue
-        if field.type_name in visible_schema_names or (
-            import_scope is not None and import_scope.has_visible_schema_name(field.type_name)
+        try:
+            parsed = parse_type_expression(
+                field.type_name,
+                span=field.span,
+                form_path=form_path,
+            )
+            diagnostics.extend(
+                _validate_parsed_field_type(
+                    parsed,
+                    authored_name=field.type_name,
+                    span=field.span,
+                    form_path=form_path,
+                    available_type_names=available_type_names,
+                    visible_schema_names=visible_schema_names,
+                    import_scope=import_scope,
+                )
+            )
+        except LispFrontendCompileError as exc:
+            diagnostics.extend(exc.diagnostics)
+    return diagnostics
+
+
+def _validate_parsed_field_type(
+    parsed: NamedTypeExpr | WorkflowRefTypeExpr | OptionalTypeExpr | ListTypeExpr | MapTypeExpr,
+    *,
+    authored_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    available_type_names: frozenset[str],
+    visible_schema_names: frozenset[str],
+    import_scope: ModuleImportScope | None,
+) -> list[LispFrontendDiagnostic]:
+    diagnostics: list[LispFrontendDiagnostic] = []
+    if isinstance(parsed, NamedTypeExpr):
+        if parsed.name in visible_schema_names or (
+            import_scope is not None and import_scope.has_visible_schema_name(parsed.name)
         ):
             diagnostics.append(
                 LispFrontendDiagnostic(
                     code="schema_used_as_type",
-                    message=f"schema `{field.type_name}` cannot be used as a type",
-                    span=field.span,
+                    message=f"schema `{parsed.name}` cannot be used as a type",
+                    span=span,
                     form_path=form_path,
                 )
             )
-            continue
-        if field.type_name not in available_type_names:
+            return diagnostics
+        if parsed.name not in available_type_names:
             resolved_name = (
                 import_scope.resolve_type_name(
-                    field.type_name,
-                    span=field.span,
+                    parsed.name,
+                    span=span,
                     form_path=form_path,
                 )
                 if import_scope is not None
-                else field.type_name
+                else parsed.name
             )
-            if resolved_name in available_type_names:
-                continue
+            if resolved_name not in available_type_names:
+                diagnostics.append(
+                    LispFrontendDiagnostic(
+                        code="type_unknown",
+                        message=f"unknown type `{parsed.name}`",
+                        span=span,
+                        form_path=form_path,
+                    )
+                )
+        return diagnostics
+    if isinstance(parsed, WorkflowRefTypeExpr):
+        for param_type in parsed.param_types:
+            diagnostics.extend(
+                _validate_parsed_field_type(
+                    param_type,
+                    authored_name=authored_name,
+                    span=span,
+                    form_path=form_path,
+                    available_type_names=available_type_names,
+                    visible_schema_names=visible_schema_names,
+                    import_scope=import_scope,
+                )
+            )
+        diagnostics.extend(
+            _validate_parsed_field_type(
+                parsed.return_type,
+                authored_name=authored_name,
+                span=span,
+                form_path=form_path,
+                available_type_names=available_type_names,
+                visible_schema_names=visible_schema_names,
+                import_scope=import_scope,
+            )
+        )
+        return diagnostics
+    if isinstance(parsed, (OptionalTypeExpr, ListTypeExpr)):
+        return _validate_parsed_field_type(
+            parsed.item_type,
+            authored_name=authored_name,
+            span=span,
+            form_path=form_path,
+            available_type_names=available_type_names,
+            visible_schema_names=visible_schema_names,
+            import_scope=import_scope,
+        )
+    if isinstance(parsed, MapTypeExpr):
+        key_diagnostics = _validate_parsed_field_type(
+            parsed.key_type,
+            authored_name=authored_name,
+            span=span,
+            form_path=form_path,
+            available_type_names=available_type_names,
+            visible_schema_names=visible_schema_names,
+            import_scope=import_scope,
+        )
+        diagnostics.extend(key_diagnostics)
+        if not (
+            isinstance(parsed.key_type, NamedTypeExpr)
+            and (
+                parsed.key_type.name == "String"
+                or (
+                    import_scope is not None
+                    and import_scope.resolve_type_name(
+                        parsed.key_type.name,
+                        span=span,
+                        form_path=form_path,
+                    )
+                    == "String"
+                )
+            )
+        ):
             diagnostics.append(
                 LispFrontendDiagnostic(
-                    code="type_unknown",
-                    message=f"unknown type `{field.type_name}`",
-                    span=field.span,
+                    code="collection_key_type_invalid",
+                    message=f"`Map` keys must resolve to `String` in `{authored_name}`",
+                    span=span,
                     form_path=form_path,
                 )
             )
-    return diagnostics
+        diagnostics.extend(
+            _validate_parsed_field_type(
+                parsed.value_type,
+                authored_name=authored_name,
+                span=span,
+                form_path=form_path,
+                available_type_names=available_type_names,
+                visible_schema_names=visible_schema_names,
+                import_scope=import_scope,
+            )
+        )
+        return diagnostics
+    raise TypeError(f"unsupported parsed field type: {type(parsed)!r}")
 
 
 def _definition_form_path(definition: EnumDef | PathDef | RecordDef | UnionDef | SchemaDef) -> tuple[str, ...]:

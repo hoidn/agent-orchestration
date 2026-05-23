@@ -38,6 +38,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 MODULE_FIXTURES = FIXTURES / "modules"
 STRUCTURED_RESULTS_FIXTURE = FIXTURES / "valid" / "structured_results.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
+COLLECTION_STRUCTURED_RESULT_FIXTURE = FIXTURES / "valid" / "collection_structured_result.orc"
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
@@ -965,6 +966,121 @@ def test_compile_stage3_module_supports_nested_record_workflow_boundaries(tmp_pa
     ]
     assert orchestrate["steps"][0]["with"]["input__summary__status"] == {"ref": "inputs.input__summary__status"}
     assert orchestrate["steps"][0]["with"]["input__summary__report"] == {"ref": "inputs.input__summary__report"}
+
+
+def test_compile_stage3_module_lowers_recursive_collection_structured_results(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        COLLECTION_STRUCTURED_RESULT_FIXTURE,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    orchestrate = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    provider_step = orchestrate["steps"][0]
+    fields_by_name = {
+        field["name"]: field for field in provider_step["output_bundle"]["fields"]
+    }
+
+    assert fields_by_name["owner"] == {
+        "name": "owner",
+        "json_pointer": "/owner",
+        "type": "optional",
+        "item": {"type": "string"},
+    }
+    assert fields_by_name["attempt_ids"] == {
+        "name": "attempt_ids",
+        "json_pointer": "/attempt_ids",
+        "type": "list",
+        "items": {"type": "integer"},
+    }
+    assert fields_by_name["reports"] == {
+        "name": "reports",
+        "json_pointer": "/reports",
+        "type": "map",
+        "keys": {"type": "string"},
+        "values": {
+            "type": "relpath",
+            "under": "artifacts/work",
+            "must_exist_target": True,
+        },
+    }
+    assert fields_by_name["review_states"] == {
+        "name": "review_states",
+        "json_pointer": "/review_states",
+        "type": "list",
+        "items": {
+            "type": "optional",
+            "item": {
+                "type": "enum",
+                "allowed": ["APPROVE", "REVISE"],
+            },
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    ("field_defs", "field_type"),
+    [
+        ((), "Json"),
+        ((), "Provider"),
+        ((), "Prompt"),
+        (("  (defrecord NestedPayload", "    (value String))"), "NestedPayload"),
+        (
+            (
+                "  (defunion NestedPayload",
+                "    (VALUE",
+                "      (value String)))",
+            ),
+            "NestedPayload",
+        ),
+    ],
+)
+def test_compile_stage3_module_rejects_unsupported_collection_element_types(
+    tmp_path: Path,
+    field_defs: tuple[str, ...],
+    field_type: str,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "unsupported_collection_element.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                *field_defs,
+                "  (defrecord InvalidResult",
+                f"    (payloads List[{field_type}]))",
+                "  (defrecord WorkflowOutput",
+                "    (report String))",
+                "  (defworkflow orchestrate",
+                "    ()",
+                "    -> WorkflowOutput",
+                "    (let* ((result",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs ()",
+                "               :returns InvalidResult)))",
+                '      (record WorkflowOutput :report "ok"))))',
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "fake"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "collection_element_type_unsupported"
 
 
 def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scoped_bundle_path(

@@ -221,6 +221,9 @@ def validate_output_bundle(output_bundle: Dict[str, Any], workspace: Path) -> Di
 
         found, raw_value = _resolve_json_pointer(document, json_pointer)
         if not found:
+            if _is_optional_spec(spec):
+                artifacts[artifact_name] = None
+                continue
             if spec.get("required", True) is False:
                 continue
             violations.append(ContractViolation(
@@ -403,6 +406,9 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
 
         found, raw_value = _resolve_json_pointer(document, json_pointer)
         if not found:
+            if _is_optional_spec(spec):
+                artifacts[field_name] = None
+                continue
             violations.append(
                 ContractViolation(
                     type="variant_required_field_missing",
@@ -475,6 +481,9 @@ def validate_variant_output_bundle(variant_output: Dict[str, Any], workspace: Pa
 
         found, raw_value = _resolve_json_pointer(document, json_pointer)
         if not found:
+            if _is_optional_spec(spec):
+                artifacts[field_name] = None
+                continue
             violations.append(
                 ContractViolation(
                     type="variant_required_field_missing",
@@ -606,6 +615,85 @@ def _parse_output_bundle_value(
     spec: Dict[str, Any],
     workspace: Path,
 ) -> tuple[Any, ContractViolation | None]:
+    if value_type == "optional":
+        if raw_value is None:
+            return None, None
+        item_spec = spec.get("item")
+        if not isinstance(item_spec, dict):
+            return None, ContractViolation(
+                type="unsupported_type",
+                message="Output contract type is not supported",
+                context={"type": value_type},
+            )
+        return _parse_output_bundle_value(
+            raw_value=raw_value,
+            value_type=item_spec.get("type"),
+            spec=item_spec,
+            workspace=workspace,
+        )
+
+    if value_type == "list":
+        if not isinstance(raw_value, list):
+            return None, ContractViolation(
+                type="invalid_list",
+                message="Output value is not a valid list",
+                context={"value": raw_value},
+            )
+        item_spec = spec.get("items")
+        if not isinstance(item_spec, dict):
+            return None, ContractViolation(
+                type="unsupported_type",
+                message="Output contract type is not supported",
+                context={"type": value_type},
+            )
+        parsed_items: list[Any] = []
+        for index, item in enumerate(raw_value):
+            parsed_item, violation = _parse_output_bundle_value(
+                raw_value=item,
+                value_type=item_spec.get("type"),
+                spec=item_spec,
+                workspace=workspace,
+            )
+            if violation is not None:
+                violation.context["index"] = index
+                return None, violation
+            parsed_items.append(parsed_item)
+        return parsed_items, None
+
+    if value_type == "map":
+        if not isinstance(raw_value, dict):
+            return None, ContractViolation(
+                type="invalid_map",
+                message="Output value is not a valid map object",
+                context={"value": raw_value},
+            )
+        value_spec = spec.get("values")
+        if not isinstance(value_spec, dict):
+            return None, ContractViolation(
+                type="unsupported_type",
+                message="Output contract type is not supported",
+                context={"type": value_type},
+            )
+        parsed_items: dict[str, Any] = {}
+        for key, value in raw_value.items():
+            if not isinstance(key, str):
+                return None, ContractViolation(
+                    type="invalid_map_key",
+                    message="Output map key is not a string",
+                    context={"key": key},
+                )
+            parsed_value, violation = _parse_output_bundle_value(
+                raw_value=value,
+                value_type=value_spec.get("type"),
+                spec=value_spec,
+                workspace=workspace,
+            )
+            if violation is not None:
+                violation.context["key"] = key
+                return None, violation
+            parsed_items[key] = parsed_value
+        return parsed_items, None
+
     if value_type == "string":
         if not isinstance(raw_value, str):
             return None, ContractViolation(
@@ -682,6 +770,10 @@ def _parse_output_bundle_value(
         message="Output contract type is not supported",
         context={"type": value_type},
     )
+
+
+def _is_optional_spec(spec: Dict[str, Any]) -> bool:
+    return spec.get("type") == "optional"
 
 
 def _resolve_json_pointer(document: Any, pointer: str) -> tuple[bool, Any]:

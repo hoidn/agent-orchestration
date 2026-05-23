@@ -18,7 +18,16 @@ from orchestrator.workflow.surface_ast import SurfaceContract
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .phase_stdlib import ReusableArtifactRequirement
 from .spans import SourceSpan
-from .type_env import PathTypeRef, PrimitiveTypeRef, RecordTypeRef, TypeRef, UnionTypeRef
+from .type_env import (
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
+    PathTypeRef,
+    PrimitiveTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    UnionTypeRef,
+)
 from .workflows import WorkflowSignature
 
 
@@ -555,6 +564,13 @@ def _field_contract_definition(
     span: SourceSpan | None,
     form_path: tuple[str, ...],
 ) -> dict[str, Any]:
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef, MapTypeRef)):
+        _raise_contract_error(
+            code="workflow_boundary_collection_unsupported",
+            message=f"`{type_ref.name}` cannot lower across a workflow boundary in Stage 3",
+            span=span,
+            form_path=form_path,
+        )
     if isinstance(type_ref, PathTypeRef):
         return {
             "type": "relpath",
@@ -712,9 +728,60 @@ def _flatten_structured_result_field(
         {
             "name": "__".join(field_path),
             "json_pointer": "/" + "/".join(field_path),
-            **_field_contract_definition(type_ref, span=span, form_path=form_path),
+            **_structured_result_field_definition(type_ref, span=span, form_path=form_path),
         }
     ]
+
+
+def _structured_result_field_definition(
+    type_ref: TypeRef,
+    *,
+    span: SourceSpan | None,
+    form_path: tuple[str, ...],
+) -> dict[str, Any]:
+    if isinstance(type_ref, OptionalTypeRef):
+        return {
+            "type": "optional",
+            "item": _structured_result_field_definition(
+                type_ref.item_type_ref,
+                span=span,
+                form_path=form_path,
+            ),
+        }
+    if isinstance(type_ref, ListTypeRef):
+        return {
+            "type": "list",
+            "items": _structured_result_field_definition(
+                type_ref.item_type_ref,
+                span=span,
+                form_path=form_path,
+            ),
+        }
+    if isinstance(type_ref, MapTypeRef):
+        return {
+            "type": "map",
+            "keys": {"type": "string"},
+            "values": _structured_result_field_definition(
+                type_ref.value_type_ref,
+                span=span,
+                form_path=form_path,
+            ),
+        }
+    if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+        _raise_contract_error(
+            code="collection_element_type_unsupported",
+            message=f"`{type_ref.name}` cannot appear inside a collection-valued structured result",
+            span=span,
+            form_path=form_path,
+        )
+    if isinstance(type_ref, PrimitiveTypeRef) and type_ref.name in {"Json", "Provider", "Prompt"}:
+        _raise_contract_error(
+            code="collection_element_type_unsupported",
+            message=f"`{type_ref.name}` cannot appear inside a collection-valued structured result",
+            span=span,
+            form_path=form_path,
+        )
+    return _field_contract_definition(type_ref, span=span, form_path=form_path)
 
 
 def _raise_contract_error(

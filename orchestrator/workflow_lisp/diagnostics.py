@@ -104,6 +104,8 @@ _TYPE_CODES = frozenset(
         "union_variant_unknown",
         "union_match_non_exhaustive",
         "schema_used_as_type",
+        "type_expression_invalid",
+        "collection_key_type_invalid",
         "function_call_unknown",
         "function_arity_mismatch",
         "function_return_type_invalid",
@@ -118,6 +120,8 @@ _LOWERING_SURFACE_CODES = frozenset(
         "proc_lowering_cycle",
         "path_definition_invalid",
         "workflow_boundary_type_invalid",
+        "workflow_boundary_collection_unsupported",
+        "collection_element_type_unsupported",
     }
 )
 _MODULE_CODES = frozenset(

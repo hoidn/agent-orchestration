@@ -81,6 +81,7 @@ class WorkflowLoader:
         "2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6", "2.7", "2.8", "2.9", "2.10", "2.11", "2.12", "2.13", "2.14",
     }
     SUPPORTED_OUTPUT_TYPES = {"enum", "integer", "float", "bool", "relpath", "string"}
+    PRIVATE_COLLECTION_OUTPUT_TYPES = {"optional", "list", "map"}
     STRING_CONTRACT_VERSION = "2.10"
     ENV_VAR_PATTERN = re.compile(r'\$\{env\.[^}]+\}')
     INPUT_REF_PATTERN = re.compile(r'\$\{inputs\.([A-Za-z0-9_]+)\}')
@@ -101,6 +102,7 @@ class WorkflowLoader:
         self._provider_registry = ProviderRegistry()
         self._current_workflow_is_imported = False
         self._current_validation_workflow_name: Optional[str] = None
+        self._allow_private_collection_output_schemas = False
 
     def load(self, workflow_path: Path) -> LoadedWorkflowBundle:
         """Load and validate workflow YAML into the typed bundle surface."""
@@ -3151,30 +3153,13 @@ class WorkflowLoader:
                 if pointer and not pointer.startswith('/'):
                     self._add_error(f"{field_context} 'json_pointer' must be RFC 6901 pointer syntax", subject_refs=subject_refs)
 
-            if 'type' not in spec:
-                self._add_error(f"{field_context} missing required 'type'", subject_refs=subject_refs)
-            elif not isinstance(spec['type'], str):
-                self._add_error(f"{field_context} 'type' must be a string", subject_refs=subject_refs)
-            elif spec['type'] not in self._supported_output_types(version):
-                self._add_error(f"{field_context} invalid output_bundle field type '{spec['type']}'", subject_refs=subject_refs)
-
-            if 'under' in spec:
-                if not isinstance(spec['under'], str):
-                    self._add_error(f"{field_context} 'under' must be a string", subject_refs=subject_refs)
-                else:
-                    self._validate_path_safety(spec['under'], f"{field_context} under", subject_refs=subject_refs)
-
-            if 'allowed' in spec and not isinstance(spec['allowed'], list):
-                self._add_error(f"{field_context} 'allowed' must be a list", subject_refs=subject_refs)
-
-            if spec.get('type') == 'enum' and 'allowed' not in spec:
-                self._add_error(f"{field_context} enum type requires 'allowed'", subject_refs=subject_refs)
-
-            if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
-                self._add_error(f"{field_context} 'must_exist_target' must be a boolean", subject_refs=subject_refs)
-
-            if 'required' in spec and not isinstance(spec['required'], bool):
-                self._add_error(f"{field_context} 'required' must be a boolean", subject_refs=subject_refs)
+            self._validate_output_schema_spec(
+                spec,
+                field_context=field_context,
+                version=version,
+                subject_refs=subject_refs,
+                kind_label="output_bundle",
+            )
 
     def _validate_variant_output(
         self,
@@ -3249,32 +3234,13 @@ class WorkflowLoader:
                 else:
                     seen_pointers.add(pointer)
 
-            output_type = spec.get('type', 'enum')
-            if not isinstance(output_type, str):
-                self._add_error(f"{field_context} 'type' must be a string", subject_refs=subject_refs)
-            elif output_type not in self._supported_output_types(version):
-                self._add_error(
-                    f"{field_context} invalid variant_output field type '{output_type}'",
-                    subject_refs=subject_refs,
-                )
-
-            if 'under' in spec:
-                if not isinstance(spec['under'], str):
-                    self._add_error(f"{field_context} 'under' must be a string", subject_refs=subject_refs)
-                else:
-                    self._validate_path_safety(spec['under'], f"{field_context} under", subject_refs=subject_refs)
-
-            if 'allowed' in spec and not isinstance(spec['allowed'], list):
-                self._add_error(f"{field_context} 'allowed' must be a list", subject_refs=subject_refs)
-
-            if output_type == 'enum' and 'allowed' not in spec:
-                self._add_error(f"{field_context} enum type requires 'allowed'", subject_refs=subject_refs)
-
-            if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
-                self._add_error(f"{field_context} 'must_exist_target' must be a boolean", subject_refs=subject_refs)
-
-            if 'required' in spec and not isinstance(spec['required'], bool):
-                self._add_error(f"{field_context} 'required' must be a boolean", subject_refs=subject_refs)
+            self._validate_output_schema_spec(
+                spec,
+                field_context=field_context,
+                version=version,
+                subject_refs=subject_refs,
+                kind_label="variant_output",
+            )
 
         validate_field_spec(discriminant, f"{context}.discriminant")
 
@@ -3292,6 +3258,101 @@ class WorkflowLoader:
                 continue
             for index, spec in enumerate(fields):
                 validate_field_spec(spec, f"{variant_context}.fields[{index}]")
+
+    def _validate_output_schema_spec(
+        self,
+        spec: Dict[str, Any],
+        *,
+        field_context: str,
+        version: str,
+        subject_refs: tuple[ValidationSubjectRef, ...] = (),
+        kind_label: str,
+    ) -> None:
+        if 'type' not in spec:
+            self._add_error(f"{field_context} missing required 'type'", subject_refs=subject_refs)
+            return
+        output_type = spec['type']
+        if not isinstance(output_type, str):
+            self._add_error(f"{field_context} 'type' must be a string", subject_refs=subject_refs)
+            return
+        if output_type not in self._supported_output_types(version):
+            self._add_error(
+                f"{field_context} invalid {kind_label} field type '{output_type}'",
+                subject_refs=subject_refs,
+            )
+            return
+
+        if 'under' in spec:
+            if not isinstance(spec['under'], str):
+                self._add_error(f"{field_context} 'under' must be a string", subject_refs=subject_refs)
+            else:
+                self._validate_path_safety(spec['under'], f"{field_context} under", subject_refs=subject_refs)
+
+        if 'allowed' in spec and not isinstance(spec['allowed'], list):
+            self._add_error(f"{field_context} 'allowed' must be a list", subject_refs=subject_refs)
+
+        if output_type == 'enum' and 'allowed' not in spec:
+            self._add_error(f"{field_context} enum type requires 'allowed'", subject_refs=subject_refs)
+
+        if 'must_exist_target' in spec and not isinstance(spec['must_exist_target'], bool):
+            self._add_error(f"{field_context} 'must_exist_target' must be a boolean", subject_refs=subject_refs)
+
+        if 'required' in spec and not isinstance(spec['required'], bool):
+            self._add_error(f"{field_context} 'required' must be a boolean", subject_refs=subject_refs)
+
+        if output_type == 'optional':
+            item_spec = spec.get('item')
+            if not isinstance(item_spec, dict):
+                self._add_error(f"{field_context} optional type requires 'item' schema", subject_refs=subject_refs)
+                return
+            self._validate_output_schema_spec(
+                item_spec,
+                field_context=f"{field_context}.item",
+                version=version,
+                subject_refs=subject_refs,
+                kind_label=kind_label,
+            )
+            return
+
+        if output_type == 'list':
+            item_spec = spec.get('items')
+            if not isinstance(item_spec, dict):
+                self._add_error(f"{field_context} list type requires 'items' schema", subject_refs=subject_refs)
+                return
+            self._validate_output_schema_spec(
+                item_spec,
+                field_context=f"{field_context}.items",
+                version=version,
+                subject_refs=subject_refs,
+                kind_label=kind_label,
+            )
+            return
+
+        if output_type == 'map':
+            key_spec = spec.get('keys')
+            value_spec = spec.get('values')
+            if not isinstance(key_spec, dict):
+                self._add_error(f"{field_context} map type requires 'keys' schema", subject_refs=subject_refs)
+            else:
+                self._validate_output_schema_spec(
+                    key_spec,
+                    field_context=f"{field_context}.keys",
+                    version=version,
+                    subject_refs=subject_refs,
+                    kind_label=kind_label,
+                )
+                if key_spec.get('type') != 'string':
+                    self._add_error(f"{field_context}.keys map key schema must use type 'string'", subject_refs=subject_refs)
+            if not isinstance(value_spec, dict):
+                self._add_error(f"{field_context} map type requires 'values' schema", subject_refs=subject_refs)
+            else:
+                self._validate_output_schema_spec(
+                    value_spec,
+                    field_context=f"{field_context}.values",
+                    version=version,
+                    subject_refs=subject_refs,
+                    kind_label=kind_label,
+                )
 
     def _extend_variant_proof_context(
         self,
@@ -4671,9 +4732,12 @@ class WorkflowLoader:
 
     def _supported_output_types(self, version: str) -> Set[str]:
         """Return the output contract types available at one DSL version."""
-        if self._version_at_least(version, self.STRING_CONTRACT_VERSION):
-            return set(self.SUPPORTED_OUTPUT_TYPES)
-        return self.SUPPORTED_OUTPUT_TYPES - {"string"}
+        supported_types = set(self.SUPPORTED_OUTPUT_TYPES)
+        if not self._version_at_least(version, self.STRING_CONTRACT_VERSION):
+            supported_types.discard("string")
+        if self._allow_private_collection_output_schemas and self._version_at_least(version, "2.14"):
+            supported_types.update(self.PRIVATE_COLLECTION_OUTPUT_TYPES)
+        return supported_types
 
     def _supported_scalar_types(self, version: str) -> Set[str]:
         """Return the scalar contract types available at one DSL version."""

@@ -25,6 +25,25 @@ def _append_field_constraints(lines: List[str], spec: Dict[str, Any], *, indent:
         lines.append(f"{prefix}example: {spec['example']}")
 
 
+def _append_nested_schema(lines: List[str], spec: Dict[str, Any], *, indent: int, key: str) -> None:
+    nested = spec.get(key)
+    if not isinstance(nested, dict):
+        return
+    prefix = " " * indent
+    lines.append(f"{prefix}{key}:")
+    _append_schema_spec(lines, nested, indent=indent + 2)
+
+
+def _append_schema_spec(lines: List[str], spec: Dict[str, Any], *, indent: int) -> None:
+    prefix = " " * indent
+    lines.append(f"{prefix}type: {spec['type']}")
+    _append_field_constraints(lines, spec, indent=indent)
+    _append_nested_schema(lines, spec, indent=indent, key="item")
+    _append_nested_schema(lines, spec, indent=indent, key="items")
+    _append_nested_schema(lines, spec, indent=indent, key="keys")
+    _append_nested_schema(lines, spec, indent=indent, key="values")
+
+
 def render_output_contract_block(expected_outputs: List[Dict[str, Any]]) -> str:
     """Render a stable prompt suffix describing required one-file-per-value artifacts."""
     lines: List[str] = [
@@ -55,16 +74,7 @@ def render_output_bundle_contract_block(output_bundle: Dict[str, Any]) -> str:
     for spec in output_bundle.get("fields", []):
         lines.append(f"    - name: {spec['name']}")
         lines.append(f"      json_pointer: {spec['json_pointer']}")
-        lines.append(f"      type: {spec['type']}")
-        if "allowed" in spec:
-            allowed_values = ", ".join(str(value) for value in spec["allowed"])
-            lines.append(f"      allowed: {allowed_values}")
-        if "under" in spec:
-            lines.append(f"      under: {spec['under']}")
-        if spec.get("must_exist_target"):
-            lines.append("      must_exist_target: true")
-        if spec.get("required") is False:
-            lines.append("      required: false")
+        _append_schema_spec(lines, spec, indent=6)
 
     return "\n".join(lines) + "\n"
 
@@ -91,16 +101,7 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
         for spec in shared_fields:
             lines.append(f"    - name: {spec['name']}")
             lines.append(f"      json_pointer: {spec['json_pointer']}")
-            lines.append(f"      type: {spec['type']}")
-            if "allowed" in spec:
-                allowed_values = ", ".join(str(value) for value in spec["allowed"])
-                lines.append(f"      allowed: {allowed_values}")
-            if "under" in spec:
-                lines.append(f"      under: {spec['under']}")
-            if spec.get("must_exist_target"):
-                lines.append("      must_exist_target: true")
-            if spec.get("required") is False:
-                lines.append("      required: false")
+            _append_schema_spec(lines, spec, indent=6)
     lines.append("  variants:")
     for variant_name, variant_spec in variant_output.get("variants", {}).items():
         lines.append(f"    {variant_name}:")
@@ -108,8 +109,7 @@ def render_variant_output_contract_block(variant_output: Dict[str, Any]) -> str:
         for spec in variant_spec.get("fields", []):
             lines.append(f"        - name: {spec['name']}")
             lines.append(f"          json_pointer: {spec['json_pointer']}")
-            lines.append(f"          type: {spec['type']}")
-            _append_field_constraints(lines, spec, indent=10)
+            _append_schema_spec(lines, spec, indent=10)
     return "\n".join(lines) + "\n"
 
 

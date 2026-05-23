@@ -87,6 +87,22 @@ def test_reader_ignores_line_comments() -> None:
     assert isinstance(workflow_lisp.items[1], ListExpr)
 
 
+def test_reader_preserves_generic_type_atom_as_one_symbol() -> None:
+    module = read_sexpr_text(
+        "(defrecord X (field List[Optional[String]]))",
+        source_path="inline.orc",
+    )
+
+    record_form = module.items[0]
+    assert isinstance(record_form, ListExpr)
+    field_form = record_form.items[2]
+    assert isinstance(field_form, ListExpr)
+
+    atom = field_form.items[1]
+    assert isinstance(atom, SymbolAtom)
+    assert atom.value == "List[Optional[String]]"
+
+
 def test_reader_reports_unclosed_list_with_frontend_parse_error() -> None:
     path = FIXTURES / "invalid" / "unclosed_list.orc"
 

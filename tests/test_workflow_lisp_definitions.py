@@ -189,6 +189,35 @@ def test_compile_stage1_reports_schema_used_as_type() -> None:
     assert "ReportTargets" in diagnostic.message
 
 
+def test_compile_stage1_reports_schema_used_as_nested_collection_type(tmp_path: Path) -> None:
+    path = tmp_path / "schema_nested_collection.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defschema ReportTargets",
+                "    (execution_report WorkReport))",
+                "  (defrecord InvalidCollection",
+                "    (reports List[ReportTargets])))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(path)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "schema_used_as_type"
+    assert "ReportTargets" in diagnostic.message
+
+
 def test_compile_stage1_rejects_defworkflow_top_level_forms() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage1_module(FIXTURES / "valid" / "structured_results.orc")

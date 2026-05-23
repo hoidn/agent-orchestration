@@ -41,6 +41,9 @@ from .syntax import (
 )
 from .type_env import (
     FrontendTypeEnvironment,
+    ListTypeRef,
+    MapTypeRef,
+    OptionalTypeRef,
     PathTypeRef,
     PrimitiveTypeRef,
     RecordTypeRef,
@@ -210,6 +213,7 @@ class WorkflowBoundaryAnalysis:
     contains_provider_or_prompt: bool
     contains_workflow_ref: bool
     contains_union: bool
+    contains_collection: bool
     offending_path: tuple[str, ...] = ()
     offending_type_name: str | None = None
 
@@ -219,6 +223,7 @@ def analyze_workflow_boundary_type(
     *,
     source_path: tuple[str, ...] = (),
     allow_union: bool = False,
+    allow_top_level_workflow_ref: bool = False,
 ) -> WorkflowBoundaryAnalysis:
     """Return whether one workflow-boundary type can lower to shared contracts."""
 
@@ -229,6 +234,7 @@ def analyze_workflow_boundary_type(
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
             contains_union=False,
+            contains_collection=False,
         )
     if isinstance(type_ref, PrimitiveTypeRef):
         if type_ref.name == "Json":
@@ -238,6 +244,7 @@ def analyze_workflow_boundary_type(
                 contains_provider_or_prompt=False,
                 contains_workflow_ref=False,
                 contains_union=False,
+                contains_collection=False,
                 offending_path=source_path,
                 offending_type_name=type_ref.name,
             )
@@ -248,6 +255,7 @@ def analyze_workflow_boundary_type(
                 contains_provider_or_prompt=True,
                 contains_workflow_ref=False,
                 contains_union=False,
+                contains_collection=False,
                 offending_path=source_path,
                 offending_type_name=type_ref.name,
             )
@@ -257,14 +265,88 @@ def analyze_workflow_boundary_type(
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
             contains_union=False,
+            contains_collection=False,
         )
     if isinstance(type_ref, WorkflowRefTypeRef):
+        for index, param_type_ref in enumerate(type_ref.param_type_refs):
+            analysis = analyze_workflow_boundary_type(
+                param_type_ref,
+                source_path=source_path + (f"param_{index}",),
+                allow_union=False,
+                allow_top_level_workflow_ref=False,
+            )
+            if not analysis.lowerable:
+                return analysis
+        return_analysis = analyze_workflow_boundary_type(
+            type_ref.return_type_ref,
+            source_path=source_path + ("return",),
+            allow_union=True,
+            allow_top_level_workflow_ref=False,
+        )
+        if not return_analysis.lowerable:
+            return return_analysis
+        if allow_top_level_workflow_ref:
+            return WorkflowBoundaryAnalysis(
+                lowerable=True,
+                contains_json=False,
+                contains_provider_or_prompt=False,
+                contains_workflow_ref=False,
+                contains_union=False,
+                contains_collection=False,
+            )
         return WorkflowBoundaryAnalysis(
             lowerable=False,
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=True,
             contains_union=False,
+            contains_collection=False,
+            offending_path=source_path,
+            offending_type_name=type_ref.name,
+        )
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+        analysis = analyze_workflow_boundary_type(
+            type_ref.item_type_ref,
+            source_path=source_path + ("item",),
+            allow_union=False,
+            allow_top_level_workflow_ref=False,
+        )
+        if not analysis.lowerable:
+            return analysis
+        return WorkflowBoundaryAnalysis(
+            lowerable=False,
+            contains_json=False,
+            contains_provider_or_prompt=False,
+            contains_workflow_ref=False,
+            contains_union=False,
+            contains_collection=True,
+            offending_path=source_path,
+            offending_type_name=type_ref.name,
+        )
+    if isinstance(type_ref, MapTypeRef):
+        key_analysis = analyze_workflow_boundary_type(
+            type_ref.key_type_ref,
+            source_path=source_path + ("key",),
+            allow_union=False,
+            allow_top_level_workflow_ref=False,
+        )
+        if not key_analysis.lowerable:
+            return key_analysis
+        value_analysis = analyze_workflow_boundary_type(
+            type_ref.value_type_ref,
+            source_path=source_path + ("value",),
+            allow_union=False,
+            allow_top_level_workflow_ref=False,
+        )
+        if not value_analysis.lowerable:
+            return value_analysis
+        return WorkflowBoundaryAnalysis(
+            lowerable=False,
+            contains_json=False,
+            contains_provider_or_prompt=False,
+            contains_workflow_ref=False,
+            contains_union=False,
+            contains_collection=True,
             offending_path=source_path,
             offending_type_name=type_ref.name,
         )
@@ -277,6 +359,7 @@ def analyze_workflow_boundary_type(
                 field_type,
                 source_path=source_path + (field.name,),
                 allow_union=allow_union,
+                allow_top_level_workflow_ref=False,
             )
             if not analysis.lowerable:
                 return analysis
@@ -286,6 +369,7 @@ def analyze_workflow_boundary_type(
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
             contains_union=False,
+            contains_collection=False,
         )
     if isinstance(type_ref, UnionTypeRef):
         if allow_union:
@@ -296,6 +380,7 @@ def analyze_workflow_boundary_type(
                         field_type,
                         source_path=source_path + (variant.name, field.name),
                         allow_union=False,
+                        allow_top_level_workflow_ref=False,
                     )
                     if not analysis.lowerable:
                         return analysis
@@ -305,6 +390,7 @@ def analyze_workflow_boundary_type(
                 contains_provider_or_prompt=False,
                 contains_workflow_ref=False,
                 contains_union=False,
+                contains_collection=False,
             )
         return WorkflowBoundaryAnalysis(
             lowerable=False,
@@ -312,6 +398,7 @@ def analyze_workflow_boundary_type(
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
             contains_union=True,
+            contains_collection=False,
             offending_path=source_path,
             offending_type_name=type_ref.name,
         )
@@ -403,19 +490,22 @@ def build_workflow_catalog(
                 form_path=param.form_path,
                 expansion_stack=param.expansion_stack,
             )
-            if not isinstance(param_type, WorkflowRefTypeRef):
-                param_analysis = analyze_workflow_boundary_type(param_type, source_path=(param.name,))
-                param_diagnostic = _boundary_diagnostic(
-                    workflow_name=workflow_def.name,
-                    analysis=param_analysis,
-                    span=param.span,
-                    form_path=param.form_path,
-                    expansion_stack=param.expansion_stack,
-                )
-                if param_diagnostic is not None:
-                    diagnostics.append(param_diagnostic)
-                    workflow_invalid = True
-                    continue
+            param_analysis = analyze_workflow_boundary_type(
+                param_type,
+                source_path=(param.name,),
+                allow_top_level_workflow_ref=True,
+            )
+            param_diagnostic = _boundary_diagnostic(
+                workflow_name=workflow_def.name,
+                analysis=param_analysis,
+                span=param.span,
+                form_path=param.form_path,
+                expansion_stack=param.expansion_stack,
+            )
+            if param_diagnostic is not None:
+                diagnostics.append(param_diagnostic)
+                workflow_invalid = True
+                continue
             params.append((param.name, param_type))
         if workflow_invalid:
             continue
@@ -771,6 +861,17 @@ def _boundary_diagnostic(
             message=(
                 f"`{analysis.offending_type_name}` cannot cross a runtime workflow boundary "
                 f"(`{path_label}`)"
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if analysis.contains_collection:
+        return LispFrontendDiagnostic(
+            code="workflow_boundary_collection_unsupported",
+            message=(
+                f"workflow boundary `{path_label}` cannot transport collection type "
+                f"`{analysis.offending_type_name}` in Stage 3"
             ),
             span=span,
             form_path=form_path,

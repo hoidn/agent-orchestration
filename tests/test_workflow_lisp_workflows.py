@@ -7,6 +7,7 @@ from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _validate_definition_module,
     compile_stage1_module,
+    compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
@@ -36,6 +37,7 @@ from orchestrator.workflow_lisp.workflows import (
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
+INVALID_FIXTURES = FIXTURES / "invalid"
 MODULE_FIXTURES = FIXTURES / "modules"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
@@ -402,6 +404,73 @@ def test_build_workflow_catalog_accepts_union_workflow_returns_when_projection_i
     )
 
     assert isinstance(workflow_catalog.signatures_by_name["provider-attempt"].return_type_ref, UnionTypeRef)
+
+
+def test_workflow_boundary_rejects_collection_typed_params(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            INVALID_FIXTURES / "workflow_boundary_collection_invalid.orc",
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")
+
+
+def test_workflow_boundary_rejects_collection_typed_returns(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "workflow_boundary_collection_return.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord WorkflowOutput",
+                "    (attempt_ids List[Int]))",
+                "  (defworkflow entry",
+                "    ()",
+                "    -> WorkflowOutput",
+                '    (record WorkflowOutput :attempt_ids "unused")))',
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")
+
+
+def test_workflow_boundary_rejects_collections_inside_workflow_ref_signatures(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "workflow_boundary_collection_workflow_ref.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord WorkflowOutput",
+                "    (value String))",
+                "  (defworkflow entry",
+                "    ((runner WorkflowRef[List[Int] -> WorkflowOutput]))",
+                "    -> WorkflowOutput",
+                '    (record WorkflowOutput :value "ok")))',
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "workflow_boundary_collection_unsupported")
 
 
 @pytest.mark.parametrize(

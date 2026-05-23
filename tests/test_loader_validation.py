@@ -48,6 +48,25 @@ def _compile_loop_recur_workflow(workspace: Path) -> dict:
     return lowered.authored_mapping
 
 
+def _compile_collection_structured_result_workflow(workspace: Path) -> dict:
+    from orchestrator.workflow_lisp.compiler import compile_stage3_module
+
+    fixture = Path(__file__).parent / "fixtures" / "workflow_lisp" / "valid" / "collection_structured_result.orc"
+    result = compile_stage3_module(
+        fixture,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=workspace,
+    )
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    return lowered
+
+
 class TestLoaderValidation:
     """Test strict DSL validation in the loader."""
 
@@ -4211,6 +4230,123 @@ class TestLoaderValidation:
                    for err in exc_info.value.errors)
         assert any("output_bundle.fields[0] missing required 'type'" in str(err.message)
                    for err in exc_info.value.errors)
+
+    def test_variant_output_field_requires_type(self):
+        """Each variant_output field requires an explicit type, even with recursive schemas supported."""
+        workflow = {
+            "version": "2.14",
+            "name": "variant-output-field-shape",
+            "steps": [{
+                "name": "Assess",
+                "command": ["echo", "ok"],
+                "variant_output": {
+                    "path": "state/variant_bundle.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED"],
+                    },
+                    "shared_fields": [{
+                        "name": "status",
+                        "json_pointer": "/status",
+                    }],
+                    "variants": {
+                        "COMPLETED": {"fields": []},
+                    },
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("variant_output.shared_fields[0] missing required 'type'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_output_bundle_rejects_collection_field_types_in_authored_yaml(self):
+        """Authored YAML DSL must not accept lowered-only collection schema types."""
+        workflow = {
+            "version": "1.3",
+            "name": "authored-output-bundle-collections",
+            "steps": [{
+                "name": "Collect",
+                "command": ["echo", "ok"],
+                "output_bundle": {
+                    "path": "state/bundle.json",
+                    "fields": [{
+                        "name": "attempt_ids",
+                        "json_pointer": "/attempt_ids",
+                        "type": "list",
+                        "items": {"type": "integer"},
+                    }],
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("output_bundle.fields[0] invalid output_bundle field type 'list'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_variant_output_rejects_collection_field_types_in_authored_yaml(self):
+        """Authored YAML variant_output must also reject lowered-only collection schema types."""
+        workflow = {
+            "version": "2.14",
+            "name": "authored-variant-output-collections",
+            "steps": [{
+                "name": "Assess",
+                "command": ["echo", "ok"],
+                "variant_output": {
+                    "path": "state/variant_bundle.json",
+                    "discriminant": {
+                        "name": "implementation_state",
+                        "json_pointer": "/implementation_state",
+                        "type": "enum",
+                        "allowed": ["COMPLETED"],
+                    },
+                    "shared_fields": [{
+                        "name": "attempt_ids",
+                        "json_pointer": "/attempt_ids",
+                        "type": "list",
+                        "items": {"type": "integer"},
+                    }],
+                    "variants": {
+                        "COMPLETED": {"fields": []},
+                    },
+                },
+            }],
+        }
+
+        path = self.write_workflow(workflow)
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert exc_info.value.exit_code == 2
+        assert any("variant_output.shared_fields[0] invalid variant_output field type 'list'" in str(err.message)
+                   for err in exc_info.value.errors)
+
+    def test_loader_accepts_collection_field_types_for_lowered_structured_result_workflows(self):
+        """Frontend-lowered validation still accepts recursive collection schemas."""
+        from orchestrator.workflow_lisp.lowering import validate_lowered_workflows
+
+        lowered = _compile_collection_structured_result_workflow(self.workspace)
+        validated = validate_lowered_workflows((lowered,), workspace_root=self.workspace)
+        surface = thaw_surface_workflow(validated["orchestrate"])
+        fields = surface["steps"][0]["output_bundle"]["fields"]
+
+        assert [field["type"] for field in fields] == [
+            "string",
+            "optional",
+            "list",
+            "map",
+            "list",
+        ]
 
     def test_v13_consume_bundle_requires_version_1_3(self):
         """consume_bundle is gated to version 1.3+."""
