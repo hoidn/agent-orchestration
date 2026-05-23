@@ -19,6 +19,19 @@ Decision rules:
 - Return `BLOCKED` only when full-design work remains but the available docs are
   insufficient or contradictory.
 
+Before returning `DONE`, compare the full design against durable repo evidence:
+source, docs, fixtures, tests, ledgers, and run state. Evaluate obligations from
+the full design itself, not from the set of existing backlog items or design-gap
+directories. A missing work item or design-gap directory is not evidence that an
+obligation is complete.
+
+For any full-design obligation, return `DRAFT_DESIGN_GAP` unless the available
+evidence shows a coherent completed treatment of that obligation, or the full
+design explicitly marks it out of scope. Do not require every obligation to have
+the same evidence shape; use the evidence that is appropriate to the obligation.
+When the ledger says complete but source/docs/fixtures/tests do not support that
+claim, prefer `DRAFT_DESIGN_GAP` over `DONE`.
+
 Make only this step's local selection judgment and explain it. Do not edit
 files, move backlog items, or draft architecture content. For design gaps,
 identify one bounded full-design component for the architect step to turn into an
