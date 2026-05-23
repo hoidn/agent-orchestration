@@ -594,6 +594,8 @@ def test_compile_stage3_module_remaps_shared_validation_failures() -> None:
     ]
     assert all(diagnostic.span.start.path.endswith("shared_validation_remap.orc") for diagnostic in diagnostics)
     assert all("parent directory traversal" in diagnostic.message for diagnostic in diagnostics)
+    assert all(diagnostic.validation_pass == "shared_validation" for diagnostic in diagnostics)
+    assert all(diagnostic.authority_layer == "shared_validation" for diagnostic in diagnostics)
     assert "id must match" not in diagnostics[0].message
 
 
@@ -1198,6 +1200,47 @@ def test_source_map_remap_prefers_structured_validation_subject_refs(tmp_path: P
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.span == report_path_origin.span
     assert diagnostic.form_path == report_path_origin.form_path
+    assert diagnostic.validation_pass == "shared_validation"
+    assert diagnostic.authority_layer == "shared_validation"
+
+
+def test_source_map_remap_adds_compatibility_note_for_message_fallback(tmp_path: Path) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    raise_remapped = getattr(lowering_module, "_raise_remapped_validation_error")
+
+    result = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    command_checks = next(
+        workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "command_checks"
+    )
+    generated_step_id = next(iter(command_checks.origin_map.step_spans))
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        raise_remapped(
+            command_checks,
+            [
+                ValidationError(
+                    f"Step '{generated_step_id}': workflow_call_version_mismatch for imported workflow boundary",
+                )
+            ],
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_call_version_mismatch"
+    assert diagnostic.validation_pass == "shared_validation"
+    assert diagnostic.authority_layer == "shared_validation"
+    assert any("message text fallback" in note for note in diagnostic.notes)
 
 
 def test_source_map_remap_reports_missing_structured_subject_bindings(tmp_path: Path) -> None:
@@ -1235,7 +1278,10 @@ def test_source_map_remap_reports_missing_structured_subject_bindings(tmp_path: 
             ],
         )
 
-    assert excinfo.value.diagnostics[0].code == "source_map_validation_ref_missing"
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "source_map_validation_ref_missing"
+    assert diagnostic.validation_pass == "source_map"
+    assert diagnostic.authority_layer == "frontend"
 
 
 def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_refs_from_loader(

@@ -718,6 +718,67 @@ class TestLoaderValidation:
             for err in exc_info.value.errors
         )
 
+    def test_pointer_authority_conflict_for_materialized_published_relpath_pointer(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Alias coverage for the stable shared pointer-authority error code."""
+        _enable_v214_loader(monkeypatch)
+        workflow = {
+            "version": "2.14",
+            "name": "materialize-pointer-conflict",
+            "inputs": {
+                "design_path": {
+                    "type": "relpath",
+                    "under": "docs/plans",
+                    "must_exist_target": True,
+                }
+            },
+            "artifacts": {
+                "design": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                    "pointer": "state/canonical_design.txt",
+                    "under": "docs/plans",
+                    "must_exist_target": True,
+                }
+            },
+            "steps": [
+                {
+                    "name": "MaterializeDesign",
+                    "id": "materialize_design",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "design_path",
+                                "source": {"input": "design_path"},
+                                "contract": {"inherit": "source"},
+                                "pointer": {"path": "state/noncanonical_design.txt"},
+                            }
+                        ]
+                    },
+                    "publishes": [{"artifact": "design", "from": "design_path"}],
+                }
+            ],
+        }
+
+        temp_dir = Path(self.temp_dir)
+        (temp_dir / "docs" / "plans").mkdir(parents=True, exist_ok=True)
+        (temp_dir / "docs" / "plans" / "approved-plan.md").write_text(
+            "# approved\n",
+            encoding="utf-8",
+        )
+
+        path = self.write_workflow(workflow)
+
+        with pytest.raises(WorkflowValidationError) as exc_info:
+            self.loader.load(path)
+
+        assert any(
+            "pointer_authority_conflict" in str(err.message)
+            for err in exc_info.value.errors
+        )
+
     def test_pre_snapshot_digest_must_be_sha256(
         self,
         monkeypatch: pytest.MonkeyPatch,

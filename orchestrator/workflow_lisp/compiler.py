@@ -63,9 +63,17 @@ from .procedures import (
     with_call_graph,
 )
 from .reader import read_sexpr_file
+from .source_map import build_source_map_document
 from .syntax import WorkflowLispSyntaxModule, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
 from .type_env import PRELUDE_TYPE_NAMES, FrontendTypeEnvironment, TypeRef
 from .typecheck import typecheck_expression
+from .validation import (
+    VALIDATION_PASS_CATALOG,
+    ValidationPipelinePass,
+    ValidationPipelineState,
+    raise_pipeline_diagnostics,
+    run_validation_pipeline,
+)
 from .workflows import (
     CertifiedAdapterBinding,
     ExternalToolBinding,
@@ -130,8 +138,10 @@ def compile_stage1_entrypoint(
     export_surfaces = dict(graph.export_surfaces_by_name)
     for module_name in graph.topological_order:
         module_source = graph.modules_by_name[module_name]
-        module = elaborate_definition_module(_definition_only_syntax_module(module_source.syntax_module))
-        _validate_definition_module(module)
+        module = _compile_stage1_syntax_module(
+            module_source.syntax_module,
+            validate_top_level_forms=False,
+        )
         build_import_scope(module, export_surfaces_by_name=export_surfaces)
         export_surfaces[module_name] = derive_export_surface(
             module_source.syntax_module,
@@ -170,9 +180,9 @@ def compile_stage3_entrypoint(
     and optional shared validation for every reachable module.
     """
 
-    graph = resolve_module_graph(path, source_roots=source_roots)
-    return _compile_stage3_graph(
-        graph,
+    compile_result, results = _run_stage3_entrypoint_validation_pipeline(
+        path,
+        source_roots=source_roots,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
         imported_workflow_bundles=imported_workflow_bundles,
@@ -180,6 +190,11 @@ def compile_stage3_entrypoint(
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
     )
+    raise_pipeline_diagnostics(results)
+    if compile_result is None:
+        raise RuntimeError("module-graph compilation did not produce a result")
+    return compile_result
+
 
 def compile_stage3_module(
     path: Path,
@@ -193,83 +208,486 @@ def compile_stage3_module(
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
-    syntax_module = _expanded_syntax_module(path)
-    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
-    _validate_definition_module(module)
-    type_env = FrontendTypeEnvironment.from_module(module)
-    workflow_defs = elaborate_workflow_definitions(syntax_module)
-    procedure_defs = elaborate_procedure_definitions(syntax_module)
-    effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
-    workflow_catalog = build_workflow_catalog(
-        module,
-        workflow_defs,
-        type_env,
-        imported_workflow_bundles=effective_imported_workflow_bundles,
-    )
-    procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
-    extern_environment = build_extern_environment(
+    state, results = _run_stage3_validation_pipeline(
+        path,
         provider_externs=provider_externs,
         prompt_externs=prompt_externs,
+        imported_workflow_bundles=imported_workflow_bundles,
+        command_boundaries=command_boundaries,
+        validate_shared=validate_shared,
+        workspace_root=workspace_root or path.parent,
     )
-    command_boundary_environment = build_command_boundary_environment(command_boundaries)
-    command_boundary_environment = _augment_resource_transition_command_boundaries(
-        command_boundary_environment,
+    raise_pipeline_diagnostics(results)
+    return Stage3CompileResult(
+        module=state.module,
+        workflow_catalog=state.workflow_catalog,
+        procedure_catalog=state.procedure_catalog,
+        extern_environment=state.extern_environment,
+        command_boundary_environment=state.command_boundary_environment,
+        typed_procedures=state.typed_procedures,
+        typed_workflows=state.typed_workflows,
+        lowered_workflows=state.lowered_workflows,
+        validated_bundles=state.validated_bundles,
     )
-    command_boundary_environment = _augment_resume_command_boundaries(
-        command_boundary_environment,
-        expressions=tuple(workflow.body for workflow in workflow_defs)
-        + tuple(procedure.body for procedure in procedure_defs),
-    )
-    typed_procedures, typed_workflows, procedure_catalog = _infer_stage3_effect_summaries(
-        procedure_defs,
-        workflow_defs=workflow_defs,
-        type_env=type_env,
-        workflow_catalog=workflow_catalog,
-        procedure_catalog=procedure_catalog,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-    )
-    lowered_workflows = lower_workflow_definitions(
-        typed_workflows,
-        typed_procedures=typed_procedures,
-        procedure_catalog=procedure_catalog,
-        workflow_path=path,
-        workflow_catalog=workflow_catalog,
-        imported_workflow_bundles=effective_imported_workflow_bundles,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-        type_env=type_env,
-    )
-    validated_bundles: Mapping[str, LoadedWorkflowBundle]
-    if validate_shared:
-        validated_bundles = validate_lowered_workflows(
-            lowered_workflows,
-            workspace_root=workspace_root or path.parent,
-            imported_workflow_bundles=effective_imported_workflow_bundles,
+
+
+def _run_stage1_validation_pipeline(
+    *,
+    path: Path | None = None,
+    syntax_module: WorkflowLispSyntaxModule | None = None,
+    validate_top_level_forms: bool,
+) -> tuple[ValidationPipelineState, tuple[object, ...]]:
+    if (path is None) == (syntax_module is None):
+        raise ValueError("exactly one of `path` or `syntax_module` is required")
+
+    def parse_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        assert path is not None
+        return replace(state, parse_tree=read_sexpr_file(path))
+
+    def module_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        if state.syntax_module is not None:
+            return state
+        return replace(state, syntax_module=build_syntax_module(state.parse_tree))
+
+    def macro_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        expanded = expand_module_forms(
+            state.syntax_module,
+            catalog=collect_macro_catalog(state.syntax_module),
+        )
+        return replace(state, expanded_syntax_module=expanded)
+
+    def type_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        if validate_top_level_forms:
+            _validate_stage1_top_level_forms(state.expanded_syntax_module)
+        module = elaborate_definition_module(
+            _definition_only_from_expanded_syntax_module(state.expanded_syntax_module)
+        )
+        _validate_definition_module(module)
+        return replace(state, module=module)
+
+    passes: list[ValidationPipelinePass] = []
+    initial_state = ValidationPipelineState()
+    if path is not None:
+        passes.append(
+            ValidationPipelinePass(
+                pass_id="parse",
+                runner=parse_pass,
+                artifact_ready=lambda state: state.parse_tree is not None,
+            )
         )
     else:
-        validated_bundles = {}
-    return Stage3CompileResult(
-        module=module,
-        workflow_catalog=workflow_catalog,
-        procedure_catalog=procedure_catalog,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-        typed_procedures=typed_procedures,
-        typed_workflows=typed_workflows,
-        lowered_workflows=lowered_workflows,
-        validated_bundles=validated_bundles,
+        initial_state = replace(initial_state, syntax_module=syntax_module)
+    passes.extend(
+        [
+            ValidationPipelinePass(
+                pass_id="module",
+                runner=module_pass,
+                artifact_ready=lambda state: state.syntax_module is not None,
+            ),
+            ValidationPipelinePass(
+                pass_id="macro",
+                runner=macro_pass,
+                artifact_ready=lambda state: state.expanded_syntax_module is not None,
+            ),
+            ValidationPipelinePass(
+                pass_id="type",
+                runner=type_pass,
+                artifact_ready=lambda state: state.module is not None,
+            ),
+        ]
     )
+    return run_validation_pipeline(initial_state, tuple(passes))
+
+
+def _run_stage3_entrypoint_validation_pipeline(
+    path: Path,
+    *,
+    source_roots: tuple[Path, ...] | None = None,
+    provider_externs: Mapping[str, str] | None = None,
+    prompt_externs: Mapping[str, str] | None = None,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None = None,
+    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
+    validate_shared: bool,
+    workspace_root: Path,
+) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
+    graph = resolve_module_graph(path, source_roots=source_roots)
+    compile_result: LinkedStage3CompileResult | None = None
+    selected_workflow_name: str | None = None
+
+    def frontend_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        nonlocal compile_result, selected_workflow_name
+        compile_result = _compile_stage3_graph(
+            graph,
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+            imported_workflow_bundles=imported_workflow_bundles,
+            command_boundaries=command_boundaries,
+            validate_shared=False,
+            workspace_root=workspace_root,
+        )
+        selected_workflow_name = _selected_stage3_entry_workflow_name(compile_result)
+        return replace(
+            state,
+            module=compile_result.entry_result.module,
+            lowered_workflows=compile_result.entry_result.lowered_workflows,
+            validated_bundles=compile_result.entry_result.validated_bundles,
+        )
+
+    def source_map_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        del state
+        assert compile_result is not None
+        assert selected_workflow_name is not None
+        _validate_stage3_linked_source_map_lineage(
+            compile_result,
+            selected_name=selected_workflow_name,
+        )
+        return ValidationPipelineState(
+            module=compile_result.entry_result.module,
+            lowered_workflows=compile_result.entry_result.lowered_workflows,
+            validated_bundles=compile_result.entry_result.validated_bundles,
+        )
+
+    def shared_validation_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        nonlocal compile_result
+        if not validate_shared:
+            return state
+        assert compile_result is not None
+        validated_bundles = validate_lowered_workflows(
+            compile_result.entry_result.lowered_workflows,
+            workspace_root=workspace_root,
+            imported_workflow_bundles=compile_result.entry_result.workflow_catalog.imported_bundles_by_name,
+        )
+        compile_result = replace(
+            compile_result,
+            entry_result=replace(
+                compile_result.entry_result,
+                validated_bundles=validated_bundles,
+            ),
+            validated_bundles_by_name={
+                **dict(compile_result.validated_bundles_by_name),
+                **validated_bundles,
+            },
+        )
+        return replace(state, validated_bundles=validated_bundles)
+
+    def executable_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        del state
+        assert compile_result is not None
+        assert selected_workflow_name is not None
+        _validate_stage3_linked_source_map_lineage(
+            compile_result,
+            selected_name=selected_workflow_name,
+        )
+        return ValidationPipelineState(
+            module=compile_result.entry_result.module,
+            lowered_workflows=compile_result.entry_result.lowered_workflows,
+            validated_bundles=compile_result.entry_result.validated_bundles,
+        )
+
+    passes: list[ValidationPipelinePass] = [
+        ValidationPipelinePass(
+            pass_id="parse",
+            runner=frontend_pass,
+            covers_passes=VALIDATION_PASS_CATALOG[:10],
+            artifact_ready=lambda state: bool(state.lowered_workflows),
+            attach_metadata=False,
+        ),
+        ValidationPipelinePass(
+            pass_id="source_map",
+            runner=source_map_pass,
+            artifact_ready=lambda state: bool(state.lowered_workflows),
+        ),
+    ]
+    if validate_shared:
+        passes.extend(
+            [
+                ValidationPipelinePass(
+                    pass_id="shared_validation",
+                    runner=shared_validation_pass,
+                    authority_layer="shared_validation",
+                    artifact_ready=lambda state: bool(state.validated_bundles),
+                ),
+                ValidationPipelinePass(
+                    pass_id="executable",
+                    runner=executable_pass,
+                    artifact_ready=lambda state: bool(state.validated_bundles),
+                ),
+            ]
+        )
+
+    _, results = run_validation_pipeline(
+        ValidationPipelineState(),
+        tuple(passes),
+    )
+    return compile_result, results
+
+
+def _compile_stage1_syntax_module(
+    syntax_module: WorkflowLispSyntaxModule,
+    *,
+    validate_top_level_forms: bool,
+) -> WorkflowLispModule:
+    state, results = _run_stage1_validation_pipeline(
+        syntax_module=syntax_module,
+        validate_top_level_forms=validate_top_level_forms,
+    )
+    raise_pipeline_diagnostics(results)
+    return state.module
+
+
+def _run_stage3_validation_pipeline(
+    path: Path,
+    *,
+    provider_externs: Mapping[str, str] | None,
+    prompt_externs: Mapping[str, str] | None,
+    imported_workflow_bundles: Mapping[str, LoadedWorkflowBundle] | None,
+    command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
+    validate_shared: bool,
+    workspace_root: Path,
+) -> tuple[ValidationPipelineState, tuple[object, ...]]:
+    effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
+
+    def parse_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        return replace(state, parse_tree=read_sexpr_file(path))
+
+    def module_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        return replace(state, syntax_module=build_syntax_module(state.parse_tree))
+
+    def macro_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        expanded = expand_module_forms(
+            state.syntax_module,
+            catalog=collect_macro_catalog(state.syntax_module),
+        )
+        return replace(state, expanded_syntax_module=expanded)
+
+    def typed_frontend_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        module = elaborate_definition_module(
+            _definition_only_syntax_module(state.expanded_syntax_module)
+        )
+        _validate_definition_module(module)
+        type_env = FrontendTypeEnvironment.from_module(module)
+        workflow_defs = elaborate_workflow_definitions(state.expanded_syntax_module)
+        procedure_defs = elaborate_procedure_definitions(state.expanded_syntax_module)
+        workflow_catalog = build_workflow_catalog(
+            module,
+            workflow_defs,
+            type_env,
+            imported_workflow_bundles=effective_imported_workflow_bundles,
+        )
+        procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+        extern_environment = build_extern_environment(
+            provider_externs=provider_externs,
+            prompt_externs=prompt_externs,
+        )
+        command_boundary_environment = build_command_boundary_environment(command_boundaries)
+        command_boundary_environment = _augment_resource_transition_command_boundaries(
+            command_boundary_environment,
+        )
+        command_boundary_environment = _augment_resume_command_boundaries(
+            command_boundary_environment,
+            expressions=tuple(workflow.body for workflow in workflow_defs)
+            + tuple(procedure.body for procedure in procedure_defs),
+        )
+        typed_procedures, typed_workflows, resolved_procedure_catalog = (
+            _infer_stage3_effect_summaries(
+                procedure_defs,
+                workflow_defs=workflow_defs,
+                type_env=type_env,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+            )
+        )
+        return replace(
+            state,
+            module=module,
+            type_env=type_env,
+            workflow_defs=workflow_defs,
+            procedure_defs=procedure_defs,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=resolved_procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            typed_procedures=typed_procedures,
+            typed_workflows=typed_workflows,
+        )
+
+    def lowering_surface_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        lowered_workflows = lower_workflow_definitions(
+            state.typed_workflows,
+            typed_procedures=state.typed_procedures,
+            procedure_catalog=state.procedure_catalog,
+            workflow_path=path,
+            workflow_catalog=state.workflow_catalog,
+            imported_workflow_bundles=effective_imported_workflow_bundles,
+            extern_environment=state.extern_environment,
+            command_boundary_environment=state.command_boundary_environment,
+            type_env=state.type_env,
+        )
+        return replace(state, lowered_workflows=lowered_workflows)
+
+    def source_map_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        _validate_stage3_source_map_lineage(
+            state,
+            path=path,
+            include_executable_nodes=False,
+        )
+        return state
+
+    def shared_validation_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        if not validate_shared:
+            return state
+        validated_bundles = validate_lowered_workflows(
+            state.lowered_workflows,
+            workspace_root=workspace_root,
+            imported_workflow_bundles=effective_imported_workflow_bundles,
+        )
+        return replace(state, validated_bundles=validated_bundles)
+
+    def executable_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        _validate_stage3_source_map_lineage(
+            state,
+            path=path,
+            include_executable_nodes=True,
+        )
+        return state
+
+    passes: list[ValidationPipelinePass] = [
+        ValidationPipelinePass(
+            pass_id="parse",
+            runner=parse_pass,
+            artifact_ready=lambda state: state.parse_tree is not None,
+        ),
+        ValidationPipelinePass(
+            pass_id="module",
+            runner=module_pass,
+            artifact_ready=lambda state: state.syntax_module is not None,
+        ),
+        ValidationPipelinePass(
+            pass_id="macro",
+            runner=macro_pass,
+            artifact_ready=lambda state: state.expanded_syntax_module is not None,
+        ),
+        ValidationPipelinePass(
+            pass_id="type",
+            runner=typed_frontend_pass,
+            covers_passes=(
+                "type",
+                "effect",
+                "reference",
+                "contract",
+                "proof",
+                "authority",
+            ),
+            artifact_ready=lambda state: bool(state.typed_workflows),
+            attach_metadata=False,
+        ),
+        ValidationPipelinePass(
+            pass_id="lowering_surface",
+            runner=lowering_surface_pass,
+            artifact_ready=lambda state: bool(state.lowered_workflows),
+        ),
+        ValidationPipelinePass(
+            pass_id="source_map",
+            runner=source_map_pass,
+            artifact_ready=lambda state: bool(state.lowered_workflows),
+        ),
+    ]
+    if validate_shared:
+        passes.extend(
+            [
+                ValidationPipelinePass(
+                    pass_id="shared_validation",
+                    runner=shared_validation_pass,
+                    authority_layer="shared_validation",
+                    artifact_ready=lambda state: bool(state.validated_bundles),
+                ),
+                ValidationPipelinePass(
+                    pass_id="executable",
+                    runner=executable_pass,
+                    artifact_ready=lambda state: bool(state.validated_bundles),
+                ),
+            ]
+        )
+    return run_validation_pipeline(ValidationPipelineState(), tuple(passes))
 
 
 def compile_stage1_module(path: Path) -> WorkflowLispModule:
     """Compile one `.orc` file through the definition-only frontend pipeline."""
 
-    syntax_module = _expanded_syntax_module(path)
-    _validate_stage1_top_level_forms(syntax_module)
-    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
-    _validate_definition_module(module)
-    return module
+    state, results = _run_stage1_validation_pipeline(
+        path=path,
+        validate_top_level_forms=True,
+    )
+    raise_pipeline_diagnostics(results)
+    return state.module
+
+
+def _validate_stage3_source_map_lineage(
+    state: ValidationPipelineState,
+    *,
+    path: Path,
+    include_executable_nodes: bool,
+) -> None:
+    if state.module is None:
+        return
+    module_result = Stage3CompileResult(
+        module=state.module,
+        workflow_catalog=state.workflow_catalog,
+        procedure_catalog=state.procedure_catalog,
+        extern_environment=state.extern_environment,
+        command_boundary_environment=state.command_boundary_environment,
+        typed_procedures=state.typed_procedures,
+        typed_workflows=state.typed_workflows,
+        lowered_workflows=state.lowered_workflows,
+        validated_bundles=state.validated_bundles if include_executable_nodes else {},
+    )
+    module_name = state.module.module_name or path.stem
+    compile_result = LinkedStage3CompileResult(
+        graph=LinkedModuleGraph(
+            entry_module_name=module_name,
+            modules_by_name={},
+            topological_order=(module_name,),
+            export_surfaces_by_name={},
+        ),
+        entry_result=module_result,
+        compiled_results_by_name={module_name: module_result},
+        validated_bundles_by_name=state.validated_bundles if include_executable_nodes else {},
+    )
+    selected_name = (
+        state.lowered_workflows[0].typed_workflow.definition.name
+        if state.lowered_workflows
+        else module_name
+    )
+    build_source_map_document(
+        compile_result,
+        selected_name=selected_name,
+        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
+    )
+
+
+def _validate_stage3_linked_source_map_lineage(
+    compile_result: LinkedStage3CompileResult,
+    *,
+    selected_name: str,
+) -> None:
+    build_source_map_document(
+        compile_result,
+        selected_name=selected_name,
+        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
+    )
+
+
+def _selected_stage3_entry_workflow_name(
+    compile_result: LinkedStage3CompileResult,
+) -> str:
+    if compile_result.entry_result.lowered_workflows:
+        return compile_result.entry_result.lowered_workflows[0].typed_workflow.definition.name
+    module_name = compile_result.entry_result.module.module_name
+    if module_name is not None:
+        return module_name
+    return compile_result.graph.entry_module_name
 
 
 def _compile_stage3_graph(

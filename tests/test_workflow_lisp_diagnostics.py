@@ -16,6 +16,7 @@ from orchestrator.workflow_lisp.diagnostics import (
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 from orchestrator.workflow_lisp.syntax import build_syntax_module
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
@@ -128,6 +129,367 @@ def test_serialize_diagnostic_includes_phase_location_and_notes() -> None:
     assert serialize_diagnostics((diagnostic,)) == [payload]
 
 
+@pytest.mark.parametrize(
+    ("code", "expected_phase", "expected_validation_pass", "expected_authority_layer"),
+    [
+        (
+            "command_adapter_missing_contract",
+            "lowering",
+            "authority",
+            "frontend",
+        ),
+        (
+            "source_map_validation_ref_missing",
+            "source_map",
+            "source_map",
+            "frontend",
+        ),
+        (
+            "workflow_call_version_mismatch",
+            "shared_validation",
+            "shared_validation",
+            "shared_validation",
+        ),
+    ],
+)
+def test_serialize_diagnostic_infers_validation_metadata_from_code(
+    code: str,
+    expected_phase: str,
+    expected_validation_pass: str,
+    expected_authority_layer: str,
+) -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    span = SourceSpan(
+        start=SourcePosition(
+            path="tests/fixtures/workflow_lisp/invalid/example.orc",
+            line=12,
+            column=7,
+            offset=84,
+        ),
+        end=SourcePosition(
+            path="tests/fixtures/workflow_lisp/invalid/example.orc",
+            line=12,
+            column=19,
+            offset=96,
+        ),
+    )
+    diagnostic = LispFrontendDiagnostic(
+        code=code,
+        message="deterministic metadata test",
+        span=span,
+        form_path=("workflow-lisp", "defworkflow", "orchestrate"),
+        notes=("preserve notes",),
+    )
+
+    payload = serialize_diagnostic(diagnostic)
+
+    assert payload["code"] == code
+    assert payload["path"] == "tests/fixtures/workflow_lisp/invalid/example.orc"
+    assert payload["line"] == 12
+    assert payload["column"] == 7
+    assert payload["form_path"] == ["workflow-lisp", "defworkflow", "orchestrate"]
+    assert payload["notes"] == ["preserve notes"]
+    assert payload["phase"] == expected_phase
+    assert payload["validation_pass"] == expected_validation_pass
+    assert payload["authority_layer"] == expected_authority_layer
+
+
+def test_run_validation_pipeline_stops_after_blocking_pass() -> None:
+    validation_module = importlib.import_module("orchestrator.workflow_lisp.validation")
+    pipeline_state_cls = getattr(validation_module, "ValidationPipelineState")
+    pipeline_pass_cls = getattr(validation_module, "ValidationPipelinePass")
+    run_validation_pipeline = getattr(validation_module, "run_validation_pipeline")
+
+    span = SourceSpan(
+        start=SourcePosition(path="pipeline.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="pipeline.orc", line=1, column=8, offset=7),
+    )
+    call_order: list[str] = []
+
+    def mark(name: str):
+        def runner(state):
+            call_order.append(name)
+            return state
+
+        return runner
+
+    def fail_authority(state):
+        del state
+        call_order.append("authority")
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="command_adapter_missing_contract",
+                    message="missing contract metadata",
+                    span=span,
+                ),
+            )
+        )
+
+    _, results = run_validation_pipeline(
+        pipeline_state_cls(),
+        (
+            pipeline_pass_cls(pass_id="parse", runner=mark("parse")),
+            pipeline_pass_cls(pass_id="module", runner=mark("module")),
+            pipeline_pass_cls(pass_id="authority", runner=fail_authority),
+            pipeline_pass_cls(pass_id="shared_validation", runner=mark("shared_validation")),
+        ),
+    )
+
+    assert call_order == ["parse", "module", "authority"]
+    assert [result.pass_id for result in results] == ["parse", "module", "authority"]
+    assert results[-1].blocking is True
+    assert results[-1].diagnostics[0].validation_pass == "authority"
+    assert results[-1].diagnostics[0].authority_layer == "frontend"
+
+
+def test_stage3_validation_pipeline_reports_authority_as_blocking_pass(tmp_path: Path) -> None:
+    compiler_module = _compiler_module()
+    run_pipeline = getattr(compiler_module, "_run_stage3_validation_pipeline")
+
+    _, results = run_pipeline(
+        FIXTURES / "valid" / "structured_results.orc",
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        imported_workflow_bundles=None,
+        command_boundaries=None,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert [result.pass_id for result in results] == [
+        "parse",
+        "module",
+        "macro",
+        "type",
+        "effect",
+        "reference",
+        "contract",
+        "proof",
+        "authority",
+    ]
+    assert results[-1].blocking is True
+    assert results[-1].diagnostics[0].code == "command_adapter_missing_contract"
+    assert results[-1].diagnostics[0].validation_pass == "authority"
+
+
+def test_stage3_validation_pipeline_preserves_source_map_metadata_from_shared_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    compiler_module = _compiler_module()
+    span = SourceSpan(
+        start=SourcePosition(path="probe.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="probe.orc", line=1, column=8, offset=7),
+    )
+
+    def fake_validate_lowered_workflows(*args, **kwargs):
+        del args, kwargs
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="source_map_validation_ref_missing",
+                    message="missing validation subject coverage",
+                    span=span,
+                    validation_pass="source_map",
+                    authority_layer="frontend",
+                ),
+            )
+        )
+
+    monkeypatch.setattr(
+        compiler_module,
+        "validate_lowered_workflows",
+        fake_validate_lowered_workflows,
+    )
+
+    _, results = compiler_module._run_stage3_validation_pipeline(
+        FIXTURES / "valid" / "structured_results.orc",
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        imported_workflow_bundles=None,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert results[-1].pass_id == "source_map"
+    assert results[-1].diagnostics[0].validation_pass == "source_map"
+    assert results[-1].diagnostics[0].authority_layer == "frontend"
+
+
+def test_stage1_validation_pipeline_routes_module_compile_through_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compiler_module = _compiler_module()
+    original = compiler_module.run_validation_pipeline
+    observed_pass_ids: list[tuple[str, ...]] = []
+
+    def wrapped(*args, **kwargs):
+        passes = kwargs.get("passes")
+        if passes is None and len(args) >= 2:
+            passes = args[1]
+        observed_pass_ids.append(tuple(p.pass_id for p in passes))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(compiler_module, "run_validation_pipeline", wrapped)
+
+    compile_stage1_module(MODULE_FIXTURES / "valid" / "callables" / "neurips" / "types.orc")
+
+    assert observed_pass_ids
+
+
+def test_stage1_validation_pipeline_routes_entrypoint_compile_through_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    compiler_module = _compiler_module()
+    original = compiler_module.run_validation_pipeline
+    observed_pass_ids: list[tuple[str, ...]] = []
+
+    def wrapped(*args, **kwargs):
+        passes = kwargs.get("passes")
+        if passes is None and len(args) >= 2:
+            passes = args[1]
+        observed_pass_ids.append(tuple(p.pass_id for p in passes))
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(compiler_module, "run_validation_pipeline", wrapped)
+
+    compiler_module.compile_stage1_entrypoint(
+        MODULE_FIXTURES / "valid" / "callables" / "neurips" / "entry.orc",
+        source_roots=(MODULE_FIXTURES / "valid" / "callables",),
+    )
+
+    assert observed_pass_ids
+
+
+def test_stage3_validation_pipeline_runs_source_map_and_executable_passes(tmp_path: Path) -> None:
+    compiler_module = _compiler_module()
+
+    _, results = compiler_module._run_stage3_validation_pipeline(
+        FIXTURES / "valid" / "structured_results.orc",
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        imported_workflow_bundles=None,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert [result.pass_id for result in results] == [
+        "parse",
+        "module",
+        "macro",
+        "type",
+        "effect",
+        "reference",
+        "contract",
+        "proof",
+        "authority",
+        "lowering_surface",
+        "source_map",
+        "shared_validation",
+        "executable",
+    ]
+
+
+def test_compile_stage3_entrypoint_routes_through_validation_pipeline(tmp_path: Path) -> None:
+    compiler_module = _compiler_module()
+    run_pipeline = getattr(
+        compiler_module,
+        "_run_stage3_entrypoint_validation_pipeline",
+        None,
+    )
+    assert callable(run_pipeline), "_run_stage3_entrypoint_validation_pipeline is missing"
+
+    _, results = run_pipeline(
+        MODULE_FIXTURES / "valid" / "callables" / "neurips" / "entry.orc",
+        source_roots=(MODULE_FIXTURES / "valid" / "callables",),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md"
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert [result.pass_id for result in results] == [
+        "parse",
+        "module",
+        "macro",
+        "type",
+        "effect",
+        "reference",
+        "contract",
+        "proof",
+        "authority",
+        "lowering_surface",
+        "source_map",
+        "shared_validation",
+        "executable",
+    ]
+
+
+def test_compile_stage3_entrypoint_runs_source_map_and_executable_checkpoints(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    compiler_module = _compiler_module()
+    original_build_source_map_document = compiler_module.build_source_map_document
+    selected_workflow_validation_states: list[bool] = []
+
+    def wrapped_build_source_map_document(*args, **kwargs):
+        compile_result = args[0]
+        selected_name = kwargs["selected_name"]
+        selected_workflow_validation_states.append(
+            selected_name in compile_result.validated_bundles_by_name
+        )
+        return original_build_source_map_document(*args, **kwargs)
+
+    monkeypatch.setattr(
+        compiler_module,
+        "build_source_map_document",
+        wrapped_build_source_map_document,
+    )
+
+    compile_stage3_entrypoint(
+        MODULE_FIXTURES / "valid" / "callables" / "neurips" / "entry.orc",
+        source_roots=(MODULE_FIXTURES / "valid" / "callables",),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md"
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert selected_workflow_validation_states == [False, True]
+
+
 def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_imported_workflow_bundle() -> None:
     diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
     serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
@@ -184,7 +546,7 @@ def test_serialize_diagnostic_preserves_lowering_phase_for_cyclic_workflow_calls
     assert payload["phase"] == "lowering"
 
 
-def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_command_boundary() -> None:
+def test_serialize_diagnostic_classifies_missing_command_boundary_as_authority() -> None:
     diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
     serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
 
@@ -202,7 +564,9 @@ def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_command_boun
     payload = serialize_diagnostic(excinfo.value.diagnostics[0])
 
     assert payload["code"] == "command_adapter_missing_contract"
-    assert payload["phase"] == "typecheck"
+    assert payload["phase"] == "lowering"
+    assert payload["validation_pass"] == "authority"
+    assert payload["authority_layer"] == "frontend"
 
 
 def test_compile_stage1_renders_unknown_type_diagnostic_with_field_location() -> None:
@@ -554,7 +918,7 @@ def test_compile_stage1_entrypoint_renders_module_path_mismatch_diagnostic() -> 
     assert "other/place" in rendered
 
 
-def test_serialize_diagnostic_preserves_lowering_phase_for_source_map_validation_errors() -> None:
+def test_serialize_diagnostic_classifies_source_map_validation_errors() -> None:
     diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
     serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
 
@@ -571,4 +935,6 @@ def test_serialize_diagnostic_preserves_lowering_phase_for_source_map_validation
     payload = serialize_diagnostic(diagnostic)
 
     assert payload["code"] == "source_map_validation_ref_missing"
-    assert payload["phase"] == "lowering"
+    assert payload["phase"] == "source_map"
+    assert payload["validation_pass"] == "source_map"
+    assert payload["authority_layer"] == "frontend"

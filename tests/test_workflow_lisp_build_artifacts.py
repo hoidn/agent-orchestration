@@ -7,7 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -370,6 +371,54 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
     assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
     assert result.manifest.artifact_status["core_workflow_ast"] == "deferred_shared_contract"
     assert result.manifest.artifact_status["semantic_ir"] == "deferred_shared_contract"
+
+
+def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    write_build_artifacts = getattr(build, "_write_build_artifacts")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    artifact_root = tmp_path / "diagnostic_artifacts"
+    artifact_root.mkdir(parents=True, exist_ok=True)
+    diagnostic = LispFrontendDiagnostic(
+        code="source_map_executable_node_unmapped",
+        message="executable node `run__step` does not resolve to a declared origin",
+        span=SourceSpan(
+            start=SourcePosition(path="lineage_pkg/entry.orc", line=24, column=3, offset=0),
+            end=SourcePosition(path="lineage_pkg/entry.orc", line=24, column=18, offset=15),
+        ),
+        validation_pass="executable",
+        authority_layer="frontend",
+    )
+
+    artifact_paths = write_build_artifacts(
+        build_root=artifact_root,
+        compile_result=result.compile_result,
+        validated_bundle=result.validated_bundle,
+        entry_selection=result.entry_selection,
+        diagnostics=(diagnostic,),
+        emit_debug_yaml=False,
+        source_map_payload=json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8")),
+    )
+    payload = json.loads(artifact_paths["diagnostics"].read_text(encoding="utf-8"))
+
+    assert payload == [
+        {
+            "authority_layer": "frontend",
+            "code": "source_map_executable_node_unmapped",
+            "column": 3,
+            "expansion_stack": [],
+            "form_path": [],
+            "line": 24,
+            "message": "executable node `run__step` does not resolve to a declared origin",
+            "notes": [],
+            "path": "lineage_pkg/entry.orc",
+            "phase": "executable",
+            "severity": "error",
+            "validation_pass": "executable",
+        }
+    ]
 
 
 def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manifest(tmp_path: Path) -> None:

@@ -53,7 +53,11 @@ from .contracts import (
     derive_workflow_boundary_fields,
     derive_workflow_signature_contracts,
 )
-from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .diagnostics import (
+    LispFrontendCompileError,
+    LispFrontendDiagnostic,
+    with_diagnostic_metadata,
+)
 from .expressions import (
     BacklogDrainExpr,
     CallExpr,
@@ -104,6 +108,30 @@ from .workflows import (
 from .workflow_refs import specialize_workflow_ref_callables
 
 _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
+_SHARED_VALIDATION_CODE_RE = re.compile(
+    r"\b("
+    r"workflow_call_version_mismatch|"
+    r"contract_refinement_weakened|"
+    r"contract_refinement_type_conflict|"
+    r"pointer_authority_conflict|"
+    r"snapshot_ref_unknown_step|"
+    r"snapshot_ref_unknown_name|"
+    r"snapshot_candidate_unchanged|"
+    r"snapshot_candidate_ambiguous|"
+    r"invalid_variant_bundle|"
+    r"variant_required_field_missing|"
+    r"variant_forbidden_field_present|"
+    r"variant_ref_unproved|"
+    r"variant_ref_wrong_variant|"
+    r"variant_unavailable|"
+    r"atomic_commit_failed|"
+    r"bundle_commit_aborted_invalid_candidate"
+    r")\b"
+)
+_MESSAGE_FALLBACK_NOTE = (
+    "shared validation provenance matched by message text fallback; "
+    "structured subject refs were unavailable"
+)
 
 
 @dataclass(frozen=True)
@@ -6694,40 +6722,52 @@ def _raise_remapped_validation_error(
         message = str(error.message)
         subject_refs = tuple(getattr(error, "subject_refs", ()) or ())
         origin = None
+        notes: tuple[str, ...] = ()
         if subject_refs:
             origin = _origin_for_validation_subject_refs(lowered_workflow.origin_map, subject_refs)
             if origin is None:
                 diagnostics.append(
-                    LispFrontendDiagnostic(
-                        code="source_map_validation_ref_missing",
-                        message=_missing_validation_subject_message(subject_refs),
-                        span=lowered_workflow.origin_map.workflow_span,
-                        form_path=lowered_workflow.typed_workflow.definition.form_path,
-                        expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
+                    with_diagnostic_metadata(
+                        LispFrontendDiagnostic(
+                            code="source_map_validation_ref_missing",
+                            message=_missing_validation_subject_message(subject_refs),
+                            span=lowered_workflow.origin_map.workflow_span,
+                            form_path=lowered_workflow.typed_workflow.definition.form_path,
+                            expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
+                        ),
+                        validation_pass="source_map",
                     )
                 )
                 continue
         else:
             origin = _remap_validation_message(lowered_workflow.origin_map, message)
+            notes = (_MESSAGE_FALLBACK_NOTE,)
         if origin is None:
             diagnostics.append(
-                LispFrontendDiagnostic(
-                    code="source_map_missing",
-                    message=message,
-                    span=lowered_workflow.origin_map.workflow_span,
-                    form_path=lowered_workflow.typed_workflow.definition.form_path,
-                    expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
+                with_diagnostic_metadata(
+                    LispFrontendDiagnostic(
+                        code="source_map_missing",
+                        message=message,
+                        span=lowered_workflow.origin_map.workflow_span,
+                        form_path=lowered_workflow.typed_workflow.definition.form_path,
+                        expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
+                    ),
+                    validation_pass="source_map",
                 )
             )
             continue
         diagnostics.append(
-            LispFrontendDiagnostic(
-                code=_shared_validation_diagnostic_code(message),
-                message=message,
-                span=origin.span,
-                form_path=origin.form_path or lowered_workflow.typed_workflow.definition.form_path,
-                expansion_stack=origin.expansion_stack,
-                notes=origin.notes,
+            with_diagnostic_metadata(
+                LispFrontendDiagnostic(
+                    code=_shared_validation_diagnostic_code(message),
+                    message=message,
+                    span=origin.span,
+                    form_path=origin.form_path or lowered_workflow.typed_workflow.definition.form_path,
+                    expansion_stack=origin.expansion_stack,
+                    notes=origin.notes + notes,
+                ),
+                validation_pass="shared_validation",
+                authority_layer="shared_validation",
             )
         )
     raise LispFrontendCompileError(tuple(diagnostics))
@@ -6791,6 +6831,9 @@ def _remap_validation_message(origin_map: LoweringOriginMap, message: str) -> Lo
 def _shared_validation_diagnostic_code(message: str) -> str:
     """Classify a shared validation message as a frontend diagnostic code."""
 
+    match = _SHARED_VALIDATION_CODE_RE.search(message)
+    if match is not None:
+        return match.group(1)
     if "parent directory traversal" in message or "absolute paths not allowed" in message:
         return "path_definition_invalid"
     return "workflow_boundary_type_invalid"

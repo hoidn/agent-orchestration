@@ -70,6 +70,13 @@ from .type_env import (
     VariantCaseTypeRef,
 )
 from .typecheck import ProofFact, ProofScope, TypedExpr, ValueEnvironment, typecheck_expression
+from .validation import (
+    VALIDATION_PASS_CATALOG,
+    ValidationPassResult,
+    ValidationPipelinePass,
+    ValidationPipelineState,
+    run_validation_pipeline,
+)
 from .procedures import (
     ProcedureCatalog,
     ProcedureDef,
@@ -160,7 +167,11 @@ __all__ = [
     "UpdatesStateEffect",
     "UsesCommandEffect",
     "UsesProviderEffect",
+    "VALIDATION_PASS_CATALOG",
     "ValueEnvironment",
+    "ValidationPassResult",
+    "ValidationPipelinePass",
+    "ValidationPipelineState",
     "VariantCaseTypeRef",
     "WriteEffect",
     "WithPhaseExpr",
@@ -177,6 +188,7 @@ __all__ = [
     "read_sexpr_text",
     "render_diagnostic",
     "render_diagnostics",
+    "run_validation_pipeline",
     "typecheck_expression",
     "validate_lowered_workflows",
 ]

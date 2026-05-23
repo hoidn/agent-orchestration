@@ -13,7 +13,10 @@ from orchestrator.workflow_lisp.contracts import (
     derive_workflow_signature_contracts,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.diagnostics import (
+    LispFrontendCompileError,
+    serialize_diagnostic,
+)
 from orchestrator.workflow_lisp.expressions import elaborate_expression
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode, WorkflowLispSyntaxModule, build_syntax_module
@@ -603,6 +606,52 @@ def test_typecheck_command_result_rejects_missing_semantic_adapter_metadata(tmp_
         "command_adapter_missing_contract",
         "command_result_argv_invalid",
     }
+
+
+def test_command_adapter_missing_contract_serializes_as_authority_validation_pass(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp import CommandBoundaryEnvironment, ExternalToolBinding
+
+    command_path = _write_module(
+        tmp_path / "semantic_command_missing_adapter_authority.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defworkflow normalize",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (command-result normalize_result",
+                '      :argv ("python" "scripts/normalize_result.py" report_path)',
+                "      :returns ImplementationSummary)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(
+            command_path,
+            command_boundary_environment=CommandBoundaryEnvironment(
+                bindings_by_name={
+                    "run_checks": ExternalToolBinding(
+                        name="run_checks",
+                        stable_command=("python", "scripts/run_checks.py"),
+                    )
+                }
+            ),
+        )
+
+    payload = serialize_diagnostic(excinfo.value.diagnostics[0])
+    assert payload["code"] in {
+        "name_unknown",
+        "command_adapter_missing_contract",
+        "command_result_argv_invalid",
+    }
+    if payload["code"] == "command_adapter_missing_contract":
+        assert payload["validation_pass"] == "authority"
+        assert payload["authority_layer"] == "frontend"
 
 
 @pytest.mark.parametrize(
