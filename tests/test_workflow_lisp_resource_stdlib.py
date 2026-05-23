@@ -1,3 +1,4 @@
+import importlib
 from pathlib import Path
 import json
 from textwrap import dedent
@@ -27,6 +28,7 @@ from orchestrator.workflow_lisp.workflows import (
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 VALID_TRANSITION_FIXTURE = FIXTURES / "valid" / "resource_stdlib_transition.orc"
+VALID_EFFECTS_FIXTURE = FIXTURES / "valid" / "resource_transition_effects.orc"
 VALID_FINALIZE_FIXTURE = FIXTURES / "valid" / "resource_stdlib_finalize_selected_item.orc"
 INVALID_ITEM_CTX_FIXTURE = FIXTURES / "invalid" / "item_ctx_contract_invalid.orc"
 INVALID_DRAIN_CTX_FIXTURE = FIXTURES / "invalid" / "drain_ctx_contract_invalid.orc"
@@ -222,6 +224,27 @@ def test_typecheck_accepts_item_ctx_contract() -> None:
     assert [workflow.definition.name for workflow in typed] == ["move-selected-item"]
 
 
+def test_typecheck_resource_transition_infers_promoted_effects() -> None:
+    effects_module = importlib.import_module("orchestrator.workflow_lisp.effects")
+    typed = _typecheck_fixture(VALID_EFFECTS_FIXTURE)
+    workflow = next(workflow for workflow in typed if workflow.definition.name == "move-selected-item")
+
+    assert workflow.effect_summary.transitive_effects == frozenset(
+        {
+            effects_module.UsesCommandEffect(subject=("apply_resource_transition",)),
+            getattr(effects_module, "MovesResourceEffect")(
+                subject=("backlog-item",),
+                from_queue=("Queue", "active"),
+                to_queue=("Queue", "in_progress"),
+            ),
+            getattr(effects_module, "UpdatesLedgerEffect")(
+                subject=("backlog-item",),
+                event_name=("SELECTED",),
+            ),
+        }
+    )
+
+
 def test_typecheck_rejects_item_ctx_contract() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(INVALID_ITEM_CTX_FIXTURE)
@@ -376,6 +399,28 @@ def test_typecheck_rejects_drain_ctx_with_non_runctx_run(tmp_path: Path) -> None
 def test_typecheck_rejects_resource_transition_without_certified_adapter() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(INVALID_UNCERTIFIED_FIXTURE, include_transition=False)
+
+    assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
+
+
+def test_typecheck_rejects_resource_transition_without_promotable_adapter_effects() -> None:
+    invalid_binding = CertifiedAdapterBinding(
+        name="apply_resource_transition",
+        stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.apply_resource_transition"),
+        input_contract={"type": "object"},
+        output_type_name="ResourceTransitionResult",
+        effects=("structured_result",),
+        path_safety={"kind": "workspace_relpath"},
+        source_map_behavior="step",
+        fixture_ids=("resource_transition_ok",),
+        negative_fixture_ids=("resource_transition_bad",),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(
+            VALID_EFFECTS_FIXTURE,
+            extra_bindings={"apply_resource_transition": invalid_binding},
+        )
 
     assert excinfo.value.diagnostics[0].code == "command_adapter_missing_contract"
 
@@ -720,13 +765,7 @@ def test_lowering_resource_transition_uses_certified_adapter(tmp_path: Path) -> 
     assert len(command_steps) == 1
     assert "output_bundle" in command_steps[0]
     assert len(command_steps[0]["command"]) == 4
-    assert command_steps[0]["when"] == {
-        "compare": {
-            "left": {"ref": "inputs.selected__is-active"},
-            "op": "eq",
-            "right": True,
-        }
-    }
+    assert command_steps[0]["when"] == {"artifact_bool": {"ref": "inputs.selected__is-active"}}
     payload = json.loads(command_steps[0]["command"][3])
     assert payload["transition_name"] == "backlog-item"
     assert payload["resource_id"] == "${inputs.selected__item-id}"

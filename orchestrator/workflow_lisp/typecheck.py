@@ -14,6 +14,8 @@ from .conditionals import classify_condition_expr
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import (
     EMPTY_EFFECT_SUMMARY,
+    MovesResourceEffect,
+    UpdatesLedgerEffect,
     CallsWorkflowEffect,
     EffectSummary,
     ProcedureCallEdge,
@@ -111,6 +113,10 @@ class TypedExpr:
 ValueEnvironment = Mapping[str, TypeRef]
 _ACTIVE_FUNCTION_CATALOG = None
 _ACTIVE_LOOP_CONTEXT: list["LoopTypecheckContext"] = []
+
+
+def _effect_subject(value: str) -> tuple[str, ...]:
+    return tuple(segment for segment in value.split(".") if segment)
 
 
 @dataclass(frozen=True)
@@ -1173,7 +1179,11 @@ def _typecheck(
             if command_boundary_environment is None
             else command_boundary_environment.bindings_by_name.get("apply_resource_transition")
         )
-        if transition_binding is None or getattr(transition_binding, "output_type_name", None) != "ResourceTransitionResult":
+        if (
+            transition_binding is None
+            or getattr(transition_binding, "output_type_name", None) != "ResourceTransitionResult"
+            or getattr(transition_binding, "effects", ()) != ("resource_transition", "ledger_update")
+        ):
             _raise_error(
                 "`resource-transition` requires the certified `apply_resource_transition` adapter",
                 code="command_adapter_missing_contract",
@@ -1198,7 +1208,18 @@ def _typecheck(
                 typed_ledger.effect_summary,
                 typed_when.effect_summary if typed_when is not None else EMPTY_EFFECT_SUMMARY,
                 effect_summary_from_direct(
-                    direct_effects=(UsesCommandEffect(subject=("apply_resource_transition",)),),
+                    direct_effects=(
+                        UsesCommandEffect(subject=("apply_resource_transition",)),
+                        MovesResourceEffect(
+                            subject=_effect_subject(expr.spec.transition_name),
+                            from_queue=_effect_subject(expr.spec.from_queue_name),
+                            to_queue=_effect_subject(expr.spec.to_queue_name),
+                        ),
+                        UpdatesLedgerEffect(
+                            subject=_effect_subject(expr.spec.transition_name),
+                            event_name=_effect_subject(expr.spec.event_name),
+                        ),
+                    ),
                 ),
             ),
         )

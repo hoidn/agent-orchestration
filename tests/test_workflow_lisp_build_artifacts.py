@@ -137,6 +137,23 @@ def _lint_warning_variant_output_request(tmp_path: Path):
     )
 
 
+def _pointer_effects_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    module_path = FIXTURES / "valid" / "pointer_materialization_effects.orc"
+    return request_cls(
+        source_path=module_path,
+        source_roots=(FIXTURES / "valid",),
+        entry_workflow="orchestrate",
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=CLI_FIXTURES / "commands.json",
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
 def test_build_fingerprint_is_stable_for_identical_inputs(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
@@ -721,6 +738,7 @@ def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path
         "generated_outputs",
         "generated_paths",
         "generated_internal_inputs",
+        "generated_semantic_effects",
         "core_nodes",
         "command_boundaries",
         "validation_subjects",
@@ -775,6 +793,37 @@ def test_source_map_emits_versioned_schema_and_runtime_lineage_sections(tmp_path
     assert len(projection_entry["generated_internal_inputs"]) == 1
     assert projection_entry["generated_internal_inputs"][0]["generated_name"].endswith("__result_bundle")
     assert projection_entry["generated_internal_inputs"][0]["reason"] == "managed_write_root"
+
+
+def test_source_map_serializes_generated_semantic_effects_for_frontend_build(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_pointer_effects_request(tmp_path))
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    workflow_name = next(name for name in source_map["workflows"] if name.endswith("::orchestrate"))
+    workflow = source_map["workflows"][workflow_name]
+
+    assert "generated_semantic_effects" in workflow
+    assert any(
+        effect["effect_kind"] == "pointer_materialization"
+        for effect in workflow["generated_semantic_effects"]
+    )
+
+
+def test_semantic_ir_artifact_serializes_promoted_effects_for_frontend_build(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_pointer_effects_request(tmp_path))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    effects = [
+        effect
+        for effect in semantic_ir["effects"].values()
+        if effect["effect_kind"] in {"pointer_materialization", "snapshot_capture", "resource_transition", "ledger_update"}
+    ]
+
+    assert any(effect["effect_kind"] == "pointer_materialization" for effect in effects)
 
 
 def test_source_trace_preserves_distinct_workflows_with_shared_display_names(tmp_path: Path) -> None:

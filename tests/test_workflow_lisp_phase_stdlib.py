@@ -36,6 +36,8 @@ from orchestrator.workflow_lisp.workflows import (
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 VALID_RUN_PROVIDER_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
+VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effects.orc"
+VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
 VALID_REVIEW_LOOP_FIXTURE = FIXTURES / "valid" / "phase_stdlib_review_loop.orc"
 VALID_RESUME_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start.orc"
 INVALID_PHASE_CTX_FIXTURE = FIXTURES / "invalid" / "phase_ctx_contract_invalid.orc"
@@ -416,6 +418,32 @@ def test_lowering_produce_one_of_uses_pre_snapshot_and_select_variant_output(tmp
     )
     assert any("pre_snapshot" in step for step in authored["steps"])
     assert any("select_variant_output" in step for step in authored["steps"])
+
+
+def test_lowering_phase_snapshot_effects_fixture_keeps_orchestrate_pre_snapshot(tmp_path: Path) -> None:
+    result = _compile(VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE, tmp_path=tmp_path)
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+
+    assert any("pre_snapshot" in step for step in authored["steps"])
+
+
+def test_lowering_pointer_materialization_effects_fixture_keeps_orchestrate_pointer_paths(tmp_path: Path) -> None:
+    result = _compile(VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE, tmp_path=tmp_path)
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "orchestrate"
+    )
+    materialize_step = next(step for step in authored["steps"] if "materialize_artifacts" in step)
+
+    assert all(
+        "pointer" in value and "path" in value["pointer"]
+        for value in materialize_step["materialize_artifacts"]["values"]
+    )
 
 
 def test_lowering_produce_one_of_materializes_and_consumes_authored_inputs(tmp_path: Path) -> None:

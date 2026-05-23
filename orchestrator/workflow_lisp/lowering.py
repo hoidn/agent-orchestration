@@ -193,6 +193,17 @@ class ValidationSubjectBinding:
 
 
 @dataclass(frozen=True)
+class GeneratedSemanticEffectBinding:
+    """Frontend-owned lineage for promoted semantic effects introduced by lowering."""
+
+    effect_key: str
+    step_id: str
+    effect_kind: str
+    origin: LoweringOrigin
+    details: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
 class LoweringOriginMap:
     """Complete source-map index for one lowered workflow.
 
@@ -211,6 +222,7 @@ class LoweringOriginMap:
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: Mapping[str, LoweringOrigin]
     validation_subject_bindings: tuple[ValidationSubjectBinding, ...] = ()
+    generated_semantic_effects: tuple[GeneratedSemanticEffectBinding, ...] = ()
 
     @property
     def workflow_span(self) -> SourceSpan:
@@ -516,6 +528,7 @@ def _lower_one_workflow(
         internal_generated_input_reasons={},
         generated_output_spans=origin_outputs,
         generated_path_spans={},
+        generated_semantic_effects=[],
         top_level_artifacts={},
         inline_call_counters={},
         origin_notes=workflow_origin.notes,
@@ -593,6 +606,12 @@ def _lower_one_workflow(
     }
     if context.top_level_artifacts:
         authored_mapping["artifacts"] = dict(context.top_level_artifacts)
+
+    generated_semantic_effects = _derive_generated_semantic_effects(
+        authored_mapping.get("steps"),
+        context=context,
+        workflow_origin=workflow_origin,
+    )
 
     return LoweredWorkflow(
         typed_workflow=typed_workflow,
@@ -686,6 +705,7 @@ def _lower_one_workflow(
                     entity_kind="generated_path",
                 ),
             ),
+            generated_semantic_effects=generated_semantic_effects,
         ),
         boundary_projection=finalized_projection,
     )
@@ -737,6 +757,7 @@ class _LoweringContext:
     internal_generated_input_reasons: dict[str, str]
     generated_output_spans: Mapping[str, LoweringOrigin]
     generated_path_spans: dict[str, LoweringOrigin]
+    generated_semantic_effects: list[GeneratedSemanticEffectBinding]
     top_level_artifacts: dict[str, Any]
     inline_call_counters: dict[str, int]
     origin_notes: tuple[str, ...]
@@ -973,6 +994,107 @@ def _build_validation_subject_bindings(
         )
     )
     return tuple(bindings)
+
+
+def _derive_generated_semantic_effects(
+    raw_steps: object,
+    *,
+    context: _LoweringContext,
+    workflow_origin: LoweringOrigin,
+) -> tuple[GeneratedSemanticEffectBinding, ...]:
+    effects: list[GeneratedSemanticEffectBinding] = []
+    for step in _walk_generated_steps(raw_steps):
+        step_id = step.get("id")
+        if not isinstance(step_id, str) or not step_id:
+            continue
+        step_origin = context.step_spans.get(step_id)
+        if step_origin is None:
+            step_name = step.get("name")
+            step_origin = (
+                context.step_spans.get(step_name)
+                if isinstance(step_name, str)
+                else None
+            )
+        if step_origin is None:
+            step_origin = workflow_origin
+
+        pre_snapshot = step.get("pre_snapshot")
+        if isinstance(pre_snapshot, Mapping):
+            snapshot_name = pre_snapshot.get("name")
+            candidates = pre_snapshot.get("candidates")
+            if isinstance(snapshot_name, str) and isinstance(candidates, Mapping):
+                effects.append(
+                    GeneratedSemanticEffectBinding(
+                        effect_key=f"snapshot:{step_id}:{snapshot_name}",
+                        step_id=step_id,
+                        effect_kind="snapshot_capture",
+                        origin=step_origin,
+                        details=MappingProxyType(
+                            {
+                                "snapshot_kind": snapshot_name,
+                                "candidate_names": tuple(
+                                    name for name in candidates if isinstance(name, str)
+                                ),
+                            }
+                        ),
+                    )
+                )
+
+        materialize = step.get("materialize_artifacts")
+        values = materialize.get("values") if isinstance(materialize, Mapping) else None
+        if not isinstance(values, list):
+            continue
+        for value in values:
+            if not isinstance(value, Mapping):
+                continue
+            value_name = value.get("name")
+            pointer = value.get("pointer")
+            pointer_path = pointer.get("path") if isinstance(pointer, Mapping) else None
+            if not isinstance(value_name, str) or not isinstance(pointer_path, str):
+                continue
+            effects.append(
+                GeneratedSemanticEffectBinding(
+                    effect_key=f"pointer:{step_id}:{value_name}",
+                    step_id=step_id,
+                    effect_kind="pointer_materialization",
+                    origin=context.generated_path_spans.get(pointer_path, step_origin),
+                    details=MappingProxyType(
+                        {
+                            "pointer_path": pointer_path,
+                            "representation_role": "artifact_pointer",
+                            "value_name": value_name,
+                        }
+                    ),
+                )
+            )
+    effects.sort(key=lambda effect: (effect.effect_kind, effect.step_id, effect.effect_key))
+    return tuple(effects)
+
+
+def _walk_generated_steps(raw_steps: object) -> tuple[Mapping[str, Any], ...]:
+    if not isinstance(raw_steps, list):
+        return ()
+    steps: list[Mapping[str, Any]] = []
+    for step in raw_steps:
+        if not isinstance(step, Mapping):
+            continue
+        steps.append(step)
+        match = step.get("match")
+        if isinstance(match, Mapping):
+            for case in (match.get("cases") or {}).values():
+                if isinstance(case, Mapping):
+                    steps.extend(_walk_generated_steps(case.get("steps")))
+        repeat = step.get("repeat_until")
+        if isinstance(repeat, Mapping):
+            steps.extend(_walk_generated_steps(repeat.get("steps")))
+        branch = step.get("if")
+        if isinstance(branch, Mapping):
+            steps.extend(_walk_generated_steps(branch.get("then")))
+            steps.extend(_walk_generated_steps(branch.get("else")))
+        for_each = step.get("for_each")
+        if isinstance(for_each, Mapping):
+            steps.extend(_walk_generated_steps(for_each.get("steps")))
+    return tuple(steps)
 
 
 def _record_step_origin(context: _LoweringContext, *, step_name: str, step_id: str, source: object) -> None:
@@ -3722,6 +3844,7 @@ def _lower_procedure_call_expr(
         internal_generated_input_reasons=context.internal_generated_input_reasons,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
+        generated_semantic_effects=context.generated_semantic_effects,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
         origin_notes=_procedure_provenance_notes(expr, procedure),
@@ -5664,6 +5787,20 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
         workflow_name=workflow_name,
         entity_kind="generated_path",
     )
+    generated_semantic_effects = tuple(
+        replace(
+            effect,
+            origin=_with_origin_key(
+                effect.origin,
+                workflow_name=workflow_name,
+                entity_kind="generated_path"
+                if effect.effect_kind == "pointer_materialization"
+                else "step_id",
+                subject_name=effect.details.get("pointer_path", effect.step_id),
+            ),
+        )
+        for effect in origin_map.generated_semantic_effects
+    )
     return LoweringOriginMap(
         workflow_name=workflow_name,
         workflow_origin=workflow_origin,
@@ -5683,6 +5820,7 @@ def _rekey_origin_map(origin_map: LoweringOriginMap, *, workflow_name: str) -> L
             generated_outputs=generated_output_spans,
             generated_paths=generated_path_spans,
         ),
+        generated_semantic_effects=generated_semantic_effects,
     )
 
 
@@ -7808,6 +7946,7 @@ def _copy_context_with_phase_scope(
         internal_generated_input_reasons=context.internal_generated_input_reasons,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
+        generated_semantic_effects=context.generated_semantic_effects,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
         origin_notes=context.origin_notes,
@@ -7843,6 +7982,7 @@ def _copy_context_with_step_prefix(context: _LoweringContext, *, step_name_prefi
         internal_generated_input_reasons=context.internal_generated_input_reasons,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
+        generated_semantic_effects=context.generated_semantic_effects,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
         origin_notes=context.origin_notes,
@@ -7885,6 +8025,7 @@ def _context_with_local_type_binding(
         internal_generated_input_reasons=context.internal_generated_input_reasons,
         generated_output_spans=context.generated_output_spans,
         generated_path_spans=context.generated_path_spans,
+        generated_semantic_effects=context.generated_semantic_effects,
         top_level_artifacts=context.top_level_artifacts,
         inline_call_counters=context.inline_call_counters,
         origin_notes=context.origin_notes,

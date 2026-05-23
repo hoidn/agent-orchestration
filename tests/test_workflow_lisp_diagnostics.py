@@ -1266,6 +1266,52 @@ def test_semantic_ir_invalid_preserves_structured_subject_ref_bridge(
     assert diagnostic.form_path[-1] == "command_checks"
 
 
+def test_semantic_ir_invalid_from_promoted_effect_validation_preserves_subject_bridge(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+
+    def fail_semantic_ir_validation(*args, **kwargs):
+        del args, kwargs
+        raise WorkflowValidationError(
+            [
+                ValidationError(
+                    message="semantic_ir_invalid: promoted effect references unknown statement `orchestrate__attempt__prompt_inputs`",
+                    subject_refs=(
+                        ValidationSubjectRef(
+                            subject_kind="step_id",
+                            subject_name="orchestrate__attempt__prompt_inputs",
+                            workflow_name="orchestrate",
+                        ),
+                    ),
+                )
+            ]
+        )
+
+    monkeypatch.setattr(
+        semantic_ir_module,
+        "validate_workflow_semantic_ir",
+        fail_semantic_ir_validation,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            FIXTURES / "valid" / "phase_snapshot_effects.orc",
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "semantic_ir_invalid"
+    assert diagnostic.validation_pass == "semantic_ir"
+    assert diagnostic.authority_layer == "shared"
+    assert diagnostic.span.start.path.endswith("phase_snapshot_effects.orc")
+    assert diagnostic.form_path[-1] == "orchestrate"
+
+
 @pytest.mark.parametrize(
     ("fixture_path", "expected_code"),
     [

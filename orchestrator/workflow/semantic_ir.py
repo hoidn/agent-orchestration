@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass, field, fields, is_dataclass
+from dataclasses import dataclass, field, fields, is_dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Mapping
@@ -25,6 +25,8 @@ from .surface_ast import SurfaceStep, SurfaceStepKind, SurfaceWorkflow, Workflow
 
 
 WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION = "workflow_semantic_ir.v1"
+_PROMOTED_ADAPTER_EFFECT_KINDS = frozenset({"resource_transition", "ledger_update"})
+_PROMOTED_GENERATED_EFFECT_KINDS = frozenset({"snapshot_capture", "pointer_materialization"})
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,7 @@ class SemanticEffectEntry:
     output_validation_surface: str | None = None
     source_map_behavior: str | None = None
     ref_ids: tuple[str, ...] = ()
+    details: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
 
 
 @dataclass(frozen=True)
@@ -212,6 +215,9 @@ def derive_workflow_semantic_ir(
     import_catalog = core_workflow_ast.imports if core_workflow_ast is not None else surface.imports
     statement_order: list[str] = []
     statements: dict[str, SemanticStatement] = {}
+    surface_steps_by_step_id: dict[str, SurfaceStep] = {}
+    statement_ids_by_step_id: dict[str, str] = {}
+    statement_effect_ids_by_statement_id: dict[str, list[str]] = {}
     types: dict[str, SemanticTypeEntry] = {}
     contracts: dict[str, SemanticContractEntry] = {}
     refs: dict[str, SemanticRefEntry] = {}
@@ -279,6 +285,9 @@ def derive_workflow_semantic_ir(
         step = statement_surface.surface_step
         statement_id = _statement_id(workflow_name, statement_surface.surface_step_id)
         statement_order.append(statement_id)
+        for alias in _step_id_aliases(statement_surface.surface_step_id):
+            surface_steps_by_step_id.setdefault(alias, step)
+            statement_ids_by_step_id.setdefault(alias, statement_id)
         statement_node_ids = tuple(grouped_nodes.get(statement_surface.surface_step_id, ()))
         statement_presentation_keys = tuple(
             _dedupe(
@@ -404,6 +413,7 @@ def derive_workflow_semantic_ir(
             ref_ids=(statement_ref_id,),
             effect_ids=tuple(statement_effect_ids),
         )
+        statement_effect_ids_by_statement_id[statement_id] = statement_effect_ids
 
     for alias, metadata in sorted(import_catalog.items()):
         ref_id = _ref_id(workflow_name, "import", alias)
@@ -472,7 +482,26 @@ def derive_workflow_semantic_ir(
                 coverage=value,
             )
     if isinstance(provenance.frontend_source_trace_path, Path) and provenance.frontend_source_trace_path.exists():
-        source_map.update(_load_frontend_source_map_bridges(workflow_name, provenance.frontend_source_trace_path))
+        workflow_payload = _load_frontend_source_map_workflow_payload(
+            workflow_name,
+            provenance.frontend_source_trace_path,
+        )
+        if workflow_payload is not None:
+            source_map.update(_frontend_source_map_bridges_from_payload(workflow_name, workflow_payload))
+            _promote_frontend_source_map_effects(
+                workflow_name=workflow_name,
+                workflow_payload=workflow_payload,
+                statements=statements,
+                surface_steps_by_step_id=surface_steps_by_step_id,
+                statement_ids_by_step_id=statement_ids_by_step_id,
+                statement_effect_ids_by_statement_id=statement_effect_ids_by_statement_id,
+                effects=effects,
+            )
+            for statement_id, effect_ids in statement_effect_ids_by_statement_id.items():
+                statements[statement_id] = replace(
+                    statements[statement_id],
+                    effect_ids=tuple(effect_ids),
+                )
 
     semantic_ir = SemanticWorkflowIR(
         schema_version=WORKFLOW_SEMANTIC_IR_SCHEMA_VERSION,
@@ -543,6 +572,7 @@ def validate_workflow_semantic_ir(
             workflow_name=workflow_name,
             subject_refs=(ValidationSubjectRef(subject_kind="workflow", subject_name=workflow_name),),
         )
+    runtime_snapshot_operations = _runtime_snapshot_operations_by_step_id(runtime_plan)
 
     if len(set(workflow.authored_statement_ids)) != len(workflow.authored_statement_ids):
         _raise_semantic_ir_invalid(
@@ -726,6 +756,27 @@ def validate_workflow_semantic_ir(
                         workflow_name=workflow_name,
                     ),
                 ),
+            )
+        if effect.effect_kind in _PROMOTED_ADAPTER_EFFECT_KINDS:
+            _validate_promoted_adapter_effect(
+                semantic_ir,
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+            )
+        elif effect.effect_kind == "snapshot_capture":
+            _validate_snapshot_capture_effect(
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+                runtime_snapshot_operations=runtime_snapshot_operations,
+            )
+        elif effect.effect_kind == "pointer_materialization":
+            _validate_pointer_materialization_effect(
+                workflow=workflow,
+                workflow_name=workflow_name,
+                effect=effect,
+                runtime_snapshot_operations=runtime_snapshot_operations,
             )
 
     for proof in semantic_ir.proofs.values():
@@ -953,20 +1004,45 @@ def _output_validation_surface(step: SurfaceStep) -> str | None:
     return None
 
 
+def _step_id_aliases(step_id: str) -> tuple[str, ...]:
+    aliases = [step_id]
+    leaf = step_id.split(".")[-1]
+    if leaf not in aliases:
+        aliases.append(leaf)
+    return tuple(aliases)
+
+
+def _load_frontend_source_map_workflow_payload(
+    workflow_name: str,
+    source_map_path: Path,
+) -> Mapping[str, Any] | None:
+    try:
+        payload = json.loads(source_map_path.read_text(encoding="utf-8"))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    workflows = payload.get("workflows")
+    if not isinstance(workflows, Mapping):
+        return None
+    workflow_payload = workflows.get(workflow_name)
+    if not isinstance(workflow_payload, Mapping):
+        return None
+    return workflow_payload
+
+
 def _load_frontend_source_map_bridges(
     workflow_name: str,
     source_map_path: Path,
 ) -> dict[str, SemanticSourceMapBridgeEntry]:
-    try:
-        payload = json.loads(source_map_path.read_text(encoding="utf-8"))
-    except (FileNotFoundError, json.JSONDecodeError):
+    workflow_payload = _load_frontend_source_map_workflow_payload(workflow_name, source_map_path)
+    if workflow_payload is None:
         return {}
-    workflows = payload.get("workflows")
-    if not isinstance(workflows, Mapping):
-        return {}
-    workflow_payload = workflows.get(workflow_name)
-    if not isinstance(workflow_payload, Mapping):
-        return {}
+    return _frontend_source_map_bridges_from_payload(workflow_name, workflow_payload)
+
+
+def _frontend_source_map_bridges_from_payload(
+    workflow_name: str,
+    workflow_payload: Mapping[str, Any],
+) -> dict[str, SemanticSourceMapBridgeEntry]:
     origin_keys = _source_map_origin_keys(workflow_payload)
     supported_subject_keys = _supported_source_map_subject_keys(workflow_name, workflow_payload)
     validation_subjects = workflow_payload.get("validation_subjects")
@@ -1016,6 +1092,423 @@ def _load_frontend_source_map_bridges(
             origin_key=origin_key,
         )
     return bridges
+
+
+def _promote_frontend_source_map_effects(
+    *,
+    workflow_name: str,
+    workflow_payload: Mapping[str, Any],
+    statements: Mapping[str, SemanticStatement],
+    surface_steps_by_step_id: Mapping[str, SurfaceStep],
+    statement_ids_by_step_id: Mapping[str, str],
+    statement_effect_ids_by_statement_id: Mapping[str, list[str]],
+    effects: dict[str, SemanticEffectEntry],
+) -> None:
+    origin_keys = _source_map_origin_keys(workflow_payload)
+    _promote_frontend_command_boundary_effects(
+        workflow_name=workflow_name,
+        workflow_payload=workflow_payload,
+        origin_keys=origin_keys,
+        statements=statements,
+        surface_steps_by_step_id=surface_steps_by_step_id,
+        statement_ids_by_step_id=statement_ids_by_step_id,
+        statement_effect_ids_by_statement_id=statement_effect_ids_by_statement_id,
+        effects=effects,
+    )
+    _promote_frontend_generated_semantic_effects(
+        workflow_name=workflow_name,
+        workflow_payload=workflow_payload,
+        origin_keys=origin_keys,
+        statements=statements,
+        surface_steps_by_step_id=surface_steps_by_step_id,
+        statement_ids_by_step_id=statement_ids_by_step_id,
+        statement_effect_ids_by_statement_id=statement_effect_ids_by_statement_id,
+        effects=effects,
+    )
+
+
+def _promote_frontend_command_boundary_effects(
+    *,
+    workflow_name: str,
+    workflow_payload: Mapping[str, Any],
+    origin_keys: set[str],
+    statements: Mapping[str, SemanticStatement],
+    surface_steps_by_step_id: Mapping[str, SurfaceStep],
+    statement_ids_by_step_id: Mapping[str, str],
+    statement_effect_ids_by_statement_id: Mapping[str, list[str]],
+    effects: dict[str, SemanticEffectEntry],
+) -> None:
+    command_boundaries = workflow_payload.get("command_boundaries")
+    if not isinstance(command_boundaries, list):
+        return
+    for boundary in command_boundaries:
+        if not isinstance(boundary, Mapping):
+            continue
+        if boundary.get("boundary_kind") != "certified_adapter":
+            continue
+        declared_effects = tuple(
+            effect_kind
+            for effect_kind in boundary.get("declared_effects", ())
+            if isinstance(effect_kind, str) and effect_kind in _PROMOTED_ADAPTER_EFFECT_KINDS
+        )
+        if not declared_effects:
+            continue
+        step_id = boundary.get("step_id")
+        if not isinstance(step_id, str):
+            continue
+        origin_key = boundary.get("origin_key")
+        statement_id = statement_ids_by_step_id.get(step_id)
+        statement = statements.get(statement_id) if statement_id is not None else None
+        if statement is None:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted certified-adapter effect references unknown statement `{step_id}`",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_frontend_step_id(
+                    workflow_name,
+                    step_id,
+                    statements,
+                    statement_ids_by_step_id,
+                ),
+            )
+        if isinstance(origin_key, str) and origin_key not in origin_keys:
+            _raise_semantic_ir_invalid(
+                "semantic_ir_invalid: promoted certified-adapter effect does not resolve to a declared source-map origin",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        command_effect = _command_call_effect_for_statement(
+            statement=statement,
+            statement_effect_ids=statement_effect_ids_by_statement_id[statement.statement_id],
+            effects=effects,
+        )
+        if command_effect is None or command_effect.boundary_kind != "certified_adapter":
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires a matching generic command-call effect",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        surface_step = _surface_step_for_statement(statement, surface_steps_by_step_id)
+        adapter_payload = _resource_transition_payload_for_step(
+            workflow_name=workflow_name,
+            statement=statement,
+            surface_step=surface_step,
+        )
+        boundary_name = boundary.get("adapter_name") or boundary.get("command_name")
+        if not isinstance(boundary_name, str) or not boundary_name:
+            boundary_name = command_effect.boundary_name
+        if not isinstance(boundary_name, str) or not boundary_name:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires a boundary name",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        for effect_kind in declared_effects:
+            details = _promoted_adapter_effect_details(
+                workflow_name=workflow_name,
+                statement=statement,
+                effect_kind=effect_kind,
+                adapter_payload=adapter_payload,
+            )
+            effect_id = _effect_id(workflow_name, statement.step_id, effect_kind)
+            effects[effect_id] = SemanticEffectEntry(
+                effect_id=effect_id,
+                workflow_name=workflow_name,
+                statement_id=statement.statement_id,
+                effect_kind=effect_kind,
+                boundary_kind="certified_adapter",
+                boundary_name=boundary_name,
+                details=details,
+            )
+            statement_effect_ids_by_statement_id[statement.statement_id].append(effect_id)
+
+
+def _promote_frontend_generated_semantic_effects(
+    *,
+    workflow_name: str,
+    workflow_payload: Mapping[str, Any],
+    origin_keys: set[str],
+    statements: Mapping[str, SemanticStatement],
+    surface_steps_by_step_id: Mapping[str, SurfaceStep],
+    statement_ids_by_step_id: Mapping[str, str],
+    statement_effect_ids_by_statement_id: Mapping[str, list[str]],
+    effects: dict[str, SemanticEffectEntry],
+) -> None:
+    generated_effects = workflow_payload.get("generated_semantic_effects")
+    if not isinstance(generated_effects, list):
+        return
+    counts: dict[tuple[str, str], int] = {}
+    for entry in generated_effects:
+        if not isinstance(entry, Mapping):
+            continue
+        step_id = entry.get("step_id")
+        effect_kind = entry.get("effect_kind")
+        if isinstance(step_id, str) and isinstance(effect_kind, str) and effect_kind in _PROMOTED_GENERATED_EFFECT_KINDS:
+            counts[(step_id, effect_kind)] = counts.get((step_id, effect_kind), 0) + 1
+    for entry in generated_effects:
+        if not isinstance(entry, Mapping):
+            continue
+        effect_kind = entry.get("effect_kind")
+        if effect_kind not in _PROMOTED_GENERATED_EFFECT_KINDS:
+            continue
+        step_id = entry.get("step_id")
+        effect_key = entry.get("effect_key")
+        origin_key = entry.get("origin_key")
+        details = entry.get("details")
+        if not isinstance(step_id, str) or not isinstance(effect_key, str) or not isinstance(details, Mapping):
+            continue
+        statement_id = statement_ids_by_step_id.get(step_id)
+        statement = statements.get(statement_id) if statement_id is not None else None
+        if statement is None:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect references unknown statement `{step_id}`",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_frontend_step_id(
+                    workflow_name,
+                    step_id,
+                    statements,
+                    statement_ids_by_step_id,
+                ),
+            )
+        if not isinstance(origin_key, str) or origin_key not in origin_keys:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` does not resolve to a declared source-map origin",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        surface_step = _surface_step_for_statement(statement, surface_steps_by_step_id)
+        promoted_details = _generated_promoted_effect_details(
+            workflow_name=workflow_name,
+            statement=statement,
+            surface_step=surface_step,
+            effect_kind=effect_kind,
+            effect_key=effect_key,
+            details=details,
+        )
+        base_effect_id = _effect_id(workflow_name, statement.step_id, effect_kind)
+        effect_id = (
+            f"{base_effect_id}:{effect_key}"
+            if counts.get((step_id, effect_kind), 0) > 1
+            else base_effect_id
+        )
+        effects[effect_id] = SemanticEffectEntry(
+            effect_id=effect_id,
+            workflow_name=workflow_name,
+            statement_id=statement.statement_id,
+            effect_kind=effect_kind,
+            details=promoted_details,
+        )
+        statement_effect_ids_by_statement_id[statement.statement_id].append(effect_id)
+
+
+def _subject_refs_for_frontend_step_id(
+    workflow_name: str,
+    frontend_step_id: str,
+    statements: Mapping[str, SemanticStatement],
+    statement_ids_by_step_id: Mapping[str, str],
+) -> tuple[ValidationSubjectRef, ...]:
+    statement_id = statement_ids_by_step_id.get(frontend_step_id)
+    if statement_id is None:
+        return (
+            ValidationSubjectRef(
+                subject_kind="step_id",
+                subject_name=frontend_step_id,
+                workflow_name=workflow_name,
+            ),
+        )
+    statement = statements.get(statement_id)
+    if statement is None:
+        return ()
+    return _subject_refs_for_statement(workflow_name, statement)
+
+
+def _surface_step_for_statement(
+    statement: SemanticStatement,
+    surface_steps_by_step_id: Mapping[str, SurfaceStep],
+) -> SurfaceStep:
+    step = surface_steps_by_step_id.get(statement.step_id)
+    if step is not None:
+        return step
+    step = surface_steps_by_step_id.get(statement.step_id.split(".")[-1])
+    if step is not None:
+        return step
+    raise AssertionError(f"missing surface step for statement {statement.statement_id}")
+
+
+def _command_call_effect_for_statement(
+    *,
+    statement: SemanticStatement,
+    statement_effect_ids: list[str],
+    effects: Mapping[str, SemanticEffectEntry],
+) -> SemanticEffectEntry | None:
+    for effect_id in statement_effect_ids:
+        effect = effects.get(effect_id)
+        if effect is None:
+            continue
+        if effect.statement_id == statement.statement_id and effect.effect_kind == "command_call":
+            return effect
+    return None
+
+
+def _resource_transition_payload_for_step(
+    *,
+    workflow_name: str,
+    statement: SemanticStatement,
+    surface_step: SurfaceStep,
+) -> Mapping[str, Any]:
+    command = surface_step.command
+    if not isinstance(command, tuple) or len(command) < 4:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires a structured adapter payload",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    payload_text = command[3]
+    if not isinstance(payload_text, str):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires a JSON adapter payload",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    try:
+        payload = json.loads(payload_text)
+    except json.JSONDecodeError as error:
+        _raise_semantic_ir_invalid(
+            (
+                "semantic_ir_invalid: promoted certified-adapter effect "
+                f"for `{statement.step_id}` has an invalid JSON adapter payload: {error.msg}"
+            ),
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not isinstance(payload, Mapping):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted certified-adapter effect for `{statement.step_id}` requires an object payload",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    return payload
+
+
+def _promoted_adapter_effect_details(
+    *,
+    workflow_name: str,
+    statement: SemanticStatement,
+    effect_kind: str,
+    adapter_payload: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    if effect_kind == "resource_transition":
+        from_queue = adapter_payload.get("from")
+        to_queue = adapter_payload.get("to")
+        if not isinstance(from_queue, str) or not isinstance(to_queue, str):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted resource-transition effect for `{statement.step_id}` requires `from` and `to` strings",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        return MappingProxyType({"from_queue": from_queue, "to_queue": to_queue})
+    event_name = adapter_payload.get("event")
+    if not isinstance(event_name, str):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted ledger-update effect for `{statement.step_id}` requires an `event` string",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    return MappingProxyType({"event_name": event_name})
+
+
+def _generated_promoted_effect_details(
+    *,
+    workflow_name: str,
+    statement: SemanticStatement,
+    surface_step: SurfaceStep,
+    effect_kind: str,
+    effect_key: str,
+    details: Mapping[str, Any],
+) -> Mapping[str, Any]:
+    if effect_kind == "snapshot_capture":
+        pre_snapshot = surface_step.common.pre_snapshot
+        if not isinstance(pre_snapshot, Mapping):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires a matching pre_snapshot surface",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        snapshot_kind = details.get("snapshot_kind")
+        candidate_names = details.get("candidate_names")
+        candidates = pre_snapshot.get("candidates")
+        if not isinstance(snapshot_kind, str) or not isinstance(candidate_names, (list, tuple)):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` requires snapshot details",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        expected_snapshot_kind = pre_snapshot.get("name")
+        if not isinstance(expected_snapshot_kind, str) or snapshot_kind != expected_snapshot_kind:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has inconsistent snapshot lineage",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        normalized_candidate_names = tuple(name for name in candidate_names if isinstance(name, str))
+        expected_candidate_names = (
+            tuple(str(name) for name in candidates.keys())
+            if isinstance(candidates, Mapping)
+            else ()
+        )
+        if normalized_candidate_names != expected_candidate_names:
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted effect `{effect_key}` has inconsistent snapshot candidates",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+        return MappingProxyType(
+            {
+                "snapshot_kind": snapshot_kind,
+                "candidate_names": normalized_candidate_names,
+            }
+        )
+
+    if surface_step.kind is not SurfaceStepKind.MATERIALIZE_ARTIFACTS:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect_key}` requires a materialize_artifacts surface",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    pointer_path = details.get("pointer_path")
+    representation_role = details.get("representation_role")
+    value_name = details.get("value_name")
+    if not isinstance(pointer_path, str) or not isinstance(representation_role, str):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect_key}` requires pointer details",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    values = surface_step.materialize_artifacts.get("values", ())
+    pointer_matches = [
+        value
+        for value in values
+        if isinstance(value, Mapping)
+        and isinstance(value.get("pointer"), Mapping)
+        and value["pointer"].get("path") == pointer_path
+    ]
+    if not pointer_matches:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect_key}` has no matching pointer surface",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if isinstance(value_name, str) and all(value.get("name") != value_name for value in pointer_matches):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect_key}` has inconsistent pointer lineage",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    return MappingProxyType(
+        {
+            "pointer_path": pointer_path,
+            "representation_role": representation_role,
+        }
+    )
 
 
 def _subject_refs_for_node(
@@ -1099,6 +1592,132 @@ def _subject_refs_for_statement(
             workflow_name=workflow_name,
         ),
     )
+
+
+def _runtime_snapshot_operations_by_step_id(
+    runtime_plan: WorkflowRuntimePlan,
+) -> Mapping[str, tuple[str, ...]]:
+    operations: dict[str, list[str]] = {}
+    for snapshot in runtime_plan.snapshots:
+        node = runtime_plan.nodes.get(snapshot.owner_node_id)
+        if node is None:
+            continue
+        operations.setdefault(node.step_id, []).append(snapshot.operation_kind)
+    return {
+        step_id: tuple(operation_kinds)
+        for step_id, operation_kinds in operations.items()
+    }
+
+
+def _validate_promoted_adapter_effect(
+    semantic_ir: SemanticWorkflowIR,
+    *,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    if effect.boundary_kind != "certified_adapter" or not effect.boundary_name:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted adapter effect `{effect.effect_id}` must reference a certified adapter boundary",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    command_effect = next(
+        (
+            semantic_ir.effects[effect_id]
+            for effect_id in statement.effect_ids
+            if effect_id in semantic_ir.effects
+            and semantic_ir.effects[effect_id].effect_kind == "command_call"
+        ),
+        None,
+    )
+    if (
+        command_effect is None
+        or command_effect.boundary_kind != "certified_adapter"
+        or command_effect.statement_id != statement.statement_id
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted adapter effect `{effect.effect_id}` requires a matching command-call effect",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if effect.effect_kind == "resource_transition":
+        if not (
+            isinstance(effect.details.get("from_queue"), str)
+            and isinstance(effect.details.get("to_queue"), str)
+        ):
+            _raise_semantic_ir_invalid(
+                f"semantic_ir_invalid: promoted adapter effect `{effect.effect_id}` requires resource-transition details",
+                workflow_name=workflow_name,
+                subject_refs=_subject_refs_for_statement(workflow_name, statement),
+            )
+    if effect.effect_kind == "ledger_update" and not isinstance(effect.details.get("event_name"), str):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted adapter effect `{effect.effect_id}` requires ledger-update details",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+
+
+def _validate_snapshot_capture_effect(
+    *,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+    runtime_snapshot_operations: Mapping[str, tuple[str, ...]],
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    candidate_names = effect.details.get("candidate_names")
+    if not isinstance(effect.details.get("snapshot_kind"), str) or not isinstance(candidate_names, (list, tuple)):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect.effect_id}` requires snapshot-capture details",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if any(not isinstance(name, str) for name in candidate_names):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect.effect_id}` requires string snapshot candidates",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if "pre_snapshot" not in runtime_snapshot_operations.get(statement.step_id, ()):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect.effect_id}` requires a matching pre_snapshot runtime surface",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+
+
+def _validate_pointer_materialization_effect(
+    *,
+    workflow: SemanticWorkflow,
+    workflow_name: str,
+    effect: SemanticEffectEntry,
+    runtime_snapshot_operations: Mapping[str, tuple[str, ...]],
+) -> None:
+    statement = workflow.statements[effect.statement_id]
+    if statement.step_kind != SurfaceStepKind.MATERIALIZE_ARTIFACTS.value:
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect.effect_id}` requires a materialize-artifacts statement",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if not (
+        isinstance(effect.details.get("pointer_path"), str)
+        and isinstance(effect.details.get("representation_role"), str)
+    ):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect.effect_id}` requires pointer-materialization details",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
+    if "materialize_artifacts" not in runtime_snapshot_operations.get(statement.step_id, ()):
+        _raise_semantic_ir_invalid(
+            f"semantic_ir_invalid: promoted effect `{effect.effect_id}` requires a matching materialize-artifacts runtime surface",
+            workflow_name=workflow_name,
+            subject_refs=_subject_refs_for_statement(workflow_name, statement),
+        )
 
 
 def _subject_refs_for_statement_id(

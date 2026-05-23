@@ -62,6 +62,18 @@ class CommandBoundaryLineage:
     origin_key: str
     adapter_name: str | None = None
     source_map_behavior: str | None = None
+    declared_effects: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class GeneratedSemanticEffectLineage:
+    """Persisted lowering-owned promoted semantic effect lineage."""
+
+    effect_key: str
+    step_id: str
+    effect_kind: str
+    origin_key: str
+    details: Mapping[str, Any]
 
 
 @dataclass(frozen=True)
@@ -107,6 +119,7 @@ class WorkflowSourceMap:
     generated_outputs: Mapping[str, SourceMapEntry]
     generated_paths: Mapping[str, SourceMapEntry]
     generated_internal_inputs: Mapping[str, SourceMapEntry]
+    generated_semantic_effects: tuple[GeneratedSemanticEffectLineage, ...]
     core_nodes: tuple[CoreNodeLineage, ...]
     command_boundaries: tuple[CommandBoundaryLineage, ...]
     validation_subjects: tuple[ValidationSubjectBinding, ...]
@@ -141,10 +154,10 @@ def build_source_map_document(
                 entity_kind="workflow",
                 subject_name=workflow_name,
             )
-            step_ids = _entry_mapping(
-                lowered.origin_map.step_spans,
+            step_ids = _step_entry_mapping(
+                lowered=lowered,
                 workflow_name=workflow_name,
-                entity_kind="step_id",
+                workflow_origin=workflow_origin,
             )
             generated_inputs = _entry_mapping(
                 lowered.origin_map.authored_input_spans,
@@ -170,6 +183,11 @@ def build_source_map_document(
                 lowered=lowered,
                 step_ids=step_ids,
                 bindings_by_name=bindings,
+            )
+            generated_semantic_effects = _generated_semantic_effects_for_workflow(
+                lowered=lowered,
+                workflow_name=workflow_name,
+                workflow_origin=workflow_origin,
             )
             validation_subjects = _validation_subject_bindings(
                 lowered=lowered,
@@ -203,6 +221,7 @@ def build_source_map_document(
                 generated_outputs=generated_outputs,
                 generated_paths=generated_paths,
                 generated_internal_inputs=generated_internal_inputs,
+                generated_semantic_effects=generated_semantic_effects,
                 core_nodes=core_nodes,
                 command_boundaries=command_boundaries,
                 validation_subjects=validation_subjects,
@@ -329,6 +348,40 @@ def validate_source_map_document(document: WorkflowLispSourceMap) -> None:
                         message=f"executable node `{node.node_id}` does not resolve to a declared origin",
                     )
                 )
+        seen_effect_keys: set[str] = set()
+        for effect in workflow.generated_semantic_effects:
+            if effect.effect_key in seen_effect_keys:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_generated_effect_invalid",
+                        message=f"generated semantic effect `{effect.effect_key}` is duplicated",
+                    )
+                )
+                continue
+            seen_effect_keys.add(effect.effect_key)
+            if effect.origin_key not in origin_keys:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_generated_effect_invalid",
+                        message=(
+                            f"generated semantic effect `{effect.effect_key}` "
+                            "does not resolve to a declared origin"
+                        ),
+                    )
+                )
+            if effect.step_id not in workflow.step_ids:
+                diagnostics.append(
+                    _diagnostic_for_entry(
+                        workflow_origin,
+                        code="source_map_generated_effect_invalid",
+                        message=(
+                            f"generated semantic effect `{effect.effect_key}` "
+                            f"references unknown step `{effect.step_id}`"
+                        ),
+                    )
+                )
     if diagnostics:
         raise LispFrontendCompileError(tuple(diagnostics))
 
@@ -348,6 +401,111 @@ def _entry_mapping(
         )
         for name, origin in sorted(origins.items())
     }
+
+
+def _step_entry_mapping(
+    *,
+    lowered: "LoweredWorkflow",
+    workflow_name: str,
+    workflow_origin: SourceMapEntry,
+) -> Mapping[str, SourceMapEntry]:
+    entries = _entry_mapping(
+        lowered.origin_map.step_spans,
+        workflow_name=workflow_name,
+        entity_kind="step_id",
+    )
+    augmented = dict(entries)
+    _augment_missing_step_entries(
+        lowered.authored_mapping.get("steps"),
+        workflow_name=workflow_name,
+        workflow_origin=workflow_origin,
+        entries=augmented,
+        parent_origin=workflow_origin,
+    )
+    return augmented
+
+
+def _augment_missing_step_entries(
+    raw_steps: Any,
+    *,
+    workflow_name: str,
+    workflow_origin: SourceMapEntry,
+    entries: dict[str, SourceMapEntry],
+    parent_origin: SourceMapEntry,
+) -> None:
+    if not isinstance(raw_steps, list):
+        return
+    for step in raw_steps:
+        if not isinstance(step, Mapping):
+            continue
+        current_origin = parent_origin
+        step_id = step.get("id")
+        if isinstance(step_id, str) and step_id:
+            current_origin = entries.setdefault(
+                step_id,
+                _derived_entry_from_entry(
+                    parent_origin,
+                    workflow_name=workflow_name,
+                    entity_kind="step_id",
+                    subject_name=step_id,
+                ),
+            )
+        step_name = step.get("name")
+        if isinstance(step_name, str) and step_name:
+            current_origin = entries.setdefault(
+                step_name,
+                _derived_entry_from_entry(
+                    current_origin,
+                    workflow_name=workflow_name,
+                    entity_kind="step_id",
+                    subject_name=step_name,
+                ),
+            )
+        match = step.get("match")
+        if isinstance(match, Mapping):
+            for case in (match.get("cases") or {}).values():
+                if isinstance(case, Mapping):
+                    _augment_missing_step_entries(
+                        case.get("steps"),
+                        workflow_name=workflow_name,
+                        workflow_origin=workflow_origin,
+                        entries=entries,
+                        parent_origin=current_origin,
+                    )
+        repeat = step.get("repeat_until")
+        if isinstance(repeat, Mapping):
+            _augment_missing_step_entries(
+                repeat.get("steps"),
+                workflow_name=workflow_name,
+                workflow_origin=workflow_origin,
+                entries=entries,
+                parent_origin=current_origin,
+            )
+        branch = step.get("if")
+        if isinstance(branch, Mapping):
+            _augment_missing_step_entries(
+                branch.get("then"),
+                workflow_name=workflow_name,
+                workflow_origin=workflow_origin,
+                entries=entries,
+                parent_origin=current_origin,
+            )
+            _augment_missing_step_entries(
+                branch.get("else"),
+                workflow_name=workflow_name,
+                workflow_origin=workflow_origin,
+                entries=entries,
+                parent_origin=current_origin,
+            )
+        for_each = step.get("for_each")
+        if isinstance(for_each, Mapping):
+            _augment_missing_step_entries(
+                for_each.get("steps"),
+                workflow_name=workflow_name,
+                workflow_origin=workflow_origin,
+                entries=entries,
+                parent_origin=current_origin,
+            )
 
 
 def _entry_from_origin(
@@ -382,6 +540,34 @@ def _entry_from_origin(
 
 def _origin_key(*, workflow_name: str, entity_kind: str, subject_name: str) -> str:
     return f"{workflow_name}::{entity_kind}::{subject_name}"
+
+
+def _derived_entry_from_entry(
+    entry: SourceMapEntry,
+    *,
+    workflow_name: str,
+    entity_kind: str,
+    subject_name: str,
+) -> SourceMapEntry:
+    return SourceMapEntry(
+        origin_key=_origin_key(
+            workflow_name=workflow_name,
+            entity_kind=entity_kind,
+            subject_name=subject_name,
+        ),
+        entity_kind=entity_kind,
+        workflow_name=workflow_name,
+        path=entry.path,
+        line=entry.line,
+        column=entry.column,
+        end_line=entry.end_line,
+        end_column=entry.end_column,
+        form_path=entry.form_path,
+        module_name=entry.module_name,
+        expansion_stack=entry.expansion_stack,
+        notes=entry.notes,
+        generated_name_origin=subject_name,
+    )
 
 
 def _iter_origin_entries(workflow: WorkflowSourceMap) -> Iterable[SourceMapEntry]:
@@ -423,10 +609,42 @@ def _command_boundaries_for_workflow(
                 origin_key=origin.origin_key,
                 adapter_name=(binding.name if boundary_kind == "certified_adapter" else None),
                 source_map_behavior=getattr(binding, "source_map_behavior", None),
+                declared_effects=tuple(getattr(binding, "effects", ()) or ()),
             )
         )
     command_boundaries.sort(key=lambda entry: (entry.step_id, entry.command_name))
     return tuple(command_boundaries)
+
+
+def _generated_semantic_effects_for_workflow(
+    *,
+    lowered: "LoweredWorkflow",
+    workflow_name: str,
+    workflow_origin: SourceMapEntry,
+) -> tuple[GeneratedSemanticEffectLineage, ...]:
+    entries: list[GeneratedSemanticEffectLineage] = []
+    for effect in getattr(lowered.origin_map, "generated_semantic_effects", ()) or ():
+        origin_entry = _entry_from_origin(
+            effect.origin,
+            workflow_name=workflow_name,
+            entity_kind=(
+                "generated_path"
+                if effect.effect_kind == "pointer_materialization"
+                else "step_id"
+            ),
+            subject_name=effect.details.get("pointer_path", effect.step_id),
+        )
+        entries.append(
+            GeneratedSemanticEffectLineage(
+                effect_key=effect.effect_key,
+                step_id=effect.step_id,
+                effect_kind=effect.effect_kind,
+                origin_key=origin_entry.origin_key or workflow_origin.origin_key,
+                details=dict(effect.details),
+            )
+        )
+    entries.sort(key=lambda entry: (entry.effect_kind, entry.step_id, entry.effect_key))
+    return tuple(entries)
 
 
 def _match_command_binding(
@@ -470,21 +688,12 @@ def _validation_subject_bindings(
     ]
     origin_map_bindings = tuple(getattr(lowered.origin_map, "validation_subject_bindings", ()) or ())
     if origin_map_bindings:
-        return tuple(
-            sorted(
-                (
-                    ValidationSubjectBinding(
-                        subject_ref=binding.subject_ref,
-                        origin_key=binding.origin.origin_key,
-                    )
-                    for binding in origin_map_bindings
-                ),
-                key=lambda binding: (
-                    binding.subject_ref.subject_kind,
-                    binding.subject_ref.subject_name,
-                    binding.origin_key,
-                ),
+        bindings.extend(
+            ValidationSubjectBinding(
+                subject_ref=binding.subject_ref,
+                origin_key=binding.origin.origin_key,
             )
+            for binding in origin_map_bindings
         )
     bindings.extend(
         ValidationSubjectBinding(
@@ -541,14 +750,23 @@ def _validation_subject_bindings(
         )
         for name, entry in generated_paths.items()
     )
-    bindings.sort(
-        key=lambda binding: (
+    deduped: dict[tuple[str, str, str], ValidationSubjectBinding] = {}
+    for binding in bindings:
+        key = (
             binding.subject_ref.subject_kind,
             binding.subject_ref.subject_name,
             binding.origin_key,
         )
+        deduped.setdefault(key, binding)
+    ordered = sorted(
+        deduped.values(),
+        key=lambda binding: (
+            binding.subject_ref.subject_kind,
+            binding.subject_ref.subject_name,
+            binding.origin_key,
+        ),
     )
-    return tuple(bindings)
+    return tuple(ordered)
 
 
 def _required_validation_subject_keys(

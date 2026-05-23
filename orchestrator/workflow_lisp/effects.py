@@ -71,6 +71,41 @@ class UpdatesStateEffect:
     subject: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class MovesResourceEffect:
+    """Internal promoted resource movement derived from validated workflow forms."""
+
+    subject: tuple[str, ...]
+    from_queue: tuple[str, ...]
+    to_queue: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class UpdatesLedgerEffect:
+    """Internal promoted ledger write derived from validated workflow forms."""
+
+    subject: tuple[str, ...]
+    event_name: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class CapturesSnapshotEffect:
+    """Internal promoted snapshot capture derived during lowering."""
+
+    subject: tuple[str, ...]
+    snapshot_kind: tuple[str, ...]
+    candidate_names: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class MaterializesPointerEffect:
+    """Internal promoted pointer materialization derived during lowering."""
+
+    subject: tuple[str, ...]
+    pointer_path: tuple[str, ...]
+    representation_role: tuple[str, ...]
+
+
 EffectAtom = (
     ReadEffect
     | WriteEffect
@@ -79,6 +114,10 @@ EffectAtom = (
     | UsesCommandEffect
     | CallsWorkflowEffect
     | UpdatesStateEffect
+    | MovesResourceEffect
+    | UpdatesLedgerEffect
+    | CapturesSnapshotEffect
+    | MaterializesPointerEffect
 )
 
 
@@ -244,6 +283,30 @@ def render_effect_atom(effect: EffectAtom) -> str:
         label = "calls-workflow"
     elif isinstance(effect, UpdatesStateEffect):
         label = "updates-state"
+    elif isinstance(effect, MovesResourceEffect):
+        return (
+            "moves-resource("
+            f"{'.'.join(effect.subject)}, "
+            f"from={'.'.join(effect.from_queue)}, "
+            f"to={'.'.join(effect.to_queue)})"
+        )
+    elif isinstance(effect, UpdatesLedgerEffect):
+        return f"updates-ledger({'.'.join(effect.subject)}, event={'.'.join(effect.event_name)})"
+    elif isinstance(effect, CapturesSnapshotEffect):
+        candidates = "|".join(effect.candidate_names)
+        return (
+            "captures-snapshot("
+            f"{'.'.join(effect.subject)}, "
+            f"kind={'.'.join(effect.snapshot_kind)}, "
+            f"candidates={candidates})"
+        )
+    elif isinstance(effect, MaterializesPointerEffect):
+        return (
+            "materializes-pointer("
+            f"{'.'.join(effect.subject)}, "
+            f"path={'.'.join(effect.pointer_path)}, "
+            f"role={'.'.join(effect.representation_role)})"
+        )
     else:
         raise TypeError(f"unsupported effect type: {type(effect)!r}")
     return f"{label}({'.'.join(effect.subject)})"

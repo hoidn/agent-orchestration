@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import importlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
@@ -10,6 +11,7 @@ from types import MappingProxyType
 import pytest
 import yaml
 
+from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
@@ -142,6 +144,44 @@ def _write_semantic_ir_workflow(workspace: Path) -> Path:
     )
 
 
+def _build_frontend_bundle_from_fixture(
+    tmp_path: Path,
+    *,
+    fixture_path: Path,
+    module_name: str,
+    entry_workflow: str,
+) -> object:
+    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+    request_cls = getattr(build_module, "FrontendBuildRequest")
+    source = fixture_path.read_text(encoding="utf-8")
+    module_match = re.search(r"\(defmodule\s+([^\s)]+)\)", source)
+    if module_match is None:
+        source = source.replace(
+            '  (:target-dsl "2.14")\n',
+            f'  (:target-dsl "2.14")\n  (defmodule {module_name}/module)\n  (export {entry_workflow})\n',
+            1,
+        )
+        resolved_module_name = f"{module_name}/module"
+    else:
+        resolved_module_name = module_match.group(1)
+    module_path = (tmp_path / Path(*resolved_module_name.split("/"))).with_suffix(".orc")
+    module_path.parent.mkdir(parents=True, exist_ok=True)
+    module_path.write_text(source, encoding="utf-8")
+    return build_module.build_frontend_bundle(
+        request_cls(
+            source_path=module_path,
+            source_roots=(tmp_path,),
+            entry_workflow=entry_workflow,
+            provider_externs_path=Path("tests/fixtures/workflow_lisp/cli/providers.json"),
+            prompt_externs_path=Path("tests/fixtures/workflow_lisp/cli/prompts.json"),
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=Path("tests/fixtures/workflow_lisp/cli/commands.json"),
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+
+
 def _statement_step_ids(workflow) -> list[str]:
     return [
         workflow.statements[statement_id].step_id.split(".")[-1]
@@ -216,6 +256,10 @@ def test_derive_semantic_ir_from_yaml_bundle_records_contracts_refs_effects_and_
     assert prompt_surface.input_file == "prompts/review.md"
     assert prompt_surface.inject_output_contract is False
     assert command_boundary.boundary_kind == "external_tool"
+    assert not any(
+        effect.effect_kind in {"resource_transition", "ledger_update", "snapshot_capture", "pointer_materialization"}
+        for effect in semantic_ir.effects.values()
+    )
 
 
 def test_semantic_ir_helper_returns_shared_surface_from_loaded_bundle(tmp_path: Path) -> None:
@@ -630,6 +674,83 @@ def test_compiled_bundle_semantic_ir_preserves_command_boundary_classification(t
         step.boundary_kind == "certified_adapter" and step.boundary_name == "apply_resource_transition"
         for step in resource_command_steps
     )
+
+
+def test_frontend_build_semantic_ir_projects_promoted_resource_and_ledger_effects(tmp_path: Path) -> None:
+    result = _build_frontend_bundle_from_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/resource_transition_effects.orc"),
+        module_name="resource_effects",
+        entry_workflow="move-selected-item",
+    )
+    effects = list(result.validated_bundle.semantic_ir.effects.values())
+
+    resource_effect = next(effect for effect in effects if effect.effect_kind == "resource_transition")
+    ledger_effect = next(effect for effect in effects if effect.effect_kind == "ledger_update")
+
+    assert any(effect.effect_kind == "command_call" and effect.boundary_kind == "certified_adapter" for effect in effects)
+    assert resource_effect.details == {"from_queue": "active", "to_queue": "in_progress"}
+    assert ledger_effect.details == {"event_name": "SELECTED"}
+
+
+def test_frontend_build_semantic_ir_projects_generated_snapshot_and_pointer_effects(tmp_path: Path) -> None:
+    result = _build_frontend_bundle_from_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/phase_snapshot_effects.orc"),
+        module_name="snapshot_effects",
+        entry_workflow="orchestrate",
+    )
+    effects = list(result.validated_bundle.semantic_ir.effects.values())
+
+    snapshot_effect = next(effect for effect in effects if effect.effect_kind == "snapshot_capture")
+    pointer_effects = [
+        effect
+        for effect in effects
+        if effect.effect_kind == "pointer_materialization"
+    ]
+
+    assert any(effect.effect_kind == "provider_call" for effect in effects)
+    assert snapshot_effect.details["snapshot_kind"].endswith("_before")
+    assert tuple(snapshot_effect.details["candidate_names"]) == ("COMPLETED", "BLOCKED")
+    assert pointer_effects
+    assert all(effect.details["representation_role"] == "artifact_pointer" for effect in pointer_effects)
+
+
+def test_derive_semantic_ir_rejects_invalid_promoted_frontend_lineage(tmp_path: Path) -> None:
+    semantic_ir_module = importlib.import_module("orchestrator.workflow.semantic_ir")
+    result = _build_frontend_bundle_from_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/pointer_materialization_effects.orc"),
+        module_name="pointer_effects",
+        entry_workflow="orchestrate",
+    )
+    bundle = result.validated_bundle
+    source_map_path = bundle.surface.provenance.frontend_source_trace_path
+    assert isinstance(source_map_path, Path)
+    source_map_payload = json.loads(source_map_path.read_text(encoding="utf-8"))
+    workflow_payload = source_map_payload["workflows"][bundle.surface.name]
+    workflow_payload["generated_semantic_effects"][0]["step_id"] = "missing_step"
+    broken_source_map_path = tmp_path / "broken_promoted_source_map.json"
+    broken_source_map_path.write_text(json.dumps(source_map_payload, indent=2) + "\n", encoding="utf-8")
+
+    broken_provenance = replace(
+        bundle.provenance,
+        frontend_source_trace_path=broken_source_map_path,
+    )
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        semantic_ir_module.derive_workflow_semantic_ir(
+            core_workflow_ast=bundle.core_workflow_ast,
+            surface=replace(bundle.surface, provenance=broken_provenance),
+            ir=bundle.ir,
+            projection=bundle.projection,
+            runtime_plan=bundle.runtime_plan,
+            imports=bundle.imports,
+            provenance=broken_provenance,
+        )
+
+    assert excinfo.value.errors
+    assert "semantic_ir_invalid" in excinfo.value.errors[0].message
 
 
 def test_compiled_bundle_semantic_ir_preserves_distinct_resume_checkpoints(tmp_path: Path) -> None:
