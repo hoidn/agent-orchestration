@@ -236,6 +236,52 @@ def test_typecheck_rejects_drain_ctx_contract() -> None:
     assert excinfo.value.diagnostics[0].code == "drain_context_invalid"
 
 
+def test_typecheck_rejects_resource_transition_adapter_authored_as_raw_command_result(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "resource_transition_raw_command_result.orc"
+    path.write_text(
+        dedent(
+            """
+            (workflow-lisp
+              (:language "0.1")
+              (:target-dsl "2.14")
+              (defpath StateFile
+                :kind relpath
+                :under "state"
+                :must-exist false)
+              (defrecord ResourceTransitionResult
+                (resource_path String)
+                (ledger_path StateFile))
+              (defworkflow orchestrate
+                ((resource_path String)
+                 (ledger_path StateFile))
+                -> ResourceTransitionResult
+                (command-result apply_resource_transition
+                  :argv ("python" "-m" "orchestrator.workflow_lisp.adapters.apply_resource_transition" resource_path ledger_path)
+                  :returns ResourceTransitionResult)))
+            """
+        ).strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    module = _compile_definition_module(path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    syntax_module = _build_syntax_module(path)
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_workflow_definitions(
+            workflow_defs,
+            type_env=type_env,
+            workflow_catalog=workflow_catalog,
+            command_boundary_environment=_command_boundary_environment(),
+        )
+
+    assert excinfo.value.diagnostics[0].code == "resource_move_without_transition"
+
+
 def test_typecheck_rejects_item_ctx_with_non_runctx_run(tmp_path: Path) -> None:
     path = tmp_path / "item_ctx_bad_run_shape.orc"
     path.write_text(

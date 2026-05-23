@@ -247,7 +247,7 @@ def test_workflow_ref_resolution_rejects_signature_mismatch() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(INVALID_SIGNATURE_FIXTURE)
 
-    assert excinfo.value.diagnostics[0].code == "workflow_ref_signature_invalid"
+    assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
 
 
 def test_workflow_ref_resolution_rejects_selector_field_type_mismatch(tmp_path: Path) -> None:
@@ -264,7 +264,7 @@ def test_workflow_ref_resolution_rejects_selector_field_type_mismatch(tmp_path: 
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(path)
 
-    assert excinfo.value.diagnostics[0].code == "workflow_ref_signature_invalid"
+    assert excinfo.value.diagnostics[0].code == "workflow_call_signature_erased"
 
 
 def test_workflow_ref_union_call_boundary_projection_rejects_unproved_variant_access() -> None:
@@ -774,7 +774,7 @@ def test_compile_stage3_module_rejects_ambiguous_imported_selector_boundary_type
             )
 
         diagnostic = excinfo.value.diagnostics[0]
-        assert diagnostic.code == "workflow_ref_signature_invalid"
+        assert diagnostic.code == "workflow_call_signature_erased"
         assert "ambiguous" in diagnostic.message
 
 

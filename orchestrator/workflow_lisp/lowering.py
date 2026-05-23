@@ -36,7 +36,7 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any
 
-from orchestrator.exceptions import ValidationSubjectRef
+from orchestrator.exceptions import ValidationSubjectRef, WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import ProviderStepConfig
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
@@ -105,7 +105,6 @@ from .workflows import (
     TypedWorkflowDef,
     analyze_workflow_boundary_type,
 )
-from .workflow_refs import specialize_workflow_ref_callables
 
 _GENERATED_STEP_ID_RE = re.compile(r"[^A-Za-z0-9_]+")
 _SHARED_VALIDATION_CODE_RE = re.compile(
@@ -125,7 +124,8 @@ _SHARED_VALIDATION_CODE_RE = re.compile(
     r"variant_ref_wrong_variant|"
     r"variant_unavailable|"
     r"atomic_commit_failed|"
-    r"bundle_commit_aborted_invalid_candidate"
+    r"bundle_commit_aborted_invalid_candidate|"
+    r"semantic_ir_invalid"
     r")\b"
 )
 _MESSAGE_FALLBACK_NOTE = (
@@ -230,11 +230,6 @@ def lower_workflow_definitions(
     that can be passed directly into the shared workflow validation pipeline.
     """
 
-    typed_workflows, typed_procedures = specialize_workflow_ref_callables(
-        typed_workflows,
-        typed_procedures=typed_procedures,
-        workflow_catalog=workflow_catalog,
-    )
     typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
     resolved_procedures = _resolve_procedure_lowering(
         typed_procedures,
@@ -6708,7 +6703,10 @@ def _validate_one_lowered_workflow(
     )
     if surface is None or loader.errors:
         _raise_remapped_validation_error(lowered_workflow, loader.errors)
-    return build_loaded_workflow_bundle(surface, imports=imported_bundles)
+    try:
+        return build_loaded_workflow_bundle(surface, imports=imported_bundles)
+    except WorkflowValidationError as exc:
+        _raise_remapped_validation_error(lowered_workflow, list(exc.errors))
 
 
 def _raise_remapped_validation_error(
@@ -6757,20 +6755,38 @@ def _raise_remapped_validation_error(
             )
             continue
         diagnostics.append(
-            with_diagnostic_metadata(
-                LispFrontendDiagnostic(
-                    code=_shared_validation_diagnostic_code(message),
-                    message=message,
-                    span=origin.span,
-                    form_path=origin.form_path or lowered_workflow.typed_workflow.definition.form_path,
-                    expansion_stack=origin.expansion_stack,
-                    notes=origin.notes + notes,
-                ),
-                validation_pass="shared_validation",
-                authority_layer="shared_validation",
+            _remapped_shared_validation_diagnostic(
+                lowered_workflow,
+                message=message,
+                origin=origin,
+                notes=notes,
             )
         )
     raise LispFrontendCompileError(tuple(diagnostics))
+
+
+def _remapped_shared_validation_diagnostic(
+    lowered_workflow: LoweredWorkflow,
+    *,
+    message: str,
+    origin: LoweringOrigin,
+    notes: tuple[str, ...],
+) -> LispFrontendDiagnostic:
+    code = _shared_validation_diagnostic_code(message)
+    validation_pass = "semantic_ir" if code == "semantic_ir_invalid" else "shared_validation"
+    authority_layer = "shared" if validation_pass == "semantic_ir" else "shared_validation"
+    return with_diagnostic_metadata(
+        LispFrontendDiagnostic(
+            code=code,
+            message=message,
+            span=origin.span,
+            form_path=origin.form_path or lowered_workflow.typed_workflow.definition.form_path,
+            expansion_stack=origin.expansion_stack,
+            notes=origin.notes + notes,
+        ),
+        validation_pass=validation_pass,
+        authority_layer=authority_layer,
+    )
 
 
 def _origin_for_validation_subject_refs(

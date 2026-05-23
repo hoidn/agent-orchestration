@@ -5,6 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from typing import Iterable
 
+from .lints import (
+    LINT_PROFILE_DEFAULT,
+    is_required_lint_code,
+    required_lint_rule,
+    required_lint_severity,
+)
 from .spans import SourceSpan
 
 
@@ -145,6 +151,7 @@ class LispFrontendDiagnostic:
     code: str
     message: str
     span: SourceSpan
+    diagnostic_kind: str | None = None
     severity: str | None = None
     form_path: tuple[str, ...] = ()
     expansion_stack: tuple[object, ...] = ()
@@ -165,17 +172,20 @@ class LispFrontendCompileError(Exception):
 def render_diagnostic(diagnostic: LispFrontendDiagnostic) -> str:
     """Render one diagnostic into stable human-readable text."""
 
+    classified = with_diagnostic_metadata(diagnostic)
     location = (
         f"{diagnostic.span.start.path}:"
         f"{diagnostic.span.start.line}:"
         f"{diagnostic.span.start.column}"
     )
     parts = [f"{location}: [{diagnostic.code}] {diagnostic.message}"]
-    if diagnostic.form_path:
-        parts.append(f"form: {' > '.join(diagnostic.form_path)}")
-    for note in _render_expansion_notes(diagnostic.expansion_stack):
+    if classified.diagnostic_kind is not None:
+        parts.append(f"kind: {classified.diagnostic_kind}")
+    if classified.form_path:
+        parts.append(f"form: {' > '.join(classified.form_path)}")
+    for note in _render_expansion_notes(classified.expansion_stack):
         parts.append(f"note: {note}")
-    for note in diagnostic.notes:
+    for note in classified.notes:
         parts.append(f"note: {note}")
     return "\n".join(parts)
 
@@ -186,12 +196,17 @@ def render_diagnostics(diagnostics: Iterable[LispFrontendDiagnostic]) -> str:
     return "\n\n".join(render_diagnostic(diagnostic) for diagnostic in diagnostics)
 
 
-def serialize_diagnostic(diagnostic: LispFrontendDiagnostic) -> dict[str, object]:
+def serialize_diagnostic(
+    diagnostic: LispFrontendDiagnostic,
+    *,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
+) -> dict[str, object]:
     """Serialize one diagnostic into a machine-readable envelope."""
 
-    classified = with_diagnostic_metadata(diagnostic)
+    classified = with_diagnostic_metadata(diagnostic, lint_profile=lint_profile)
     return {
         "code": classified.code,
+        "diagnostic_kind": classified.diagnostic_kind,
         "severity": classified.severity or "error",
         "message": classified.message,
         "path": classified.span.start.path,
@@ -211,10 +226,15 @@ def serialize_diagnostic(diagnostic: LispFrontendDiagnostic) -> dict[str, object
 
 def serialize_diagnostics(
     diagnostics: Iterable[LispFrontendDiagnostic],
+    *,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> list[dict[str, object]]:
     """Serialize multiple diagnostics in deterministic order."""
 
-    return [serialize_diagnostic(diagnostic) for diagnostic in diagnostics]
+    return [
+        serialize_diagnostic(diagnostic, lint_profile=lint_profile)
+        for diagnostic in diagnostics
+    ]
 
 
 def _render_expansion_notes(expansion_stack: tuple[object, ...]) -> tuple[str, ...]:
@@ -280,9 +300,11 @@ def with_diagnostic_metadata(
     *,
     validation_pass: str | None = None,
     authority_layer: str | None = None,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> LispFrontendDiagnostic:
     """Return a diagnostic with canonical validation metadata attached."""
 
+    diagnostic = _normalize_legacy_diagnostic_code(diagnostic)
     resolved_pass = validation_pass or diagnostic.validation_pass or _infer_validation_pass(
         diagnostic.code,
         diagnostic.phase,
@@ -292,23 +314,67 @@ def with_diagnostic_metadata(
         resolved_phase = _VALIDATION_PASS_TO_PHASE.get(resolved_pass, resolved_phase or _infer_phase(diagnostic.code))
     resolved_authority_layer = authority_layer or diagnostic.authority_layer
     if resolved_authority_layer is None:
-        if resolved_pass == "shared_validation":
+        rule = required_lint_rule(diagnostic.code)
+        if rule is not None:
+            resolved_authority_layer = rule.authority_layer
+        elif resolved_pass == "shared_validation":
             resolved_authority_layer = "shared_validation"
         elif resolved_pass == "semantic_ir":
             resolved_authority_layer = "shared"
         else:
             resolved_authority_layer = "frontend"
+    resolved_kind = diagnostic.diagnostic_kind
+    if resolved_kind is None:
+        resolved_kind = "required_lint" if is_required_lint_code(diagnostic.code) else "validation"
+    resolved_severity = diagnostic.severity
+    if resolved_severity is None:
+        resolved_severity = required_lint_severity(
+            diagnostic.code,
+            lint_profile=lint_profile,
+        )
     return replace(
         diagnostic,
+        diagnostic_kind=resolved_kind,
+        severity=resolved_severity,
         phase=resolved_phase,
         validation_pass=resolved_pass,
         authority_layer=resolved_authority_layer,
     )
 
 
+def _normalize_legacy_diagnostic_code(
+    diagnostic: LispFrontendDiagnostic,
+) -> LispFrontendDiagnostic:
+    if diagnostic.code == "macro_has_effect":
+        return replace(diagnostic, code="macro_hidden_effect")
+    if diagnostic.code in {
+        "provider_effect_hidden",
+        "command_effect_hidden",
+        "state_update_hidden",
+    } and diagnostic.expansion_stack:
+        return replace(diagnostic, code="macro_hidden_effect")
+    return diagnostic
+
+
+def diagnostic_effective_severity(
+    diagnostic: LispFrontendDiagnostic,
+    *,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
+) -> str:
+    """Return the effective severity for one diagnostic under a lint profile."""
+
+    return with_diagnostic_metadata(
+        diagnostic,
+        lint_profile=lint_profile,
+    ).severity or "error"
+
+
 def _infer_validation_pass(code: str, phase: str | None) -> str:
     if phase == "cli_request":
         return "module"
+    rule = required_lint_rule(code)
+    if rule is not None:
+        return rule.owning_pass
     if code in _SHARED_VALIDATION_CODES:
         if code == "semantic_ir_invalid":
             return "semantic_ir"

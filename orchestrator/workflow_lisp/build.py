@@ -20,6 +20,7 @@ from orchestrator.workflow.surface_ast import WorkflowProvenance
 from .compiler import LinkedStage3CompileResult, compile_stage3_entrypoint
 from .debug_yaml import render_debug_yaml
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic, serialize_diagnostics
+from .lints import LINT_PROFILE_DEFAULT
 from .source_map import SOURCE_MAP_COVERAGE, SOURCE_MAP_SCHEMA_VERSION, build_source_map_document
 from .spans import SourcePosition, SourceSpan
 from .workflows import CertifiedAdapterBinding, ExternalToolBinding
@@ -46,6 +47,7 @@ class FrontendBuildRequest:
     command_boundaries_path: Path | None = None
     emit_debug_yaml: bool = False
     workspace_root: Path | None = None
+    lint_profile: str = LINT_PROFILE_DEFAULT
 
 
 @dataclass(frozen=True)
@@ -190,6 +192,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
         command_boundaries=command_boundaries,
         validate_shared=True,
         workspace_root=resolved_request.workspace_root,
+        lint_profile=resolved_request.lint_profile,
     )
 
     entry_selection = _select_entry_workflow(
@@ -222,7 +225,7 @@ def build_frontend_bundle(request: FrontendBuildRequest) -> FrontendBuildResult:
     build_root = resolved_request.workspace_root / ".orchestrate" / "build" / fingerprint
     build_root.mkdir(parents=True, exist_ok=True)
 
-    diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
+    diagnostics = compile_result.diagnostics
     source_map_path = build_root / "source_map.json"
     provenance = replace(
         selected_bundle.provenance,
@@ -448,6 +451,7 @@ def _resolve_request(request: FrontendBuildRequest) -> FrontendBuildRequest:
         command_boundaries_path=request.command_boundaries_path.resolve() if request.command_boundaries_path else None,
         emit_debug_yaml=request.emit_debug_yaml,
         workspace_root=workspace_root,
+        lint_profile=request.lint_profile,
     )
 
 

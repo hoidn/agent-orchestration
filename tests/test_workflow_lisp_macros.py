@@ -10,6 +10,7 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.diagnostics import serialize_diagnostic
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding, elaborate_workflow_definitions
@@ -163,18 +164,68 @@ def test_compile_stage3_module_accepts_macro_emitted_provider_and_command_result
     ]
 
 
-def test_compile_stage3_entrypoint_expands_imported_macros(tmp_path: Path) -> None:
+def test_compile_stage3_entrypoint_rejects_imported_macros_that_introduce_hidden_effects(
+    tmp_path: Path,
+) -> None:
     compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
     assert callable(compile_fn), "compile_stage3_entrypoint is missing"
 
     source_root = MODULE_FIXTURES / "valid" / "import_macro"
-    result = compile_fn(
-        source_root / "neurips" / "entry.orc",
-        source_roots=(source_root,),
-        provider_externs={"providers.execute": "test-provider"},
-        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
-        validate_shared=False,
-        workspace_root=tmp_path,
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_fn(
+            source_root / "neurips" / "entry.orc",
+            source_roots=(source_root,),
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "macro_hidden_effect"
+    assert diagnostic.span.start.path.endswith("tests/fixtures/workflow_lisp/modules/valid/import_macro/neurips/macros.orc")
+
+
+def test_compile_stage3_rejects_macro_introduced_provider_effects_as_macro_hidden_effect(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "macro_hidden_effect.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord ImplementationSummary",
+                "    (report String))",
+                "  (emit-provider-workflow generated)",
+                "  (defmacro emit-provider-workflow (name)",
+                "    (defworkflow name",
+                "      ((report String))",
+                "      -> ImplementationSummary",
+                "      (provider-result providers.execute",
+                "        :prompt prompts.implementation.execute",
+                "        :inputs (report)",
+                "        :returns ImplementationSummary))))",
+            ]
+        ),
+        encoding="utf-8",
     )
 
-    assert "generated" in result.entry_result.workflow_catalog.signatures_by_name
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "macro_hidden_effect"
+    payload = serialize_diagnostic(diagnostic)
+    assert payload["diagnostic_kind"] == "required_lint"
+    assert payload["validation_pass"] == "effect"
+    assert payload["authority_layer"] == "frontend"

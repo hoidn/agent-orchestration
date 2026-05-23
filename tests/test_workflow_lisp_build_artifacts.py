@@ -120,6 +120,23 @@ def _structured_results_request(tmp_path: Path):
     )
 
 
+def _lint_warning_variant_output_request(tmp_path: Path):
+    build = _build_module()
+    request_cls = getattr(build, "FrontendBuildRequest")
+    module_path = FIXTURES / "valid" / "lint_warning_variant_output.orc"
+    return request_cls(
+        source_path=module_path,
+        source_roots=(FIXTURES / "valid",),
+        entry_workflow="orchestrate",
+        provider_externs_path=CLI_FIXTURES / "providers.json",
+        prompt_externs_path=CLI_FIXTURES / "prompts.json",
+        imported_workflow_bundles_path=None,
+        command_boundaries_path=None,
+        emit_debug_yaml=False,
+        workspace_root=tmp_path,
+    )
+
+
 def test_build_fingerprint_is_stable_for_identical_inputs(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
@@ -412,6 +429,7 @@ def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) 
             "authority_layer": "frontend",
             "code": "source_map_executable_node_unmapped",
             "column": 3,
+            "diagnostic_kind": "validation",
             "expansion_stack": [],
             "form_path": [],
             "line": 24,
@@ -421,6 +439,35 @@ def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) 
             "phase": "executable",
             "severity": "error",
             "validation_pass": "executable",
+        }
+    ]
+
+
+def test_build_persists_warning_lints_in_diagnostics_artifact_on_success(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_lint_warning_variant_output_request(tmp_path))
+    payload = json.loads(result.artifact_paths["diagnostics"].read_text(encoding="utf-8"))
+
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "variant_output_without_variant_specific_fields",
+    ]
+    assert payload == [
+        {
+            "authority_layer": "frontend",
+            "code": "variant_output_without_variant_specific_fields",
+            "column": 3,
+            "diagnostic_kind": "required_lint",
+            "expansion_stack": [],
+            "form_path": ["workflow-lisp", "defworkflow", "orchestrate"],
+            "line": 18,
+            "message": "union `ImplementationAttempt` lowers without variant-specific fields; prefer a record plus enum",
+            "notes": [],
+            "path": str((FIXTURES / "valid" / "lint_warning_variant_output.orc").resolve()),
+            "phase": "typecheck",
+            "severity": "warn",
+            "validation_pass": "contract",
         }
     ]
 

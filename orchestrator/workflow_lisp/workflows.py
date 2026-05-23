@@ -23,6 +23,7 @@ from .definitions import WorkflowLispModule
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import elaborate_expression
+from .lints import required_lint_diagnostic
 from .macros import collect_macro_catalog, expand_module_forms
 from .procedures import ProcedureCatalog
 from .spans import SourceSpan
@@ -187,6 +188,7 @@ class Stage3CompileResult:
     typed_workflows: tuple[TypedWorkflowDef, ...]
     lowered_workflows: tuple["LoweredWorkflow", ...]
     validated_bundles: Mapping[str, "LoadedWorkflowBundle"]
+    diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -483,8 +485,8 @@ def _signature_from_imported_bundle(
     if not isinstance(return_type_ref, (RecordTypeRef, UnionTypeRef)):
         raise LispFrontendCompileError(
             (
-                LispFrontendDiagnostic(
-                    code="workflow_ref_return_type_invalid",
+                required_lint_diagnostic(
+                    "workflow_call_signature_erased",
                     message=f"imported workflow `{alias}` must resolve to a record or union return type",
                     span=span,
                     form_path=form_path,
@@ -537,8 +539,8 @@ def _match_boundary_type_from_contracts(
         candidate_names = ", ".join(sorted(candidate.name for candidate in candidates))
         raise LispFrontendCompileError(
             (
-                LispFrontendDiagnostic(
-                    code="workflow_ref_signature_invalid",
+                required_lint_diagnostic(
+                    "workflow_call_signature_erased",
                     message=(
                         f"imported workflow boundary for `{generated_name}` is ambiguous across authored types: "
                         f"{candidate_names}"
@@ -550,8 +552,8 @@ def _match_boundary_type_from_contracts(
         )
     raise LispFrontendCompileError(
         (
-            LispFrontendDiagnostic(
-                code="workflow_ref_signature_invalid",
+            required_lint_diagnostic(
+                "workflow_call_signature_erased",
                 message=f"imported workflow boundary for `{generated_name}` does not match any authored type in scope",
                 span=span,
                 form_path=form_path,

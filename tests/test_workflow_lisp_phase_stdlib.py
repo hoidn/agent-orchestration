@@ -260,6 +260,63 @@ def test_typecheck_accepts_generic_phase_ctx_for_phase_target(tmp_path: Path) ->
     assert [workflow.definition.name for workflow in typed] == ["generic-phase-target"]
 
 
+def test_typecheck_rejects_resume_state_adapter_authored_outside_resume_or_start(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "resume_state_adapter_outside_resume_or_start.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath StateFile",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist false)",
+                "  (defrecord ChecksResult",
+                "    (status String))",
+                "  (defworkflow orchestrate",
+                "    ((resume_state StateFile))",
+                "    -> ChecksResult",
+                "    (command-result load_resume_state",
+                '      :argv ("python" "scripts/load_resume_state.py" resume_state)',
+                "      :returns ChecksResult)))",
+            ]
+        ),
+    )
+    module = _compile_definition_module(path)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    syntax_module = _build_syntax_module(path)
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    command_boundary_environment = CommandBoundaryEnvironment(
+        bindings_by_name={
+            "load_resume_state": CertifiedAdapterBinding(
+                name="load_resume_state",
+                stable_command=("python", "scripts/load_resume_state.py"),
+                input_contract={"type": "object"},
+                output_type_name="ChecksResult",
+                effects=("resume_state_reuse", "structured_result"),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("resume_state_reuse_ok",),
+                negative_fixture_ids=("resume_state_reuse_bad",),
+            ),
+        }
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        typecheck_workflow_definitions(
+            workflow_defs,
+            type_env=type_env,
+            workflow_catalog=workflow_catalog,
+            command_boundary_environment=command_boundary_environment,
+        )
+
+    _assert_diagnostic_code(excinfo, "recovery_gate_without_resume_or_start")
+
+
 def test_run_provider_phase_accepts_generic_ctx_after_typechecking() -> None:
     typed = _typecheck_fixture(VALID_RUN_PROVIDER_FIXTURE)
 

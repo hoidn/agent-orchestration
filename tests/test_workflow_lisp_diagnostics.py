@@ -130,6 +130,123 @@ def test_serialize_diagnostic_includes_phase_location_and_notes() -> None:
     assert serialize_diagnostics((diagnostic,)) == [payload]
 
 
+def test_required_lint_registry_contains_active_and_reserved_policy_metadata() -> None:
+    lints_module = importlib.import_module("orchestrator.workflow_lisp.lints")
+    registry = getattr(lints_module, "REQUIRED_LINT_REGISTRY")
+    serialize_required_lint_registry = getattr(
+        lints_module,
+        "serialize_required_lint_registry",
+    )
+
+    expected_active = {
+        "low_level_state_path_in_high_level_module": ("contract", "frontend", "warn", "error", "active"),
+        "semantic_field_extracted_from_report": ("authority", "frontend", "error", "error", "active"),
+        "markdown_report_used_as_state": ("authority", "frontend", "error", "error", "active"),
+        "variant_output_without_variant_specific_fields": ("contract", "frontend", "warn", "error", "active"),
+        "pointer_used_as_semantic_authority": ("authority", "frontend", "error", "error", "active"),
+        "resource_move_without_transition": ("authority", "frontend", "error", "error", "active"),
+        "recovery_gate_without_resume_or_start": ("authority", "frontend", "error", "error", "active"),
+        "workflow_call_signature_erased": ("reference", "frontend", "error", "error", "active"),
+        "macro_hidden_effect": ("effect", "frontend", "error", "error", "active"),
+        "command_adapter_missing_contract": ("authority", "frontend", "error", "error", "active"),
+        "inline_python_command_in_workflow": ("authority", "frontend", "error", "error", "active"),
+        "inline_shell_command_in_workflow": ("authority", "frontend", "error", "error", "active"),
+        "legacy_adapter_missing_fixture": ("authority", "frontend", "error", "error", "active"),
+    }
+    expected_reserved = {
+        "manual_snapshot_name_in_high_level_module": ("contract", "frontend", "warn", "error", "reserved"),
+        "manual_candidate_path_in_high_level_module": ("contract", "frontend", "warn", "error", "reserved"),
+        "line_prefix_extractor_in_workflow": ("authority", "frontend", "error", "error", "reserved"),
+        "manual_when_requires_variant_pair": ("proof", "frontend", "warn", "error", "reserved"),
+        "string_status_gate_without_union_match": ("authority", "frontend", "error", "error", "reserved"),
+        "inline_json_state_rewrite": ("authority", "frontend", "error", "error", "reserved"),
+        "inline_pointer_write": ("authority", "frontend", "error", "error", "reserved"),
+        "inline_subprocess_nested_command": ("authority", "frontend", "error", "error", "reserved"),
+    }
+
+    assert set(registry) == set(expected_active) | set(expected_reserved)
+
+    for code, (
+        expected_pass,
+        expected_authority_layer,
+        expected_default,
+        expected_strict,
+        expected_surface_status,
+    ) in {**expected_active, **expected_reserved}.items():
+        rule = registry[code]
+        assert rule.code == code
+        assert rule.owning_pass == expected_pass
+        assert rule.authority_layer == expected_authority_layer
+        assert rule.default_severity == expected_default
+        assert rule.strict_severity == expected_strict
+        assert rule.surface_status == expected_surface_status
+
+    serialized = {
+        entry["code"]: entry
+        for entry in serialize_required_lint_registry()
+    }
+    for code, (
+        expected_pass,
+        expected_authority_layer,
+        expected_default,
+        expected_strict,
+        expected_surface_status,
+    ) in expected_reserved.items():
+        assert serialized[code] == {
+            "code": code,
+            "owning_pass": expected_pass,
+            "authority_layer": expected_authority_layer,
+            "default_severity": expected_default,
+            "strict_severity": expected_strict,
+            "surface_status": expected_surface_status,
+        }
+
+
+def test_serialize_diagnostic_includes_diagnostic_kind_for_required_lints_and_validation() -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    span = SourceSpan(
+        start=SourcePosition(
+            path="tests/fixtures/workflow_lisp/valid/example.orc",
+            line=12,
+            column=5,
+            offset=80,
+        ),
+        end=SourcePosition(
+            path="tests/fixtures/workflow_lisp/valid/example.orc",
+            line=12,
+            column=19,
+            offset=94,
+        ),
+    )
+
+    lint_payload = serialize_diagnostic(
+        LispFrontendDiagnostic(
+            code="command_adapter_missing_contract",
+            message="missing command adapter contract metadata",
+            span=span,
+        )
+    )
+    validation_payload = serialize_diagnostic(
+        LispFrontendDiagnostic(
+            code="workflow_call_unknown",
+            message="unknown workflow `missing`",
+            span=span,
+        )
+    )
+
+    assert lint_payload["diagnostic_kind"] == "required_lint"
+    assert lint_payload["severity"] == "error"
+    assert lint_payload["validation_pass"] == "authority"
+    assert lint_payload["authority_layer"] == "frontend"
+
+    assert validation_payload["diagnostic_kind"] == "validation"
+    assert validation_payload["severity"] == "error"
+    assert validation_payload["validation_pass"] == "type"
+    assert validation_payload["authority_layer"] == "frontend"
+
+
 @pytest.mark.parametrize(
     ("code", "expected_phase", "expected_validation_pass", "expected_authority_layer"),
     [
@@ -195,6 +312,99 @@ def test_serialize_diagnostic_infers_validation_metadata_from_code(
     assert payload["phase"] == expected_phase
     assert payload["validation_pass"] == expected_validation_pass
     assert payload["authority_layer"] == expected_authority_layer
+
+
+def test_run_validation_pipeline_continues_after_warning_required_lint_default_profile() -> None:
+    validation_module = importlib.import_module("orchestrator.workflow_lisp.validation")
+    pipeline_state_cls = getattr(validation_module, "ValidationPipelineState")
+    pipeline_pass_cls = getattr(validation_module, "ValidationPipelinePass")
+    run_validation_pipeline = getattr(validation_module, "run_validation_pipeline")
+
+    span = SourceSpan(
+        start=SourcePosition(path="pipeline.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="pipeline.orc", line=1, column=8, offset=7),
+    )
+    call_order: list[str] = []
+
+    def mark(name: str):
+        def runner(state):
+            call_order.append(name)
+            return state
+
+        return runner
+
+    def warn_contract(state):
+        del state
+        call_order.append("contract")
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="low_level_state_path_in_high_level_module",
+                    message="manual state path authoring should use derived context paths",
+                    span=span,
+                ),
+            )
+        )
+
+    _, results = run_validation_pipeline(
+        pipeline_state_cls(),
+        (
+            pipeline_pass_cls(pass_id="parse", runner=mark("parse")),
+            pipeline_pass_cls(pass_id="contract", runner=warn_contract),
+            pipeline_pass_cls(pass_id="executable", runner=mark("executable")),
+        ),
+        lint_profile="default",
+    )
+
+    assert call_order == ["parse", "contract", "executable"]
+    assert [result.pass_id for result in results] == ["parse", "contract", "executable"]
+    assert results[1].blocking is False
+    assert results[1].diagnostics[0].code == "low_level_state_path_in_high_level_module"
+
+
+def test_raise_pipeline_diagnostics_escalates_warning_required_lints_in_strict_profile() -> None:
+    validation_module = importlib.import_module("orchestrator.workflow_lisp.validation")
+    result_cls = getattr(validation_module, "ValidationPassResult")
+    raise_pipeline_diagnostics = getattr(validation_module, "raise_pipeline_diagnostics")
+
+    span = SourceSpan(
+        start=SourcePosition(path="pipeline.orc", line=1, column=1, offset=0),
+        end=SourcePosition(path="pipeline.orc", line=1, column=8, offset=7),
+    )
+    warning_result = result_cls(
+        pass_id="contract",
+        authority_layer="frontend",
+        blocking=False,
+        diagnostics=(
+            LispFrontendDiagnostic(
+                code="variant_output_without_variant_specific_fields",
+                message="union return contract has no variant-specific fields",
+                span=span,
+            ),
+        ),
+        artifact_ready=True,
+    )
+    validation_result = result_cls(
+        pass_id="type",
+        authority_layer="frontend",
+        blocking=True,
+        diagnostics=(
+            LispFrontendDiagnostic(
+                code="workflow_call_unknown",
+                message="unknown workflow `missing`",
+                span=span,
+            ),
+        ),
+        artifact_ready=False,
+    )
+
+    raise_pipeline_diagnostics((warning_result,), lint_profile="default")
+
+    with pytest.raises(LispFrontendCompileError):
+        raise_pipeline_diagnostics((warning_result,), lint_profile="strict")
+
+    with pytest.raises(LispFrontendCompileError):
+        raise_pipeline_diagnostics((validation_result,), lint_profile="default")
 
 
 def test_run_validation_pipeline_stops_after_blocking_pass() -> None:
@@ -568,6 +778,44 @@ def test_serialize_diagnostic_classifies_missing_command_boundary_as_authority()
     assert payload["phase"] == "lowering"
     assert payload["validation_pass"] == "authority"
     assert payload["authority_layer"] == "frontend"
+
+
+def test_compile_stage3_preserves_low_level_state_path_warning_without_aborting(tmp_path: Path) -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    path = tmp_path / "low_level_state_path_warning.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath StateFile",
+                "    :kind relpath",
+                '    :under "state"',
+                "    :must-exist false)",
+                "  (defrecord RawStateOutput",
+                "    (state_file StateFile))",
+                "  (defworkflow orchestrate",
+                "    ((state_file StateFile))",
+                "    -> RawStateOutput",
+                "    (record RawStateOutput",
+                "      :state_file state_file)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(path, validate_shared=False, workspace_root=tmp_path)
+
+    assert [diagnostic.code for diagnostic in result.diagnostics] == [
+        "low_level_state_path_in_high_level_module",
+    ]
+    payload = serialize_diagnostic(result.diagnostics[0])
+    assert payload["diagnostic_kind"] == "required_lint"
+    assert payload["severity"] == "warn"
+    assert payload["validation_pass"] == "contract"
 
 
 def test_compile_stage1_renders_unknown_type_diagnostic_with_field_location() -> None:

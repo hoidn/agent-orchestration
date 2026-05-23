@@ -9,9 +9,11 @@ from typing import Any
 from .diagnostics import (
     LispFrontendCompileError,
     LispFrontendDiagnostic,
+    diagnostic_effective_severity,
     validation_pass_order_key,
     with_diagnostic_metadata,
 )
+from .lints import LINT_PROFILE_DEFAULT
 
 
 VALIDATION_PASS_CATALOG: tuple[str, ...] = (
@@ -80,6 +82,8 @@ class ValidationPassResult:
 def run_validation_pipeline(
     initial_state: ValidationPipelineState,
     passes: Sequence[ValidationPipelinePass],
+    *,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> tuple[ValidationPipelineState, tuple[ValidationPassResult, ...]]:
     """Run pass runners in order and stop after the first blocking failure."""
 
@@ -105,6 +109,7 @@ def run_validation_pipeline(
                         and diagnostic.authority_layer is None
                         else None
                     ),
+                    lint_profile=lint_profile,
                 )
                 for diagnostic in exc.diagnostics
             )
@@ -133,12 +138,22 @@ def run_validation_pipeline(
                         diagnostics,
                         default=pipeline_pass.authority_layer,
                     ),
-                    blocking=bool(diagnostics) and pipeline_pass.blocking,
+                    blocking=(
+                        pipeline_pass.blocking
+                        and any(
+                            diagnostic_effective_severity(
+                                diagnostic,
+                                lint_profile=lint_profile,
+                            )
+                            == "error"
+                            for diagnostic in diagnostics
+                        )
+                    ),
                     diagnostics=diagnostics,
                     artifact_ready=False,
                 )
             )
-            if diagnostics and pipeline_pass.blocking:
+            if results[-1].blocking:
                 break
         else:
             state = next_state or state
@@ -168,11 +183,22 @@ def collect_pipeline_diagnostics(
     )
 
 
-def raise_pipeline_diagnostics(results: Sequence[ValidationPassResult]) -> None:
+def raise_pipeline_diagnostics(
+    results: Sequence[ValidationPassResult],
+    *,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
+) -> None:
     """Raise one aggregate compile error if any pipeline pass emitted diagnostics."""
 
     diagnostics = collect_pipeline_diagnostics(results)
-    if diagnostics:
+    if any(
+        diagnostic_effective_severity(
+            diagnostic,
+            lint_profile=lint_profile,
+        )
+        == "error"
+        for diagnostic in diagnostics
+    ):
         raise LispFrontendCompileError(diagnostics)
 
 

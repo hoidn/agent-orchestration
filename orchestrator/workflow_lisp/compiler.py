@@ -19,6 +19,7 @@ from pathlib import Path
 
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 
+from .contracts import derive_union_workflow_boundary_projection
 from .definitions import (
     EnumDef,
     PathDef,
@@ -29,7 +30,13 @@ from .definitions import (
     WorkflowLispModule,
     elaborate_definition_module,
 )
-from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
+from .diagnostics import (
+    LispFrontendCompileError,
+    LispFrontendDiagnostic,
+    diagnostic_effective_severity,
+    with_diagnostic_metadata,
+)
+from .lints import LINT_PROFILE_DEFAULT, required_lint_diagnostic
 from .effects import EffectSummary, merge_effect_summaries
 from .expressions import (
     LetStarExpr,
@@ -65,12 +72,20 @@ from .procedures import (
 from .reader import read_sexpr_file
 from .source_map import build_source_map_document
 from .syntax import WorkflowLispSyntaxModule, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
-from .type_env import PRELUDE_TYPE_NAMES, FrontendTypeEnvironment, TypeRef
+from .type_env import (
+    PRELUDE_TYPE_NAMES,
+    FrontendTypeEnvironment,
+    PathTypeRef,
+    RecordTypeRef,
+    TypeRef,
+    UnionTypeRef,
+)
 from .typecheck import typecheck_expression
 from .validation import (
     VALIDATION_PASS_CATALOG,
     ValidationPipelinePass,
     ValidationPipelineState,
+    collect_pipeline_diagnostics,
     raise_pipeline_diagnostics,
     run_validation_pipeline,
 )
@@ -119,6 +134,7 @@ class LinkedStage3CompileResult:
     entry_result: Stage3CompileResult
     compiled_results_by_name: Mapping[str, Stage3CompileResult]
     validated_bundles_by_name: Mapping[str, LoadedWorkflowBundle]
+    diagnostics: tuple[LispFrontendDiagnostic, ...] = ()
 
 
 def compile_stage1_entrypoint(
@@ -171,6 +187,7 @@ def compile_stage3_entrypoint(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool = True,
     workspace_root: Path | None = None,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> LinkedStage3CompileResult:
     """Compile an entrypoint and imports through the executable frontend path.
 
@@ -189,11 +206,19 @@ def compile_stage3_entrypoint(
         command_boundaries=command_boundaries,
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
+        lint_profile=lint_profile,
     )
-    raise_pipeline_diagnostics(results)
+    additional_diagnostics = ()
+    if compile_result is not None:
+        additional_diagnostics = compile_result.diagnostics
+    diagnostics = _finalize_stage3_diagnostics(
+        results,
+        additional_diagnostics=additional_diagnostics,
+        lint_profile=lint_profile,
+    )
     if compile_result is None:
         raise RuntimeError("module-graph compilation did not produce a result")
-    return compile_result
+    return replace(compile_result, diagnostics=diagnostics)
 
 
 def compile_stage3_module(
@@ -205,6 +230,7 @@ def compile_stage3_module(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool = True,
     workspace_root: Path | None = None,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> Stage3CompileResult:
     """Compile one `.orc` file through the executable frontend pipeline."""
 
@@ -216,8 +242,13 @@ def compile_stage3_module(
         command_boundaries=command_boundaries,
         validate_shared=validate_shared,
         workspace_root=workspace_root or path.parent,
+        lint_profile=lint_profile,
     )
-    raise_pipeline_diagnostics(results)
+    diagnostics = _finalize_stage3_diagnostics(
+        results,
+        additional_diagnostics=_collect_stage3_required_lint_diagnostics(state.typed_workflows),
+        lint_profile=lint_profile,
+    )
     return Stage3CompileResult(
         module=state.module,
         workflow_catalog=state.workflow_catalog,
@@ -228,7 +259,110 @@ def compile_stage3_module(
         typed_workflows=state.typed_workflows,
         lowered_workflows=state.lowered_workflows,
         validated_bundles=state.validated_bundles,
+        diagnostics=diagnostics,
     )
+
+
+def _finalize_stage3_diagnostics(
+    results: tuple[object, ...],
+    *,
+    additional_diagnostics: tuple[LispFrontendDiagnostic, ...],
+    lint_profile: str,
+) -> tuple[LispFrontendDiagnostic, ...]:
+    diagnostics = tuple(
+        with_diagnostic_metadata(
+            diagnostic,
+            lint_profile=lint_profile,
+        )
+        for diagnostic in (
+            *collect_pipeline_diagnostics(results),
+            *additional_diagnostics,
+        )
+    )
+    if any(
+        diagnostic_effective_severity(
+            diagnostic,
+            lint_profile=lint_profile,
+        )
+        == "error"
+        for diagnostic in diagnostics
+    ):
+        raise LispFrontendCompileError(diagnostics)
+    return diagnostics
+
+
+_ALLOWED_CONTEXT_RECORD_TYPES = frozenset(
+    {
+        "RunCtx",
+        "PhaseCtx",
+        "ItemCtx",
+        "DrainCtx",
+    }
+)
+
+
+def _collect_stage3_required_lint_diagnostics(
+    typed_workflows: tuple[TypedWorkflowDef, ...],
+) -> tuple[LispFrontendDiagnostic, ...]:
+    diagnostics: list[LispFrontendDiagnostic] = []
+    for workflow in typed_workflows:
+        signature = workflow.signature
+        if any(
+            _type_ref_contains_low_level_state_path(type_ref)
+            for _, type_ref in signature.params
+        ) or _type_ref_contains_low_level_state_path(signature.return_type_ref):
+            diagnostics.append(
+                required_lint_diagnostic(
+                    "low_level_state_path_in_high_level_module",
+                    message=(
+                        f"workflow `{signature.name}` exposes low-level state paths at its boundary; "
+                        "prefer derived context or layout helpers"
+                    ),
+                    span=signature.span,
+                    form_path=signature.form_path,
+                )
+            )
+        if isinstance(signature.return_type_ref, UnionTypeRef):
+            projection = derive_union_workflow_boundary_projection(
+                signature.return_type_ref,
+                span=signature.span,
+                form_path=signature.form_path,
+            )
+            if projection.variant_fields and all(
+                not fields for fields in projection.variant_fields.values()
+            ):
+                diagnostics.append(
+                    required_lint_diagnostic(
+                        "variant_output_without_variant_specific_fields",
+                        message=(
+                            f"union `{signature.return_type_ref.name}` lowers without variant-specific fields; "
+                            "prefer a record plus enum"
+                        ),
+                        span=signature.span,
+                        form_path=signature.form_path,
+                    )
+                )
+    return tuple(diagnostics)
+
+
+def _type_ref_contains_low_level_state_path(type_ref: TypeRef) -> bool:
+    if isinstance(type_ref, PathTypeRef):
+        return type_ref.definition.under == "state"
+    if isinstance(type_ref, RecordTypeRef):
+        record_name = type_ref.name.split("::", 1)[-1]
+        if record_name in _ALLOWED_CONTEXT_RECORD_TYPES:
+            return False
+        return any(
+            _type_ref_contains_low_level_state_path(field_type)
+            for field_type in type_ref.field_types.values()
+        )
+    if isinstance(type_ref, UnionTypeRef):
+        return any(
+            _type_ref_contains_low_level_state_path(field_type)
+            for field_types in type_ref.variant_field_types.values()
+            for field_type in field_types.values()
+        )
+    return False
 
 
 def _run_stage1_validation_pipeline(
@@ -309,6 +443,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None = None,
     validate_shared: bool,
     workspace_root: Path,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> tuple[LinkedStage3CompileResult | None, tuple[object, ...]]:
     graph = resolve_module_graph(path, source_roots=source_roots)
     compile_result: LinkedStage3CompileResult | None = None
@@ -324,6 +459,7 @@ def _run_stage3_entrypoint_validation_pipeline(
             command_boundaries=command_boundaries,
             validate_shared=False,
             workspace_root=workspace_root,
+            lint_profile=lint_profile,
         )
         selected_workflow_name = _selected_stage3_entry_workflow_name(compile_result)
         return replace(
@@ -418,6 +554,7 @@ def _run_stage3_entrypoint_validation_pipeline(
     _, results = run_validation_pipeline(
         ValidationPipelineState(),
         tuple(passes),
+        lint_profile=lint_profile,
     )
     return compile_result, results
 
@@ -444,6 +581,7 @@ def _run_stage3_validation_pipeline(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool,
     workspace_root: Path,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> tuple[ValidationPipelineState, tuple[object, ...]]:
     effective_imported_workflow_bundles = dict(imported_workflow_bundles or {})
 
@@ -610,7 +748,11 @@ def _run_stage3_validation_pipeline(
                 ),
             ]
         )
-    return run_validation_pipeline(ValidationPipelineState(), tuple(passes))
+    return run_validation_pipeline(
+        ValidationPipelineState(),
+        tuple(passes),
+        lint_profile=lint_profile,
+    )
 
 
 def compile_stage1_module(path: Path) -> WorkflowLispModule:
@@ -699,6 +841,7 @@ def _compile_stage3_graph(
     command_boundaries: Mapping[str, ExternalToolBinding | CertifiedAdapterBinding] | None,
     validate_shared: bool,
     workspace_root: Path,
+    lint_profile: str = LINT_PROFILE_DEFAULT,
 ) -> LinkedStage3CompileResult:
     """Compile a resolved module graph in dependency order.
 
@@ -719,6 +862,7 @@ def _compile_stage3_graph(
     exported_validated_bundles_by_name: dict[str, LoadedWorkflowBundle] = {}
     compiled_results_by_name: dict[str, Stage3CompileResult] = {}
     explicit_imported_bundles = dict(imported_workflow_bundles or {})
+    aggregate_diagnostics: list[LispFrontendDiagnostic] = []
 
     for module_name in graph.topological_order:
         module_source = graph.modules_by_name[module_name]
@@ -880,8 +1024,10 @@ def _compile_stage3_graph(
             typed_workflows=typed_workflows,
             lowered_workflows=lowered_workflows,
             validated_bundles=validated_exports if validate_shared else {},
+            diagnostics=_collect_stage3_required_lint_diagnostics(typed_workflows),
         )
         compiled_results_by_name[module_name] = result
+        aggregate_diagnostics.extend(result.diagnostics)
         exported_type_refs_by_module[module_name] = _exported_type_refs(
             definition_module,
             export_surfaces[module_name],
@@ -919,6 +1065,7 @@ def _compile_stage3_graph(
         entry_result=compiled_results_by_name[graph.entry_module_name],
         compiled_results_by_name=compiled_results_by_name,
         validated_bundles_by_name=exported_validated_bundles_by_name,
+        diagnostics=tuple(aggregate_diagnostics),
     )
 
 

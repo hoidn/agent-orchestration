@@ -59,6 +59,7 @@ from .resource import (
     ensure_resource_transition_resource_type,
     ensure_resource_transition_members,
 )
+from .lints import required_lint_diagnostic
 from .spans import SourceSpan
 from .type_env import (
     FrontendTypeEnvironment,
@@ -1560,6 +1561,14 @@ def _typecheck(
             ),
         )
     if isinstance(expr, ProviderResultExpr):
+        if _is_macro_introduced_effect(expr.span, expr.expansion_stack):
+            _raise_required_lint(
+                "macro expansion introduced a hidden provider effect; move the `provider-result` to authored workflow code",
+                code="macro_hidden_effect",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
         return_type = type_env.resolve_type(
             expr.returns_type_name,
             span=expr.span,
@@ -1694,6 +1703,14 @@ def _typecheck(
             ),
         )
     if isinstance(expr, CommandResultExpr):
+        if _is_macro_introduced_effect(expr.span, expr.expansion_stack):
+            _raise_required_lint(
+                "macro expansion introduced a hidden command effect; move the `command-result` to authored workflow code",
+                code="macro_hidden_effect",
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
         arg_summaries: list[EffectSummary] = []
         for arg_expr in expr.argv:
             typed_arg = _typecheck(
@@ -1739,14 +1756,16 @@ def _typecheck(
             )
         from .workflows import CertifiedAdapterBinding
 
-        if isinstance(command_binding, CertifiedAdapterBinding) and command_binding.output_type_name != expr.returns_type_name:
-            _raise_error(
-                f"`command-result` `{expr.step_name}` must return `{command_binding.output_type_name}`",
-                code="command_result_return_type_invalid",
-                span=expr.span,
-                form_path=expr.form_path,
-                expansion_stack=expr.expansion_stack,
-            )
+        if isinstance(command_binding, CertifiedAdapterBinding):
+            _validate_semantic_command_adapter_usage(expr, command_binding)
+            if command_binding.output_type_name != expr.returns_type_name:
+                _raise_error(
+                    f"`command-result` `{expr.step_name}` must return `{command_binding.output_type_name}`",
+                    code="command_result_return_type_invalid",
+                    span=expr.span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                )
         command_summary = effect_summary_from_direct(
             direct_effects=(
                 UsesCommandEffect(subject=(expr.step_name,)),
@@ -2096,6 +2115,29 @@ def _validate_command_argv(
             )
 
 
+def _validate_semantic_command_adapter_usage(
+    expr: CommandResultExpr,
+    binding: "CertifiedAdapterBinding",
+) -> None:
+    effects = set(binding.effects)
+    if "resource_transition" in effects or "ledger_update" in effects:
+        _raise_error(
+            "resource movement must use `resource-transition` instead of a raw `command-result` adapter call",
+            code="resource_move_without_transition",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if "resume_state_reuse" in effects:
+        _raise_error(
+            "reusable-state gating must use `resume-or-start` instead of a raw `command-result` adapter call",
+            code="recovery_gate_without_resume_or_start",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+
+
 def _literal_string(expr: ExprNode) -> str | None:
     if isinstance(expr, LiteralExpr) and expr.literal_kind == "string" and isinstance(expr.value, str):
         return expr.value
@@ -2121,9 +2163,9 @@ def _workflow_ref_signature(
         raise TypeError("workflow_catalog is required for workflow ref validation")
     signature = workflow_catalog.signatures_by_name.get(workflow_name)
     if signature is None:
-        _raise_error(
+        _raise_required_lint(
             f"unknown workflow ref `{workflow_name}`",
-            code="workflow_ref_unknown",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
@@ -2146,9 +2188,9 @@ def _validate_selector_workflow_ref(
         )
     ensure_drain_context_type(signature.params[0][1], span=span, form_path=form_path)
     if not isinstance(signature.return_type_ref, UnionTypeRef):
-        _raise_error(
+        _raise_required_lint(
             f"workflow ref `{signature.name}` must return `SelectionResult`-shaped union output",
-            code="workflow_ref_signature_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
@@ -2194,16 +2236,16 @@ def _validate_run_item_workflow_ref(
         )
     ensure_item_context_type(signature.params[0][1], span=span, form_path=form_path)
     if signature.params[1][1] != selected_payload_type:
-        _raise_error(
+        _raise_required_lint(
             f"workflow ref `{signature.name}` second parameter must match the selector `SELECTED.selection` payload",
-            code="workflow_ref_signature_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
     if not isinstance(signature.return_type_ref, UnionTypeRef):
-        _raise_error(
+        _raise_required_lint(
             f"workflow ref `{signature.name}` must return a union for `run-item`",
-            code="workflow_ref_signature_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
@@ -2271,18 +2313,18 @@ def _validate_gap_drafter_workflow_ref(
         )
     ensure_drain_context_type(signature.params[0][1], span=span, form_path=form_path)
     if signature.params[1][1] != gap_payload_type:
-        _raise_error(
+        _raise_required_lint(
             f"workflow ref `{signature.name}` second parameter must match the selector `GAP.gap` payload",
-            code="workflow_ref_signature_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
     if isinstance(signature.return_type_ref, RecordTypeRef):
         return
     if not isinstance(signature.return_type_ref, UnionTypeRef):
-        _raise_error(
+        _raise_required_lint(
             f"workflow ref `{signature.name}` must return a record or union for `gap-drafter`",
-            code="workflow_ref_return_type_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
@@ -2327,9 +2369,9 @@ def _require_union_variant_field(
 ) -> TypeRef:
     variant_fields = union_type.variant_field_types.get(variant_name)
     if variant_fields is None or field_name not in variant_fields:
-        _raise_error(
+        _raise_required_lint(
             f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}`",
-            code="workflow_ref_signature_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
@@ -2353,12 +2395,12 @@ def _require_union_variant_path_field(
         form_path=form_path,
     )
     if not isinstance(field_type, PathTypeRef) or field_type.definition.under != expected_under:
-        _raise_error(
+        _raise_required_lint(
             (
                 f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}` "
                 f"as a relpath under `{expected_under}`"
             ),
-            code="workflow_ref_signature_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
@@ -2382,12 +2424,12 @@ def _require_union_variant_exact_type(
         form_path=form_path,
     )
     if field_type != expected_type:
-        _raise_error(
+        _raise_required_lint(
             (
                 f"workflow ref return union `{union_type.name}` must expose `{variant_name}.{field_name}` "
                 f"as `{getattr(expected_type, 'name', type(expected_type).__name__)}`"
             ),
-            code="workflow_ref_signature_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
@@ -2410,13 +2452,53 @@ def _require_union_variant_record_field(
         form_path=form_path,
     )
     if not isinstance(field_type, RecordTypeRef):
-        _raise_error(
+        _raise_required_lint(
             f"workflow ref return union `{union_type.name}` must expose record field `{variant_name}.{field_name}`",
-            code="workflow_ref_signature_invalid",
+            code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
         )
     return field_type
+
+
+def _is_macro_introduced_effect(
+    span: SourceSpan,
+    expansion_stack: tuple[object, ...],
+) -> bool:
+    for frame in expansion_stack:
+        definition_span = getattr(frame, "definition_span", None)
+        if _span_contains(definition_span, span):
+            return True
+    return False
+
+
+def _span_contains(outer: SourceSpan | None, inner: SourceSpan) -> bool:
+    if outer is None:
+        return False
+    if outer.start.path != inner.start.path or outer.end.path != inner.end.path:
+        return False
+    return outer.start.offset <= inner.start.offset and inner.end.offset <= outer.end.offset
+
+
+def _raise_required_lint(
+    message: str,
+    *,
+    code: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...] = (),
+) -> None:
+    raise LispFrontendCompileError(
+        (
+            required_lint_diagnostic(
+                code,
+                message=message,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+        )
+    )
 
 
 def _raise_error(
