@@ -2497,6 +2497,40 @@ def _lower_let_star(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
+    if isinstance(binding_expr, (NameExpr, FieldAccessExpr, LiteralExpr, RecordExpr)):
+        local_bindings = dict(local_values)
+        local_bindings[binding_name] = _resolve_inline_expr_value(
+            binding_expr,
+            local_values=local_values,
+        )
+        if isinstance(body_expr, MatchExpr):
+            binding_terminal = _binding_terminal_for_inline_match(
+                local_bindings.get(binding_name),
+            )
+            if binding_terminal is None:
+                raise _compile_error(
+                    code="workflow_return_not_exportable",
+                    message="Stage 3 lowering requires match subjects to come from step-backed let* bindings",
+                    span=body_expr.span,
+                    form_path=body_expr.form_path,
+                )
+            return _lower_match_expr(
+                body_expr,
+                context=context,
+                binding_name=binding_name,
+                binding_terminal=binding_terminal,
+                local_values=local_bindings,
+            )
+        return _lower_expression(
+            TypedExpr(
+                expr=body_expr,
+                type_ref=typed_expr.type_ref,
+                span=body_expr.span,
+                form_path=body_expr.form_path,
+            ),
+            context=context,
+            local_values=local_bindings,
+        )
     binding_type = _binding_type_for_expr(binding_expr, context=context)
     provider_step_name = f"{context.step_name_prefix}__{binding_name}"
     if isinstance(binding_expr, ProviderResultExpr):
@@ -4640,6 +4674,14 @@ def _resolve_inline_expr_value(expr: Any, *, local_values: Mapping[str, Any]) ->
 
     if isinstance(expr, LiteralExpr):
         return expr
+    if isinstance(expr, LetStarExpr):
+        child_locals = dict(local_values)
+        for binding_name, binding_expr in expr.bindings:
+            resolved_binding = _resolve_inline_expr_value(binding_expr, local_values=child_locals)
+            if resolved_binding is None:
+                return expr
+            child_locals[binding_name] = resolved_binding
+        return _resolve_inline_expr_value(expr.body, local_values=child_locals)
     resolved = _resolve_expr_local_value(expr, local_values=local_values)
     if isinstance(resolved, (str, Mapping, LiteralExpr, RecordExpr)):
         return resolved
@@ -5272,6 +5314,41 @@ def _build_union_step_local_value(output_refs: Mapping[str, str]) -> dict[str, A
     return _build_output_step_local_value(output_refs)
 
 
+def _binding_terminal_for_inline_match(local_value: Any) -> _TerminalResult | None:
+    """Recover union output refs when `match` follows an inline alias."""
+
+    output_refs = _flatten_inline_output_refs(local_value)
+    if "return__variant" not in output_refs:
+        return None
+    return _TerminalResult(
+        step_name="",
+        step_id="",
+        output_refs=output_refs,
+        output_kind="inline",
+        hidden_inputs={},
+    )
+
+
+def _flatten_inline_output_refs(local_value: Any) -> dict[str, str]:
+    """Flatten a nested local-value mapping back into workflow output refs."""
+
+    if not isinstance(local_value, Mapping):
+        return {}
+    output_refs: dict[str, str] = {}
+
+    def visit(value: Any, *, path: tuple[str, ...]) -> None:
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                if isinstance(key, str):
+                    visit(item, path=path + (key,))
+            return
+        if isinstance(value, str):
+            output_refs[f"return__{'__'.join(path)}"] = value
+
+    visit(local_value, path=())
+    return output_refs
+
+
 def _build_nested_record_step_local_value(
     type_ref: RecordTypeRef,
     *,
@@ -5818,6 +5895,8 @@ def _origin_for_workflow(
                 expansion_stack=typed_workflow.definition.expansion_stack,
                 notes=_procedure_provenance_notes(body_expr, procedure),
             )
+    if any(getattr(frame, "function_name", None) is not None for frame in getattr(body_expr, "expansion_stack", ())):
+        return _origin_from_source(body_expr)
     return _origin_from_source(typed_workflow.definition)
 
 
@@ -6552,6 +6631,23 @@ def _procedure_provenance_notes(expr: ProcedureCallExpr, procedure: TypedProcedu
     )
 
 
+def _helper_provenance_notes(expansion_stack: tuple[object, ...]) -> tuple[str, ...]:
+    """Describe helper call and definition locations preserved through normalization."""
+
+    notes: list[str] = []
+    for frame in expansion_stack:
+        function_name = getattr(frame, "function_name", None)
+        call_span = getattr(frame, "call_span", None)
+        definition_span = getattr(frame, "definition_span", None)
+        if function_name is None or call_span is None or definition_span is None:
+            continue
+        call = call_span.start
+        definition = definition_span.start
+        notes.append(f"helper call site at {call.path}:{call.line}:{call.column} (`{function_name}`)")
+        notes.append(f"helper definition at {definition.path}:{definition.line}:{definition.column}")
+    return tuple(notes)
+
+
 def _origin_for_workflow(
     typed_workflow: TypedWorkflowDef,
     *,
@@ -6565,6 +6661,13 @@ def _origin_for_workflow(
         procedure = typed_procedures.get(body_expr.callee_name)
         if procedure is not None and procedure.resolved_lowering_mode == ProcedureLoweringMode.INLINE:
             notes = _procedure_provenance_notes(body_expr, procedure)
+    elif helper_notes := _helper_provenance_notes(getattr(body_expr, "expansion_stack", ())):
+        return LoweringOrigin(
+            span=body_expr.span,
+            form_path=body_expr.form_path,
+            expansion_stack=body_expr.expansion_stack,
+            notes=helper_notes,
+        )
     elif typed_workflow.definition.name.startswith("%") and ".v1" in typed_workflow.definition.name:
         procedure_name = typed_workflow.definition.name.removeprefix("%").split(".")[-2]
         procedure = typed_procedures.get(procedure_name)

@@ -133,6 +133,17 @@ class ProcedureCallExpr:
 
 
 @dataclass(frozen=True)
+class FunctionCallExpr:
+    """One frontend-local pure helper call."""
+
+    callee_name: str
+    args: tuple["ExprNode", ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class WithPhaseExpr:
     """One compile-time phase-scope wrapper."""
 
@@ -280,6 +291,7 @@ ExprNode = (
     | LetStarExpr
     | MatchExpr
     | CallExpr
+    | FunctionCallExpr
     | ProcedureCallExpr
     | WithPhaseExpr
     | PhaseTargetExpr
@@ -296,7 +308,9 @@ ExprNode = (
 
 
 _ACTIVE_PROCEDURE_NAME_RESOLVER = None
+_ACTIVE_FUNCTION_NAME_RESOLVER = None
 _ACTIVE_WORKFLOW_NAME_RESOLVER = None
+_ACTIVE_FUNCTION_NAMES = frozenset()
 
 
 def elaborate_expression(
@@ -304,15 +318,21 @@ def elaborate_expression(
     *,
     bound_names: frozenset[str],
     procedure_names: frozenset[str] = frozenset(),
+    function_names: frozenset[str] = frozenset(),
+    function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
 ) -> ExprNode:
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
-    global _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
+    global _ACTIVE_FUNCTION_NAME_RESOLVER, _ACTIVE_FUNCTION_NAMES, _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
 
+    previous_function_resolver = _ACTIVE_FUNCTION_NAME_RESOLVER
+    previous_function_names = _ACTIVE_FUNCTION_NAMES
     previous_procedure_resolver = _ACTIVE_PROCEDURE_NAME_RESOLVER
     previous_workflow_resolver = _ACTIVE_WORKFLOW_NAME_RESOLVER
+    _ACTIVE_FUNCTION_NAME_RESOLVER = function_name_resolver
+    _ACTIVE_FUNCTION_NAMES = function_names
     _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
     _ACTIVE_WORKFLOW_NAME_RESOLVER = workflow_name_resolver
     try:
@@ -323,6 +343,8 @@ def elaborate_expression(
             procedure_names=procedure_names,
         )
     finally:
+        _ACTIVE_FUNCTION_NAME_RESOLVER = previous_function_resolver
+        _ACTIVE_FUNCTION_NAMES = previous_function_names
         _ACTIVE_PROCEDURE_NAME_RESOLVER = previous_procedure_resolver
         _ACTIVE_WORKFLOW_NAME_RESOLVER = previous_workflow_resolver
 
@@ -522,6 +544,13 @@ def _elaborate_list(
         )
     if head.resolved_name == "backlog-drain":
         return _elaborate_backlog_drain(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name in _ACTIVE_FUNCTION_NAMES:
+        return _elaborate_function_call(
             datum,
             form_path=form_path,
             bound_names=bound_names,
@@ -795,6 +824,40 @@ def _elaborate_call(
             else callee_identifier.resolved_name
         ),
         bindings=tuple(bindings),
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_function_call(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> FunctionCallExpr:
+    callee_identifier = syntax_identifier(datum.items[0])
+    assert callee_identifier is not None
+    return FunctionCallExpr(
+        callee_name=(
+            _ACTIVE_FUNCTION_NAME_RESOLVER(
+                callee_identifier.resolved_name,
+                callee_identifier.span,
+                form_path,
+            )
+            if _ACTIVE_FUNCTION_NAME_RESOLVER is not None
+            else callee_identifier.resolved_name
+        ),
+        args=tuple(
+            _elaborate(
+                item,
+                form_path=form_path,
+                bound_names=bound_names,
+                procedure_names=procedure_names,
+            )
+            for item in datum.items[1:]
+        ),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

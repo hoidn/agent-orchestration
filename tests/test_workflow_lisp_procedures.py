@@ -217,7 +217,6 @@ def test_lowering_rejects_private_workflow_for_non_boundary_type(tmp_path: Path)
 
     _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
 
-
 def test_auto_lowering_stays_inline_when_call_sites_cannot_bind_through_stage3_seam(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "auto_inline_required.orc",
@@ -725,3 +724,40 @@ def test_compile_stage3_entrypoint_registers_imported_procedure_signatures(tmp_p
     )
 
     assert "neurips/procedures::build-checks" in result.entry_result.procedure_catalog.signatures_by_name
+
+
+def test_procedures_can_call_pure_helpers_without_introducing_extra_effects(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "procedure_helper_call.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord ChecksResult",
+            "    (report WorkReport))",
+            "  (defrecord ImplementationSummary",
+            "    (report WorkReport))",
+            "  (defun summarize",
+            "    ((input ChecksResult))",
+            "    -> ImplementationSummary",
+            "    (record ImplementationSummary :report input.report))",
+            "  (defproc wrap-summary",
+            "    ((input ChecksResult))",
+            "    -> ImplementationSummary",
+            "    :effects ()",
+            "    (summarize input))",
+            "  (defworkflow orchestrate",
+            "    ((input ChecksResult))",
+            "    -> ImplementationSummary",
+            "    (wrap-summary input)))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    procedure = next(procedure for procedure in result.typed_procedures if procedure.definition.name == "wrap-summary")
+
+    assert procedure.transitive_effect_summary.transitive_effects == frozenset()

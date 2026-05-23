@@ -214,7 +214,6 @@ def test_compile_stage3_entrypoint_preserves_wrapper_behavior_for_single_file_fi
     assert stage1_module.definitions
     assert "provider_attempt" in stage3_result.workflow_catalog.signatures_by_name
 
-
 def test_compile_stage3_entrypoint_skips_shared_validation_when_disabled(tmp_path: Path) -> None:
     source_root = tmp_path / "validate_shared_disabled"
     path = _write_module(
@@ -418,3 +417,96 @@ def test_compile_stage3_entrypoint_rejects_mixed_direct_qualified_workflow_refer
         _compile_stage3_entrypoint(entry_path, source_root=source_root, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "module_reference_invalid")
+
+
+def test_compile_stage1_entrypoint_exports_helpers_in_module_surfaces() -> None:
+    source_root = VALID_FIXTURES / "imported_defun"
+    path = source_root / "entry.orc"
+
+    result = _compile_stage1_entrypoint(path, source_root=source_root)
+
+    helper_surface = result.graph.export_surfaces_by_name["neurips/helpers"]
+    assert hasattr(helper_surface, "functions_by_name")
+    assert "summarize" in helper_surface.functions_by_name
+    assert helper_surface.functions_by_name["summarize"].canonical_name == "neurips/helpers::summarize"
+
+
+def test_compile_stage3_entrypoint_rejects_imported_callable_name_collisions(tmp_path: Path) -> None:
+    source_root = tmp_path / "callable_collision"
+    _write_module(
+        source_root / "demo" / "types.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/types)",
+                "  (export WorkReport ImplementationSummary)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport)))",
+            ]
+        ),
+    )
+    _write_module(
+        source_root / "demo" / "helpers.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/helpers)",
+                "  (import demo/types :only (WorkReport ImplementationSummary))",
+                "  (export shared)",
+                "  (defun shared",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (record ImplementationSummary :report report_path)))",
+            ]
+        ),
+    )
+    _write_module(
+        source_root / "demo" / "procedures.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/procedures)",
+                "  (import demo/types :only (WorkReport ImplementationSummary))",
+                "  (export shared)",
+                "  (defproc shared",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    :effects ()",
+                "    (record ImplementationSummary :report report_path)))",
+            ]
+        ),
+    )
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import demo/types :only (WorkReport ImplementationSummary))",
+                "  (import demo/helpers :only (shared))",
+                "  (import demo/procedures :only (shared))",
+                "  (export orchestrate)",
+                "  (defworkflow orchestrate",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (shared report_path)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage3_entrypoint(entry_path, source_root=source_root, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "callable_name_collision")

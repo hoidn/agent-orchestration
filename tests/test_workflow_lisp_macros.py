@@ -229,3 +229,67 @@ def test_compile_stage3_rejects_macro_introduced_provider_effects_as_macro_hidde
     assert payload["diagnostic_kind"] == "required_lint"
     assert payload["validation_pass"] == "effect"
     assert payload["authority_layer"] == "frontend"
+
+
+def test_compile_stage1_rejects_defun_as_a_reserved_macro_name(tmp_path: Path) -> None:
+    fixture = tmp_path / "macro_reserved_defun.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmacro defun ()",
+                "    42))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage1_module(fixture)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "macro_reserved_name"
+    assert "defun" in diagnostic.message
+
+
+def test_compile_stage3_module_accepts_macro_emitted_top_level_defun(tmp_path: Path) -> None:
+    fixture = tmp_path / "macro_emits_defun.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (report WorkReport))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (emit-helper summarize)",
+                "  (defmacro emit-helper (name)",
+                "    (defun name",
+                "      ((input ChecksResult))",
+                "      -> ImplementationSummary",
+                "      (record ImplementationSummary",
+                "        :report input.report)))",
+                "  (defworkflow orchestrate",
+                "    ((input ChecksResult))",
+                "    -> ImplementationSummary",
+                "    (summarize input)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        fixture,
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert result.typed_workflows[0].definition.name == "orchestrate"

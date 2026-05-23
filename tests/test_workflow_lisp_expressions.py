@@ -1,3 +1,4 @@
+import inspect
 from pathlib import Path
 
 import pytest
@@ -383,3 +384,16 @@ def test_typecheck_expression_rejects_record_field_type_mismatches() -> None:
         )
 
     _assert_diagnostic_code(excinfo, "type_mismatch")
+
+
+def test_elaborate_expression_builds_function_calls_for_visible_helpers() -> None:
+    signature = inspect.signature(elaborate_expression)
+
+    assert "function_names" in signature.parameters
+    expr = elaborate_expression(
+        _expression_syntax("(summarize report-path)"),
+        bound_names=frozenset({"report-path"}),
+        function_names=frozenset({"summarize"}),
+    )
+
+    assert type(expr).__name__ == "FunctionCallExpr"

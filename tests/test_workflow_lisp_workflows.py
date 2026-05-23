@@ -256,7 +256,6 @@ def test_build_workflow_catalog_accepts_macro_expanded_top_level_workflows() -> 
 
     assert tuple(workflow_catalog.signatures_by_name) == ("command_checks", "provider_attempt")
 
-
 def test_compile_stage3_module_exposes_procedure_catalog_without_changing_workflow_signatures(tmp_path: Path) -> None:
     from orchestrator.workflow_lisp.compiler import compile_stage3_module
 
@@ -554,3 +553,34 @@ def test_compile_stage3_entrypoint_registers_imported_workflow_signatures(tmp_pa
     )
 
     assert "neurips/helper::provider-attempt" in result.entry_result.workflow_catalog.signatures_by_name
+
+
+def test_compile_stage3_module_supports_local_and_imported_helpers(tmp_path: Path) -> None:
+    compiler = _compiler_module()
+    compile_module = getattr(compiler, "compile_stage3_module", None)
+    assert callable(compile_module), "compile_stage3_module is missing"
+    local_result = compile_module(
+        FIXTURES / "valid" / "defun_forward_ref.orc",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    compile_entrypoint = getattr(compiler, "compile_stage3_entrypoint", None)
+    assert callable(compile_entrypoint), "compile_stage3_entrypoint is missing"
+
+    imported_result = compile_entrypoint(
+        MODULE_FIXTURES / "valid" / "imported_defun" / "entry.orc",
+        source_roots=(MODULE_FIXTURES / "valid" / "imported_defun",),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert local_result.typed_workflows[0].definition.name == "orchestrate"
+    assert imported_result.entry_result.typed_workflows[0].definition.name == "entry::orchestrate"

@@ -1,0 +1,26 @@
+(workflow-lisp
+  (:language "0.1")
+  (:target-dsl "2.14")
+  (defpath WorkReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defrecord ChecksResult
+    (report WorkReport))
+  (defrecord ImplementationSummary
+    (report WorkReport))
+  (defun shared
+    ((input ChecksResult))
+    -> ImplementationSummary
+    (record ImplementationSummary
+      :report input.report))
+  (defproc shared
+    ((input ChecksResult))
+    -> ImplementationSummary
+    :effects ()
+    (record ImplementationSummary
+      :report input.report))
+  (defworkflow orchestrate
+    ((input ChecksResult))
+    -> ImplementationSummary
+    (shared input)))

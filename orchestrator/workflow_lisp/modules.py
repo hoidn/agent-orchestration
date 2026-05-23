@@ -57,6 +57,7 @@ class ModuleExportSurface:
     module_name: str
     types_by_name: Mapping[str, ModuleMemberBinding]
     macros_by_name: Mapping[str, ModuleMemberBinding]
+    functions_by_name: Mapping[str, ModuleMemberBinding]
     procedures_by_name: Mapping[str, ModuleMemberBinding]
     workflows_by_name: Mapping[str, ModuleMemberBinding]
 
@@ -66,6 +67,7 @@ class ModuleExportSurface:
         for bindings in (
             self.types_by_name,
             self.macros_by_name,
+            self.functions_by_name,
             self.procedures_by_name,
             self.workflows_by_name,
         ):
@@ -89,6 +91,7 @@ class ModuleImportScope:
     explicitly_imported_modules: frozenset[str]
     type_bindings: Mapping[str, ModuleMemberBinding]
     macro_bindings: Mapping[str, ModuleMemberBinding]
+    function_bindings: Mapping[str, ModuleMemberBinding]
     procedure_bindings: Mapping[str, ModuleMemberBinding]
     workflow_bindings: Mapping[str, ModuleMemberBinding]
     unqualified_type_bindings: Mapping[str, ModuleMemberBinding]
@@ -123,6 +126,25 @@ class ModuleImportScope:
             explicitly_imported_modules=self.explicitly_imported_modules,
             imported_bindings=self.procedure_bindings,
             kind_label="procedure",
+            span=span,
+            form_path=form_path,
+        )
+        if qualified is not None:
+            return qualified.canonical_name
+        return name
+
+    def resolve_function_name(self, name: str, *, span: SourceSpan, form_path: tuple[str, ...]) -> str:
+        """Resolve a helper call head to the canonical callable key."""
+
+        binding = self.function_bindings.get(name)
+        if binding is not None:
+            return binding.canonical_name
+        qualified = _resolve_qualified_binding(
+            name,
+            alias_to_module=self.alias_to_module,
+            explicitly_imported_modules=self.explicitly_imported_modules,
+            imported_bindings=self.function_bindings,
+            kind_label="function",
             span=span,
             form_path=form_path,
         )
@@ -280,6 +302,7 @@ def derive_export_surface(
     local_macros: MacroCatalog | None = None,
     local_module: WorkflowLispModule | None = None,
     procedure_names: tuple[str, ...] = (),
+    function_names: tuple[str, ...] = (),
     workflow_names: tuple[str, ...] = (),
     allow_unknown_exports: bool = False,
 ) -> ModuleExportSurface:
@@ -299,10 +322,11 @@ def derive_export_surface(
     }
     macro_catalog = local_macros or MacroCatalog(definitions_by_name={})
     local_form_names = {
+        "defun": set(function_names),
         "defproc": set(procedure_names),
         "defworkflow": set(workflow_names),
     }
-    if not procedure_names or not workflow_names:
+    if not function_names or not procedure_names or not workflow_names:
         for form in syntax_module.forms:
             items = form.items
             if len(items) < 2:
@@ -316,6 +340,7 @@ def derive_export_surface(
                 local_form_names[head].add(name)
     exported_types: dict[str, ModuleMemberBinding] = {}
     exported_macros: dict[str, ModuleMemberBinding] = {}
+    exported_functions: dict[str, ModuleMemberBinding] = {}
     exported_procedures: dict[str, ModuleMemberBinding] = {}
     exported_workflows: dict[str, ModuleMemberBinding] = {}
     seen_exports: set[str] = set()
@@ -348,6 +373,14 @@ def derive_export_surface(
                 canonical_name=exported_name,
             )
             continue
+        if exported_name in local_form_names["defun"]:
+            exported_functions[exported_name] = ModuleMemberBinding(
+                kind="function",
+                module_name=module_name,
+                member_name=exported_name,
+                canonical_name=canonical_callable_key(module_name, exported_name),
+            )
+            continue
         if exported_name in local_form_names["defproc"]:
             exported_procedures[exported_name] = ModuleMemberBinding(
                 kind="procedure",
@@ -369,7 +402,7 @@ def derive_export_surface(
                 (
                     LispFrontendDiagnostic(
                         code="module_export_missing",
-                        message=f"export `{exported_name}` is not a locally defined type, macro, procedure, or workflow",
+                        message=f"export `{exported_name}` is not a locally defined type, macro, function, procedure, or workflow",
                         span=syntax_module.export_directive.span if syntax_module.export_directive else syntax_module.span,
                         form_path=syntax_module.export_directive.form_path if syntax_module.export_directive else ("workflow-lisp",),
                     ),
@@ -379,6 +412,7 @@ def derive_export_surface(
         module_name=module_name,
         types_by_name=exported_types,
         macros_by_name=exported_macros,
+        functions_by_name=exported_functions,
         procedures_by_name=exported_procedures,
         workflows_by_name=exported_workflows,
     )
@@ -399,6 +433,7 @@ def build_import_scope(
     alias_to_module: dict[str, str] = {}
     type_bindings: dict[str, ModuleMemberBinding] = {}
     macro_bindings: dict[str, ModuleMemberBinding] = {}
+    function_bindings: dict[str, ModuleMemberBinding] = {}
     procedure_bindings: dict[str, ModuleMemberBinding] = {}
     workflow_bindings: dict[str, ModuleMemberBinding] = {}
     unqualified_type_bindings: dict[str, ModuleMemberBinding] = {}
@@ -427,7 +462,15 @@ def build_import_scope(
                     ),
                 )
             )
-        _register_alias_bindings(import_directive.alias, surface, type_bindings, macro_bindings, procedure_bindings, workflow_bindings)
+        _register_alias_bindings(
+            import_directive.alias,
+            surface,
+            type_bindings,
+            macro_bindings,
+            function_bindings,
+            procedure_bindings,
+            workflow_bindings,
+        )
         if not import_directive.only:
             continue
         for member_name in import_directive.only:
@@ -460,9 +503,24 @@ def build_import_scope(
                 continue
             target_bindings = {
                 "macro": macro_bindings,
+                "function": function_bindings,
                 "procedure": procedure_bindings,
                 "workflow": workflow_bindings,
             }[binding.kind]
+            if binding.kind in {"function", "procedure"}:
+                other_bindings = procedure_bindings if binding.kind == "function" else function_bindings
+                existing_other = other_bindings.get(member_name)
+                if existing_other is not None and existing_other.canonical_name != binding.canonical_name:
+                    raise LispFrontendCompileError(
+                        (
+                            LispFrontendDiagnostic(
+                                code="callable_name_collision",
+                                message=f"ambiguous callable name `{member_name}`",
+                                span=import_directive.span,
+                                form_path=import_directive.form_path,
+                            ),
+                        )
+                    )
             existing = target_bindings.get(member_name)
             if existing is not None and existing.canonical_name != binding.canonical_name:
                 raise LispFrontendCompileError(
@@ -482,6 +540,7 @@ def build_import_scope(
         explicitly_imported_modules=frozenset(import_directive.module_name for import_directive in module.imports),
         type_bindings=type_bindings,
         macro_bindings=macro_bindings,
+        function_bindings=function_bindings,
         procedure_bindings=procedure_bindings,
         workflow_bindings=workflow_bindings,
         unqualified_type_bindings=unqualified_type_bindings,
@@ -509,6 +568,7 @@ def _register_alias_bindings(
     surface: ModuleExportSurface,
     type_bindings: dict[str, ModuleMemberBinding],
     macro_bindings: dict[str, ModuleMemberBinding],
+    function_bindings: dict[str, ModuleMemberBinding],
     procedure_bindings: dict[str, ModuleMemberBinding],
     workflow_bindings: dict[str, ModuleMemberBinding],
 ) -> None:
@@ -518,6 +578,9 @@ def _register_alias_bindings(
     for member_name, binding in surface.macros_by_name.items():
         macro_bindings[f"{alias}.{member_name}"] = binding
         macro_bindings[f"{surface.module_name}/{member_name}"] = binding
+    for member_name, binding in surface.functions_by_name.items():
+        function_bindings[f"{alias}.{member_name}"] = binding
+        function_bindings[f"{surface.module_name}/{member_name}"] = binding
     for member_name, binding in surface.procedures_by_name.items():
         procedure_bindings[f"{alias}.{member_name}"] = binding
         procedure_bindings[f"{surface.module_name}/{member_name}"] = binding

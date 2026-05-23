@@ -1,4 +1,5 @@
 import importlib
+from dataclasses import fields, is_dataclass
 from dataclasses import replace
 from pathlib import Path
 
@@ -12,7 +13,7 @@ from orchestrator.workflow_lisp.compiler import (
     compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
-from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.lowering import lower_workflow_definitions, validate_lowered_workflows
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import (
@@ -1400,3 +1401,176 @@ def test_source_map_validate_one_lowered_workflow_attaches_structured_subject_re
     ] == [
         (("generated_output", "return__report", "command_checks"),),
     ]
+
+
+def test_compile_stage3_module_normalizes_function_calls_before_lowering(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        FIXTURES / "valid" / "defun_forward_ref.orc",
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    def walk(node: object):
+        yield node
+        if is_dataclass(node):
+            for field in fields(node):
+                yield from walk(getattr(node, field.name))
+            return
+        if isinstance(node, tuple):
+            for item in node:
+                yield from walk(item)
+
+    assert all(type(node).__name__ != "FunctionCallExpr" for node in walk(result.typed_workflows[0].typed_body))
+
+
+def test_compile_stage3_module_supports_helper_match_after_provider_binding(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "helper_match_after_provider_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defunion ImplementationState",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defun summarize",
+                "    ((attempt ImplementationState))",
+                "    -> ImplementationSummary",
+                "    (match attempt",
+                "      ((COMPLETED completed)",
+                "       (record ImplementationSummary",
+                "         :report completed.execution_report))",
+                "      ((BLOCKED blocked)",
+                "       (record ImplementationSummary",
+                "         :report blocked.progress_report))))",
+                "  (defworkflow orchestrate",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ImplementationState)))",
+                "      (summarize attempt))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert result.typed_workflows[0].definition.name == "orchestrate"
+
+
+def test_compile_stage3_module_supports_helper_alias_then_match_lowering(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "helper_alias_then_match.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defunion ImplementationState",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow orchestrate",
+                "    ((report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ImplementationState))",
+                "            (alias attempt))",
+                "      (match alias",
+                "        ((COMPLETED completed)",
+                "         (record ImplementationSummary",
+                "           :report completed.execution_report))",
+                "        ((BLOCKED blocked)",
+                "         (record ImplementationSummary",
+                "           :report blocked.progress_report))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert result.typed_workflows[0].definition.name == "orchestrate"
+
+
+def test_compile_stage3_module_renders_helper_provenance_notes_for_shared_validation_errors(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "helper_shared_validation_remap.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath EscapedReport",
+                "    :kind relpath",
+                '    :under "../escape"',
+                "    :must-exist true)",
+                "  (defrecord EscapedSummary",
+                "    (report EscapedReport))",
+                "  (defun summarize",
+                "    ((report_path EscapedReport))",
+                "    -> EscapedSummary",
+                "    (record EscapedSummary",
+                "      :report report_path))",
+                "  (defworkflow orchestrate",
+                "    ((report_path EscapedReport))",
+                "    -> EscapedSummary",
+                "    (summarize report_path)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    rendered = render_diagnostic(excinfo.value.diagnostics[0])
+
+    assert "helper call site at" in rendered
+    assert "helper definition at" in rendered

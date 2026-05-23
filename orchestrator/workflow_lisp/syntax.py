@@ -30,7 +30,16 @@ class ExpansionFrame:
     template_path: tuple[str, ...]
 
 
-ExpansionStack = tuple[ExpansionFrame, ...]
+@dataclass(frozen=True)
+class HelperExpansionFrame:
+    """One helper-normalization provenance frame."""
+
+    function_name: str
+    call_span: SourceSpan
+    definition_span: SourceSpan
+
+
+ExpansionStack = tuple[object, ...]
 
 
 @dataclass(frozen=True)

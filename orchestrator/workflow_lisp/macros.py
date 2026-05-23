@@ -38,6 +38,7 @@ _RESERVED_MACRO_NAMES = frozenset(
         "defrecord",
         "defunion",
         "defworkflow",
+        "defun",
         "defproc",
         "defmodule",
         "import",
@@ -69,6 +70,7 @@ _ALLOWED_TOP_LEVEL_HEADS = frozenset(
         "defrecord",
         "defunion",
         "defworkflow",
+        "defun",
         "defproc",
     }
 )

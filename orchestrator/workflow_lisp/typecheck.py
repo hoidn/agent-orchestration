@@ -28,6 +28,7 @@ from .expressions import (
     ExprNode,
     FinalizeSelectedItemExpr,
     FieldAccessExpr,
+    FunctionCallExpr,
     LetStarExpr,
     LiteralExpr,
     MatchExpr,
@@ -72,6 +73,7 @@ from .type_env import (
 )
 
 if TYPE_CHECKING:
+    from .functions import FunctionCatalog
     from .workflows import (
         CertifiedAdapterBinding,
         CommandBoundaryEnvironment,
@@ -94,6 +96,7 @@ class TypedExpr:
 
 
 ValueEnvironment = Mapping[str, TypeRef]
+_ACTIVE_FUNCTION_CATALOG = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +123,7 @@ def typecheck_expression(
     proof_scope: ProofScope | None = None,
     workflow_catalog: "WorkflowCatalog | None" = None,
     procedure_catalog: "ProcedureCatalog | None" = None,
+    function_catalog: "FunctionCatalog | None" = None,
     extern_environment: "ExternEnvironment | None" = None,
     command_boundary_environment: "CommandBoundaryEnvironment | None" = None,
     active_phase_scope: PhaseScope | None = None,
@@ -128,20 +132,27 @@ def typecheck_expression(
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
+    global _ACTIVE_FUNCTION_CATALOG
+
     active_proof = proof_scope or ProofScope(facts={})
-    return _typecheck(
-        expr,
-        type_env=type_env,
-        value_env=dict(value_env),
-        proof_scope=active_proof,
-        workflow_catalog=workflow_catalog,
-        procedure_catalog=procedure_catalog,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-        active_phase_scope=active_phase_scope,
-        procedure_effects_by_name=procedure_effects_by_name or {},
-        workflow_effects_by_name=workflow_effects_by_name or {},
-    )
+    previous_function_catalog = _ACTIVE_FUNCTION_CATALOG
+    _ACTIVE_FUNCTION_CATALOG = function_catalog
+    try:
+        return _typecheck(
+            expr,
+            type_env=type_env,
+            value_env=dict(value_env),
+            proof_scope=active_proof,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name or {},
+            workflow_effects_by_name=workflow_effects_by_name or {},
+        )
+    finally:
+        _ACTIVE_FUNCTION_CATALOG = previous_function_catalog
 
 
 def _typecheck(
@@ -535,6 +546,53 @@ def _typecheck(
             expr=expr,
             type_ref=signature.return_type_ref,
             effect=merge_effect_summaries(*arg_summaries, procedure_summary),
+        )
+    if isinstance(expr, FunctionCallExpr):
+        if _ACTIVE_FUNCTION_CATALOG is None:
+            raise TypeError("function_catalog is required for FunctionCallExpr typechecking")
+        signature = _ACTIVE_FUNCTION_CATALOG.signatures_by_name.get(expr.callee_name)
+        if signature is None:
+            _raise_error(
+                f"unknown function callee `{expr.callee_name}`",
+                code="function_call_unknown",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        if len(expr.args) != len(signature.params):
+            _raise_error(
+                f"function `{expr.callee_name}` expected {len(signature.params)} positional arguments but got {len(expr.args)}",
+                code="function_arity_mismatch",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        arg_summaries: list[EffectSummary] = []
+        for arg_expr, (param_name, expected_type) in zip(expr.args, signature.params, strict=True):
+            typed_arg = _typecheck(
+                arg_expr,
+                type_env=type_env,
+                value_env=value_env,
+                proof_scope=proof_scope,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                active_phase_scope=active_phase_scope,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+            )
+            arg_summaries.append(typed_arg.effect_summary)
+            if typed_arg.type_ref != expected_type:
+                _raise_error(
+                    f"function argument `{param_name}` expected `{_type_label(expected_type)}`"
+                    f" but got `{_type_label(typed_arg.type_ref)}`",
+                    code="type_mismatch",
+                    span=arg_expr.span,
+                    form_path=arg_expr.form_path,
+                )
+        return _typed(
+            expr=expr,
+            type_ref=signature.return_type_ref,
+            effect=merge_effect_summaries(*arg_summaries),
         )
     if isinstance(expr, WithPhaseExpr):
         if active_phase_scope is not None:

@@ -45,6 +45,17 @@ from .expressions import (
     WithPhaseExpr,
     elaborate_expression,
 )
+from .functions import (
+    FunctionCatalog,
+    FunctionDef,
+    FunctionSignature,
+    TypedFunctionDef,
+    build_function_catalog,
+    elaborate_function_definitions,
+    normalize_function_calls,
+    typecheck_function_definitions,
+    validate_function_cycles,
+)
 from .lowering import lower_workflow_definitions, validate_lowered_workflows
 from .macros import collect_macro_catalog, collect_macro_catalog_with_imports, expand_module_forms
 from .modules import (
@@ -605,7 +616,9 @@ def _run_stage3_validation_pipeline(
         _validate_definition_module(module)
         type_env = FrontendTypeEnvironment.from_module(module)
         workflow_defs = elaborate_workflow_definitions(state.expanded_syntax_module)
+        function_defs = elaborate_function_definitions(state.expanded_syntax_module)
         procedure_defs = elaborate_procedure_definitions(state.expanded_syntax_module)
+        _validate_local_callable_name_collisions(function_defs, procedure_defs)
         workflow_catalog = build_workflow_catalog(
             module,
             workflow_defs,
@@ -613,6 +626,7 @@ def _run_stage3_validation_pipeline(
             imported_workflow_bundles=effective_imported_workflow_bundles,
         )
         procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+        function_catalog = build_function_catalog(function_defs, type_env=type_env)
         extern_environment = build_extern_environment(
             provider_externs=provider_externs,
             prompt_externs=prompt_externs,
@@ -626,6 +640,17 @@ def _run_stage3_validation_pipeline(
             expressions=tuple(workflow.body for workflow in workflow_defs)
             + tuple(procedure.body for procedure in procedure_defs),
         )
+        typed_functions = typecheck_function_definitions(
+            function_defs,
+            type_env=type_env,
+            function_catalog=function_catalog,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+        )
+        function_catalog = validate_function_cycles(
+            typed_functions,
+            function_catalog=function_catalog,
+        )
         typed_procedures, typed_workflows, resolved_procedure_catalog = (
             _infer_stage3_effect_summaries(
                 procedure_defs,
@@ -633,9 +658,34 @@ def _run_stage3_validation_pipeline(
                 type_env=type_env,
                 workflow_catalog=workflow_catalog,
                 procedure_catalog=procedure_catalog,
+                function_catalog=function_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
             )
+        )
+        typed_functions_by_name = {
+            function.definition.name: function
+            for function in typed_functions
+        }
+        typed_procedures = tuple(
+            replace(
+                procedure,
+                typed_body=normalize_function_calls(
+                    procedure.typed_body,
+                    typed_functions_by_name=typed_functions_by_name,
+                ),
+            )
+            for procedure in typed_procedures
+        )
+        typed_workflows = tuple(
+            replace(
+                workflow,
+                typed_body=normalize_function_calls(
+                    workflow.typed_body,
+                    typed_functions_by_name=typed_functions_by_name,
+                ),
+            )
+            for workflow in typed_workflows
         )
         return replace(
             state,
@@ -854,8 +904,10 @@ def _compile_stage3_graph(
     export_surfaces = dict(graph.export_surfaces_by_name)
     exported_type_refs_by_module: dict[str, dict[str, TypeRef]] = {}
     exported_macro_defs_by_module: dict[str, dict[str, object]] = {}
+    exported_function_signatures_by_module: dict[str, dict[str, FunctionSignature]] = {}
     exported_procedure_signatures_by_module: dict[str, dict[str, ProcedureSignature]] = {}
     exported_workflow_signatures_by_module: dict[str, dict[str, WorkflowSignature]] = {}
+    typed_functions_by_name: dict[str, TypedFunctionDef] = {}
     typed_procedures_by_name: dict[str, TypedProcedureDef] = {}
     procedure_effects_by_name: dict[str, EffectSummary] = {}
     workflow_effects_by_name: dict[str, EffectSummary] = {}
@@ -892,16 +944,23 @@ def _compile_stage3_graph(
         )
         _validate_definition_module(definition_module)
 
+        raw_function_defs = elaborate_function_definitions(expanded_syntax)
         raw_procedure_defs = elaborate_procedure_definitions(expanded_syntax)
         raw_workflow_defs = elaborate_workflow_definitions(expanded_syntax)
         export_surfaces[module_name] = derive_export_surface(
             expanded_syntax,
             local_macros=collect_macro_catalog(module_source.syntax_module),
             local_module=definition_module,
+            function_names=tuple(function.name for function in raw_function_defs),
             procedure_names=tuple(procedure.name for procedure in raw_procedure_defs),
             workflow_names=tuple(workflow.name for workflow in raw_workflow_defs),
         )
         import_scope = build_import_scope(definition_module, export_surfaces_by_name=export_surfaces)
+        _validate_visible_callable_name_collisions(
+            function_defs=raw_function_defs,
+            procedure_defs=raw_procedure_defs,
+            import_scope=import_scope,
+        )
 
         imported_type_refs = _imported_type_refs(import_scope, exported_type_refs_by_module)
         type_env = FrontendTypeEnvironment.from_module(
@@ -909,8 +968,14 @@ def _compile_stage3_graph(
             import_scope=import_scope,
             imported_type_refs=imported_type_refs,
         )
+        function_defs = _canonicalize_function_defs(module_name, raw_function_defs)
         procedure_defs = _canonicalize_procedure_defs(module_name, raw_procedure_defs)
         workflow_defs = _canonicalize_workflow_defs(module_name, raw_workflow_defs)
+        function_lookup_aliases = _local_callable_lookup_aliases(
+            module_name,
+            raw_names=tuple(function.name for function in raw_function_defs),
+            imported_bindings=import_scope.function_bindings,
+        )
         procedure_lookup_aliases = _local_callable_lookup_aliases(
             module_name,
             raw_names=tuple(procedure.name for procedure in raw_procedure_defs),
@@ -924,6 +989,10 @@ def _compile_stage3_graph(
         imported_procedure_signatures = _imported_procedure_signatures(
             import_scope,
             exported_procedure_signatures_by_module,
+        )
+        imported_function_signatures = _imported_function_signatures(
+            import_scope,
+            exported_function_signatures_by_module,
         )
         imported_workflow_signatures = _imported_workflow_signatures(
             import_scope,
@@ -941,6 +1010,12 @@ def _compile_stage3_graph(
             imported_signatures=imported_workflow_signatures,
             lookup_aliases=workflow_lookup_aliases,
             imported_workflow_bundles=effective_imported_bundles,
+        )
+        function_catalog = build_function_catalog(
+            function_defs,
+            type_env=type_env,
+            imported_signatures=imported_function_signatures,
+            lookup_aliases=function_lookup_aliases,
         )
         procedure_catalog = build_procedure_catalog(
             procedure_defs,
@@ -961,6 +1036,11 @@ def _compile_stage3_graph(
             expressions=tuple(workflow.body for workflow in workflow_defs)
             + tuple(procedure.body for procedure in procedure_defs),
         )
+        local_function_resolver = _function_name_resolver(
+            module_name,
+            import_scope,
+            local_raw_names=frozenset(function.name for function in raw_function_defs),
+        )
         local_procedure_resolver = _procedure_name_resolver(
             module_name,
             import_scope,
@@ -972,18 +1052,72 @@ def _compile_stage3_graph(
             local_raw_names=frozenset(workflow.name for workflow in raw_workflow_defs),
             external_workflow_names=frozenset(effective_imported_bundles),
         )
+        typed_functions = typecheck_function_definitions(
+            function_defs,
+            type_env=type_env,
+            function_catalog=function_catalog,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            function_name_resolver=local_function_resolver,
+            procedure_name_resolver=local_procedure_resolver,
+            workflow_name_resolver=local_workflow_resolver,
+        )
+        function_catalog = validate_function_cycles(
+            typed_functions,
+            function_catalog=function_catalog,
+        )
+        combined_typed_functions = {
+            **typed_functions_by_name,
+            **{function.definition.name: function for function in typed_functions},
+        }
+        typed_functions = tuple(
+            replace(
+                function,
+                typed_body=normalize_function_calls(
+                    function.typed_body,
+                    typed_functions_by_name=combined_typed_functions,
+                ),
+            )
+            for function in typed_functions
+        )
+        combined_typed_functions = {
+            **typed_functions_by_name,
+            **{function.definition.name: function for function in typed_functions},
+        }
         typed_procedures, typed_workflows, procedure_catalog = _infer_stage3_effect_summaries(
             procedure_defs,
             workflow_defs=workflow_defs,
             type_env=type_env,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
+            function_catalog=function_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            function_name_resolver=local_function_resolver,
             procedure_name_resolver=local_procedure_resolver,
             workflow_name_resolver=local_workflow_resolver,
+        )
+        typed_procedures = tuple(
+            replace(
+                procedure,
+                typed_body=normalize_function_calls(
+                    procedure.typed_body,
+                    typed_functions_by_name=combined_typed_functions,
+                ),
+            )
+            for procedure in typed_procedures
+        )
+        typed_workflows = tuple(
+            replace(
+                workflow,
+                typed_body=normalize_function_calls(
+                    workflow.typed_body,
+                    typed_functions_by_name=combined_typed_functions,
+                ),
+            )
+            for workflow in typed_workflows
         )
         combined_typed_procedures = {
             **typed_procedures_by_name,
@@ -1038,6 +1172,10 @@ def _compile_stage3_graph(
             for name, macro_def in collect_macro_catalog(module_source.syntax_module).definitions_by_name.items()
             if name in export_surfaces[module_name].macros_by_name
         }
+        exported_function_signatures_by_module[module_name] = {
+            name: function_catalog.signatures_by_name[binding.canonical_name]
+            for name, binding in export_surfaces[module_name].functions_by_name.items()
+        }
         exported_procedure_signatures_by_module[module_name] = {
             name: procedure_catalog.signatures_by_name[binding.canonical_name]
             for name, binding in export_surfaces[module_name].procedures_by_name.items()
@@ -1049,6 +1187,8 @@ def _compile_stage3_graph(
         for procedure in typed_procedures:
             typed_procedures_by_name[procedure.definition.name] = procedure
             procedure_effects_by_name[procedure.definition.name] = procedure.transitive_effect_summary
+        for function in typed_functions:
+            typed_functions_by_name[function.definition.name] = function
         for workflow in typed_workflows:
             workflow_effects_by_name[workflow.definition.name] = workflow.effect_summary
         if validated_exports:
@@ -1077,7 +1217,7 @@ def _definition_only_from_expanded_syntax_module(
     definition_forms = []
     for form in module_syntax.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
-        if head_name in {"defworkflow", "defproc", "defmacro"}:
+        if head_name in {"defworkflow", "defun", "defproc", "defmacro"}:
             continue
         definition_forms.append(form)
     return WorkflowLispSyntaxModule(
@@ -1101,6 +1241,18 @@ def _canonicalize_procedure_defs(
     return tuple(
         replace(procedure_def, name=canonical_callable_key(module_name, procedure_def.name))
         for procedure_def in procedure_defs
+    )
+
+
+def _canonicalize_function_defs(
+    module_name: str,
+    function_defs: tuple[FunctionDef, ...],
+) -> tuple[FunctionDef, ...]:
+    """Qualify local helper names with their module name."""
+
+    return tuple(
+        replace(function_def, name=canonical_callable_key(module_name, function_def.name))
+        for function_def in function_defs
     )
 
 
@@ -1182,6 +1334,20 @@ def _imported_procedure_signatures(
     return imported
 
 
+def _imported_function_signatures(
+    import_scope: ModuleImportScope,
+    exported_by_module: Mapping[str, Mapping[str, FunctionSignature]],
+) -> dict[str, FunctionSignature]:
+    """Collect helper signatures visible through imports."""
+
+    imported: dict[str, FunctionSignature] = {}
+    for binding in import_scope.function_bindings.values():
+        signature = exported_by_module.get(binding.module_name, {}).get(binding.member_name)
+        if signature is not None:
+            imported[binding.canonical_name] = signature
+    return imported
+
+
 def _imported_workflow_signatures(
     import_scope: ModuleImportScope,
     exported_by_module: Mapping[str, Mapping[str, WorkflowSignature]],
@@ -1245,6 +1411,31 @@ def _procedure_name_resolver(
             resolved = canonical_callable_key(module_name, name)
         else:
             resolved = import_scope.resolve_procedure_name(name, span=span, form_path=form_path)
+            if resolved == name:
+                resolved = canonical_callable_key(module_name, name)
+        local_names[name] = resolved
+        return resolved
+
+    return resolve
+
+
+def _function_name_resolver(
+    module_name: str,
+    import_scope: ModuleImportScope,
+    *,
+    local_raw_names: frozenset[str],
+):
+    """Return a resolver that maps helper call syntax to canonical names."""
+
+    local_names: dict[str, str] = {}
+
+    def resolve(name: str, span, form_path):
+        if name in local_names:
+            return local_names[name]
+        if name in local_raw_names:
+            resolved = canonical_callable_key(module_name, name)
+        else:
+            resolved = import_scope.resolve_function_name(name, span=span, form_path=form_path)
             if resolved == name:
                 resolved = canonical_callable_key(module_name, name)
         local_names[name] = resolved
@@ -1433,6 +1624,74 @@ def _resume_return_type_names(expr) -> tuple[str, ...]:
     return ()
 
 
+def _validate_local_callable_name_collisions(
+    function_defs: tuple[FunctionDef, ...],
+    procedure_defs: tuple[ProcedureDef, ...],
+) -> None:
+    """Reject same-file helper/procedure direct-head collisions."""
+
+    function_by_name = {function.name: function for function in function_defs}
+    for procedure_def in procedure_defs:
+        function_def = function_by_name.get(procedure_def.name)
+        if function_def is None:
+            continue
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="callable_name_collision",
+                    message=f"callable name `{procedure_def.name}` is defined as both a function and procedure",
+                    span=procedure_def.span,
+                    form_path=procedure_def.form_path,
+                    expansion_stack=procedure_def.expansion_stack,
+                ),
+            )
+        )
+
+
+def _validate_visible_callable_name_collisions(
+    *,
+    function_defs: tuple[FunctionDef, ...],
+    procedure_defs: tuple[ProcedureDef, ...],
+    import_scope: ModuleImportScope,
+) -> None:
+    """Reject helper/procedure collisions in the visible direct-head namespace."""
+
+    _validate_local_callable_name_collisions(function_defs, procedure_defs)
+
+    local_function_names = {function.name for function in function_defs}
+    local_procedure_names = {procedure.name for procedure in procedure_defs}
+    for name in local_function_names & {
+        binding_name
+        for binding_name in import_scope.procedure_bindings
+        if "." not in binding_name and "/" not in binding_name
+    }:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="callable_name_collision",
+                    message=f"local function `{name}` collides with an imported procedure of the same name",
+                    span=next(function.span for function in function_defs if function.name == name),
+                    form_path=next(function.form_path for function in function_defs if function.name == name),
+                ),
+            )
+        )
+    for name in local_procedure_names & {
+        binding_name
+        for binding_name in import_scope.function_bindings
+        if "." not in binding_name and "/" not in binding_name
+    }:
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="callable_name_collision",
+                    message=f"local procedure `{name}` collides with an imported function of the same name",
+                    span=next(procedure.span for procedure in procedure_defs if procedure.name == name),
+                    form_path=next(procedure.form_path for procedure in procedure_defs if procedure.name == name),
+                ),
+            )
+        )
+
+
 def _validate_definition_module(module: WorkflowLispModule) -> None:
     """Validate definition names and type references for one module."""
 
@@ -1556,7 +1815,7 @@ def _definition_form_path(definition: EnumDef | PathDef | RecordDef | UnionDef) 
 def _validate_stage1_top_level_forms(module_syntax: WorkflowLispSyntaxModule) -> None:
     """Reject executable top-level forms in definition-only compilation."""
 
-    allowed_heads = {"defenum", "defpath", "defrecord", "defunion", "defworkflow", "defproc"}
+    allowed_heads = {"defenum", "defpath", "defrecord", "defunion", "defworkflow", "defun", "defproc"}
     for form in module_syntax.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
         if head_name not in allowed_heads:
@@ -1584,7 +1843,7 @@ def _definition_only_syntax_module(module_syntax: WorkflowLispSyntaxModule) -> W
     definition_forms = []
     for form in expanded_module.forms:
         head_name = syntax_head_name(syntax_node_datum(form))
-        if head_name in {"defworkflow", "defproc", "defmacro"}:
+        if head_name in {"defworkflow", "defun", "defproc", "defmacro"}:
             continue
         definition_forms.append(form)
     return WorkflowLispSyntaxModule(
@@ -1605,10 +1864,12 @@ def _typecheck_procedure_definitions(
     type_env: FrontendTypeEnvironment,
     workflow_catalog: object,
     procedure_catalog: ProcedureCatalog,
+    function_catalog: FunctionCatalog | None = None,
     extern_environment: object,
     command_boundary_environment: object,
     procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
 ) -> tuple[TypedProcedureDef, ...]:
@@ -1638,6 +1899,12 @@ def _typecheck_procedure_definitions(
             procedure_def.body,
             bound_names=frozenset(value_env),
             procedure_names=frozenset(procedure_catalog.signatures_by_name),
+            function_names=(
+                frozenset()
+                if function_catalog is None
+                else frozenset(function_catalog.signatures_by_name)
+            ),
+            function_name_resolver=function_name_resolver,
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
         )
@@ -1647,6 +1914,7 @@ def _typecheck_procedure_definitions(
             value_env=value_env,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
+            function_catalog=function_catalog,
             extern_environment=externs,
             command_boundary_environment=command_boundary_environment,
             procedure_effects_by_name=procedure_effects_by_name,
@@ -1686,10 +1954,12 @@ def _infer_stage3_effect_summaries(
     type_env: FrontendTypeEnvironment,
     workflow_catalog: object,
     procedure_catalog: ProcedureCatalog,
+    function_catalog: FunctionCatalog | None = None,
     extern_environment: object,
     command_boundary_environment: object,
     procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
@@ -1707,10 +1977,12 @@ def _infer_stage3_effect_summaries(
             type_env=type_env,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
+            function_catalog=function_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            function_name_resolver=function_name_resolver,
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
         )
@@ -1727,10 +1999,12 @@ def _infer_stage3_effect_summaries(
             type_env=type_env,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
+            function_catalog=function_catalog,
             extern_environment=extern_environment,
             command_boundary_environment=command_boundary_environment,
             procedure_effects_by_name=next_procedure_effects,
             workflow_effects_by_name=workflow_effects_by_name,
+            function_name_resolver=function_name_resolver,
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
         )
@@ -1759,10 +2033,12 @@ def _infer_stage3_effect_summaries(
         type_env=type_env,
         workflow_catalog=workflow_catalog,
         procedure_catalog=procedure_catalog,
+        function_catalog=function_catalog,
         extern_environment=extern_environment,
         command_boundary_environment=command_boundary_environment,
         procedure_effects_by_name=procedure_effects_by_name,
         workflow_effects_by_name=workflow_effects_by_name,
+        function_name_resolver=function_name_resolver,
         procedure_name_resolver=procedure_name_resolver,
         workflow_name_resolver=workflow_name_resolver,
     )

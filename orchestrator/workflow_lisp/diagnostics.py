@@ -103,6 +103,9 @@ _TYPE_CODES = frozenset(
         "record_field_missing",
         "union_variant_unknown",
         "union_match_non_exhaustive",
+        "function_call_unknown",
+        "function_arity_mismatch",
+        "function_return_type_invalid",
         "procedure_return_type_invalid",
         "workflow_call_unknown",
     }
@@ -119,12 +122,14 @@ _LOWERING_SURFACE_CODES = frozenset(
 _MODULE_CODES = frozenset(
     {
         "definition_duplicate",
+        "function_definition_duplicate",
         "record_field_duplicate",
         "union_variant_duplicate",
         "module_not_found",
         "module_cycle",
         "module_export_missing",
         "module_import_ambiguous",
+        "callable_name_collision",
         "definition_form_unknown",
         "target_dsl_unsupported",
         "language_version_unsupported",
@@ -133,6 +138,7 @@ _MODULE_CODES = frozenset(
 _EFFECT_CODES = frozenset(
     {
         "pure_function_has_effect",
+        "function_cycle",
         "macro_has_effect",
         "effect_not_declared",
         "effect_not_permitted",
@@ -241,10 +247,11 @@ def _render_expansion_notes(expansion_stack: tuple[object, ...]) -> tuple[str, .
     notes: list[str] = []
     for frame in expansion_stack:
         macro_name = getattr(frame, "macro_name", None)
+        function_name = getattr(frame, "function_name", None)
         expansion_id = getattr(frame, "expansion_id", None)
         call_span = getattr(frame, "call_span", None)
         definition_span = getattr(frame, "definition_span", None)
-        if macro_name is None or call_span is None or definition_span is None:
+        if call_span is None or definition_span is None:
             continue
         call_location = (
             f"{call_span.start.path}:{call_span.start.line}:{call_span.start.column}"
@@ -252,13 +259,18 @@ def _render_expansion_notes(expansion_stack: tuple[object, ...]) -> tuple[str, .
         definition_location = (
             f"{definition_span.start.path}:{definition_span.start.line}:{definition_span.start.column}"
         )
-        if expansion_id:
-            notes.append(
-                f"expanded from macro `{macro_name}` call at {call_location} ({expansion_id})"
-            )
-        else:
-            notes.append(f"expanded from macro `{macro_name}` call at {call_location}")
-        notes.append(f"macro definition at {definition_location}")
+        if macro_name is not None:
+            if expansion_id:
+                notes.append(
+                    f"expanded from macro `{macro_name}` call at {call_location} ({expansion_id})"
+                )
+            else:
+                notes.append(f"expanded from macro `{macro_name}` call at {call_location}")
+            notes.append(f"macro definition at {definition_location}")
+            continue
+        if function_name is not None:
+            notes.append(f"helper call site at {call_location} (`{function_name}`)")
+            notes.append(f"helper definition at {definition_location}")
     return tuple(notes)
 
 
@@ -267,6 +279,7 @@ def _serialize_expansion_frame(frame: object) -> dict[str, object]:
     definition_span = getattr(frame, "definition_span", None)
     payload: dict[str, object] = {
         "macro_name": getattr(frame, "macro_name", None),
+        "function_name": getattr(frame, "function_name", None),
         "expansion_id": getattr(frame, "expansion_id", None),
     }
     if call_span is not None:

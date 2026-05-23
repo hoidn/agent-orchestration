@@ -44,6 +44,7 @@ from .typecheck import TypedExpr, typecheck_expression
 
 if TYPE_CHECKING:
     from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
+    from .functions import FunctionCatalog
     from .lowering import LoweredWorkflow
     from .procedures import TypedProcedureDef
 
@@ -611,10 +612,12 @@ def typecheck_workflow_definitions(
     type_env: FrontendTypeEnvironment,
     workflow_catalog: WorkflowCatalog,
     procedure_catalog: ProcedureCatalog | None = None,
+    function_catalog: "FunctionCatalog | None" = None,
     extern_environment: ExternEnvironment | None = None,
     command_boundary_environment: CommandBoundaryEnvironment | None = None,
     procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
 ) -> tuple[TypedWorkflowDef, ...]:
@@ -653,6 +656,12 @@ def typecheck_workflow_definitions(
             workflow_def.body,
             bound_names=frozenset(value_env),
             procedure_names=procedure_names,
+            function_names=(
+                frozenset()
+                if function_catalog is None
+                else frozenset(function_catalog.signatures_by_name)
+            ),
+            function_name_resolver=function_name_resolver,
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
         )
@@ -662,6 +671,7 @@ def typecheck_workflow_definitions(
             value_env=value_env,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
+            function_catalog=function_catalog,
             extern_environment=externs,
             command_boundary_environment=command_boundaries,
             procedure_effects_by_name=procedure_effects_by_name,
