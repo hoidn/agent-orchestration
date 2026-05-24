@@ -110,6 +110,32 @@ def _command_boundaries():
                 fixture_ids=("resource_transition_ok",),
                 negative_fixture_ids=("resource_transition_bad",),
             ),
+            "validate_reusable_phase_state": CertifiedAdapterBinding(
+                name="validate_reusable_phase_state",
+                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.validate_reusable_phase_state"),
+                input_contract={"type": "object"},
+                output_type_name="ResumeReuseDecision",
+                effects=("resume_state_reuse", "structured_result"),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("resume_state_reuse_valid",),
+                negative_fixture_ids=(
+                    "resume_state_pointer_authority_forbidden",
+                    "resume_state_contract_fingerprint_mismatch",
+                    "resume_state_bundle_schema_invalid",
+                ),
+            ),
+            "load_canonical_phase_result__PlanGateResult": CertifiedAdapterBinding(
+                name="load_canonical_phase_result__PlanGateResult",
+                stable_command=("python", "-m", "orchestrator.workflow_lisp.adapters.load_canonical_phase_result"),
+                input_contract={"type": "object"},
+                output_type_name="PlanGateResult",
+                effects=("structured_result",),
+                path_safety={"kind": "workspace_relpath"},
+                source_map_behavior="step",
+                fixture_ids=("resume_state_load_PlanGateResult",),
+                negative_fixture_ids=("resume_state_loader_schema_invalid",),
+            ),
         }
     )
 
@@ -177,7 +203,7 @@ def test_neurips_plan_gate_resume_lowers_and_validates(tmp_path: Path) -> None:
         for workflow in result.lowered_workflows
         if workflow.typed_workflow.definition.name == "resume-plan-gate"
     )
-    branch_step = next(step for step in authored["steps"] if step.get("name", "").endswith("__select_bundle"))
+    branch_step = next(step for step in authored["steps"] if step.get("name") == "resume-plan-gate__result")
     start_steps = branch_step["match"]["cases"]["START"]["steps"]
 
     assert any(step.get("call") == "plan-run" for step in _iter_nested_steps(start_steps))

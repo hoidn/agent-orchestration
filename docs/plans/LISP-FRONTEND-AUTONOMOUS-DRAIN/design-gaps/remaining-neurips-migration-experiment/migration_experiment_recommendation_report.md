@@ -36,12 +36,12 @@ The YAML baselines are:
 
 - Behavioral equivalence status: `PASS`.
 - Behavioral evidence commands:
-  - `python -m pytest tests/test_workflow_lisp_stage7_translation.py -k neurips_plan_gate_resume or neurips_selected_item or neurips_remaining_drain or run_item_boundary -q` -> exit `0`; `8 passed in 0.19s`
-  - `python -m pytest tests/test_workflow_lisp_phase_stdlib.py -k resume_or_start or union_start_workflow_call -q` -> exit `0`; `9 passed, 22 deselected in 0.17s`
-  - `python -m pytest tests/test_workflow_lisp_resource_stdlib.py -k finalize_selected_item -q` -> exit `0`; `5 passed, 12 deselected in 0.15s`
-  - `python -m pytest tests/test_workflow_lisp_drain_stdlib.py -k backlog_drain or run_item_contract or providers_rebinding -q` -> exit `0`; `3 passed, 10 deselected in 0.14s`
-  - `python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py -k selected_item_fresh_plan or selected_item_reuses_approved_plan -q` -> exit `0`; `2 passed, 14 deselected in 2.26s`
-  - `python -m pytest tests/test_neurips_steered_backlog_runtime.py -k drain_continues_to_next_iteration or drain_gap_draft or drain_blocked -q` -> exit `0`; `3 passed, 6 deselected in 4.14s`
+  - `python -m pytest tests/test_workflow_lisp_stage7_translation.py -k neurips_plan_gate_resume or neurips_selected_item or neurips_remaining_drain or run_item_boundary -q` -> exit `0`; `8 passed in 0.27s`
+  - `python -m pytest tests/test_workflow_lisp_phase_stdlib.py -k resume_or_start or union_start_workflow_call -q` -> exit `0`; `12 passed, 34 deselected in 0.25s`
+  - `python -m pytest tests/test_workflow_lisp_resource_stdlib.py -k finalize_selected_item -q` -> exit `0`; `5 passed, 15 deselected in 0.20s`
+  - `python -m pytest tests/test_workflow_lisp_drain_stdlib.py -k backlog_drain or run_item_contract or providers_rebinding -q` -> exit `0`; `3 passed, 10 deselected in 0.20s`
+  - `python -m pytest tests/test_lisp_frontend_autonomous_drain_runtime.py -k selected_item_fresh_plan or selected_item_reuses_approved_plan -q` -> exit `0`; `2 passed, 15 deselected in 2.09s`
+  - `python -m pytest tests/test_neurips_steered_backlog_runtime.py -k drain_continues_to_next_iteration or drain_gap_draft or drain_blocked -q` -> exit `0`; `3 passed, 6 deselected in 3.77s`
 - Remaining imported YAML migration debt:
   - `roadmap-sync` -> `workflows/library/neurips_backlog_roadmap_sync.v214.yaml`. Stage 7 selected-item still relies on the YAML roadmap-sync phase surface.
   - `implementation-phase` -> `workflows/library/neurips_backlog_implementation_phase.v214.yaml`. Stage 7 reuses the YAML implementation-phase wrapper around the translated implementation-attempt core.

@@ -668,6 +668,7 @@ def test_compile_stage3_module_rejects_literal_only_match_exports(tmp_path: Path
                 '    :under "artifacts/work"',
                 "    :must-exist true)",
                 "  (defrecord ImplementationSummary",
+                "    (status String)",
                 "    (report WorkReport))",
                 "  (defunion ImplementationState",
                 "    (COMPLETED",

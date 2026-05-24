@@ -112,6 +112,11 @@ artifacts:
     pointer: ${inputs.state_root}/execution_report_path.txt
     under: artifacts/work
     must_exist_target: true
+  progress_report_target:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/progress_report_target_path.txt
+    under: artifacts/work
   progress_report:
     kind: relpath
     type: relpath
@@ -199,6 +204,8 @@ steps:
         from: check_commands_path
       - artifact: execution_report_target
         from: execution_report_target_path
+      - artifact: progress_report_target
+        from: progress_report_target_path
 
   - name: ExecuteImplementation
     id: execute_implementation
@@ -221,7 +228,10 @@ steps:
       - artifact: execution_report_target
         policy: latest_successful
         freshness: any
-    prompt_consumes: ["full_design", "mvp_design", "plan", "check_commands", "execution_report_target"]
+      - artifact: progress_report_target
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["full_design", "mvp_design", "plan", "check_commands", "execution_report_target", "progress_report_target"]
     variant_output:
       path: ${inputs.state_root}/implementation_state.json
       discriminant:
@@ -231,19 +241,9 @@ steps:
         allowed: ["COMPLETED", "BLOCKED"]
       variants:
         COMPLETED:
-          fields:
-            - name: execution_report_path
-              json_pointer: /execution_report_path
-              type: relpath
-              under: artifacts/work
-              must_exist_target: true
+          fields: []
         BLOCKED:
           fields:
-            - name: progress_report_path
-              json_pointer: /progress_report_path
-              type: relpath
-              under: artifacts/work
-              must_exist_target: true
             - name: blocker_class
               json_pointer: /blocker_class
               type: enum
@@ -279,7 +279,7 @@ steps:
             raise SystemExit(f"Execution report target does not exist: {target}")
         pointer.parent.mkdir(parents=True, exist_ok=True)
         pointer.write_text(target.as_posix() + "\n", encoding="utf-8")
-      - ${steps.ExecuteImplementation.artifacts.execution_report_path}
+      - ${inputs.execution_report_target_path}
       - ${inputs.state_root}/execution_report_path.txt
     expected_outputs:
       - name: execution_report_path
@@ -315,7 +315,7 @@ steps:
             raise SystemExit(f"Blocked progress report target does not exist: {target}")
         pointer.parent.mkdir(parents=True, exist_ok=True)
         pointer.write_text(target.as_posix() + "\n", encoding="utf-8")
-      - ${steps.ExecuteImplementation.artifacts.progress_report_path}
+      - ${inputs.progress_report_target_path}
       - ${inputs.state_root}/progress_report_path.txt
     expected_outputs:
       - name: progress_report_path

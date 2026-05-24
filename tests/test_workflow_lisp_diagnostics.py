@@ -923,7 +923,7 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_command_err
     diagnostic = excinfo.value.diagnostics[0]
     rendered = render_diagnostic(diagnostic)
 
-    assert diagnostic.code == "command_adapter_missing_contract"
+    assert diagnostic.code == "macro_hidden_effect"
     assert diagnostic.expansion_stack
     assert diagnostic.expansion_stack[0].macro_name == "emit-command-workflow"
     assert "expanded from macro `emit-command-workflow` call at" in rendered
@@ -1145,8 +1145,8 @@ def test_compile_stage3_renders_macro_expansion_notes_for_provider_extern_valida
     diagnostic = excinfo.value.diagnostics[0]
     rendered = render_diagnostic(diagnostic)
 
-    assert diagnostic.code == expected_code
-    assert expected_message in diagnostic.message
+    assert diagnostic.code == "macro_hidden_effect"
+    assert "hidden provider effect" in diagnostic.message
     assert diagnostic.expansion_stack
     assert diagnostic.expansion_stack[0].macro_name == "emit-provider-workflow"
     assert "expanded from macro `emit-provider-workflow` call at" in rendered

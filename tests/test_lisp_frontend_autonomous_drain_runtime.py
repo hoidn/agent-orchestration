@@ -483,6 +483,29 @@ def _write_execution_state(workspace: Path) -> None:
     raise AssertionError("No pending implementation phase root found")
 
 
+def _write_execution_state_without_completed_path(workspace: Path) -> None:
+    for root in sorted(workspace.glob("state/**/implementation-phase")):
+        bundle_path = root / "implementation_state.json"
+        if bundle_path.exists():
+            continue
+        target_pointer = root / "execution_report_target_path.txt"
+        target = workspace / target_pointer.read_text(encoding="utf-8").strip()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("# Execution Report\n\nCompleted from canonical target only.\n", encoding="utf-8")
+        bundle_path.write_text(
+            json.dumps(
+                {
+                    "implementation_state": "COMPLETED",
+                },
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        return
+    raise AssertionError("No pending implementation phase root found")
+
+
 def _write_execution_state_noncanonical(workspace: Path) -> None:
     for root in sorted(workspace.glob("state/**/implementation-phase")):
         bundle_path = root / "implementation_state.json"
@@ -571,7 +594,9 @@ def _provider_step_called(state: dict, expected: str) -> bool:
     return any(_provider_step_matches(actual, expected) for actual in state.get("__provider_step_names", []))
 
 
-def _run_workflow_with_providers(workspace: Path, workflow_path: Path, provider_sequence):
+def _run_workflow_with_providers(
+    workspace: Path, workflow_path: Path, provider_sequence, require_all_providers: bool = True
+):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
     bound_inputs = bind_workflow_inputs(workflow_input_contracts(workflow), _workflow_inputs(), workspace)
@@ -613,7 +638,8 @@ def _run_workflow_with_providers(workspace: Path, workflow_path: Path, provider_
         ProviderExecutor, "execute", _execute
     ):
         state = executor.execute()
-    assert call_index["value"] == len(provider_sequence)
+    if require_all_providers:
+        assert call_index["value"] == len(provider_sequence)
     state["__provider_calls"] = call_index["value"]
     state["__provider_step_names"] = provider_step_names
     return state
@@ -803,7 +829,39 @@ def test_lisp_frontend_implementation_review_revise_then_approve(tmp_path):
     assert "Fixed after review" in _implementation_execution_report_target(workspace).read_text(encoding="utf-8")
 
 
-def test_lisp_frontend_implementation_review_revise_then_approve_with_noncanonical_execution_report_path(tmp_path):
+def test_lisp_frontend_completed_execution_uses_canonical_target_without_completed_path(tmp_path):
+    workspace = tmp_path / "workspace"
+    workflow_path = _copy_runtime_files(workspace)
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_execution_state_without_completed_path),
+            ("ReviewImplementation", _write_implementation_review),
+            ("SelectNextWork", _write_selector_done),
+        ],
+    )
+
+    summary = json.loads(
+        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert state["status"] == "completed"
+    assert summary["drain_status"] == "DONE"
+    assert summary["completed_design_gaps"] == ["parser-syntax"]
+    assert _published_execution_report_path(workspace) == _implementation_execution_report_target(workspace)
+    assert "Completed from canonical target only" in _published_execution_report_path(workspace).read_text(
+        encoding="utf-8"
+    )
+
+
+def test_lisp_frontend_completed_execution_requires_canonical_target_path(tmp_path):
     workspace = tmp_path / "workspace"
     workflow_path = _copy_runtime_files(workspace)
 
@@ -816,25 +874,13 @@ def test_lisp_frontend_implementation_review_revise_then_approve_with_noncanonic
             ("DraftPlan", _write_plan),
             ("ReviewPlan", _write_plan_review),
             ("ExecuteImplementation", _write_execution_state_noncanonical),
-            ("ReviewImplementation", _write_implementation_review_revise),
-            ("FixImplementation", _fix_implementation_noncanonical),
-            ("ReviewImplementation", _write_implementation_review),
-            ("SelectNextWork", _write_selector_done),
         ],
+        require_all_providers=False,
     )
 
-    assert _provider_step_called(state, "FixImplementation")
-    summary = json.loads(
-        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
-            encoding="utf-8"
-        )
-    )
-    assert summary["drain_status"] == "DONE"
-    assert summary["completed_design_gaps"] == ["parser-syntax"]
-    assert _published_execution_report_path(workspace) == _implementation_execution_report_target(workspace)
-    assert "Fixed after review at noncanonical path" in _published_execution_report_path(workspace).read_text(
-        encoding="utf-8"
-    )
+    assert state["status"] == "failed"
+    assert state["__provider_calls"] == 5
+    assert not _implementation_execution_report_target(workspace).is_file()
 
 
 def test_lisp_frontend_plan_review_exhaustion_records_blocked(tmp_path):

@@ -809,6 +809,10 @@ def _surface_step_from_core_statement(statement: Any) -> SurfaceStep:
         "authored_id": authored_id,
         "common": statement.common,
     }
+    source_step = getattr(statement, "_surface_step", None)
+    if source_step is not None:
+        kwargs["when_predicate"] = source_step.when_predicate
+        kwargs["assert_predicate"] = source_step.assert_predicate
     if isinstance(statement, CoreCommandStep):
         kwargs["command"] = statement.command
     elif isinstance(statement, CoreProviderStep):
