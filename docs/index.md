@@ -106,6 +106,16 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** lisp-frontend, mvp, workflow-language, core-ast, typed-unions, match
 **Use this when:** Planning the first implementable Lisp frontend tranche or deciding which parts of the full frontend specification are intentionally deferred.
 
+### [Workflow Lisp Procedure References And Partial Application](design/workflow_lisp_proc_refs_partial_application.md)
+**Description:** Design note recommending compile-time `ProcRef` and `bind-proc` partial application for higher-order procedural composition without runtime procedure values.
+**Keywords:** lisp-frontend, procref, defproc, partial-application, higher-order
+**Use this when:** Considering how to pass procedures as arguments or bind repeated design/plan/provider context without adding runtime closures.
+
+### [Workflow Lisp Refactoring Backlog](plans/2026-05-23-workflow-lisp-refactoring-backlog.md)
+**Description:** Refactoring backlog for reducing maintenance cost in `orchestrator/workflow_lisp/` while preserving the current compiler architecture, diagnostics, provenance, type safety, effect visibility, and lowering behavior.
+**Keywords:** lisp-frontend, refactoring, compiler, typecheck, lowering, diagnostics
+**Use this when:** Planning cleanup of the Workflow Lisp frontend implementation without mixing it with missing full-design feature work.
+
 ### [Dashboard Observability Summary GUI](design/dashboard_observability_summary_gui.md)
 **Description:** Design note for the dashboard summary-hub page that renders provider/phase summaries from `RUN_ROOT/summaries/index.json` and links detailed call-frame summaries through safe run-file routes.
 **Keywords:** dashboard, observability, summaries, gui, summary-hub
