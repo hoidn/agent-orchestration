@@ -97,9 +97,9 @@ These are the highest-impact terminology and contract confusions.
 **Use this when:** You want the quickest concrete answer to whether the Lisp frontend is an actual authoring improvement.
 
 ### [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
-**Description:** Draft specification for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text.
+**Description:** Accepted baseline and umbrella contract for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text.
 **Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, macros, defworkflow
-**Use this when:** Reviewing or planning a non-YAML workflow authoring frontend.
+**Use this when:** Reviewing the parent Workflow Lisp language contract or checking whether a scoped frontend delta preserves the baseline design.
 
 ### [Workflow Lisp Frontend MVP Specification](design/workflow_lisp_frontend_mvp_specification.md)
 **Description:** Narrow MVP tranche for proving the Lisp frontend with typed records/unions, `provider-result`, `command-result`, `match`, source-span diagnostics, and one real v2.14 phase translation before adding user macros or the full procedural library.
@@ -107,9 +107,14 @@ These are the highest-impact terminology and contract confusions.
 **Use this when:** Planning the first implementable Lisp frontend tranche or deciding which parts of the full frontend specification are intentionally deferred.
 
 ### [Workflow Lisp Procedure References And Partial Application](design/workflow_lisp_proc_refs_partial_application.md)
-**Description:** Design note recommending compile-time `ProcRef` and `bind-proc` partial application for higher-order procedural composition without runtime procedure values.
+**Description:** Accepted design delta and active implementation target for compile-time `ProcRef` and `bind-proc` partial application without runtime procedure values.
 **Keywords:** lisp-frontend, procref, defproc, partial-application, higher-order
-**Use this when:** Considering how to pass procedures as arguments or bind repeated design/plan/provider context without adding runtime closures.
+**Use this when:** Implementing, reviewing, or planning the focused ProcRef / partial-application extension to the Workflow Lisp frontend.
+
+### [Lisp ProcRef Partial Application Work Instructions](plans/LISP-PROC-REFS-PARTIAL-APPLICATION/work_instructions.md)
+**Description:** Procedural instructions for the focused ProcRef / `bind-proc` implementation tranche, separating the active delta target from the parent frontend baseline.
+**Keywords:** lisp-frontend, procref, work-instructions, proc-ref-drain, procedural-prescriptions
+**Use this when:** Launching or reviewing the focused ProcRef drain workflow.
 
 ### [Workflow Lisp Refactoring Backlog](plans/2026-05-23-workflow-lisp-refactoring-backlog.md)
 **Description:** Refactoring backlog for reducing maintenance cost in `orchestrator/workflow_lisp/` while preserving the current compiler architecture, diagnostics, provenance, type safety, effect visibility, and lowering behavior.
@@ -321,6 +326,11 @@ before adding or preserving the command boundary.
 **Description:** v2.14 local drain for Lisp frontend MVP/full-design work. The selector can choose an active backlog item or identify an unimplemented design gap, draft an implementation architecture, and route the normalized work item through the plan/implementation stack without roadmap phase gating.
 **Keywords:** workflows, lisp-frontend, autonomous-drain, design-gap, backlog, v2.14
 **Use this when:** Running Lisp frontend implementation work from either explicit backlog items or design gaps discovered from the frontend specifications.
+
+### [Lisp Frontend ProcRef Delta Drain](../workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml)
+**Description:** Focused successor drain for the ProcRef / `bind-proc` delta. It uses the ProcRef design as the active target, passes the completed frontend specification as baseline context, and writes to a separate ProcRef state/plan namespace.
+**Keywords:** workflows, lisp-frontend, procref, bind-proc, autonomous-drain, design-delta, v2.14
+**Use this when:** Running the scoped ProcRef / partial-application implementation tranche without reopening the completed full frontend drain.
 
 ### [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml)
 **Description:** Minimal v2.13 workflow showing `managed_jobs` on a provider step, a local managed training launch, runtime-owned audit/recovery state, and managed outcome routing to review/fix steps.

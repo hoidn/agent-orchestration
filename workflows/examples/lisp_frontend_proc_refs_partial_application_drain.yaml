@@ -1,0 +1,120 @@
+version: "2.14"
+name: "lisp-frontend-proc-refs-partial-application-drain-v214"
+
+imports:
+  proc_ref_delta_drain: ./lisp_frontend_autonomous_drain.yaml
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  steering_path:
+    type: relpath
+    under: docs
+    default: docs/plans/LISP-PROC-REFS-PARTIAL-APPLICATION/work_instructions.md
+    must_exist_target: true
+  target_design_path:
+    type: relpath
+    under: docs/design
+    default: docs/design/workflow_lisp_proc_refs_partial_application.md
+    must_exist_target: true
+  baseline_design_path:
+    type: relpath
+    under: docs/design
+    default: docs/design/workflow_lisp_frontend_specification.md
+    must_exist_target: true
+  command_adapter_contract_path:
+    type: relpath
+    under: docs/design
+    default: docs/design/workflow_command_adapter_contract.md
+    must_exist_target: true
+  backlog_root:
+    type: relpath
+    under: docs/backlog
+    default: docs/backlog/active
+  progress_ledger_path:
+    type: relpath
+    under: state
+    default: state/LISP-PROC-REFS-PARTIAL-APPLICATION/progress_ledger.json
+    must_exist_target: true
+  drain_state_root:
+    type: relpath
+    under: state
+    default: state/LISP-PROC-REFS-PARTIAL-APPLICATION/drain
+  run_state_target_path:
+    type: relpath
+    under: state
+    default: state/LISP-PROC-REFS-PARTIAL-APPLICATION/drain/run_state.json
+  drain_summary_target_path:
+    type: relpath
+    under: artifacts/work
+    default: artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION/drain-summary.json
+  architecture_index_root:
+    type: relpath
+    under: docs/plans
+    default: docs/plans/LISP-PROC-REFS-PARTIAL-APPLICATION/design-gaps
+  implementation_execute_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+  implementation_review_provider:
+    kind: scalar
+    type: enum
+    allowed: ["codex", "claude_opus"]
+    default: "codex"
+
+outputs:
+  drain_status:
+    kind: scalar
+    type: enum
+    allowed: ["CONTINUE", "DONE", "BLOCKED"]
+    from:
+      ref: root.steps.RunProcRefDeltaDrain.artifacts.drain_status
+  run_state_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.RunProcRefDeltaDrain.artifacts.run_state_path
+  drain_summary_path:
+    type: relpath
+    under: artifacts/work
+    must_exist_target: true
+    from:
+      ref: root.steps.RunProcRefDeltaDrain.artifacts.drain_summary_path
+
+steps:
+  - name: RunProcRefDeltaDrain
+    id: run_proc_ref_delta_drain
+    call: proc_ref_delta_drain
+    with:
+      steering_path:
+        ref: inputs.steering_path
+      full_design_path:
+        ref: inputs.target_design_path
+      # The imported full-design drain names this input `mvp_design_path`.
+      # In this focused successor workflow, it carries the baseline frontend
+      # spec so the target delta is implemented without violating the parent
+      # contract.
+      mvp_design_path:
+        ref: inputs.baseline_design_path
+      command_adapter_contract_path:
+        ref: inputs.command_adapter_contract_path
+      backlog_root:
+        ref: inputs.backlog_root
+      progress_ledger_path:
+        ref: inputs.progress_ledger_path
+      drain_state_root:
+        ref: inputs.drain_state_root
+      run_state_target_path:
+        ref: inputs.run_state_target_path
+      drain_summary_target_path:
+        ref: inputs.drain_summary_target_path
+      architecture_index_root:
+        ref: inputs.architecture_index_root
+      implementation_execute_provider:
+        ref: inputs.implementation_execute_provider
+      implementation_review_provider:
+        ref: inputs.implementation_review_provider

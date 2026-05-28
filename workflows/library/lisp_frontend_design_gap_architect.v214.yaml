@@ -77,7 +77,7 @@ steps:
         selection = json.loads(pathlib.Path(sys.argv[2]).read_text(encoding="utf-8"))
         gap_id = str(selection.get("design_gap_id") or "design-gap").strip()
         gap_id = re.sub(r"[^a-z0-9-]+", "-", gap_id.lower()).strip("-") or "design-gap"
-        base = pathlib.Path("docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps") / gap_id
+        base = pathlib.Path(sys.argv[3]) / gap_id
         payload = {
             "design_gap_id": gap_id,
             "architecture_path": (base / "implementation_architecture.md").as_posix(),
@@ -88,9 +88,10 @@ steps:
         state_root.mkdir(parents=True, exist_ok=True)
         pathlib.Path(payload["architecture_path"]).parent.mkdir(parents=True, exist_ok=True)
         pathlib.Path(payload["work_item_context_path"]).parent.mkdir(parents=True, exist_ok=True)
-        pathlib.Path(sys.argv[3]).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+        pathlib.Path(sys.argv[4]).write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
       - ${inputs.state_root}
       - ${inputs.selection_bundle_path}
+      - ${inputs.architecture_index_root}
       - ${inputs.state_root}/architecture-targets.json
     output_bundle:
       path: ${inputs.state_root}/architecture-targets.json

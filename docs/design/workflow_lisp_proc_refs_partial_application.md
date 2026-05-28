@@ -1,35 +1,45 @@
-# Workflow Lisp Procedure References And Partial Application
+# Workflow Lisp ProcRef And Partial Application Delta
 
-Status: design note
+Status: accepted design delta / active implementation target
+Extends: [Workflow Lisp Frontend Specification](workflow_lisp_frontend_specification.md)
 
-This note records a recommended direction for higher-order procedural
-composition in Workflow Lisp.
+This document defines the scoped language extension for compile-time procedure
+references and explicit partial application in Workflow Lisp. The parent
+frontend specification remains the umbrella language contract; this document is
+the focused implementation target for the `ProcRef` / `bind-proc` tranche.
 
-## Recommendation
+## Decision
 
-Add compile-time procedure references and explicit partial application.
+Workflow Lisp will support higher-order procedural composition through
+compile-time procedure references.
 
-Do not add runtime procedure values or general closures as the next step.
+The accepted model is:
 
-The target feature is:
+- `ProcRef[...]` types reference named `defproc` definitions.
+- Procedure references resolve at parse/typecheck/module-link time.
+- `(proc-ref name)` creates a compile-time reference to a visible `defproc`.
+- `bind-proc` partially binds named arguments and produces a specialized
+  compile-time procedure reference.
+- Specialization happens before Core Workflow AST and Semantic IR lowering.
+- Executable IR must contain no unresolved procedure values.
+- Procedure references are not runtime values and may not be stored in state,
+  artifacts, records, unions, ledgers, or result bundles.
 
-- `ProcRef[...]` types for passing named `defproc` procedures as arguments;
-- `bind-proc` or an equivalent form for binding repeated context once;
-- compile-time specialization before lowering;
-- normal static workflow output after specialization.
-
-This gives authors a way to write reusable phase skeletons without passing the
-same `design`, `plan`, provider, prompt, and context arguments through every
-call manually.
+Do not add runtime procedure values, general closures, provider-selected
+procedures, dynamic dispatch, or procedure serialization in this tranche.
 
 ## Motivation
 
 The current workflow stack repeatedly passes design documents, plans, provider
-roles, prompt roles, check commands, and target paths through planning,
-implementation, review, and fix phases.
+roles, prompt roles, check commands, target paths, state roots, and ledgers
+through planning, implementation, review, and fix phases. The autonomous-drain
+stack shows this concretely: selector, design-gap, work-item, plan, and
+implementation calls repeatedly thread the same design, steering, ledger,
+run-state, and provider-role inputs.
 
-That is explicit and lowerable, but it makes higher-level phase orchestration
-hard to read. A common pattern wants to abstract over the phase behavior:
+That explicit argument plumbing is lowerable, but it keeps reusable phase
+skeletons from being expressed directly. A common pattern wants to abstract over
+phase behavior while keeping the selected procedures statically visible:
 
 ```lisp
 (call iter-proc
@@ -39,84 +49,238 @@ hard to read. A common pattern wants to abstract over the phase behavior:
   :input input)
 ```
 
-The procedure choices should be configurable, but still statically known to the
-compiler so the lowered workflow graph, effects, output contracts, and source
-maps remain deterministic.
+The procedure choices should be configurable by the caller but still known to
+the compiler so the lowered workflow graph, effects, output contracts, and
+source maps remain deterministic.
 
-## Target Model
+Macros are insufficient because this is semantic workflow behavior, not just
+syntax rewriting. `WorkflowRef` is too coarse because these abstractions often
+target `defproc` procedures that may lower inline or as private workflows.
+Runtime first-class procedures are too broad because they would weaken static
+graph identity, effect analysis, source maps, replay, and resume semantics.
 
-`ProcRef` is a compile-time reference to a named procedure with a declared
-signature.
+`ProcRef` plus narrow `bind-proc` is therefore the first useful tranche: it
+removes semantic boilerplate while preserving deterministic lowering, static
+typechecking, effect visibility, source mapping, and existing runtime
+boundaries.
 
-Example shape:
+## Syntax Delta
 
-```lisp
-(defproc iter-proc
-  ((execute ProcRef[PhaseInput -> PhaseAttempt])
-   (review  ProcRef[PhaseAttempt -> ReviewResult])
-   (fix     ProcRef[ReviewResult -> PhaseInput])
-   (input   PhaseInput))
-  -> PhaseResult
+### Procedure Reference Types
 
-  ...)
+`ProcRef` mirrors the `WorkflowRef` type shape but targets `defproc`.
+
+```text
+ProcRef[A -> B]
+ProcRef[(A B) -> C]
+ProcRef[() -> C]
 ```
 
-The callee passed to `execute`, `review`, or `fix` must be known at compile or
-module-link time. The compiler specializes `iter-proc` before lowering.
+The parameter list is the residual callable signature visible to the consumer.
+Parameter names are not part of the `ProcRef` type, but named argument binding
+uses the referenced procedure's declared parameter names.
 
-## Partial Application
+### Procedure Reference Literal
 
-To avoid repeatedly passing large context records, add a partial-application
-form such as `bind-proc`.
-
-Example shape:
+Use an explicit literal form when a procedure is passed as a value:
 
 ```lisp
-(let* ((run-impl
-         (bind-proc implementation/run
-           :design design
-           :plan plan
-           :providers providers.implementation)))
-
-  (call iter-proc
-    :execute run-impl
-    :review implementation/review
-    :fix implementation/fix
-    :input selected))
+(proc-ref implementation/run)
 ```
 
-`bind-proc` does not create a runtime closure. It creates a specialized
-compile-time procedure reference with some arguments already bound.
+Direct calls remain unchanged:
 
-The generated procedure is hidden/internal, source-mapped to the `bind-proc`
-form, and visible to effect analysis.
+```lisp
+(call implementation/run
+  :ctx ctx
+  :inputs inputs)
+```
 
-## Lowering Model
+Bare procedure names are not `ProcRef` values in the first tranche. Requiring
+`proc-ref` keeps procedure values visually distinct from ordinary calls and
+gives diagnostics a single literal surface to target.
 
-The compiler should lower this feature in four stages:
+### Partial Application
 
-1. Resolve named procedure references through the module/procedure catalog.
-2. Check each `ProcRef[...]` argument against the expected signature.
-3. Specialize procedures and partial applications into concrete hidden
-   procedures or inline procedure bodies.
-4. Lower the specialized graph through the existing `defproc` lowering path.
+`bind-proc` accepts a procedure reference and keyword bindings:
 
-After specialization, executable IR should contain no unresolved procedure
-values.
+```lisp
+(bind-proc (proc-ref implementation/run)
+  :design design
+  :plan plan
+  :providers providers.implementation)
+```
 
-## Constraints
+The result is a specialized compile-time `ProcRef` whose residual signature is
+the original procedure signature with the bound parameters removed in original
+parameter order.
 
-The first tranche should be intentionally limited:
+Example:
 
-- procedure refs are compile-time only;
-- refs cannot be produced by providers or commands;
-- refs cannot be stored in state, artifacts, records, or unions;
-- refs cannot cross runtime workflow boundaries as ordinary values;
-- no arbitrary lexical closures;
-- no runtime dispatch on procedure values;
-- no untyped `**kwargs` argument passing.
+```text
+Original:
+  implementation/run:
+    (SelectedItem Design Plan Providers) -> ImplementationResult
 
-Use typed records for context instead of variadic keyword bags.
+Binding:
+  (bind-proc (proc-ref implementation/run)
+    :design design
+    :plan plan
+    :providers providers.implementation)
+
+Residual:
+  ProcRef[SelectedItem -> ImplementationResult]
+```
+
+Bindings are keyword-only in the first tranche. Positional binding, default
+arguments, variadic keyword bags, and mixed positional/keyword binding are out
+of scope.
+
+## Typechecking Rules
+
+The compiler must add a `ProcRefTypeRef` parallel to `WorkflowRefTypeRef`.
+
+Validation rules:
+
+- `(proc-ref name)` must resolve to a visible `defproc`.
+- The referenced procedure's signature must match the expected `ProcRef`.
+- `bind-proc` must receive a `ProcRef`.
+- Every bound keyword must name a parameter in the referenced procedure.
+- A parameter may be bound at most once.
+- Each bound expression must typecheck against the corresponding parameter
+  type.
+- The residual signature preserves original parameter order for unbound
+  parameters.
+- A zero-argument residual procedure is allowed only where the expected type is
+  `ProcRef[() -> R]`.
+- Procedure references are compile-time values only and are rejected inside
+  record fields, union fields, state bundles, artifacts, workflow outputs,
+  provider results, command results, ledgers, and runtime loop state.
+
+Named procedure refs may be forwarded through `defproc` parameters when the
+parameter type is `ProcRef[...]`. They may not cross exported runtime workflow
+boundaries as ordinary structured values.
+
+## Module And Catalog Behavior
+
+Procedure reference resolution uses the existing module and procedure catalog
+authority:
+
+- same-module `defproc` definitions are visible by local name;
+- imported exported procedures are visible through their resolved module names
+  or aliases;
+- private procedures from other modules are not referenceable;
+- procedure names that collide with functions, workflows, schemas, records, or
+  macros are rejected by the existing callable-name collision rules.
+
+`ProcRef` entries do not create runtime registry entries. The compiler may use a
+reference/specialization environment during compilation, but there must be no
+runtime procedure-value catalog.
+
+## Specialization Rules
+
+Specialization happens before ordinary `defproc` lowering.
+
+The compiler must:
+
+1. Resolve the base procedure reference.
+2. Typecheck and record the bound arguments.
+3. Compute the residual signature.
+4. Create a deterministic hidden specialized procedure.
+5. Substitute bound values at the specialized call site.
+6. Continue through the existing `defproc` lowering path.
+
+Generated names must be deterministic and collision-resistant. A recommended
+shape is:
+
+```text
+%proc-ref.<module>.<procedure>.<stable-hash>
+```
+
+The stable hash should cover:
+
+- resolved base procedure identity;
+- bound parameter names;
+- source identities for bound expressions where available;
+- residual signature.
+
+Specialization cycles are invalid. A procedure may not require a specialized
+version of itself through a `ProcRef` chain unless the existing procedure-cycle
+analysis can prove it is non-recursive after specialization.
+
+## Lowering Rules
+
+After specialization, lowering sees only ordinary concrete procedure calls.
+
+`defproc :lowering` policy applies after specialization:
+
+- `inline` specializes and then inlines the resulting body;
+- `private-workflow` specializes and then emits a hidden private workflow;
+- `auto` may choose inline or private workflow using the existing lowering
+  policy.
+
+Executable IR, runtime plans, debug YAML projections, run state, and artifact
+bundles must not contain unresolved `ProcRef` values.
+
+## Effect Rules
+
+`proc-ref` and `bind-proc` do not introduce runtime effects by themselves.
+
+The caller-visible effect summary for a procedure that accepts or calls a
+`ProcRef` must include the selected procedure's transitive effects after
+specialization. Bound values do not hide effects: if a bound value was produced
+by an earlier effectful expression, that producer remains visible in normal
+dataflow; if the specialized procedure later uses the bound value, the
+procedure's reads/writes/calls/provider/command effects remain visible in the
+specialized summary.
+
+Effect checking must happen after procedure references are resolved and before
+lowering commits generated nodes.
+
+## Source Maps And Diagnostics
+
+Generated specialized procedures must preserve provenance for:
+
+- the original `defproc` definition;
+- the `proc-ref` literal;
+- the `bind-proc` form, if present;
+- the call site that consumes the specialized reference;
+- generated Core AST and Semantic IR nodes.
+
+Diagnostics should point first to the most actionable authored form:
+
+- unknown procedure: `(proc-ref name)`;
+- signature mismatch: the argument that supplies the ref;
+- bad binding name or duplicate binding: the `bind-proc` keyword;
+- bad bound value type: the bound expression;
+- runtime transport violation: the record/union/output/state field attempting
+  to carry the `ProcRef`.
+
+Required diagnostic codes:
+
+- `proc_ref_unknown`
+- `proc_ref_literal_required`
+- `proc_ref_signature_invalid`
+- `proc_ref_runtime_transport_forbidden`
+- `proc_ref_binding_unknown`
+- `proc_ref_binding_duplicate`
+- `proc_ref_binding_type_invalid`
+- `proc_ref_specialization_cycle`
+- `proc_ref_private_import_invalid`
+
+## Relationship To WorkflowRef
+
+This feature deliberately reuses the architectural shape of `WorkflowRef`:
+
+- references resolve at compile/module-link time;
+- signatures are checked statically;
+- specialization happens before runtime;
+- generated nodes preserve source maps;
+- effect summaries remain visible;
+- runtime state cannot carry reference values.
+
+The difference is target identity: `WorkflowRef` targets `defworkflow`;
+`ProcRef` targets `defproc`.
 
 ## Non-Goals
 
@@ -127,22 +291,43 @@ Do not implement:
 - procedure serialization;
 - provider-selected procedure values;
 - dynamic dispatch in executable IR;
-- storing procedure values in ledgers or result bundles.
+- storing procedure values in ledgers or result bundles;
+- untyped `**kwargs` argument passing;
+- procedure references inside records or unions;
+- positional partial application;
+- default argument semantics.
 
-Those features would require a broader runtime design for graph identity,
-effect validation, source maps, replay, and resume semantics.
+Those features require a broader runtime design for graph identity, effect
+validation, source maps, replay, and resume semantics.
 
-## Relationship To WorkflowRef
+## Acceptance Tests
 
-This feature should reuse the architectural shape of `WorkflowRef`:
+A first implementation must include positive tests proving:
 
-- references resolve at compile/module-link time;
-- signatures are checked statically;
-- specialization happens before runtime;
-- generated nodes preserve source maps;
-- effect summaries remain visible.
+- a `defproc` can accept a `ProcRef[...]` parameter;
+- `(proc-ref name)` can pass a visible named procedure to that parameter;
+- an imported exported `defproc` can be referenced;
+- `bind-proc` binds a subset of arguments and exposes the correct residual
+  signature;
+- a specialized procedure can lower inline;
+- a specialized procedure can lower as a private workflow when policy requires;
+- effect summaries include selected and bound procedure behavior;
+- source-map/explain artifacts expose the original `defproc`, `proc-ref`,
+  `bind-proc`, specialization, and lowered nodes;
+- executable IR and runtime plans contain no unresolved procedure values.
 
-The difference is that `ProcRef` targets `defproc`, not `defworkflow`.
+Negative tests must prove:
+
+- unknown procedure reference is rejected;
+- signature mismatch is rejected;
+- duplicate bound argument is rejected;
+- unknown bound argument is rejected;
+- bad bound value type is rejected;
+- private imported procedure reference is rejected;
+- specialization cycle is rejected;
+- provider/command outputs cannot produce `ProcRef`;
+- records, unions, workflow outputs, artifacts, ledgers, and runtime state cannot
+  contain `ProcRef`.
 
 ## Estimated Effort
 
@@ -152,18 +337,4 @@ Relative to the completed Workflow Lisp frontend implementation:
 - `ProcRef` plus `bind-proc`: about 12-20%;
 - true runtime first-class procedures: 35-70% or more.
 
-The recommended direction is `ProcRef` plus `bind-proc`.
-
-## Acceptance Sketch
-
-A first implementation should prove:
-
-- a `defproc` can accept a `ProcRef[...]` parameter;
-- a named procedure can be passed to that parameter;
-- signature mismatches produce source-mapped diagnostics;
-- `bind-proc` can bind a subset of arguments and produce a specialized
-  procedure reference;
-- the specialized output has static lowered workflow structure;
-- effect summaries include the selected and bound procedure behavior;
-- no runtime state or artifact contains a procedure value.
-
+The implementation target for this tranche is `ProcRef` plus `bind-proc`.

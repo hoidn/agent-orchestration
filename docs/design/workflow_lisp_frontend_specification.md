@@ -1,9 +1,15 @@
 # Workflow Lisp Frontend Specification and Design
 
-Status: draft  
+Status: accepted baseline / umbrella frontend contract
 Target substrate: v2.14+ core workflow AST and semantic IR  
 Primary purpose: composable, typed, procedural authoring of deterministic workflows  
 Non-purpose: replacing the runtime, weakening validation, or generating brittle YAML-shaped code
+
+Lifecycle note: this document remains the parent language contract for Workflow
+Lisp. The initial autonomous drain against this design is complete, but
+follow-on language extensions may be tracked as scoped design deltas. Current
+accepted deltas include
+[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
 
 Design principles: this specification follows the language-wide principles in
 [Workflow Language Design Principles](workflow_language_design_principles.md).
@@ -805,6 +811,30 @@ They are used for higher-order orchestration such as:
 ```
 
 The compiler checks signatures before lowering.
+
+### 7.8 Procedure References
+
+```text
+ProcRef[PhaseInput -> PhaseResult]
+ProcRef[(SelectedItem Design Plan) -> ImplementationResult]
+```
+
+Procedure references are compile-time references to named `defproc`
+definitions. They provide higher-order procedural composition without adding
+runtime procedure values, closures, provider-selected procedures, or dynamic
+dispatch in executable IR.
+
+The accepted model is:
+
+- `ProcRef[...]` types reference named `defproc` signatures;
+- `(proc-ref name)` creates an explicit compile-time procedure reference;
+- `bind-proc` partially binds named arguments and produces a specialized
+  compile-time `ProcRef`;
+- specialization happens before Core Workflow AST / Semantic IR lowering;
+- executable IR and runtime state contain no unresolved procedure values.
+
+Detailed contract:
+[Workflow Lisp ProcRef And Partial Application Delta](workflow_lisp_proc_refs_partial_application.md).
 
 ## 8. Definition Forms
 
