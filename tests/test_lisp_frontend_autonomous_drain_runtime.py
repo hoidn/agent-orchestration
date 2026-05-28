@@ -173,6 +173,161 @@ def test_materializer_normalizes_backlog_selection(tmp_path):
     ]
 
 
+def test_materialize_lisp_work_item_inputs_accepts_custom_artifact_roots_for_backlog(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    manifest_path = workspace / "state/manifest.json"
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/build_neurips_backlog_manifest.py"),
+        "--backlog-root",
+        "docs/backlog/active",
+        "--output",
+        manifest_path.relative_to(workspace).as_posix(),
+    )
+    selection_path = workspace / "state/selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "selection_status": "SELECT_BACKLOG_ITEM",
+                "selected_item_id": "2026-05-18-existing-parser-item",
+                "selected_item_path": "docs/backlog/active/2026-05-18-existing-parser-item.md",
+                "selection_rationale": "Existing item covers parser MVP.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    output_path = workspace / "state/work-item/inputs.json"
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py"),
+        "--selection-path",
+        selection_path.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest_path.relative_to(workspace).as_posix(),
+        "--state-root",
+        "state/work-item",
+        "--artifact-work-root",
+        "artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION",
+        "--artifact-checks-root",
+        "artifacts/checks/LISP-PROC-REFS-PARTIAL-APPLICATION",
+        "--artifact-review-root",
+        "artifacts/review/LISP-PROC-REFS-PARTIAL-APPLICATION",
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload["execution_report_target_path"].startswith(
+        "artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION/"
+    )
+    assert payload["progress_report_target_path"].startswith(
+        "artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION/"
+    )
+    assert payload["checks_report_target_path"].startswith(
+        "artifacts/checks/LISP-PROC-REFS-PARTIAL-APPLICATION/"
+    )
+    assert payload["implementation_review_report_target_path"].startswith(
+        "artifacts/review/LISP-PROC-REFS-PARTIAL-APPLICATION/"
+    )
+    assert payload["plan_review_report_target_path"].startswith(
+        "artifacts/review/LISP-PROC-REFS-PARTIAL-APPLICATION/"
+    )
+    artifact_targets = [
+        payload["execution_report_target_path"],
+        payload["progress_report_target_path"],
+        payload["checks_report_target_path"],
+        payload["implementation_review_report_target_path"],
+        payload["plan_review_report_target_path"],
+        payload["item_summary_target_path"],
+    ]
+    assert all("LISP-FRONTEND-AUTONOMOUS-DRAIN" not in target for target in artifact_targets)
+
+
+def test_materialize_lisp_work_item_inputs_accepts_custom_artifact_roots_for_design_gap(tmp_path):
+    workspace = tmp_path / "workspace"
+    shutil.copytree(FIXTURE_ROOT, workspace)
+    selection_path = workspace / "state/selection.json"
+    selection_path.write_text(
+        json.dumps(
+            {
+                "selection_status": "DRAFT_DESIGN_GAP",
+                "design_gap_id": "procref-static-surface-and-resolution",
+                "selection_rationale": "ProcRef surface is missing.",
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    architecture_path = workspace / "docs/plans/LISP-PROC-REFS-PARTIAL-APPLICATION/design-gaps/procref/implementation_architecture.md"
+    context_path = workspace / "state/gap/work_item_context.md"
+    checks_path = workspace / "state/gap/check_commands.json"
+    plan_target_path = workspace / "docs/plans/LISP-PROC-REFS-PARTIAL-APPLICATION/design-gaps/procref/execution_plan.md"
+    architecture_path.parent.mkdir(parents=True, exist_ok=True)
+    context_path.parent.mkdir(parents=True, exist_ok=True)
+    architecture_path.write_text("# ProcRef Architecture\n", encoding="utf-8")
+    context_path.write_text("# ProcRef Work Item\n", encoding="utf-8")
+    checks_path.write_text(json.dumps(["python -c \"print('procref-check')\""]) + "\n", encoding="utf-8")
+    bundle_path = workspace / "state/gap/architecture-validation.json"
+    bundle_path.write_text(
+        json.dumps(
+            {
+                "architecture_validation_status": "VALID",
+                "work_item_source": "DESIGN_GAP",
+                "work_item_id": "procref-static-surface-and-resolution",
+                "architecture_path": architecture_path.relative_to(workspace).as_posix(),
+                "work_item_context_path": context_path.relative_to(workspace).as_posix(),
+                "check_commands_path": checks_path.relative_to(workspace).as_posix(),
+                "plan_target_path": plan_target_path.relative_to(workspace).as_posix(),
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest_path = workspace / "state/manifest.json"
+    manifest_path.write_text(json.dumps({"items": []}) + "\n", encoding="utf-8")
+    output_path = workspace / "state/work-item/inputs.json"
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py"),
+        "--selection-path",
+        selection_path.relative_to(workspace).as_posix(),
+        "--manifest-path",
+        manifest_path.relative_to(workspace).as_posix(),
+        "--state-root",
+        "state/work-item",
+        "--architecture-bundle-path",
+        bundle_path.relative_to(workspace).as_posix(),
+        "--artifact-work-root",
+        "artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION",
+        "--artifact-checks-root",
+        "artifacts/checks/LISP-PROC-REFS-PARTIAL-APPLICATION",
+        "--artifact-review-root",
+        "artifacts/review/LISP-PROC-REFS-PARTIAL-APPLICATION",
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    serialized = json.dumps(payload)
+    assert payload["execution_report_target_path"].startswith(
+        "artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION/design-gaps/"
+    )
+    assert payload["checks_report_target_path"].startswith(
+        "artifacts/checks/LISP-PROC-REFS-PARTIAL-APPLICATION/design-gaps/"
+    )
+    assert payload["implementation_review_report_target_path"].startswith(
+        "artifacts/review/LISP-PROC-REFS-PARTIAL-APPLICATION/design-gaps/"
+    )
+    assert payload["item_summary_target_path"].startswith(
+        "artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION/design-gaps/"
+    )
+    assert "LISP-FRONTEND-AUTONOMOUS-DRAIN" not in serialized
+
+
 def test_architecture_validator_accepts_valid_design_gap(tmp_path):
     workspace = tmp_path / "workspace"
     shutil.copytree(FIXTURE_ROOT, workspace)

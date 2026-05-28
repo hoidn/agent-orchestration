@@ -12,6 +12,9 @@ import yaml
 
 
 REPO_ROOT = Path.cwd()
+DEFAULT_ARTIFACT_WORK_ROOT = "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN"
+DEFAULT_ARTIFACT_CHECKS_ROOT = "artifacts/checks/LISP-FRONTEND-AUTONOMOUS-DRAIN"
+DEFAULT_ARTIFACT_REVIEW_ROOT = "artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN"
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -76,7 +79,14 @@ def _lookup_manifest_entry(manifest: dict[str, Any], item_id: str, item_path: st
     raise SystemExit(f"Selected item {item_id} at {item_path} is not in manifest")
 
 
-def _materialize_backlog(selection: dict[str, Any], manifest: dict[str, Any], state_root: Path) -> dict[str, Any]:
+def _materialize_backlog(
+    selection: dict[str, Any],
+    manifest: dict[str, Any],
+    state_root: Path,
+    artifact_work_root: Path,
+    artifact_checks_root: Path,
+    artifact_review_root: Path,
+) -> dict[str, Any]:
     item_id = str(selection.get("selected_item_id") or "").strip()
     item_path = str(selection.get("selected_item_path") or "").strip()
     if not item_id:
@@ -121,14 +131,22 @@ def _materialize_backlog(selection: dict[str, Any], manifest: dict[str, Any], st
         "work_item_context_path": _repo_relpath(context_path),
         "check_commands_path": _repo_relpath(checks_path),
         "plan_target_path": rel_plan.as_posix(),
-        "execution_report_target_path": f"artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/{item_id}/execution_report.md",
-        "checks_report_target_path": f"artifacts/checks/LISP-FRONTEND-AUTONOMOUS-DRAIN/{item_id}-checks.json",
-        "implementation_review_report_target_path": f"artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN/{item_id}-implementation-review.md",
-        "item_summary_target_path": f"artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/{item_id}-summary.json",
+        "execution_report_target_path": (artifact_work_root / item_id / "execution_report.md").as_posix(),
+        "checks_report_target_path": (artifact_checks_root / f"{item_id}-checks.json").as_posix(),
+        "implementation_review_report_target_path": (
+            artifact_review_root / f"{item_id}-implementation-review.md"
+        ).as_posix(),
+        "item_summary_target_path": (artifact_work_root / f"{item_id}-summary.json").as_posix(),
     }
 
 
-def _materialize_design_gap(architecture_bundle_path: str, state_root: Path) -> dict[str, Any]:
+def _materialize_design_gap(
+    architecture_bundle_path: str,
+    state_root: Path,
+    artifact_work_root: Path,
+    artifact_checks_root: Path,
+    artifact_review_root: Path,
+) -> dict[str, Any]:
     rel_bundle = _safe_relpath(architecture_bundle_path, under="state", must_exist=True)
     bundle = _load_json(REPO_ROOT / rel_bundle)
     if bundle.get("architecture_validation_status") != "VALID":
@@ -149,10 +167,14 @@ def _materialize_design_gap(architecture_bundle_path: str, state_root: Path) -> 
         "work_item_context_path": context_path.as_posix(),
         "check_commands_path": checks_path.as_posix(),
         "plan_target_path": plan_path.as_posix(),
-        "execution_report_target_path": f"artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/{item_id}/execution_report.md",
-        "checks_report_target_path": f"artifacts/checks/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/{item_id}-checks.json",
-        "implementation_review_report_target_path": f"artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/{item_id}-implementation-review.md",
-        "item_summary_target_path": f"artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/{item_id}-summary.json",
+        "execution_report_target_path": (
+            artifact_work_root / "design-gaps" / item_id / "execution_report.md"
+        ).as_posix(),
+        "checks_report_target_path": (artifact_checks_root / "design-gaps" / f"{item_id}-checks.json").as_posix(),
+        "implementation_review_report_target_path": (
+            artifact_review_root / "design-gaps" / f"{item_id}-implementation-review.md"
+        ).as_posix(),
+        "item_summary_target_path": (artifact_work_root / "design-gaps" / f"{item_id}-summary.json").as_posix(),
     }
 
 
@@ -163,16 +185,35 @@ def main() -> int:
     parser.add_argument("--state-root", required=True)
     parser.add_argument("--output", required=True)
     parser.add_argument("--architecture-bundle-path", default="")
+    parser.add_argument("--artifact-work-root", default=DEFAULT_ARTIFACT_WORK_ROOT)
+    parser.add_argument("--artifact-checks-root", default=DEFAULT_ARTIFACT_CHECKS_ROOT)
+    parser.add_argument("--artifact-review-root", default=DEFAULT_ARTIFACT_REVIEW_ROOT)
     args = parser.parse_args()
 
     selection = _load_json(REPO_ROOT / _safe_relpath(args.selection_path, under="state", must_exist=True))
     manifest = _load_json(REPO_ROOT / _safe_relpath(args.manifest_path, under="state", must_exist=True))
     state_root = REPO_ROOT / _safe_relpath(args.state_root, under="state", must_exist=False)
+    artifact_work_root = _safe_relpath(args.artifact_work_root, under="artifacts/work", must_exist=False)
+    artifact_checks_root = _safe_relpath(args.artifact_checks_root, under="artifacts/checks", must_exist=False)
+    artifact_review_root = _safe_relpath(args.artifact_review_root, under="artifacts/review", must_exist=False)
     status = selection.get("selection_status")
     if status == "SELECT_BACKLOG_ITEM":
-        payload = _materialize_backlog(selection, manifest, state_root)
+        payload = _materialize_backlog(
+            selection,
+            manifest,
+            state_root,
+            artifact_work_root,
+            artifact_checks_root,
+            artifact_review_root,
+        )
     elif status == "DRAFT_DESIGN_GAP":
-        payload = _materialize_design_gap(args.architecture_bundle_path, state_root)
+        payload = _materialize_design_gap(
+            args.architecture_bundle_path,
+            state_root,
+            artifact_work_root,
+            artifact_checks_root,
+            artifact_review_root,
+        )
     else:
         raise SystemExit(f"Unsupported work-item selection_status: {status}")
     item_id = str(payload["work_item_id"])
@@ -180,8 +221,8 @@ def main() -> int:
         {
             "plan_phase_state_root": _repo_relpath(state_root / "plan-phase"),
             "implementation_phase_state_root": _repo_relpath(state_root / "implementation-phase"),
-            "plan_review_report_target_path": f"artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN/{item_id}-plan-review.json",
-            "progress_report_target_path": f"artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/{item_id}/progress_report.md",
+            "plan_review_report_target_path": (artifact_review_root / f"{item_id}-plan-review.json").as_posix(),
+            "progress_report_target_path": (artifact_work_root / item_id / "progress_report.md").as_posix(),
         }
     )
 
