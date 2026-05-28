@@ -1,12 +1,13 @@
-Read the listed steering, full design, MVP design, command-adapter contract,
-progress ledger, selector bundle, architecture target contract, and existing
-implementation architecture index from the checkout before acting.
+Read the listed steering, target design, baseline design, command-adapter
+contract, progress ledger, selector bundle, architecture target contract, and
+existing implementation architecture index from the checkout before acting.
 
 Draft a single implementation-architecture document for exactly the selected
-Lisp frontend design gap. This is an implementation architecture, not a
-replacement product design/spec. Keep the scope bounded to the selected gap.
-Do not draft multiple alternative architectures, do not cover multiple design
-gaps, and do not broaden the scope beyond the selected gap.
+target-design gap. The baseline design is a compatibility constraint, not the
+active work queue. This is an implementation architecture, not a replacement
+product design/spec. Keep the scope bounded to the selected gap. Do not draft
+multiple alternative architectures, do not cover multiple design gaps, and do
+not broaden the scope beyond the selected gap.
 
 Preserve coherence with prior implementation architecture documents listed in
 the architecture index:
@@ -53,11 +54,11 @@ Use this bundle shape:
 ```json
 {
   "draft_status": "DRAFTED",
-  "design_gap_id": "parser-syntax",
-  "architecture_path": "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/implementation_architecture.md",
-  "work_item_context_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/design-gap-architect/work_item_context.md",
-  "check_commands_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/iterations/0/design-gap-architect/check_commands.json",
-  "plan_target_path": "docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/execution_plan.md",
+  "design_gap_id": "procref-static-surface-and-resolution",
+  "architecture_path": "<architecture_path from architecture-targets.json>",
+  "work_item_context_path": "<work_item_context_path from architecture-targets.json>",
+  "check_commands_path": "<check_commands_path from architecture-targets.json>",
+  "plan_target_path": "<plan_target_path from architecture-targets.json>",
   "summary": "short summary"
 }
 ```

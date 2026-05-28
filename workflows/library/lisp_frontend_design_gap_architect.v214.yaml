@@ -159,7 +159,7 @@ steps:
       inject:
         mode: content
         position: prepend
-        instruction: "Use these files as the authoritative context and target contract:"
+        instruction: "Use these files as authoritative context. Treat the first design file as the target design and the second design file as baseline context."
     output_bundle:
       path: ${inputs.state_root}/draft-bundle.json
       fields:

@@ -1,11 +1,11 @@
-Read the listed steering, full design, MVP design, command-adapter contract,
-progress ledger, selector bundle, architecture target contract, existing
+Read the listed steering, target design, baseline design, command-adapter
+contract, progress ledger, selector bundle, architecture target contract, existing
 implementation architecture index, drafted architecture, generated work-item
 context, and generated check commands from the checkout before acting.
 
 Review the drafted implementation architecture for the selected Lisp frontend
-design gap. Decide whether it is safe to use as the source for the downstream
-plan and implementation phases.
+target-design gap. Decide whether it is safe to use as the source for the
+downstream plan and implementation phases.
 
 Do not approve based only on file existence, parseability, or section presence;
 explicitly judge whether the architecture semantically matches the current

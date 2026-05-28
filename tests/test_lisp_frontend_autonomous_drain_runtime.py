@@ -475,6 +475,20 @@ def test_design_delta_selector_prompt_defines_target_and_baseline():
     assert "MVP" not in prompt
 
 
+def test_proc_ref_path_prompts_use_target_and_baseline_roles():
+    prompt_paths = [
+        ROOT / "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_design_gap_architect/draft_implementation_architecture.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_plan_phase/draft_plan.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_implementation_phase/implement_plan.md",
+    ]
+
+    for path in prompt_paths:
+        text = path.read_text(encoding="utf-8").lower()
+        assert "target" in text, path
+        assert "baseline" in text, path
+
+
 def test_autonomous_drain_design_gap_path_stays_plan_scoped():
     workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_autonomous_drain.yaml").read_text())
     drain_step = next(step for step in workflow["steps"] if step["name"] == "DrainLispFrontendWork")
