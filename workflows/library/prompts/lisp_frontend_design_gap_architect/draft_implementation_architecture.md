@@ -54,7 +54,7 @@ Use this bundle shape:
 ```json
 {
   "draft_status": "DRAFTED",
-  "design_gap_id": "procref-static-surface-and-resolution",
+  "design_gap_id": "<design_gap_id from selection bundle>",
   "architecture_path": "<architecture_path from architecture-targets.json>",
   "work_item_context_path": "<work_item_context_path from architecture-targets.json>",
   "check_commands_path": "<check_commands_path from architecture-targets.json>",

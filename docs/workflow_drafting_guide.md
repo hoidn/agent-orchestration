@@ -347,6 +347,35 @@ Exception: keep redundancy when the step is high-risk and you want belt-and-susp
 
 For design, design-review, and planning prompts that may affect architecture, data contracts, workflow APIs, or stable modules, explicitly instruct the agent to read `docs/index.md` first when present, then use it to select the relevant specs, architecture docs, workflow guides, and findings docs. This instruction belongs in the prompt because it is part of the review or design judgment standard. Keep the workflow `depends_on.inject` list narrow and treat it as candidate context, not a mandatory reading list.
 
+### Conservative Prompt Handling When Reusing Workflows
+
+When migrating, forking, specializing, or drafting a new workflow from an
+existing workflow, copy prompt files verbatim by default. Change prompt text only
+for a documented semantic reason, such as a renamed actor, a changed input role,
+a different target contract, or a new output contract that the provider must
+understand.
+
+Keep prompt deltas small and reviewable:
+
+- preserve task boundaries, review standards, and completion criteria unless
+  the migration intentionally changes them;
+- prefer mechanical substitutions such as `full design` -> `target design`
+  only inside the new workflow path that needs that meaning;
+- do not globally edit shared prompt files when only one specialized workflow
+  needs different terminology or scope;
+- use copied prompt variants when a fork's semantics diverge from the original
+  workflow;
+- remove project-specific example IDs, paths, or feature names from shared
+  prompts unless that prompt is intentionally project-specific;
+- carry over safety rules such as durable-evidence checks before `DONE`,
+  refactor throttling, and ledger skepticism unless the migration explicitly
+  replaces them with an equivalent contract.
+
+If a migrated workflow needs different semantics, record the reason near the
+workflow, plan, or prompt diff. A prompt that becomes longer, stricter, or more
+domain-specific should have a clear migration reason, not merely accumulated
+wording from the new wrapper.
+
 ### Guard Against Substitute-Path Closure
 
 For implementation and implementation-review prompts, guard against agents satisfying the acceptance surface by changing the provenance of the result instead of implementing the requested behavior.

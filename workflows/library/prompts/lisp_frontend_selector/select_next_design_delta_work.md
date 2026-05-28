@@ -22,6 +22,30 @@ Decision rules:
 Do not select unrelated baseline/frontend work unless it is required to satisfy
 the target delta without violating the baseline design.
 
+Refactoring may be selected when it is the best next step toward completing the
+target delta, but only as a bounded expansion-enabling pass.
+
+Do not select refactoring twice in a row. If the most recent completed unit was
+refactoring, select target-delta feature work, `DONE`, or `BLOCKED`.
+
+A refactor must leave the frontend ready for the next target-delta feature
+slice. If it changes current relied-upon architecture/design docs, update those
+docs in scope. Do not rewrite historical per-gap implementation architecture
+docs merely to match the refactor.
+
+Before returning `DONE`, compare the target delta against durable repo evidence:
+source, docs, fixtures, tests, ledgers, and run state. Evaluate obligations from
+the target design itself, not from the set of existing backlog items or
+design-gap directories. A missing work item or design-gap directory is not
+evidence that a target-delta obligation is complete.
+
+For any target-delta obligation, return `DRAFT_DESIGN_GAP` unless the available
+evidence shows a coherent completed treatment of that obligation, or the target
+design explicitly marks it out of scope. Do not require every obligation to have
+the same evidence shape; use the evidence that is appropriate to the obligation.
+When the ledger says complete but source/docs/fixtures/tests do not support that
+claim, prefer `DRAFT_DESIGN_GAP` over `DONE`.
+
 Make only this step's local selection judgment and explain it. Do not edit
 files, move backlog items, or draft architecture content. For design gaps,
 identify one bounded unit for the architect step to turn into an implementation
@@ -34,8 +58,8 @@ Backlog selection:
 ```json
 {
   "selection_status": "SELECT_BACKLOG_ITEM",
-  "selected_item_id": "2026-05-18-existing-procref-item",
-  "selected_item_path": "docs/backlog/active/LISP-PROC-REFS-PARTIAL-APPLICATION/2026-05-18-existing-procref-item.md",
+  "selected_item_id": "<selected_item_id>",
+  "selected_item_path": "<selected_item_path>",
   "selection_rationale": "short reason"
 }
 ```
@@ -45,8 +69,8 @@ Design gap:
 ```json
 {
   "selection_status": "DRAFT_DESIGN_GAP",
-  "design_gap_id": "procref-static-surface-and-resolution",
-  "source_design_path": "docs/design/workflow_lisp_proc_refs_partial_application.md",
+  "design_gap_id": "<design_gap_id>",
+  "source_design_path": "<target_design_path>",
   "source_sections": ["Target-delta section name"],
   "missing_component": "Under-specified or unimplemented target-delta unit",
   "proposed_scope": "Draft one bounded implementation architecture only.",
