@@ -41,6 +41,18 @@ inputs:
     type: relpath
     under: state
     must_exist_target: true
+  artifact_work_root:
+    type: relpath
+    under: artifacts/work
+    default: artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN
+  artifact_checks_root:
+    type: relpath
+    under: artifacts/checks
+    default: artifacts/checks/LISP-FRONTEND-AUTONOMOUS-DRAIN
+  artifact_review_root:
+    type: relpath
+    under: artifacts/review
+    default: artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN
   implementation_execute_provider:
     kind: scalar
     type: enum
@@ -80,6 +92,12 @@ steps:
       - ${inputs.state_root}
       - --architecture-bundle-path
       - ${inputs.architecture_bundle_path}
+      - --artifact-work-root
+      - ${inputs.artifact_work_root}
+      - --artifact-checks-root
+      - ${inputs.artifact_checks_root}
+      - --artifact-review-root
+      - ${inputs.artifact_review_root}
       - --output
       - ${inputs.state_root}/work-item-inputs.json
     output_bundle:

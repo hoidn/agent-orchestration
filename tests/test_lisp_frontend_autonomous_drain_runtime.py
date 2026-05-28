@@ -66,6 +66,7 @@ def _copy_runtime_files(workspace: Path) -> Path:
     files = [
         "docs/design/workflow_command_adapter_contract.md",
         "workflows/examples/lisp_frontend_autonomous_drain.yaml",
+        "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml",
         "workflows/library/lisp_frontend_selector.v214.yaml",
         "workflows/library/lisp_frontend_design_gap_architect.v214.yaml",
         "workflows/library/lisp_frontend_work_item.v214.yaml",
@@ -438,6 +439,11 @@ def test_lisp_frontend_workflows_load(tmp_path):
 
     top = loader.load(workflow_path)
     assert workflow_input_contracts(top).get("roadmap_gate_path") is None
+    proc_ref_top = loader.load(workspace / "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml")
+    proc_ref_inputs = workflow_input_contracts(proc_ref_top)
+    assert proc_ref_inputs["artifact_work_root"].default == "artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION"
+    assert proc_ref_inputs["artifact_checks_root"].default == "artifacts/checks/LISP-PROC-REFS-PARTIAL-APPLICATION"
+    assert proc_ref_inputs["artifact_review_root"].default == "artifacts/review/LISP-PROC-REFS-PARTIAL-APPLICATION"
     for relpath in [
         "workflows/library/lisp_frontend_selector.v214.yaml",
         "workflows/library/lisp_frontend_design_gap_architect.v214.yaml",

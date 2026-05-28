@@ -50,6 +50,18 @@ inputs:
     type: relpath
     under: artifacts/work
     default: artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION/drain-summary.json
+  artifact_work_root:
+    type: relpath
+    under: artifacts/work
+    default: artifacts/work/LISP-PROC-REFS-PARTIAL-APPLICATION
+  artifact_checks_root:
+    type: relpath
+    under: artifacts/checks
+    default: artifacts/checks/LISP-PROC-REFS-PARTIAL-APPLICATION
+  artifact_review_root:
+    type: relpath
+    under: artifacts/review
+    default: artifacts/review/LISP-PROC-REFS-PARTIAL-APPLICATION
   architecture_index_root:
     type: relpath
     under: docs/plans
@@ -112,6 +124,12 @@ steps:
         ref: inputs.run_state_target_path
       drain_summary_target_path:
         ref: inputs.drain_summary_target_path
+      artifact_work_root:
+        ref: inputs.artifact_work_root
+      artifact_checks_root:
+        ref: inputs.artifact_checks_root
+      artifact_review_root:
+        ref: inputs.artifact_review_root
       architecture_index_root:
         ref: inputs.architecture_index_root
       implementation_execute_provider:
