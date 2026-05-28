@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 from .diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from .spans import SourceSpan
-from .type_env import PrimitiveTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
+from .type_env import PrimitiveTypeRef, ProcRefTypeRef, TypeRef, UnionTypeRef, WorkflowRefTypeRef
 
 if TYPE_CHECKING:
     from .contracts import FlattenedContractField, UnionWorkflowBoundaryProjection
@@ -82,6 +82,13 @@ def ensure_loop_projectable_type(
         _raise_loop_error(
             code=code,
             message="workflow refs cannot be carried across `loop/recur` outputs",
+            span=span,
+            form_path=form_path,
+        )
+    if isinstance(type_ref, ProcRefTypeRef):
+        _raise_loop_error(
+            code="proc_ref_runtime_transport_forbidden",
+            message="proc refs cannot be carried across `loop/recur` outputs",
             span=span,
             form_path=form_path,
         )

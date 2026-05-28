@@ -152,6 +152,83 @@ def test_typecheck_loop_recur_rejects_non_projectable_carried_types(tmp_path: Pa
     _assert_diagnostic_code(excinfo, "loop_recur_state_type_invalid")
 
 
+def test_typecheck_loop_recur_rejects_proc_ref_state(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_proc_ref_state.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord WorkflowInput",
+                "    (value String))",
+                "  (defrecord WorkflowOutput",
+                "    (value String))",
+                "  (defrecord LoopResult",
+                "    (status String))",
+                "  (defproc helper",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record WorkflowOutput :value input.value))",
+                "  (defworkflow loop-recur-proc-ref-state",
+                "    ()",
+                "    -> LoopResult",
+                "    (let* ((payload (proc-ref helper)))",
+                "      (loop/recur",
+                "        :max 2",
+                "        :state payload",
+                "        (fn (state)",
+                "          (done (record LoopResult :status \"ok\")))))))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(workflow_path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
+
+
+def test_typecheck_loop_recur_rejects_proc_ref_done_results(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_proc_ref_done.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord LoopResult",
+                "    (status String))",
+                "  (defrecord WorkflowInput",
+                "    (value String))",
+                "  (defrecord WorkflowOutput",
+                "    (value String))",
+                "  (defproc helper",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record WorkflowOutput :value input.value))",
+                "  (defworkflow loop-recur-proc-ref-result",
+                "    ()",
+                "    -> LoopResult",
+                "    (let* ((result",
+                "             (loop/recur :max 1 :state \"seed\"",
+                "               (fn (state)",
+                "                 (done (proc-ref helper))))))",
+                "      (record LoopResult :status \"ok\"))))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(workflow_path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
+
+
 def test_lowering_loop_recur_supports_union_return_fixture(tmp_path: Path) -> None:
     result = _compile(VALID_UNION_FIXTURE, tmp_path=tmp_path)
 

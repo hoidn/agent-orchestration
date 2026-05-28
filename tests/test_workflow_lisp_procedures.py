@@ -35,6 +35,9 @@ CYCLE_FIXTURE = FIXTURES / "invalid" / "procedure_cycle.orc"
 PRIVATE_BOUNDARY_FIXTURE = FIXTURES / "invalid" / "procedure_private_boundary_invalid.orc"
 ARITY_FIXTURE = FIXTURES / "invalid" / "procedure_arity_mismatch.orc"
 WORKFLOW_REF_FORWARDING_FIXTURE = FIXTURES / "valid" / "workflow_refs_forwarding.orc"
+PROC_REF_FIXTURE = FIXTURES / "valid" / "proc_ref_static_surface.orc"
+PROC_REF_LITERAL_REQUIRED_FIXTURE = FIXTURES / "invalid" / "proc_ref_literal_required.orc"
+PROC_REF_SIGNATURE_INVALID_FIXTURE = FIXTURES / "invalid" / "proc_ref_signature_invalid.orc"
 
 
 def _compile(path: Path, *, tmp_path: Path):
@@ -769,6 +772,39 @@ def test_compile_stage3_supports_forwarded_workflow_ref_procedure_calls(tmp_path
 
     assert "entry" in result.validated_bundles
     assert result.typed_procedures[0].definition.name == "invoke-runner"
+
+
+def test_compile_stage3_supports_proc_ref_signature_parameters_and_same_file_literals(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.expressions import ProcRefLiteralExpr, ProcedureCallExpr
+    from orchestrator.workflow_lisp.type_env import ProcRefTypeRef
+
+    result = _compile_validated(PROC_REF_FIXTURE, tmp_path=tmp_path)
+    procedure = next(
+        procedure for procedure in result.typed_procedures if procedure.definition.name == "forward-helper"
+    )
+    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == "entry")
+    call_expr = entry.typed_body.expr
+
+    assert isinstance(procedure.signature.params[0][1], ProcRefTypeRef)
+    assert isinstance(call_expr, ProcedureCallExpr)
+    assert isinstance(call_expr.args[0], ProcRefLiteralExpr)
+    assert call_expr.args[0].target_name == "helper"
+
+
+def test_compile_stage3_rejects_non_literal_proc_ref_arguments(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(PROC_REF_LITERAL_REQUIRED_FIXTURE, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_ref_literal_required")
+
+
+def test_compile_stage3_rejects_proc_ref_signature_mismatches(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(PROC_REF_SIGNATURE_INVALID_FIXTURE, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_ref_signature_invalid")
 
 
 def test_higher_order_procedure_specializations_reuse_private_workflow_lowering(tmp_path: Path) -> None:

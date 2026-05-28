@@ -82,6 +82,7 @@ from .procedures import (
     validate_procedure_effects,
     with_call_graph,
 )
+from .procedure_refs import ProcRefResolutionContext
 from .reader import read_sexpr_file
 from .source_map import build_source_map_document
 from .syntax import WorkflowLispSyntaxModule, SyntaxList, SyntaxNode, build_syntax_module, syntax_head_name, syntax_identifier, syntax_node_datum
@@ -93,7 +94,15 @@ from .type_env import (
     TypeRef,
     UnionTypeRef,
 )
-from .type_expressions import ListTypeExpr, MapTypeExpr, NamedTypeExpr, OptionalTypeExpr, WorkflowRefTypeExpr, parse_type_expression
+from .type_expressions import (
+    ListTypeExpr,
+    MapTypeExpr,
+    NamedTypeExpr,
+    OptionalTypeExpr,
+    ProcRefTypeExpr,
+    WorkflowRefTypeExpr,
+    parse_type_expression,
+)
 from .typecheck import typecheck_expression
 from .validation import (
     VALIDATION_PASS_CATALOG,
@@ -691,6 +700,9 @@ def _run_stage3_validation_pipeline(
                 function_catalog=function_catalog,
                 extern_environment=extern_environment,
                 command_boundary_environment=command_boundary_environment,
+                proc_ref_resolution_context=ProcRefResolutionContext(
+                    local_raw_names=frozenset(procedure.name for procedure in procedure_defs),
+                ),
             )
         )
         typed_functions_by_name = {
@@ -938,6 +950,7 @@ def _compile_stage3_graph(
     exported_function_signatures_by_module: dict[str, dict[str, FunctionSignature]] = {}
     exported_procedure_signatures_by_module: dict[str, dict[str, ProcedureSignature]] = {}
     exported_workflow_signatures_by_module: dict[str, dict[str, WorkflowSignature]] = {}
+    visible_procedure_names_by_module: dict[str, frozenset[str]] = {}
     typed_functions_by_name: dict[str, TypedFunctionDef] = {}
     typed_procedures_by_name: dict[str, TypedProcedureDef] = {}
     procedure_effects_by_name: dict[str, EffectSummary] = {}
@@ -995,6 +1008,9 @@ def _compile_stage3_graph(
             export_surfaces[module_name],
             import_scope=import_scope,
             imported_schema_defs=imported_schema_defs,
+        )
+        visible_procedure_names_by_module[module_name] = frozenset(
+            procedure.name for procedure in raw_procedure_defs
         )
         import_scope = build_import_scope(definition_module, export_surfaces_by_name=export_surfaces)
         _validate_visible_callable_name_collisions(
@@ -1139,6 +1155,11 @@ def _compile_stage3_graph(
             function_name_resolver=local_function_resolver,
             procedure_name_resolver=local_procedure_resolver,
             workflow_name_resolver=local_workflow_resolver,
+            proc_ref_resolution_context=ProcRefResolutionContext(
+                import_scope=import_scope,
+                local_raw_names=frozenset(procedure.name for procedure in raw_procedure_defs),
+                visible_procedure_names_by_module=visible_procedure_names_by_module,
+            ),
         )
         typed_procedures = tuple(
             replace(
@@ -1967,7 +1988,7 @@ def _validate_field_types(
 
 
 def _validate_parsed_field_type(
-    parsed: NamedTypeExpr | WorkflowRefTypeExpr | OptionalTypeExpr | ListTypeExpr | MapTypeExpr,
+    parsed: NamedTypeExpr | WorkflowRefTypeExpr | ProcRefTypeExpr | OptionalTypeExpr | ListTypeExpr | MapTypeExpr,
     *,
     authored_name: str,
     span: SourceSpan,
@@ -2011,6 +2032,31 @@ def _validate_parsed_field_type(
                 )
         return diagnostics
     if isinstance(parsed, WorkflowRefTypeExpr):
+        for param_type in parsed.param_types:
+            diagnostics.extend(
+                _validate_parsed_field_type(
+                    param_type,
+                    authored_name=authored_name,
+                    span=span,
+                    form_path=form_path,
+                    available_type_names=available_type_names,
+                    visible_schema_names=visible_schema_names,
+                    import_scope=import_scope,
+                )
+            )
+        diagnostics.extend(
+            _validate_parsed_field_type(
+                parsed.return_type,
+                authored_name=authored_name,
+                span=span,
+                form_path=form_path,
+                available_type_names=available_type_names,
+                visible_schema_names=visible_schema_names,
+                import_scope=import_scope,
+            )
+        )
+        return diagnostics
+    if isinstance(parsed, ProcRefTypeExpr):
         for param_type in parsed.param_types:
             diagnostics.extend(
                 _validate_parsed_field_type(
@@ -2168,6 +2214,7 @@ def _typecheck_procedure_definitions(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    proc_ref_resolution_context: ProcRefResolutionContext | None = None,
 ) -> tuple[TypedProcedureDef, ...]:
     """Typecheck procedure bodies against signatures, externs, and call catalogs."""
 
@@ -2215,6 +2262,7 @@ def _typecheck_procedure_definitions(
             command_boundary_environment=command_boundary_environment,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_body.type_ref != signature.return_type_ref:
             raise LispFrontendCompileError(
@@ -2258,6 +2306,7 @@ def _infer_stage3_effect_summaries(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    proc_ref_resolution_context: ProcRefResolutionContext | None = None,
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
     """Compute procedure/workflow effect summaries to a fixpoint."""
 
@@ -2281,6 +2330,7 @@ def _infer_stage3_effect_summaries(
             function_name_resolver=function_name_resolver,
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
             typed_procedures,
@@ -2303,6 +2353,7 @@ def _infer_stage3_effect_summaries(
             function_name_resolver=function_name_resolver,
             procedure_name_resolver=procedure_name_resolver,
             workflow_name_resolver=workflow_name_resolver,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         next_workflow_effects = {
             workflow.definition.name: workflow.effect_summary for workflow in typed_workflows
@@ -2337,6 +2388,7 @@ def _infer_stage3_effect_summaries(
         function_name_resolver=function_name_resolver,
         procedure_name_resolver=procedure_name_resolver,
         workflow_name_resolver=workflow_name_resolver,
+        proc_ref_resolution_context=proc_ref_resolution_context,
     )
     return typed_procedures, typed_workflows, procedure_catalog
 

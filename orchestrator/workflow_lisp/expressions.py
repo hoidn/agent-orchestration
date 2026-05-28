@@ -188,6 +188,17 @@ class WorkflowRefLiteralExpr:
 
 
 @dataclass(frozen=True)
+class ProcRefLiteralExpr:
+    """One compile-time procedure reference literal."""
+
+    target_name: str
+    authored_name: str
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -363,6 +374,7 @@ ExprNode = (
     | WithPhaseExpr
     | PhaseTargetExpr
     | WorkflowRefLiteralExpr
+    | ProcRefLiteralExpr
     | ProviderResultExpr
     | CommandResultExpr
     | ContinueExpr
@@ -612,6 +624,8 @@ def _elaborate_list(
         return _elaborate_phase_target(datum, form_path=form_path)
     if head.resolved_name == "workflow-ref":
         return _elaborate_workflow_ref_literal(datum, form_path=form_path)
+    if head.resolved_name == "proc-ref":
+        return _elaborate_proc_ref_literal(datum, form_path=form_path)
     if head.resolved_name == "provider-result":
         return _elaborate_provider_result(
             datum,
@@ -1304,6 +1318,45 @@ def _elaborate_workflow_ref_literal(
     )
     return WorkflowRefLiteralExpr(
         target_name=target_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_proc_ref_literal(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+) -> ProcRefLiteralExpr:
+    if len(datum.items) != 2:
+        _raise_error(
+            "`proc-ref` requires exactly one procedure symbol",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    target_identifier = syntax_identifier(datum.items[1])
+    if target_identifier is None:
+        _raise_error(
+            "`proc-ref` target must be a symbol",
+            span=datum.items[1].span,
+            form_path=form_path,
+            expansion_stack=datum.items[1].expansion_stack,
+        )
+    authored_name = target_identifier.resolved_name
+    target_name = (
+        _ACTIVE_PROCEDURE_NAME_RESOLVER(
+            authored_name,
+            target_identifier.span,
+            form_path,
+        )
+        if _ACTIVE_PROCEDURE_NAME_RESOLVER is not None
+        else authored_name
+    )
+    return ProcRefLiteralExpr(
+        target_name=target_name,
+        authored_name=authored_name,
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

@@ -42,6 +42,7 @@ MODULE_FIXTURES = FIXTURES / "modules"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
+PROC_REF_RUNTIME_TRANSPORT_FIXTURE = FIXTURES / "invalid" / "proc_ref_runtime_transport_invalid.orc"
 FORM_PATH = ("workflow-lisp", "workflow-expression-test")
 
 
@@ -701,3 +702,79 @@ def test_compile_stage3_strips_workflow_ref_params_from_lowered_runtime_boundari
 
     for lowered in result.lowered_workflows:
         assert "runner" not in lowered.authored_mapping["inputs"]
+
+
+def test_workflow_boundary_rejects_top_level_proc_ref_params(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            PROC_REF_RUNTIME_TRANSPORT_FIXTURE,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
+
+
+def test_workflow_boundary_rejects_proc_ref_record_fields(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "workflow_boundary_proc_ref_record.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord WorkflowInput",
+                "    (value String))",
+                "  (defrecord WorkflowOutput",
+                "    (value String))",
+                "  (defrecord InvalidEnvelope",
+                "    (runner ProcRef[WorkflowInput -> WorkflowOutput]))",
+                "  (defworkflow helper",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (record WorkflowOutput :value input.value)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
+
+
+def test_workflow_boundary_rejects_proc_ref_union_payloads(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "workflow_boundary_proc_ref_union.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord WorkflowInput",
+                "    (value String))",
+                "  (defrecord WorkflowOutput",
+                "    (value String))",
+                "  (defunion InvalidState",
+                "    (READY",
+                "      (runner ProcRef[WorkflowInput -> WorkflowOutput])))",
+                "  (defworkflow helper",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (record WorkflowOutput :value input.value)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")

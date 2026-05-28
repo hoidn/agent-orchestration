@@ -14,6 +14,7 @@ from .type_expressions import (
     NamedTypeExpr,
     OptionalTypeExpr,
     ParsedTypeExpr,
+    ProcRefTypeExpr,
     WorkflowRefTypeExpr,
     parse_type_expression,
 )
@@ -118,6 +119,15 @@ class WorkflowRefTypeRef:
 
 
 @dataclass(frozen=True)
+class ProcRefTypeRef:
+    """One compile-time-only procedure reference type."""
+
+    name: str
+    param_type_refs: tuple["TypeRef", ...]
+    return_type_ref: "TypeRef"
+
+
+@dataclass(frozen=True)
 class OptionalTypeRef:
     """One resolved optional type reference."""
 
@@ -149,6 +159,7 @@ TypeRef = (
     | UnionTypeRef
     | VariantCaseTypeRef
     | WorkflowRefTypeRef
+    | ProcRefTypeRef
     | OptionalTypeRef
     | ListTypeRef
     | MapTypeRef
@@ -237,6 +248,14 @@ class FrontendTypeEnvironment:
                             for field in definition.fields
                         }
                     )
+                    for field_name, field_type in record_ref.field_types.items():
+                        if _type_ref_contains_proc_ref(field_type):
+                            _raise_error(
+                                f"proc-ref types cannot be transported in record field `{definition.name}.{field_name}`",
+                                code="proc_ref_runtime_transport_forbidden",
+                                span=next(field.span for field in definition.fields if field.name == field_name),
+                                form_path=("workflow-lisp", definition.name, field_name),
+                            )
             elif isinstance(definition, UnionDef):
                 union_ref = type_refs.get(definition.name)
                 if isinstance(union_ref, UnionTypeRef):
@@ -255,6 +274,16 @@ class FrontendTypeEnvironment:
                             for variant in definition.variants
                         }
                     )
+                    for variant in definition.variants:
+                        for field_name, field_type in union_ref.variant_field_types[variant.name].items():
+                            if _type_ref_contains_proc_ref(field_type):
+                                _raise_error(
+                                    "proc-ref types cannot be transported in union payloads "
+                                    f"`{definition.name}.{variant.name}.{field_name}`",
+                                    code="proc_ref_runtime_transport_forbidden",
+                                    span=next(field.span for field in variant.fields if field.name == field_name),
+                                    form_path=("workflow-lisp", definition.name, variant.name, field_name),
+                                )
         return cls(
             type_refs,
             import_scope=import_scope,
@@ -435,6 +464,14 @@ def _resolve_parsed_type_expr(
                 form_path=form_path,
                 expansion_stack=expansion_stack,
             )
+        if _type_ref_contains_proc_ref(item_type_ref):
+            _raise_error(
+                f"proc-ref types cannot be nested inside collections in `{authored_name}`",
+                code="proc_ref_runtime_transport_forbidden",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
         return OptionalTypeRef(name=authored_name, item_type_ref=item_type_ref)
     if isinstance(parsed, ListTypeExpr):
         item_type_ref = _resolve_parsed_type_expr(
@@ -452,6 +489,14 @@ def _resolve_parsed_type_expr(
             _raise_error(
                 f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
                 code="workflow_ref_runtime_transport_forbidden",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        if _type_ref_contains_proc_ref(item_type_ref):
+            _raise_error(
+                f"proc-ref types cannot be nested inside collections in `{authored_name}`",
+                code="proc_ref_runtime_transport_forbidden",
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
@@ -492,6 +537,14 @@ def _resolve_parsed_type_expr(
             _raise_error(
                 f"workflow-ref types cannot be nested inside collections in `{authored_name}`",
                 code="workflow_ref_runtime_transport_forbidden",
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+        if _type_ref_contains_proc_ref(value_type_ref):
+            _raise_error(
+                f"proc-ref types cannot be nested inside collections in `{authored_name}`",
+                code="proc_ref_runtime_transport_forbidden",
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
@@ -552,6 +605,37 @@ def _resolve_parsed_type_expr(
                 expansion_stack=expansion_stack,
             )
         return WorkflowRefTypeRef(
+            name=authored_name,
+            param_type_refs=param_refs,
+            return_type_ref=return_type_ref,
+        )
+    if isinstance(parsed, ProcRefTypeExpr):
+        param_refs = tuple(
+            _resolve_parsed_type_expr(
+                param_type,
+                authored_name=_render_type_expr(param_type),
+                type_refs=type_refs,
+                import_scope=import_scope,
+                canonical_name_overrides=canonical_name_overrides,
+                schema_names=schema_names,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            )
+            for param_type in parsed.param_types
+        )
+        return_type_ref = _resolve_parsed_type_expr(
+            parsed.return_type,
+            authored_name=_render_type_expr(parsed.return_type),
+            type_refs=type_refs,
+            import_scope=import_scope,
+            canonical_name_overrides=canonical_name_overrides,
+            schema_names=schema_names,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+        return ProcRefTypeRef(
             name=authored_name,
             param_type_refs=param_refs,
             return_type_ref=return_type_ref,
@@ -617,6 +701,10 @@ def _render_type_expr(parsed: ParsedTypeExpr) -> str:
     if isinstance(parsed, WorkflowRefTypeExpr):
         params = " ".join(_render_type_expr(param_type) for param_type in parsed.param_types)
         return f"WorkflowRef[({params}) -> {_render_type_expr(parsed.return_type)}]"
+    if isinstance(parsed, ProcRefTypeExpr):
+        params = " ".join(_render_type_expr(param_type) for param_type in parsed.param_types)
+        params_label = f"({params})" if params else "()"
+        return f"ProcRef[{params_label} -> {_render_type_expr(parsed.return_type)}]"
     raise TypeError(f"unsupported parsed type expression: {type(parsed)!r}")
 
 
@@ -634,6 +722,26 @@ def _type_ref_contains_workflow_ref(type_ref: TypeRef) -> bool:
     if isinstance(type_ref, UnionTypeRef):
         return any(
             _type_ref_contains_workflow_ref(field_type)
+            for field_types in type_ref.variant_field_types.values()
+            for field_type in field_types.values()
+        )
+    return False
+
+
+def _type_ref_contains_proc_ref(type_ref: TypeRef) -> bool:
+    if isinstance(type_ref, ProcRefTypeRef):
+        return True
+    if isinstance(type_ref, (OptionalTypeRef, ListTypeRef)):
+        return _type_ref_contains_proc_ref(type_ref.item_type_ref)
+    if isinstance(type_ref, MapTypeRef):
+        return _type_ref_contains_proc_ref(type_ref.key_type_ref) or _type_ref_contains_proc_ref(
+            type_ref.value_type_ref
+        )
+    if isinstance(type_ref, RecordTypeRef):
+        return any(_type_ref_contains_proc_ref(field_type) for field_type in type_ref.field_types.values())
+    if isinstance(type_ref, UnionTypeRef):
+        return any(
+            _type_ref_contains_proc_ref(field_type)
             for field_types in type_ref.variant_field_types.values()
             for field_type in field_types.values()
         )

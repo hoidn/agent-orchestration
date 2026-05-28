@@ -25,6 +25,7 @@ from .effects import EMPTY_EFFECT_SUMMARY, EffectSummary
 from .expressions import elaborate_expression
 from .lints import required_lint_diagnostic
 from .macros import collect_macro_catalog, expand_module_forms
+from .procedure_refs import ProcRefResolutionContext
 from .procedures import ProcedureCatalog
 from .spans import SourceSpan
 from .spans import SourcePosition
@@ -46,6 +47,7 @@ from .type_env import (
     OptionalTypeRef,
     PathTypeRef,
     PrimitiveTypeRef,
+    ProcRefTypeRef,
     RecordTypeRef,
     TypeRef,
     UnionTypeRef,
@@ -212,6 +214,7 @@ class WorkflowBoundaryAnalysis:
     contains_json: bool
     contains_provider_or_prompt: bool
     contains_workflow_ref: bool
+    contains_proc_ref: bool
     contains_union: bool
     contains_collection: bool
     offending_path: tuple[str, ...] = ()
@@ -233,6 +236,7 @@ def analyze_workflow_boundary_type(
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
+            contains_proc_ref=False,
             contains_union=False,
             contains_collection=False,
         )
@@ -243,6 +247,7 @@ def analyze_workflow_boundary_type(
                 contains_json=True,
                 contains_provider_or_prompt=False,
                 contains_workflow_ref=False,
+                contains_proc_ref=False,
                 contains_union=False,
                 contains_collection=False,
                 offending_path=source_path,
@@ -254,6 +259,7 @@ def analyze_workflow_boundary_type(
                 contains_json=False,
                 contains_provider_or_prompt=True,
                 contains_workflow_ref=False,
+                contains_proc_ref=False,
                 contains_union=False,
                 contains_collection=False,
                 offending_path=source_path,
@@ -264,6 +270,7 @@ def analyze_workflow_boundary_type(
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
+            contains_proc_ref=False,
             contains_union=False,
             contains_collection=False,
         )
@@ -291,6 +298,7 @@ def analyze_workflow_boundary_type(
                 contains_json=False,
                 contains_provider_or_prompt=False,
                 contains_workflow_ref=False,
+                contains_proc_ref=False,
                 contains_union=False,
                 contains_collection=False,
             )
@@ -299,6 +307,19 @@ def analyze_workflow_boundary_type(
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=True,
+            contains_proc_ref=False,
+            contains_union=False,
+            contains_collection=False,
+            offending_path=source_path,
+            offending_type_name=type_ref.name,
+        )
+    if isinstance(type_ref, ProcRefTypeRef):
+        return WorkflowBoundaryAnalysis(
+            lowerable=False,
+            contains_json=False,
+            contains_provider_or_prompt=False,
+            contains_workflow_ref=False,
+            contains_proc_ref=True,
             contains_union=False,
             contains_collection=False,
             offending_path=source_path,
@@ -318,6 +339,7 @@ def analyze_workflow_boundary_type(
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
+            contains_proc_ref=False,
             contains_union=False,
             contains_collection=True,
             offending_path=source_path,
@@ -345,6 +367,7 @@ def analyze_workflow_boundary_type(
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
+            contains_proc_ref=False,
             contains_union=False,
             contains_collection=True,
             offending_path=source_path,
@@ -368,6 +391,7 @@ def analyze_workflow_boundary_type(
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
+            contains_proc_ref=False,
             contains_union=False,
             contains_collection=False,
         )
@@ -389,6 +413,7 @@ def analyze_workflow_boundary_type(
                 contains_json=False,
                 contains_provider_or_prompt=False,
                 contains_workflow_ref=False,
+                contains_proc_ref=False,
                 contains_union=False,
                 contains_collection=False,
             )
@@ -397,6 +422,7 @@ def analyze_workflow_boundary_type(
             contains_json=False,
             contains_provider_or_prompt=False,
             contains_workflow_ref=False,
+            contains_proc_ref=False,
             contains_union=True,
             contains_collection=False,
             offending_path=source_path,
@@ -738,6 +764,7 @@ def typecheck_workflow_definitions(
     function_name_resolver=None,
     procedure_name_resolver=None,
     workflow_name_resolver=None,
+    proc_ref_resolution_context: ProcRefResolutionContext | None = None,
 ) -> tuple[TypedWorkflowDef, ...]:
     """Typecheck workflow parameters and bodies against the registered signatures."""
 
@@ -794,6 +821,7 @@ def typecheck_workflow_definitions(
             command_boundary_environment=command_boundaries,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         signature = workflow_catalog.signatures_by_name[workflow_def.name]
         if typed_body.type_ref != signature.return_type_ref:
@@ -858,6 +886,17 @@ def _boundary_diagnostic(
     if analysis.contains_workflow_ref:
         return LispFrontendDiagnostic(
             code="workflow_ref_runtime_transport_forbidden",
+            message=(
+                f"`{analysis.offending_type_name}` cannot cross a runtime workflow boundary "
+                f"(`{path_label}`)"
+            ),
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if analysis.contains_proc_ref:
+        return LispFrontendDiagnostic(
+            code="proc_ref_runtime_transport_forbidden",
             message=(
                 f"`{analysis.offending_type_name}` cannot cross a runtime workflow boundary "
                 f"(`{path_label}`)"

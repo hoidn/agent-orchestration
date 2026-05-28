@@ -41,6 +41,7 @@ from .expressions import (
     MatchExpr,
     NameExpr,
     PhaseTargetExpr,
+    ProcRefLiteralExpr,
     ProduceOneOfExpr,
     ProcedureCallExpr,
     ProviderResultExpr,
@@ -53,6 +54,11 @@ from .expressions import (
     WithPhaseExpr,
 )
 from .loops import LoopControlTypeRef, ensure_loop_projectable_type
+from .procedure_refs import (
+    ProcRefResolutionContext,
+    proc_ref_type_from_signature,
+    resolve_proc_ref_name,
+)
 from .phase import (
     PhaseScope,
     PHASE_CONTEXT_NAME,
@@ -75,6 +81,7 @@ from .type_env import (
     FrontendTypeEnvironment,
     PathTypeRef,
     PrimitiveTypeRef,
+    ProcRefTypeRef,
     RecordTypeRef,
     TypeRef,
     UnionTypeRef,
@@ -188,6 +195,61 @@ def _typecheck_workflow_ref_argument(
     )
 
 
+def _typecheck_proc_ref_argument(
+    expr: ExprNode,
+    *,
+    expected_type: ProcRefTypeRef,
+    value_env: dict[str, TypeRef],
+    procedure_catalog: "ProcedureCatalog | None",
+    proc_ref_resolution_context: ProcRefResolutionContext | None,
+) -> TypedExpr:
+    if procedure_catalog is None:
+        raise TypeError("procedure_catalog is required for proc-ref arguments")
+    if isinstance(expr, NameExpr):
+        bound_type = value_env.get(expr.name)
+        if isinstance(bound_type, ProcRefTypeRef):
+            return _typed(expr=expr, type_ref=bound_type, effect=EMPTY_EFFECT_SUMMARY)
+        _raise_error(
+            "proc-ref arguments must be literals or forwarded proc-ref bindings",
+            code="proc_ref_literal_required",
+            span=expr.span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        )
+    if isinstance(expr, ProcRefLiteralExpr):
+        resolved_ref = resolve_proc_ref_name(
+            expr.target_name,
+            procedure_catalog=procedure_catalog,
+            span=expr.span,
+            form_path=expr.form_path,
+            authored_name=expr.authored_name,
+            expansion_stack=expr.expansion_stack,
+            expected_type=expected_type,
+            resolution_context=proc_ref_resolution_context,
+        )
+        return _typed(
+            expr=expr,
+            type_ref=proc_ref_type_from_signature(
+                type(
+                    "ProcRefSignature",
+                    (),
+                    {
+                        "params": resolved_ref.signature_params,
+                        "return_type_ref": resolved_ref.return_type_ref,
+                        "name": resolved_ref.procedure_name,
+                    },
+                )()
+            ),
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
+    _raise_error(
+        "proc-ref arguments must be literals or forwarded proc-ref bindings",
+        code="proc_ref_literal_required",
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
 @dataclass(frozen=True)
 class ProofScope:
     """Frontend-local proof facts for the current checking scope."""
@@ -209,6 +271,7 @@ def typecheck_expression(
     active_phase_scope: PhaseScope | None = None,
     procedure_effects_by_name: Mapping[str, EffectSummary] | None = None,
     workflow_effects_by_name: Mapping[str, EffectSummary] | None = None,
+    proc_ref_resolution_context: ProcRefResolutionContext | None = None,
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
@@ -230,6 +293,7 @@ def typecheck_expression(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name or {},
             workflow_effects_by_name=workflow_effects_by_name or {},
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
     finally:
         _ACTIVE_FUNCTION_CATALOG = previous_function_catalog
@@ -248,6 +312,7 @@ def _typecheck(
     active_phase_scope: PhaseScope | None,
     procedure_effects_by_name: Mapping[str, EffectSummary],
     workflow_effects_by_name: Mapping[str, EffectSummary],
+    proc_ref_resolution_context: ProcRefResolutionContext | None,
 ) -> TypedExpr:
     if isinstance(expr, LiteralExpr):
         return _typed(
@@ -292,6 +357,33 @@ def _typecheck(
             ),
             effect=EMPTY_EFFECT_SUMMARY,
         )
+    if isinstance(expr, ProcRefLiteralExpr):
+        if procedure_catalog is None:
+            raise TypeError("procedure_catalog is required for proc-ref literals")
+        resolved_ref = resolve_proc_ref_name(
+            expr.target_name,
+            procedure_catalog=procedure_catalog,
+            span=expr.span,
+            form_path=expr.form_path,
+            authored_name=expr.authored_name,
+            expansion_stack=expr.expansion_stack,
+            resolution_context=proc_ref_resolution_context,
+        )
+        return _typed(
+            expr=expr,
+            type_ref=proc_ref_type_from_signature(
+                type(
+                    "ProcRefSignature",
+                    (),
+                    {
+                        "params": resolved_ref.signature_params,
+                        "return_type_ref": resolved_ref.return_type_ref,
+                        "name": resolved_ref.procedure_name,
+                    },
+                )()
+            ),
+            effect=EMPTY_EFFECT_SUMMARY,
+        )
     if isinstance(expr, FieldAccessExpr):
         typed_base = _typecheck(
             expr.base,
@@ -305,6 +397,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         current_type = typed_base.type_ref
         for field_name in expr.fields:
@@ -359,6 +452,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
             )
             field_summaries.append(typed_field.effect_summary)
             expected_type = type_env.resolve_type(
@@ -408,6 +502,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_state.type_ref != loop_context.state_type_ref:
             _raise_error(
@@ -445,6 +540,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if loop_context.result_type_ref is not None and typed_result.type_ref != loop_context.result_type_ref:
             _raise_error(
@@ -485,6 +581,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
             )
             binding_summaries.append(typed_binding.effect_summary)
             seen_names.add(name)
@@ -501,6 +598,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         return _typed(
             expr=expr,
@@ -520,6 +618,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_condition.type_ref != PrimitiveTypeRef(name="Bool"):
             _raise_error(
@@ -551,6 +650,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_else = _typecheck(
             expr.else_expr,
@@ -564,6 +664,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         result_type = _unify_loop_control_types(typed_then.type_ref, typed_else.type_ref)
         if result_type is None:
@@ -606,6 +707,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if not isinstance(typed_subject.type_ref, UnionTypeRef):
             _raise_error(
@@ -655,6 +757,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
             )
             arm_summaries.append(typed_body.effect_summary)
             if arm_result_type is None:
@@ -715,6 +818,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
             _raise_error(
@@ -735,6 +839,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         ensure_loop_projectable_type(
             typed_state.type_ref,
@@ -756,6 +861,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
             )
         finally:
             loop_context = _ACTIVE_LOOP_CONTEXT.pop()
@@ -873,6 +979,23 @@ def _typecheck(
                         form_path=binding_expr.form_path,
                     )
                 continue
+            if isinstance(expected_type, ProcRefTypeRef):
+                typed_binding = _typecheck_proc_ref_argument(
+                    binding_expr,
+                    expected_type=expected_type,
+                    value_env=value_env,
+                    procedure_catalog=procedure_catalog,
+                    proc_ref_resolution_context=proc_ref_resolution_context,
+                )
+                binding_summaries.append(typed_binding.effect_summary)
+                if typed_binding.type_ref != expected_type:
+                    _raise_error(
+                        f"procedure ref argument `{binding_name}` does not match `{expected_type.name}`",
+                        code="proc_ref_signature_invalid",
+                        span=binding_expr.span,
+                        form_path=binding_expr.form_path,
+                    )
+                continue
             typed_binding = _typecheck(
                 binding_expr,
                 type_env=type_env,
@@ -885,6 +1008,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
             )
             binding_summaries.append(typed_binding.effect_summary)
             if typed_binding.type_ref != expected_type:
@@ -958,6 +1082,23 @@ def _typecheck(
                         form_path=arg_expr.form_path,
                     )
                 continue
+            if isinstance(expected_type, ProcRefTypeRef):
+                typed_arg = _typecheck_proc_ref_argument(
+                    arg_expr,
+                    expected_type=expected_type,
+                    value_env=value_env,
+                    procedure_catalog=procedure_catalog,
+                    proc_ref_resolution_context=proc_ref_resolution_context,
+                )
+                arg_summaries.append(typed_arg.effect_summary)
+                if typed_arg.type_ref != expected_type:
+                    _raise_error(
+                        f"procedure ref argument `{param_name}` does not match `{expected_type.name}`",
+                        code="proc_ref_signature_invalid",
+                        span=arg_expr.span,
+                        form_path=arg_expr.form_path,
+                    )
+                continue
             typed_arg = _typecheck(
                 arg_expr,
                 type_env=type_env,
@@ -970,6 +1111,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
             )
             arg_summaries.append(typed_arg.effect_summary)
             if typed_arg.type_ref != expected_type:
@@ -1022,6 +1164,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+                proc_ref_resolution_context=proc_ref_resolution_context,
             )
             arg_summaries.append(typed_arg.effect_summary)
             if typed_arg.type_ref != expected_type:
@@ -1057,6 +1200,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         phase_scope = build_phase_scope(
             typed_context.type_ref,
@@ -1077,6 +1221,7 @@ def _typecheck(
             active_phase_scope=phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         return _typed(
             expr=expr,
@@ -1108,6 +1253,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         ensure_item_context_type(
             typed_ctx.type_ref,
@@ -1126,6 +1272,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         ensure_resource_transition_resource_type(
             typed_resource.type_ref,
@@ -1144,6 +1291,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_when = None
         if expr.spec.when_expr is not None:
@@ -1159,6 +1307,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
             )
             if typed_when.type_ref != PrimitiveTypeRef(name="Bool"):
                 _raise_error(
@@ -1248,6 +1397,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         ensure_item_context_type(
             typed_ctx.type_ref,
@@ -1266,6 +1416,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_queue_transition = _typecheck(
             expr.spec.queue_transition_expr,
@@ -1279,6 +1430,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         expected_transition = type_env.resolve_type(
             "ResourceTransitionResult",
@@ -1304,6 +1456,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_plan = _typecheck(
             expr.spec.plan_expr,
@@ -1317,6 +1470,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_implementation = _typecheck(
             expr.spec.implementation_expr,
@@ -1330,6 +1484,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if not isinstance(typed_plan.type_ref, UnionTypeRef) or not isinstance(typed_implementation.type_ref, UnionTypeRef):
             _raise_error(
@@ -1384,6 +1539,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         ensure_drain_context_type(
             typed_ctx.type_ref,
@@ -1402,6 +1558,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
             _raise_error(
@@ -1469,6 +1626,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
             )
         return _typed(
             expr=expr,
@@ -1520,6 +1678,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         _require_normative_phase_ctx_type(
             typed_ctx.type_ref,
@@ -1545,6 +1704,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_provider = _typecheck_expected_extern_operand(
             expr.provider,
@@ -1559,6 +1719,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_prompt = _typecheck_expected_extern_operand(
             expr.prompt,
@@ -1573,6 +1734,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
             _raise_error(
@@ -1626,6 +1788,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         _require_normative_phase_ctx_type(
             typed_ctx.type_ref,
@@ -1662,6 +1825,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_prompt = _typecheck_expected_extern_operand(
             expr.producer.prompt_expr,
@@ -1676,6 +1840,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         input_summaries.extend((typed_provider.effect_summary, typed_prompt.effect_summary))
         for producer_input in expr.producer.inputs:
@@ -1691,6 +1856,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
             )
             input_summaries.append(typed_input.effect_summary)
         for candidate in expr.candidates:
@@ -1722,6 +1888,7 @@ def _typecheck(
                         active_phase_scope=active_phase_scope,
                             procedure_effects_by_name=procedure_effects_by_name,
                             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
                         )
                     if not isinstance(typed_target.type_ref, PathTypeRef):
                         _raise_error(
@@ -1773,6 +1940,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         _require_normative_phase_ctx_type(
             typed_ctx.type_ref,
@@ -1798,6 +1966,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_inputs = _typecheck(
             expr.inputs_expr,
@@ -1811,6 +1980,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_review_provider = _typecheck_expected_extern_operand(
             expr.review_provider,
@@ -1825,6 +1995,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_fix_provider = _typecheck_expected_extern_operand(
             expr.fix_provider,
@@ -1839,6 +2010,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_review_prompt = _typecheck_expected_extern_operand(
             expr.review_prompt,
@@ -1853,6 +2025,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_fix_prompt = _typecheck_expected_extern_operand(
             expr.fix_prompt,
@@ -1867,6 +2040,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_max = _typecheck(
             expr.max_expr,
@@ -1880,6 +2054,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_max.type_ref != PrimitiveTypeRef(name="Int"):
             _raise_error(
@@ -1928,6 +2103,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         _require_normative_phase_ctx_type(
             typed_ctx.type_ref,
@@ -1953,6 +2129,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if not isinstance(typed_resume_from.type_ref, PathTypeRef) or typed_resume_from.type_ref.definition.under != "state":
             _raise_error(
@@ -1983,6 +2160,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_start.type_ref != return_type:
             _raise_error(
@@ -2119,6 +2297,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         typed_prompt = _typecheck_expected_extern_operand(
             expr.prompt,
@@ -2133,6 +2312,7 @@ def _typecheck(
             active_phase_scope=active_phase_scope,
             procedure_effects_by_name=procedure_effects_by_name,
             workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
         if typed_provider.type_ref != PrimitiveTypeRef(name="Provider"):
             _raise_error(
@@ -2200,6 +2380,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
             )
             input_summaries.append(typed_input.effect_summary)
         provider_name = expr.provider.name if isinstance(expr.provider, NameExpr) else "provider-result"
@@ -2241,6 +2422,7 @@ def _typecheck(
                 active_phase_scope=active_phase_scope,
                 procedure_effects_by_name=procedure_effects_by_name,
                 workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
             )
             arg_summaries.append(typed_arg.effect_summary)
         command_binding = None
@@ -2437,6 +2619,7 @@ def _typecheck_expected_extern_operand(
     active_phase_scope: PhaseScope | None,
     procedure_effects_by_name: Mapping[str, EffectSummary],
     workflow_effects_by_name: Mapping[str, EffectSummary],
+    proc_ref_resolution_context: ProcRefResolutionContext | None,
 ) -> TypedExpr:
     if isinstance(expr, NameExpr) and expr.name not in value_env:
         return _typed(
@@ -2456,6 +2639,7 @@ def _typecheck_expected_extern_operand(
         active_phase_scope=active_phase_scope,
         procedure_effects_by_name=procedure_effects_by_name,
         workflow_effects_by_name=workflow_effects_by_name,
+        proc_ref_resolution_context=proc_ref_resolution_context,
     )
 
 

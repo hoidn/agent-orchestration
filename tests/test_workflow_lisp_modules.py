@@ -13,6 +13,8 @@ FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp" / "modules"
 VALID_FIXTURES = FIXTURES / "valid"
 INVALID_FIXTURES = FIXTURES / "invalid"
 WORKFLOW_REF_FIXTURES = VALID_FIXTURES / "workflow_refs"
+PROC_REF_FIXTURES = VALID_FIXTURES / "proc_refs"
+INVALID_PROC_REF_FIXTURES = INVALID_FIXTURES / "proc_refs"
 
 
 def _compiler_module():
@@ -259,6 +261,57 @@ def test_compile_stage3_entrypoint_resolves_imported_workflow_refs_to_canonical_
 
     assert "workflow_refs/imported_helper::echo-helper" in result.entry_result.workflow_catalog.signatures_by_name
     assert "workflow_refs/imported_entry::entry" in result.validated_bundles_by_name
+
+
+def test_compile_stage3_entrypoint_resolves_imported_proc_refs_to_canonical_keys(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.expressions import ProcRefLiteralExpr, ProcedureCallExpr
+
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    path = PROC_REF_FIXTURES / "proc_refs" / "imported_entry.orc"
+    result = compile_fn(
+        path,
+        source_roots=(PROC_REF_FIXTURES,),
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    entry = next(
+        workflow
+        for workflow in result.entry_result.typed_workflows
+        if workflow.definition.name == "proc_refs/imported_entry::entry"
+    )
+    body = entry.typed_body.expr
+
+    assert "proc_refs/imported_helper::echo-helper" in result.entry_result.procedure_catalog.signatures_by_name
+    assert isinstance(body, ProcedureCallExpr)
+    assert isinstance(body.args[0], ProcRefLiteralExpr)
+    assert body.args[0].target_name == "proc_refs/imported_helper::echo-helper"
+
+
+def test_compile_stage3_entrypoint_rejects_private_imported_proc_refs(tmp_path: Path) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    path = INVALID_PROC_REF_FIXTURES / "proc_refs" / "private_entry.orc"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_fn(
+            path,
+            source_roots=(INVALID_PROC_REF_FIXTURES,),
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    _assert_diagnostic_code(excinfo, "proc_ref_private_import_invalid")
 
 
 def test_compile_stage3_entrypoint_preserves_wrapper_behavior_for_single_file_fixtures(tmp_path: Path) -> None:

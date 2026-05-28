@@ -21,6 +21,7 @@ from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 MODULE_FIXTURES = FIXTURES / "modules" / "valid" / "alias_only"
+PROC_REF_FIXTURE = FIXTURES / "valid" / "proc_ref_static_surface.orc"
 SPAN = SourceSpan(
     start=SourcePosition(path="inline.orc", line=1, column=1, offset=0),
     end=SourcePosition(path="inline.orc", line=1, column=1, offset=0),
@@ -179,6 +180,94 @@ def test_frontend_type_environment_rejects_optional_workflow_refs_nested_inside_
         )
 
     _assert_diagnostic_code(excinfo, "workflow_ref_runtime_transport_forbidden")
+
+
+def test_parse_type_expression_supports_proc_ref_signatures() -> None:
+    from orchestrator.workflow_lisp.type_expressions import (
+        NamedTypeExpr,
+        ProcRefTypeExpr,
+        parse_type_expression,
+    )
+
+    unary = parse_type_expression(
+        "ProcRef[WorkflowInput -> WorkflowOutput]",
+        span=SPAN,
+        form_path=FORM_PATH,
+    )
+    multi = parse_type_expression(
+        "ProcRef[(WorkflowInput WorkflowOutput) -> String]",
+        span=SPAN,
+        form_path=FORM_PATH,
+    )
+    zero = parse_type_expression(
+        "ProcRef[() -> String]",
+        span=SPAN,
+        form_path=FORM_PATH,
+    )
+
+    assert unary == ProcRefTypeExpr(
+        param_types=(NamedTypeExpr(name="WorkflowInput"),),
+        return_type=NamedTypeExpr(name="WorkflowOutput"),
+    )
+    assert multi == ProcRefTypeExpr(
+        param_types=(
+            NamedTypeExpr(name="WorkflowInput"),
+            NamedTypeExpr(name="WorkflowOutput"),
+        ),
+        return_type=NamedTypeExpr(name="String"),
+    )
+    assert zero == ProcRefTypeExpr(
+        param_types=(),
+        return_type=NamedTypeExpr(name="String"),
+    )
+
+
+def test_frontend_type_environment_resolves_proc_ref_type_refs() -> None:
+    from orchestrator.workflow_lisp.type_env import ProcRefTypeRef
+
+    type_env = FrontendTypeEnvironment.from_module(_compile_definition_module(PROC_REF_FIXTURE))
+
+    resolved = type_env.resolve_type(
+        "ProcRef[(WorkflowInput WorkflowOutput) -> String]",
+        span=SPAN,
+        form_path=FORM_PATH,
+    )
+    zero = type_env.resolve_type(
+        "ProcRef[() -> String]",
+        span=SPAN,
+        form_path=FORM_PATH,
+    )
+
+    assert isinstance(resolved, ProcRefTypeRef)
+    assert [type_ref.name for type_ref in resolved.param_type_refs] == [
+        "WorkflowInput",
+        "WorkflowOutput",
+    ]
+    assert resolved.return_type_ref.name == "String"
+    assert isinstance(zero, ProcRefTypeRef)
+    assert zero.param_type_refs == ()
+    assert zero.return_type_ref.name == "String"
+
+
+@pytest.mark.parametrize(
+    "type_name",
+    [
+        "List[ProcRef[WorkflowInput -> WorkflowOutput]]",
+        "Optional[ProcRef[WorkflowInput -> WorkflowOutput]]",
+        "Map[String, ProcRef[WorkflowInput -> WorkflowOutput]]",
+    ],
+)
+def test_frontend_type_environment_rejects_proc_refs_nested_inside_collections(type_name: str) -> None:
+    type_env = FrontendTypeEnvironment.from_module(_compile_definition_module(PROC_REF_FIXTURE))
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        type_env.resolve_type(
+            type_name,
+            span=SPAN,
+            form_path=FORM_PATH,
+        )
+
+    _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
 
 
 def test_compile_stage1_rejects_collection_type_invalid_arity_fixture() -> None:

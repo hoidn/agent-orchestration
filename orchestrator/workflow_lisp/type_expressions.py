@@ -20,6 +20,12 @@ class WorkflowRefTypeExpr:
 
 
 @dataclass(frozen=True)
+class ProcRefTypeExpr:
+    param_types: tuple["ParsedTypeExpr", ...]
+    return_type: "ParsedTypeExpr"
+
+
+@dataclass(frozen=True)
 class OptionalTypeExpr:
     item_type: "ParsedTypeExpr"
 
@@ -35,7 +41,14 @@ class MapTypeExpr:
     value_type: "ParsedTypeExpr"
 
 
-ParsedTypeExpr = NamedTypeExpr | WorkflowRefTypeExpr | OptionalTypeExpr | ListTypeExpr | MapTypeExpr
+ParsedTypeExpr = (
+    NamedTypeExpr
+    | WorkflowRefTypeExpr
+    | ProcRefTypeExpr
+    | OptionalTypeExpr
+    | ListTypeExpr
+    | MapTypeExpr
+)
 
 
 def parse_type_expression(
@@ -68,23 +81,43 @@ def parse_type_expression(
         return NamedTypeExpr(name=authored)
 
     if head == "WorkflowRef":
-        split_index = top_level_arrow_index(args_text)
-        if split_index is None:
-            _raise_type_expression_error(
-                f"invalid workflow-ref type `{authored}`",
-                span=span,
-                form_path=form_path,
-                expansion_stack=expansion_stack,
-            )
-        params_text = args_text[:split_index].strip()
-        return_text = args_text[split_index + 2 :].strip()
-        param_texts = _parse_workflow_ref_param_texts(
-            params_text,
+        param_texts, return_text = _parse_callable_ref_parts(
+            args_text,
+            authored=authored,
+            kind_label="workflow-ref",
+            allow_zero_params=False,
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
         )
         return WorkflowRefTypeExpr(
+            param_types=tuple(
+                parse_type_expression(
+                    param_text,
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                )
+                for param_text in param_texts
+            ),
+            return_type=parse_type_expression(
+                return_text,
+                span=span,
+                form_path=form_path,
+                expansion_stack=expansion_stack,
+            ),
+        )
+    if head == "ProcRef":
+        param_texts, return_text = _parse_callable_ref_parts(
+            args_text,
+            authored=authored,
+            kind_label="proc-ref",
+            allow_zero_params=True,
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+        return ProcRefTypeExpr(
             param_types=tuple(
                 parse_type_expression(
                     param_text,
@@ -194,9 +227,42 @@ def top_level_arrow_index(text: str) -> int | None:
     return None
 
 
-def _parse_workflow_ref_param_texts(
+def _parse_callable_ref_parts(
+    args_text: str,
+    *,
+    authored: str,
+    kind_label: str,
+    allow_zero_params: bool,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+    expansion_stack: tuple[object, ...],
+) -> tuple[tuple[str, ...], str]:
+    split_index = top_level_arrow_index(args_text)
+    if split_index is None:
+        _raise_type_expression_error(
+            f"invalid {kind_label} type `{authored}`",
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    params_text = args_text[:split_index].strip()
+    return_text = args_text[split_index + 2 :].strip()
+    param_texts = _parse_callable_ref_param_texts(
+        params_text,
+        kind_label=kind_label,
+        allow_zero_params=allow_zero_params,
+        span=span,
+        form_path=form_path,
+        expansion_stack=expansion_stack,
+    )
+    return param_texts, return_text
+
+
+def _parse_callable_ref_param_texts(
     text: str,
     *,
+    kind_label: str,
+    allow_zero_params: bool,
     span: SourceSpan,
     form_path: tuple[str, ...],
     expansion_stack: tuple[object, ...],
@@ -204,7 +270,7 @@ def _parse_workflow_ref_param_texts(
     if text.startswith("("):
         if not text.endswith(")"):
             _raise_type_expression_error(
-                f"invalid workflow-ref parameter list `{text}`",
+                f"invalid {kind_label} parameter list `{text}`",
                 span=span,
                 form_path=form_path,
                 expansion_stack=expansion_stack,
@@ -212,9 +278,16 @@ def _parse_workflow_ref_param_texts(
         param_texts = tuple(_split_top_level(text[1:-1].strip(), delimiter=None))
     else:
         param_texts = (text,) if text else ()
-    if not param_texts or any(not param.strip() for param in param_texts):
+    if not allow_zero_params and not param_texts:
         _raise_type_expression_error(
-            "workflow-ref types require at least one parameter type",
+            f"{kind_label} types require at least one parameter type",
+            span=span,
+            form_path=form_path,
+            expansion_stack=expansion_stack,
+        )
+    if any(not param.strip() for param in param_texts):
+        _raise_type_expression_error(
+            f"invalid {kind_label} parameter list `{text}`",
             span=span,
             form_path=form_path,
             expansion_stack=expansion_stack,
