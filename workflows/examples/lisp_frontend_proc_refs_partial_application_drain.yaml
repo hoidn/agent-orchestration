@@ -2,7 +2,7 @@ version: "2.14"
 name: "lisp-frontend-proc-refs-partial-application-drain-v214"
 
 imports:
-  proc_ref_delta_drain: ./lisp_frontend_autonomous_drain.yaml
+  proc_ref_delta_drain: ./lisp_frontend_design_delta_drain.yaml
 
 context:
   workflow_model: "gpt-5.4"
@@ -104,13 +104,9 @@ steps:
     with:
       steering_path:
         ref: inputs.steering_path
-      full_design_path:
+      target_design_path:
         ref: inputs.target_design_path
-      # The imported full-design drain names this input `mvp_design_path`.
-      # In this focused successor workflow, it carries the baseline frontend
-      # spec so the target delta is implemented without violating the parent
-      # contract.
-      mvp_design_path:
+      baseline_design_path:
         ref: inputs.baseline_design_path
       command_adapter_contract_path:
         ref: inputs.command_adapter_contract_path

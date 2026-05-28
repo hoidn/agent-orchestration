@@ -1,0 +1,174 @@
+version: "2.14"
+name: "lisp-frontend-design-delta-selector-v214"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  steering_path:
+    type: relpath
+    under: docs
+    must_exist_target: true
+  target_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  baseline_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  manifest_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  progress_ledger_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  run_state_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+
+outputs:
+  selection_status:
+    kind: scalar
+    type: enum
+    allowed: ["SELECT_BACKLOG_ITEM", "DRAFT_DESIGN_GAP", "DONE", "BLOCKED"]
+    from:
+      ref: root.steps.SelectNextWork.artifacts.selection_status
+  selection_bundle_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+    from:
+      ref: root.steps.PublishSelectionBundle.artifacts.selection_bundle_path
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+
+artifacts:
+  steering:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/steering_path.txt
+    under: docs
+    must_exist_target: true
+  target_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/target_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  baseline_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/baseline_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  manifest:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/manifest_path.txt
+    under: state
+    must_exist_target: true
+  progress_ledger:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/progress_ledger_path.txt
+    under: state
+    must_exist_target: true
+  run_state:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/run_state_path.txt
+    under: state
+    must_exist_target: true
+
+steps:
+  - name: MaterializeSelectorInputs
+    id: materialize_selector_inputs
+    materialize_artifacts:
+      input_values:
+        - names:
+            - steering_path
+            - target_design_path
+            - baseline_design_path
+            - manifest_path
+            - progress_ledger_path
+            - run_state_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
+    publishes:
+      - artifact: steering
+        from: steering_path
+      - artifact: target_design
+        from: target_design_path
+      - artifact: baseline_design
+        from: baseline_design_path
+      - artifact: manifest
+        from: manifest_path
+      - artifact: progress_ledger
+        from: progress_ledger_path
+      - artifact: run_state
+        from: run_state_path
+
+  - name: SelectNextWork
+    id: select_next_work
+    provider: codex
+    asset_file: prompts/lisp_frontend_selector/select_next_design_delta_work.md
+    timeout_sec: 1800
+    consumes:
+      - artifact: steering
+        policy: latest_successful
+        freshness: any
+      - artifact: target_design
+        policy: latest_successful
+        freshness: any
+      - artifact: baseline_design
+        policy: latest_successful
+        freshness: any
+      - artifact: manifest
+        policy: latest_successful
+        freshness: any
+      - artifact: progress_ledger
+        policy: latest_successful
+        freshness: any
+      - artifact: run_state
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["steering", "target_design", "baseline_design", "manifest", "progress_ledger", "run_state"]
+    output_bundle:
+      path: ${inputs.state_root}/selection.json
+      fields:
+        - name: selection_status
+          json_pointer: /selection_status
+          type: enum
+          allowed: ["SELECT_BACKLOG_ITEM", "DRAFT_DESIGN_GAP", "DONE", "BLOCKED"]
+
+  - name: PublishSelectionBundle
+    id: publish_selection_bundle
+    command:
+      - python
+      - workflows/library/scripts/publish_lisp_frontend_selection_bundle.py
+      - --selection-path
+      - ${inputs.state_root}/selection.json
+      - --output
+      - ${inputs.state_root}/selection-bundle-path.json
+    output_bundle:
+      path: ${inputs.state_root}/selection-bundle-path.json
+      fields:
+        - name: selection_bundle_path
+          json_pointer: /selection_bundle_path
+          type: relpath
+          under: state
+          must_exist_target: true
