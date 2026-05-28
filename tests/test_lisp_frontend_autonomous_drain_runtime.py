@@ -489,6 +489,14 @@ def test_proc_ref_path_prompts_use_target_and_baseline_roles():
         assert "baseline" in text, path
 
 
+def test_proc_ref_delta_drain_uses_proc_ref_backlog_root():
+    text = (ROOT / "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "docs/backlog/active/LISP-PROC-REFS-PARTIAL-APPLICATION" in text
+
+
 def test_autonomous_drain_design_gap_path_stays_plan_scoped():
     workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_autonomous_drain.yaml").read_text())
     drain_step = next(step for step in workflow["steps"] if step["name"] == "DrainLispFrontendWork")

@@ -32,7 +32,7 @@ inputs:
   backlog_root:
     type: relpath
     under: docs/backlog
-    default: docs/backlog/active
+    default: docs/backlog/active/LISP-PROC-REFS-PARTIAL-APPLICATION
   progress_ledger_path:
     type: relpath
     under: state
