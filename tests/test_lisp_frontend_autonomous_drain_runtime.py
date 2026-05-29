@@ -74,9 +74,13 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/lisp_frontend_selector.v214.yaml",
         "workflows/library/lisp_frontend_design_delta_selector.v214.yaml",
         "workflows/library/lisp_frontend_design_gap_architect.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_design_gap_architect.v214.yaml",
         "workflows/library/lisp_frontend_work_item.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
         "workflows/library/lisp_frontend_plan_phase.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml",
         "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_implementation_phase.v214.yaml",
         "workflows/library/scripts/build_lisp_frontend_architecture_index.py",
         "workflows/library/scripts/build_lisp_frontend_backlog_manifest.py",
         "workflows/library/scripts/build_neurips_backlog_manifest.py",
@@ -99,11 +103,23 @@ def _copy_runtime_files(workspace: Path) -> Path:
     )
     files.extend(
         path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect").rglob("*.md")
+    )
+    files.extend(
+        path.relative_to(ROOT).as_posix()
         for path in (ROOT / "workflows/library/prompts/lisp_frontend_plan_phase").rglob("*.md")
     )
     files.extend(
         path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "workflows/library/prompts/lisp_frontend_design_delta_plan_phase").rglob("*.md")
+    )
+    files.extend(
+        path.relative_to(ROOT).as_posix()
         for path in (ROOT / "workflows/library/prompts/lisp_frontend_implementation_phase").rglob("*.md")
+    )
+    files.extend(
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase").rglob("*.md")
     )
     for relpath in sorted(set(files)):
         _copy_repo_file_to_workspace(workspace, relpath)
@@ -457,9 +473,13 @@ def test_lisp_frontend_workflows_load(tmp_path):
         "workflows/library/lisp_frontend_selector.v214.yaml",
         "workflows/library/lisp_frontend_design_delta_selector.v214.yaml",
         "workflows/library/lisp_frontend_design_gap_architect.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_design_gap_architect.v214.yaml",
         "workflows/library/lisp_frontend_work_item.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml",
         "workflows/library/lisp_frontend_plan_phase.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_plan_phase.v214.yaml",
         "workflows/library/lisp_frontend_implementation_phase.v214.yaml",
+        "workflows/library/lisp_frontend_design_delta_implementation_phase.v214.yaml",
     ]:
         loader.load(workspace / relpath)
 
@@ -478,9 +498,9 @@ def test_design_delta_selector_prompt_defines_target_and_baseline():
 def test_proc_ref_path_prompts_use_target_and_baseline_roles():
     prompt_paths = [
         ROOT / "workflows/library/prompts/lisp_frontend_selector/select_next_design_delta_work.md",
-        ROOT / "workflows/library/prompts/lisp_frontend_design_gap_architect/draft_implementation_architecture.md",
-        ROOT / "workflows/library/prompts/lisp_frontend_plan_phase/draft_plan.md",
-        ROOT / "workflows/library/prompts/lisp_frontend_implementation_phase/implement_plan.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase/implement_plan.md",
     ]
 
     for path in prompt_paths:
@@ -489,12 +509,49 @@ def test_proc_ref_path_prompts_use_target_and_baseline_roles():
         assert "baseline" in text, path
 
 
+def test_shared_autonomous_prompt_roots_keep_full_mvp_semantics():
+    shared_prompt_paths = [
+        ROOT / "workflows/library/prompts/lisp_frontend_selector/select_next_work.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_design_gap_architect/draft_implementation_architecture.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_plan_phase/draft_plan.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_implementation_phase/implement_plan.md",
+    ]
+
+    for path in shared_prompt_paths:
+        text = path.read_text(encoding="utf-8").lower()
+        assert "full design" in text, path
+        assert "mvp design" in text, path
+
+
+def test_shared_prompt_roots_do_not_include_procref_specific_ids():
+    shared_prompt_roots = [
+        ROOT / "workflows/library/prompts/lisp_frontend_selector",
+        ROOT / "workflows/library/prompts/lisp_frontend_design_gap_architect",
+        ROOT / "workflows/library/prompts/lisp_frontend_plan_phase",
+        ROOT / "workflows/library/prompts/lisp_frontend_implementation_phase",
+    ]
+
+    for root in shared_prompt_roots:
+        for path in root.rglob("*.md"):
+            text = path.read_text(encoding="utf-8")
+            assert "LISP-PROC-REFS-PARTIAL-APPLICATION" not in text, path
+
+
 def test_proc_ref_delta_drain_uses_proc_ref_backlog_root():
     text = (ROOT / "workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml").read_text(
         encoding="utf-8"
     )
 
     assert "docs/backlog/active/LISP-PROC-REFS-PARTIAL-APPLICATION" in text
+
+
+def test_design_delta_drain_uses_design_delta_library_variants():
+    workflow = yaml.safe_load((ROOT / "workflows/examples/lisp_frontend_design_delta_drain.yaml").read_text())
+    imports = workflow["imports"]
+
+    assert imports["selector"] == "../library/lisp_frontend_design_delta_selector.v214.yaml"
+    assert imports["design_gap_architect"] == "../library/lisp_frontend_design_delta_design_gap_architect.v214.yaml"
+    assert imports["work_item"] == "../library/lisp_frontend_design_delta_work_item.v214.yaml"
 
 
 def test_autonomous_drain_design_gap_path_stays_plan_scoped():

@@ -3,8 +3,8 @@ name: "lisp-frontend-design-delta-drain-v214"
 
 imports:
   selector: ../library/lisp_frontend_design_delta_selector.v214.yaml
-  design_gap_architect: ../library/lisp_frontend_design_gap_architect.v214.yaml
-  work_item: ../library/lisp_frontend_work_item.v214.yaml
+  design_gap_architect: ../library/lisp_frontend_design_delta_design_gap_architect.v214.yaml
+  work_item: ../library/lisp_frontend_design_delta_work_item.v214.yaml
 
 context:
   workflow_model: "gpt-5.4"
@@ -237,9 +237,9 @@ steps:
                         ref: parent.steps.BuildBacklogManifest.artifacts.manifest_path
                       steering_path:
                         ref: inputs.steering_path
-                      full_design_path:
+                      target_design_path:
                         ref: inputs.target_design_path
-                      mvp_design_path:
+                      baseline_design_path:
                         ref: inputs.baseline_design_path
                       progress_ledger_path:
                         ref: inputs.progress_ledger_path
@@ -274,9 +274,9 @@ steps:
                         ref: parent.steps.PrepareIterationPaths.artifacts.design_gap_architect_state_root
                       steering_path:
                         ref: inputs.steering_path
-                      full_design_path:
+                      target_design_path:
                         ref: inputs.target_design_path
-                      mvp_design_path:
+                      baseline_design_path:
                         ref: inputs.baseline_design_path
                       command_adapter_contract_path:
                         ref: inputs.command_adapter_contract_path
@@ -300,9 +300,9 @@ steps:
                         ref: self.steps.DraftDesignGapArchitecture.artifacts.work_item_bundle_path
                       steering_path:
                         ref: inputs.steering_path
-                      full_design_path:
+                      target_design_path:
                         ref: inputs.target_design_path
-                      mvp_design_path:
+                      baseline_design_path:
                         ref: inputs.baseline_design_path
                       progress_ledger_path:
                         ref: inputs.progress_ledger_path

@@ -1,5 +1,5 @@
 version: "2.14"
-name: "lisp-frontend-design-gap-architect-v214"
+name: "lisp-frontend-design-delta-design-gap-architect-v214"
 
 context:
   workflow_model: "gpt-5.4"
@@ -13,11 +13,11 @@ inputs:
     type: relpath
     under: docs
     must_exist_target: true
-  full_design_path:
+  target_design_path:
     type: relpath
     under: docs/design
     must_exist_target: true
-  mvp_design_path:
+  baseline_design_path:
     type: relpath
     under: docs/design
     must_exist_target: true
@@ -144,13 +144,13 @@ steps:
   - name: DraftDesignGapArchitecture
     id: draft_design_gap_architecture
     provider: codex
-    asset_file: prompts/lisp_frontend_design_gap_architect/draft_implementation_architecture.md
+    asset_file: prompts/lisp_frontend_design_delta_design_gap_architect/draft_implementation_architecture.md
     timeout_sec: 1800
     depends_on:
       required:
         - ${inputs.steering_path}
-        - ${inputs.full_design_path}
-        - ${inputs.mvp_design_path}
+        - ${inputs.target_design_path}
+        - ${inputs.baseline_design_path}
         - ${inputs.command_adapter_contract_path}
         - ${inputs.progress_ledger_path}
         - ${inputs.selection_bundle_path}
@@ -159,7 +159,7 @@ steps:
       inject:
         mode: content
         position: prepend
-        instruction: "Use these files as authoritative context. Treat the first design file as the full-design target and the second design file as MVP historical context."
+        instruction: "Use these files as authoritative context. Treat the first design file as the target design and the second design file as baseline context."
     output_bundle:
       path: ${inputs.state_root}/draft-bundle.json
       fields:

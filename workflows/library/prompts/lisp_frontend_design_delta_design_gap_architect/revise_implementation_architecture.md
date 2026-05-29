@@ -1,10 +1,10 @@
-Read the listed steering, full design, MVP design, command-adapter
+Read the listed steering, target design, baseline design, command-adapter
 contract, progress ledger, selector bundle, architecture target contract, existing
 implementation architecture index, current implementation architecture,
 generated work-item context, generated check commands, and architecture review
 report from the checkout before acting.
 
-Revise the implementation architecture for exactly the selected full-design
+Revise the implementation architecture for exactly the selected target-design
 gap to address the review findings.
 
 Update the same target files that the draft step produced:

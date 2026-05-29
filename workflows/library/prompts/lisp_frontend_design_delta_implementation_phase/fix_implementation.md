@@ -1,5 +1,6 @@
 Fix the Lisp frontend implementation according to the review findings while
-preserving the approved full-design plan scope and MVP-design constraints.
+preserving the approved target-design plan scope and baseline-design
+constraints.
 
 Update the execution report at the consumed canonical target path when possible,
 or keep the currently published execution-report path valid if the target was

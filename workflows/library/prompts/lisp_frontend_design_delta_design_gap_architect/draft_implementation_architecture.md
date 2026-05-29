@@ -1,10 +1,10 @@
-Read the listed steering, full design, MVP design, command-adapter
+Read the listed steering, target design, baseline design, command-adapter
 contract, progress ledger, selector bundle, architecture target contract, and
 existing implementation architecture index from the checkout before acting.
 
 Draft a single implementation-architecture document for exactly the selected
-full-design gap. The MVP design is historical context for early proof slices,
-not the active work queue. This is an implementation architecture, not a replacement
+target-design gap. The baseline design is a compatibility constraint, not the
+active work queue. This is an implementation architecture, not a replacement
 product design/spec. Keep the scope bounded to the selected gap. Do not draft
 multiple alternative architectures, do not cover multiple design gaps, and do
 not broaden the scope beyond the selected gap.

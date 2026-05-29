@@ -1,0 +1,364 @@
+version: "2.14"
+name: "lisp-frontend-design-delta-plan-phase-v214"
+
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
+inputs:
+  state_root:
+    type: relpath
+    under: state
+  steering_path:
+    type: relpath
+    under: docs
+    must_exist_target: true
+  target_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  baseline_design_path:
+    type: relpath
+    under: docs/design
+    must_exist_target: true
+  work_item_context_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  progress_ledger_path:
+    type: relpath
+    under: state
+    must_exist_target: true
+  plan_target_path:
+    type: relpath
+    under: docs/plans
+  plan_review_report_target_path:
+    type: relpath
+    under: artifacts/review
+
+outputs:
+  plan_path:
+    type: relpath
+    under: docs/plans
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizePlanPhaseOutputs.artifacts.plan_path
+  plan_review_report_path:
+    type: relpath
+    under: artifacts/review
+    must_exist_target: true
+    from:
+      ref: root.steps.FinalizePlanPhaseOutputs.artifacts.plan_review_report_path
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+    from:
+      ref: root.steps.FinalizePlanPhaseOutputs.artifacts.plan_review_decision
+
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+
+artifacts:
+  steering:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/steering_path.txt
+    under: docs
+    must_exist_target: true
+  target_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/target_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  baseline_design:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/baseline_design_path.txt
+    under: docs/design
+    must_exist_target: true
+  work_item_context:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/work_item_context_path.txt
+    under: state
+    must_exist_target: true
+  progress_ledger:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/progress_ledger_path.txt
+    under: state
+    must_exist_target: true
+  plan:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/plan_path.txt
+    under: docs/plans
+    must_exist_target: true
+  plan_review_report:
+    kind: relpath
+    type: relpath
+    pointer: ${inputs.state_root}/plan_review_report_path.txt
+    under: artifacts/review
+    must_exist_target: true
+  plan_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+  review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE"]
+
+steps:
+  - name: MaterializePlanInputs
+    id: materialize_plan_inputs
+    materialize_artifacts:
+      input_values:
+        - names:
+            - steering_path
+            - target_design_path
+            - baseline_design_path
+            - work_item_context_path
+            - progress_ledger_path
+          contract: inherit
+          pointer_template: ${inputs.state_root}/{name}.txt
+      values:
+        - name: plan_path
+          source: { input: plan_target_path }
+          contract:
+            type: relpath
+            under: docs/plans
+            must_exist_target: false
+          pointer:
+            path: ${inputs.state_root}/plan_path.txt
+          ensure_parent: true
+        - name: plan_review_report_path
+          source: { input: plan_review_report_target_path }
+          contract:
+            type: relpath
+            under: artifacts/review
+            must_exist_target: false
+          pointer:
+            path: ${inputs.state_root}/plan_review_report_path.txt
+          ensure_parent: true
+    publishes:
+      - artifact: steering
+        from: steering_path
+      - artifact: target_design
+        from: target_design_path
+      - artifact: baseline_design
+        from: baseline_design_path
+      - artifact: work_item_context
+        from: work_item_context_path
+      - artifact: progress_ledger
+        from: progress_ledger_path
+
+  - name: DraftPlan
+    id: draft_plan
+    provider: codex
+    asset_file: prompts/lisp_frontend_design_delta_plan_phase/draft_plan.md
+    timeout_sec: 3600
+    consumes:
+      - artifact: steering
+        policy: latest_successful
+        freshness: any
+      - artifact: target_design
+        policy: latest_successful
+        freshness: any
+      - artifact: baseline_design
+        policy: latest_successful
+        freshness: any
+      - artifact: work_item_context
+        policy: latest_successful
+        freshness: any
+      - artifact: progress_ledger
+        policy: latest_successful
+        freshness: any
+    prompt_consumes: ["steering", "target_design", "baseline_design", "work_item_context", "progress_ledger"]
+    expected_outputs:
+      - name: plan_path
+        path: ${inputs.state_root}/plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+    publishes:
+      - artifact: plan
+        from: plan_path
+
+  - name: PlanReviewLoop
+    id: plan_review_loop
+    repeat_until:
+      id: plan_review_iteration
+      max_iterations: 12
+      outputs:
+        review_decision:
+          kind: scalar
+          type: enum
+          allowed: ["APPROVE", "REVISE"]
+          from:
+            ref: self.steps.RoutePlanDecision.artifacts.review_decision
+      condition:
+        compare:
+          left:
+            ref: self.outputs.review_decision
+          op: eq
+          right: APPROVE
+      on_exhausted:
+        outputs:
+          review_decision: REVISE
+      steps:
+        - name: ReviewPlan
+          id: review_plan
+          provider: codex
+          asset_file: prompts/lisp_frontend_design_delta_plan_phase/review_plan.md
+          timeout_sec: 1800
+          consumes:
+            - artifact: target_design
+              policy: latest_successful
+              freshness: any
+            - artifact: baseline_design
+              policy: latest_successful
+              freshness: any
+            - artifact: work_item_context
+              policy: latest_successful
+              freshness: any
+            - artifact: plan
+              policy: latest_successful
+              freshness: any
+          prompt_consumes: ["target_design", "baseline_design", "work_item_context", "plan"]
+          expected_outputs:
+            - name: plan_review_report_path
+              path: ${inputs.state_root}/plan_review_report_path.txt
+              type: relpath
+              under: artifacts/review
+              must_exist_target: true
+            - name: plan_review_decision
+              path: ${inputs.state_root}/plan_review_decision.txt
+              type: enum
+              allowed: ["APPROVE", "REVISE"]
+          publishes:
+            - artifact: plan_review_report
+              from: plan_review_report_path
+            - artifact: plan_review_decision
+              from: plan_review_decision
+
+        - name: RoutePlanDecision
+          id: route_plan_decision
+          match:
+            ref: self.steps.ReviewPlan.artifacts.plan_review_decision
+            cases:
+              APPROVE:
+                id: approve_plan_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE"]
+                    from:
+                      ref: self.steps.WriteApprovedPlanDecision.artifacts.review_decision
+                steps:
+                  - name: WriteApprovedPlanDecision
+                    id: write_approved_plan_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: APPROVE
+              REVISE:
+                id: revise_plan_path
+                outputs:
+                  review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE"]
+                    from:
+                      ref: self.steps.WriteRevisedPlanDecision.artifacts.review_decision
+                steps:
+                  - name: RevisePlan
+                    id: revise_plan
+                    provider: codex
+                    asset_file: prompts/lisp_frontend_design_delta_plan_phase/revise_plan.md
+                    timeout_sec: 3600
+                    consumes:
+                      - artifact: target_design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: baseline_design
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: work_item_context
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: plan
+                        policy: latest_successful
+                        freshness: any
+                      - artifact: plan_review_report
+                        policy: latest_successful
+                        freshness: since_last_consume
+                    prompt_consumes: ["target_design", "baseline_design", "work_item_context", "plan", "plan_review_report"]
+                    expected_outputs:
+                      - name: plan_path
+                        path: ${inputs.state_root}/plan_path.txt
+                        type: relpath
+                        under: docs/plans
+                        must_exist_target: true
+                    publishes:
+                      - artifact: plan
+                        from: plan_path
+                  - name: WriteRevisedPlanDecision
+                    id: write_revised_plan_decision
+                    set_scalar:
+                      artifact: review_decision
+                      value: REVISE
+
+  - name: FinalizePlanPhaseOutputs
+    id: finalize_plan_phase_outputs
+    command:
+      - python
+      - -c
+      - |
+        import pathlib
+        import sys
+
+        state_root = pathlib.Path(sys.argv[1])
+
+        plan_path = (state_root / "plan_path.txt").read_text(encoding="utf-8").strip()
+        if not plan_path:
+            raise SystemExit("plan_path.txt is empty")
+        if not pathlib.Path(plan_path).is_file():
+            raise SystemExit(f"Plan file does not exist: {plan_path}")
+
+        report_path = (state_root / "plan_review_report_path.txt").read_text(encoding="utf-8").strip()
+        if not report_path:
+            raise SystemExit("plan_review_report_path.txt is empty")
+        if not pathlib.Path(report_path).is_file():
+            raise SystemExit(f"Plan review report does not exist: {report_path}")
+
+        decision = (state_root / "plan_review_decision.txt").read_text(encoding="utf-8").strip()
+        if decision not in {"APPROVE", "REVISE"}:
+            raise SystemExit(f"Unexpected plan review decision: {decision}")
+
+        (state_root / "final_plan_path.txt").write_text(plan_path + "\n", encoding="utf-8")
+        (state_root / "final_plan_review_report_path.txt").write_text(report_path + "\n", encoding="utf-8")
+        (state_root / "final_plan_review_decision.txt").write_text(decision + "\n", encoding="utf-8")
+      - ${inputs.state_root}
+    expected_outputs:
+      - name: plan_path
+        path: ${inputs.state_root}/final_plan_path.txt
+        type: relpath
+        under: docs/plans
+        must_exist_target: true
+      - name: plan_review_report_path
+        path: ${inputs.state_root}/final_plan_review_report_path.txt
+        type: relpath
+        under: artifacts/review
+        must_exist_target: true
+      - name: plan_review_decision
+        path: ${inputs.state_root}/final_plan_review_decision.txt
+        type: enum
+        allowed: ["APPROVE", "REVISE"]

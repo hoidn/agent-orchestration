@@ -53,6 +53,22 @@ Choose one of these approaches and document the reason:
 Do not continue with mixed terminology where API names, prompt wording, and
 workflow intent disagree.
 
+## Decision Record (2026-05-29)
+
+Selected approach: **2) keep the original full/MVP stack stable and create
+copied design-delta workflow/prompt variants**.
+
+Rationale:
+
+- The autonomous drain is already a stable full/MVP caller and should not gain
+  target/baseline semantics indirectly through shared prompt edits.
+- The ProcRef drain is explicitly a target-delta workflow and needs
+  target/baseline language end-to-end without wrapper reinterpretation.
+- Variant isolation is the smallest coherent boundary that removes mixed
+  terminology while preserving existing autonomous behavior and call contracts.
+- This keeps future design-delta drains attachable to the variant stack without
+  forcing cross-stack churn in the autonomous full/MVP path.
+
 ## Constraints
 
 - Follow the conservative prompt handling guidance in
