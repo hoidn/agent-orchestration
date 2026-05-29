@@ -74,6 +74,7 @@ Use this section when the work uses reference data, fixtures, generated artifact
 
 ## Verification Strategy
 
+- Usage and integration scenario: what someone should be able to do end to end after this design is implemented; main pieces involved; visible result that shows it worked; smaller focused checks still needed. If the change is purely internal, say why focused checks are enough.
 - Unit, integration, runtime, workflow, or artifact checks:
 - Generated artifact validation checks:
 - Manual inspection checks:

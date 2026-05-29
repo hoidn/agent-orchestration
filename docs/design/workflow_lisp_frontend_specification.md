@@ -3240,6 +3240,12 @@ For each standard procedure:
 - expected semantic IR facts
 - expected validation errors for misuse
 
+Each implementation tranche that changes authoring behavior must also name an
+end-to-end usage scenario. For Workflow Lisp, that usually means writing or
+updating a small `.orc` workflow, compiling it, and running at least a dry-run
+when runtime support exists. Focused parser, type, and lowering tests are still
+required, but they are not enough by themselves for a composability claim.
+
 ## 96. Behavioral Equivalence Tests
 
 For migrated workflows:

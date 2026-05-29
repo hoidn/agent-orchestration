@@ -15,6 +15,7 @@ Repo expectations:
 - Prefer the narrowest relevant `pytest` selectors first.
 - If you add or rename tests, run `pytest --collect-only` on those modules.
 - Changes to workflows, prompts, artifact contracts, provisioning, or demo trial mechanics should rerun at least one orchestrator/demo smoke check in addition to unit tests.
+- For DSL, frontend, runtime, or reusable workflow changes, include an end-to-end usage or integration check, or state why isolated checks are enough.
 - Do not add or keep tests that assert literal prompt text or prompt phrasing. Prefer behavioral, contract, artifact-lineage, or dataflow assertions that stay valid when prompts are revised.
 - Record what you changed and how you verified it.
 

@@ -504,6 +504,8 @@ Run:
 - compiler unit tests;
 - lowering tests;
 - shared workflow validation;
+- one end-to-end `.orc` usage scenario, such as writing or updating a small
+  workflow, compiling it, and running a dry-run when runtime support exists;
 - existing behavior/equivalence oracle for that phase.
 
 ### Stage 5: Decision Point
@@ -547,9 +549,11 @@ The MVP is complete when:
 3. Provider output contracts are generated from typed records/unions.
 4. At least one real v2.14 workflow phase has an `.orc` translation.
 5. The translated phase passes shared workflow validation.
-6. Existing oracle/equivalence tests pass for the translated behavior.
-7. A metrics report shows whether authoring surface improved.
-8. The implementation report explicitly recommends one of:
+6. A small end-to-end `.orc` usage scenario proves the MVP path beyond isolated
+   form tests.
+7. Existing oracle/equivalence tests pass for the translated behavior.
+8. A metrics report shows whether authoring surface improved.
+9. The implementation report explicitly recommends one of:
    - continue toward `defmacro` and procedural library work;
    - revise the MVP;
    - stop and invest in YAML ergonomics instead.
