@@ -179,13 +179,32 @@ Include the checks that matter for this design:
 
 - Unit tests for local behavior.
 - Integration tests across real module, service, storage, API, CLI, runtime, or workflow boundaries.
-- End-to-end integration scenarios from entrypoint to observable result.
-- Acceptance tests from the relevant perspective: user, caller, operator, maintainer, or downstream system.
+- Declarative acceptance / integration scenarios that specify expected behavior at the public contract level.
+- End-to-end tests when the full deployed or user-facing path needs coverage.
 - Regression, golden/oracle, migration, failure-mode, performance, security, or observability checks when relevant.
 - Negative tests for behavior that must be rejected, blocked, impossible, or visibly diagnosed.
 
-For each major goal or invariant, identify at least one test or review check
-that proves it.
+For each major goal or invariant, identify at least one test, scenario, or
+review check that proves it.
+
+## Declarative Acceptance / Integration Scenarios
+
+For designs that change behavior across boundaries, include at least one
+scenario written at the same abstraction level as the design contract.
+
+A good scenario should specify:
+
+- Initial state, fixtures, inputs, configuration, or existing data.
+- Public entrypoint used by the caller, operator, workflow, API, CLI, file, event, or system boundary.
+- Expected observable result.
+- Required diagnostics, emitted artifacts, state changes, logs, metrics, or outputs.
+- Important invariants that must hold.
+- Negative or forbidden behavior that must not occur.
+- Which dependencies are real, stubbed, simulated, or fixture-backed.
+- Why the scenario proves the intended integration path rather than a helper path, mock path, or test-only shortcut.
+
+Avoid asserting private implementation details unless those details are part of
+the design contract.
 
 ## Success Criteria
 
@@ -198,8 +217,9 @@ Include:
 - Required docs or examples.
 - Required migration, compatibility, operational, or metric evidence.
 - Required review signoff.
-- At least one realistic integration or end-to-end scenario, unless isolated
-  checks are enough and the design explains why.
+- Declarative acceptance / integration scenarios for the primary behavior.
+- Negative acceptance scenarios for behavior that must be rejected, blocked, impossible, or visibly diagnosed.
+- Evidence that acceptance scenarios exercise the intended integration path rather than a helper, fixture-only, mock-only, or fallback path.
 
 ## Stop / Revise Criteria
 
