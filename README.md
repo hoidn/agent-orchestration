@@ -14,6 +14,11 @@ The project is useful when an agent workflow needs more structure than an ad
 hoc shell script: typed inputs and outputs, reusable subworkflows, bounded
 review/fix loops, artifact lineage, resumable state, and local observability.
 
+## License
+
+This project is licensed under the Functional Source License, Version 1.1,
+MIT Future License (`FSL-1.1-MIT`). See [`LICENSE.md`](LICENSE.md).
+
 ## Start Here
 
 | Goal | Read or run |
