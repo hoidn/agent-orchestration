@@ -111,6 +111,16 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** lisp-frontend, procref, defproc, partial-application, higher-order
 **Use this when:** Implementing, reviewing, or planning the focused ProcRef / partial-application extension to the Workflow Lisp frontend.
 
+### [Workflow Lisp Local ProcRef Bindings](design/workflow_lisp_let_proc_local_proc_refs.md)
+**Description:** Proposed follow-on design delta for `let-proc`, a compile-time lexical procedure-binding form that closure-converts to generated `defproc` plus existing `ProcRef` semantics.
+**Keywords:** lisp-frontend, let-proc, procref, lexical-procedure, compile-time
+**Use this when:** Reviewing local procedure authoring ergonomics without runtime closures or a second lowering path.
+
+### [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
+**Description:** Deferred runtime-semantics boundary for principled closures, including sealed closure families, checked dynamic invocation, typed captures, capabilities, source maps, and replay/resume constraints.
+**Keywords:** lisp-frontend, closures, runtime-callable, executable-ir, replay, resume
+**Use this when:** Evaluating future runtime closure pressure without weakening `ProcRef` or `let-proc`.
+
 ### [Lisp ProcRef Partial Application Work Instructions](plans/LISP-PROC-REFS-PARTIAL-APPLICATION/work_instructions.md)
 **Description:** Procedural instructions for the focused ProcRef / `bind-proc` implementation tranche, separating the active delta target from the parent frontend baseline.
 **Keywords:** lisp-frontend, procref, work-instructions, proc-ref-drain, procedural-prescriptions
