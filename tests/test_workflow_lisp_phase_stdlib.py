@@ -586,6 +586,38 @@ def test_shared_validation_accepts_review_revise_loop(tmp_path: Path) -> None:
     } >= {"review-revise-loop-demo"}
 
 
+def test_review_revise_loop_review_bundle_path_is_generated_write_root(tmp_path: Path) -> None:
+    result = _compile(
+        VALID_REVIEW_LOOP_FIXTURE,
+        tmp_path=tmp_path,
+        validate_shared=True,
+    )
+
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "review-revise-loop-demo"
+    )
+    authored = lowered.authored_mapping
+    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+    review_step = next(
+        step
+        for step in _iter_nested_steps(repeat_step["repeat_until"]["steps"])
+        if step.get("name") == "ReviewDecision"
+    )
+
+    review_path = review_step["output_bundle"]["path"]
+    hidden_input = review_path.removeprefix("${inputs.").removesuffix("}")
+
+    assert review_path.startswith("${inputs.__write_root__")
+    assert review_path.endswith("__result_bundle}")
+    assert hidden_input in authored["inputs"]
+    assert {
+        item.generated_name: item.reason
+        for item in lowered.boundary_projection.generated_internal_inputs
+    }[hidden_input] == "managed_write_root"
+
+
 def test_lowering_resume_or_start_registers_generated_loader_binding(tmp_path: Path) -> None:
     result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
 

@@ -1,7 +1,9 @@
 # Workflow Index
 
-This file is an informative catalog of workflow YAML under `workflows/`.
-The YAML files remain the source of truth for exact behavior, prompts, contracts, and routing.
+This file is an informative catalog of workflow YAML and Workflow Lisp `.orc`
+examples under `workflows/`. YAML files remain the source of truth for exact
+runtime behavior unless a `.orc` entry explicitly says it has shared-validation
+and runtime parity evidence.
 
 Run workflows from the repo root:
 
@@ -25,6 +27,9 @@ python -m orchestrator run workflows/examples/dsl_follow_on_plan_impl_review_loo
 ## Directory Map
 
 - `workflows/examples/`: runnable example workflows and validation fixtures
+- `workflows/examples/*.orc`: Workflow Lisp authoring examples that compile
+  through the frontend; check each catalog entry before treating one as a
+  runnable replacement for YAML
 - `workflows/templates/`: non-running workflow templates for new workflow families
 - `workflows/library/`: reusable imported subworkflows used by `call`-based examples
 - `workflows/library/prompts/`: repo-owned prompt assets bundled with reusable imported workflows
@@ -74,6 +79,7 @@ The prompt map reports missing paths; a missing path may indicate a stale exampl
 | `workflows/examples/generic_run_watchdog.yaml` | Current structured; input-required | `2.14` | `generic-run-watchdog-v214` | Generic one-pass watchdog for any orchestrator run id: probes persisted run state, writes an evidence bundle, skips provider work for healthy or completed runs, and calls a repair provider for failed/stalled/unknown runs with a required final resume/relaunch/restart/decline action. Intended to be invoked by cron, systemd timer, tmux loop, or another scheduler every N minutes. |
 | `workflows/examples/lisp_frontend_autonomous_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-autonomous-drain-v214` | Local Lisp frontend drain without roadmap phase gating: each loop builds a backlog manifest, lets the selector choose an active backlog item or an unimplemented design gap, drafts a design-gap implementation architecture when needed, normalizes both sources into one work item, and calls the Lisp plan/implementation stack. |
 | `workflows/examples/lisp_frontend_proc_refs_partial_application_drain.yaml` | Current structured; reusable call-based; input-required | `2.14` | `lisp-frontend-proc-refs-partial-application-drain-v214` | Focused successor drain for the ProcRef / `bind-proc` design delta: calls the completed Lisp frontend drain stack with the ProcRef delta as the active target, the full frontend spec as baseline context, and separate ProcRef state, artifact, and plan namespaces. |
+| `workflows/examples/kiss_backlog_item.orc` | Workflow Lisp shared-validation example; input-required | `2.14` | `run-backlog-item` | Minimal `.orc` single-backlog-item stack: typed backlog item inputs, plan provider result, plan review/revise loop, implementation provider result, implementation review/fix loop, and final structured summary output. It compiles through shared validation and dry-runs through the `.orc` runtime bridge; it is a single-item authoring example, not a production queue drain or parity replacement for the mature YAML stacks. |
 | `workflows/examples/ralph_lisp_forever.yaml` | Experimental; intentionally unbounded | `2.14` | `ralph-lisp-forever` | Minimal one-step Codex workflow that repeatedly asks a combined selection/planning/implementation agent to inspect Lisp frontend implementation progress, choose a suitable unimplemented section, plan it, and execute it. Declares the full and MVP Lisp frontend design docs as required dependencies and injects only their paths, not their contents. |
 | `workflows/examples/call_subworkflow_demo.yaml` | Reusable call-based | `2.5` | `call-subworkflow-demo` | Demonstrates inline reusable `call` execution, persisted call-frame state, and caller-visible outputs exported from a library workflow. |
 | `workflows/examples/cycle_guard_demo.yaml` | Current canonical | `1.8` | `cycle-guard-demo` | Demonstrates `max_visits`/`max_transitions` counters, a typed `assert.compare` loop gate, and terminal guard-stop behavior without shell counters. |

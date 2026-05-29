@@ -1749,10 +1749,9 @@ def _lower_review_revise_loop(
     result_step_id = _normalize_generated_step_id(result_step_name)
     _record_step_origin(context, step_name=repeat_step_name, step_id=repeat_step_id, source=expr)
     _record_step_origin(context, step_name=result_step_name, step_id=result_step_id, source=expr)
-    review_contract_path = _join_ref_path(
-        context.phase_scope.candidate_root_ref or "inputs.phase-ctx__state-root",
-        "review-loop/review-result.json",
-    )
+    review_hidden_input = f"__write_root__{repeat_step_id}__review_decision__result_bundle"
+    review_contract_path = f"${{inputs.{review_hidden_input}}}"
+    context.generated_path_spans[review_contract_path] = _origin_from_context_source(context, expr)
     review_output_bundle = {
         "path": review_contract_path,
         "fields": [
@@ -1825,6 +1824,7 @@ def _lower_review_revise_loop(
         local_values=local_values,
         source_expr=expr,
     )
+    hidden_inputs[review_hidden_input] = _origin_from_context_source(context, expr)
     review_result_ref = "parent.steps.ReviewDecision.artifacts"
     route_output_contracts = {
         "variant": {

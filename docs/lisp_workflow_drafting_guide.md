@@ -39,6 +39,15 @@ For migrations, keep the existing YAML workflow authoritative until the `.orc`
 version has compile, shared-validation, dry-run or smoke, and parity evidence.
 Do not deprecate the YAML version only because an `.orc` version parses.
 
+If you want the smallest concrete Workflow Lisp starting point, read
+`workflows/examples/kiss_backlog_item.orc` before studying the autonomous drain
+examples. It shows a single backlog item flowing through typed plan and
+implementation provider results plus bounded review/fix loops. Treat it as a
+single-item shared-validation example, not as a production queue drain: it can
+compile and dry-run through the `.orc` runtime bridge, but it still lacks the
+selector, queue movement, recovery, and parity evidence required to replace the
+mature YAML backlog drains.
+
 ## Core Rule
 
 Author typed workflow procedures and structured results.
