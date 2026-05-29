@@ -44,7 +44,6 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
     assert set(lowered_by_name) == {
         "draft-plan-phase",
         "review-plan-phase",
-        "execute-implementation-phase",
         "review-implementation-phase",
         "run-approved-plan",
         "run-backlog-item",
@@ -63,7 +62,13 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
     ]
 
     assert lowered_by_name["draft-plan-phase"]["steps"][0]["provider"] == "fake-plan"
-    assert lowered_by_name["execute-implementation-phase"]["steps"][0]["provider"] == "fake-implementation"
+    implementation_steps = [
+        step
+        for step in lowered_by_name["run-approved-plan"]["steps"]
+        if step.get("provider") == "fake-implementation"
+    ]
+    assert len(implementation_steps) == 1
+    assert "execute-implementation-phase" in implementation_steps[0]["name"]
     assert len(plan_review_steps) == 1
     assert len(implementation_review_steps) == 1
     assert "return__summary_path" in lowered_by_name["run-backlog-item"]["outputs"]

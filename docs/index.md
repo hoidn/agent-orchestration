@@ -77,9 +77,9 @@ These are the highest-impact terminology and contract confusions.
 **Use this when:** You want to reuse or adapt an existing prompt instead of inventing one from scratch.
 
 ### [Design Template](templates/design_template.md)
-**Description:** Optional design-document structure for design -> plan -> implementation workflows, including modularity, contracts, invariants, verification, docs impact, rollback, and handoff sections.
-**Keywords:** design, template, modularity, contracts, invariants
-**Use this when:** Drafting or reviewing a design artifact that will feed a plan and implementation phase.
+**Description:** General design-document template for behavior changes, architecture decisions, migrations, operational designs, and boundary/spec clarifications.
+**Keywords:** design, template, architecture, contracts, invariants, verification, migration
+**Use this when:** Drafting or reviewing a design that needs explicit authority, contracts, dependencies, failure modes, usage/integration checks, documentation impact, and implementation handoff.
 
 ### [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 **Description:** Cross-frontend design principles for semantic authority, typed transitions, report/pointer boundaries, validation-before-commit, variant proof, effects, source maps, and future frontend requirements.

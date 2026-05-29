@@ -114,11 +114,13 @@
            (record ReviewSurfaceResult
              :report_path exhausted.last_review_report))))))
 
-  (defworkflow execute-implementation-phase
+  (defproc execute-implementation-phase
     ((backlog_item BacklogItemPath)
      (work_instructions WorkInstructionsPath)
      (plan_path WorkReport))
     -> ImplementationSurfaceResult
+    :effects ((uses-provider providers.implementation))
+    :lowering auto
     (provider-result providers.implementation
       :prompt prompts.implementation.execute
       :inputs (backlog_item work_instructions plan_path)
@@ -164,10 +166,10 @@
      (plan PlanDraftSurfaceResult))
     -> BacklogItemResult
     (let* ((implementation
-             (call execute-implementation-phase
-               :backlog_item inputs.backlog_item
-               :work_instructions inputs.work_instructions
-               :plan_path plan.plan_path))
+             (execute-implementation-phase
+               inputs.backlog_item
+               inputs.work_instructions
+               plan.plan_path))
            (implementation-review
              (call review-implementation-phase
                :phase-ctx implementation-review-ctx

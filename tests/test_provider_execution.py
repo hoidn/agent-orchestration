@@ -80,7 +80,7 @@ class TestProviderRegistry:
         assert codex.name == "codex"
         assert codex.input_mode == InputMode.STDIN
         assert "${PROMPT}" not in " ".join(codex.command)
-        assert codex.defaults.get("model") == "gpt-5.3-codex"
+        assert codex.defaults.get("model") == "gpt-5.4"
         assert codex.defaults.get("reasoning_effort") == "high"
         command_str = " ".join(codex.command)
         assert "--config" in command_str

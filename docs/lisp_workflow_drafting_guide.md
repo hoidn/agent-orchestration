@@ -577,6 +577,19 @@ A macro rewrites syntax. A procedure represents reusable workflow behavior. If
 the abstraction has effects, prefer `defproc` or a compiler-owned
 standard-library form over `defmacro`.
 
+Current implementation boundary: `defproc` is usable for simple supported
+helpers, such as provider-only structured-result helpers. Keep reviewed phase
+units as `defworkflow` boundaries when they rely on `with-phase`,
+`review-revise-loop`, `match` fan-in, or step-backed prompt/materialization
+paths. Do not force `defproc` just because it is conceptually cleaner; if
+lowering and shared validation cannot prove the shape yet, use a workflow
+boundary and record the gap.
+
+See
+`docs/backlog/active/2026-05-29-workflow-lisp-effectful-composition-lowering.md`
+for the current lowering work needed before `defproc` can be the default for
+reviewed phase helpers.
+
 ### 6.3 `defun`
 
 Use `defun` for pure helper logic.

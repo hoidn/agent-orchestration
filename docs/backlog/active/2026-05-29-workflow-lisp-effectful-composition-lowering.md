@@ -48,6 +48,35 @@ The attempted KISS backlog-item workflow uncovered these concrete boundaries:
   phase-owned bundle paths that shared validation rejects inside reusable
   workflow steps.
 
+## Defproc Audit Evidence
+
+A focused audit against a temporary copy of `kiss_backlog_item.orc` showed that
+`defproc` works for simple provider-only helpers, but not yet for reviewed phase
+helpers.
+
+Working case:
+
+- Converting `execute-implementation-phase` to a `defproc` with
+  `:effects ((uses-provider providers.implementation))` compiled successfully.
+- The converted workflow also passed `orchestrator run --dry-run`.
+
+Still failing case:
+
+- Converting `review-plan-phase` to an inline `defproc` failed with:
+  `phase stdlib prompt inputs must lower from flattened workflow inputs or approved phase targets`.
+- Root cause: inline procedure lowering removes the workflow boundary, so
+  `review-revise-loop` sees step-backed values from `draft-plan-phase` instead
+  of flattened workflow inputs.
+- Converting the same procedure to `:lowering private-workflow` failed with:
+  `proc_private_workflow_boundary_invalid`.
+- Root cause: private-workflow body validation does not yet recognize
+  `with-phase` + `review-revise-loop` + `match` fan-in as a valid step-backed
+  output export.
+
+This means provider-only procedures are usable today, but reviewed phase
+procedures still need lowering work before `defproc` can be the ergonomic
+default for the KISS workflow.
+
 ## Why This Matters
 These are not just cosmetic parser limitations. They force authors away from
 the intended high-level shape:
@@ -116,6 +145,10 @@ Investigate lowering in these areas first:
   values;
 - stdlib lowering for `review-revise-loop` and `run-provider-phase`, especially
   generated bundle/write-root ownership across reusable workflow boundaries;
+- phase-stdlib prompt materialization for contract-safe step-backed refs when
+  a reviewed phase is inlined through `defproc`;
+- private `defproc` body validation for `with-phase` + `review-revise-loop` +
+  `match` record projection;
 - source-map preservation for any newly generated steps or hidden inputs.
 
 Do not weaken shared validation to make these examples pass. The frontend

@@ -70,7 +70,7 @@ class ProviderRegistry:
                         "--model", "${model}",
                         "--config", "reasoning_effort=${reasoning_effort}",
                         "--dangerously-bypass-approvals-and-sandbox"],
-                defaults={"model": "gpt-5.3-codex", "reasoning_effort": "high"},
+                defaults={"model": "gpt-5.4", "reasoning_effort": "high"},
                 input_mode=InputMode.STDIN,
                 session_support=ProviderSessionSupport(
                     metadata_mode=ProviderSessionMetadataMode.CODEX_EXEC_JSONL_STDOUT.value,
