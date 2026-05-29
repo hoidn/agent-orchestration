@@ -3935,6 +3935,23 @@ class WorkflowExecutor:
                         },
                     )
 
+            # For structured command contracts, expose the resolved bundle path
+            # to the command adapter via a reserved env var.
+            command_env = step.get('env')
+            _, resolved_output_bundle, path_error = self._resolve_output_contract_paths(
+                step,
+                state,
+                context=context,
+            )
+            if path_error is None and isinstance(resolved_output_bundle, dict):
+                bundle_path = resolved_output_bundle.get("path")
+                if isinstance(bundle_path, str):
+                    env_map: dict[str, str] = {}
+                    if isinstance(command_env, dict):
+                        env_map.update(command_env)
+                    env_map.setdefault("ORCHESTRATOR_OUTPUT_BUNDLE_PATH", bundle_path)
+                    command_env = env_map
+
             # Convert output_capture string to CaptureMode enum
             from ..exec.output_capture import CaptureMode
             capture_mode_str = step.get('output_capture', 'text')
@@ -3949,7 +3966,7 @@ class WorkflowExecutor:
             result = self.step_executor.execute_command(
                 step_name=step.get('name', 'command'),
                 command=command,
-                env=step.get('env'),
+                env=command_env,
                 timeout_sec=step.get('timeout_sec'),
                 output_capture=capture_mode,
                 output_file=output_file,
