@@ -126,6 +126,9 @@ class ProcedureCallEdge:
     """Procedure call edge used to compute transitive effects."""
 
     callee_name: str
+    span: SourceSpan | None = None
+    form_path: tuple[str, ...] = ()
+    expansion_stack: ExpansionStack = ()
 
 
 @dataclass(frozen=True)
