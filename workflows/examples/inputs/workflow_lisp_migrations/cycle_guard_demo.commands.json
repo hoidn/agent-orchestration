@@ -1,0 +1,6 @@
+{
+  "emit_cycle_guard_summary": {
+    "kind": "external_tool",
+    "stable_command": ["python", "scripts/workflow_lisp_migrations/emit_cycle_guard_summary.py"]
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "prompts.design.draft": "workflows/library/prompts/design_plan_impl_stack_v2_call/draft_design.md",
+  "prompts.design.review": "workflows/library/prompts/design_plan_impl_stack_v2_call/review_design.md",
+  "prompts.design.revise": "workflows/library/prompts/design_plan_impl_stack_v2_call/revise_design.md",
+  "prompts.plan.draft": "workflows/library/prompts/design_plan_impl_stack_v2_call/draft_plan.md",
+  "prompts.plan.review": "workflows/library/prompts/design_plan_impl_stack_v2_call/review_plan.md",
+  "prompts.plan.revise": "workflows/library/prompts/design_plan_impl_stack_v2_call/revise_plan.md",
+  "prompts.implementation.execute": "workflows/library/prompts/design_plan_impl_stack_v2_call/implement_plan.md",
+  "prompts.implementation.review": "workflows/library/prompts/design_plan_impl_stack_v2_call/review_implementation.md",
+  "prompts.implementation.fix": "workflows/library/prompts/design_plan_impl_stack_v2_call/fix_implementation.md"
+}

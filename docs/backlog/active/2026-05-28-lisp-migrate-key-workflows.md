@@ -2,7 +2,7 @@
 
 - Status: active
 - Created on: 2026-05-28
-- Plan: none yet
+- Plan: docs/plans/2026-05-29-lisp-migrate-key-workflows-execution-plan.md
 
 ## Scope
 Migrate a small set of high-value YAML workflows to Workflow Lisp `.orc`
