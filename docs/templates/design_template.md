@@ -329,10 +329,10 @@ Describe how correctness will be proven.
 Include, where relevant:
 
 - Unit tests for local behavior.
-- Integration tests across real module, service, storage, API, or workflow boundaries.
-- End-to-end tests for complete system behavior.
+- Integration tests across real module, service, storage, API, CLI, runtime, or workflow boundaries.
+- End-to-end integration scenarios that exercise the intended path from entrypoint to observable result.
 - Acceptance tests that demonstrate success criteria from the perspective of a user, caller, operator, or maintainer.
-- User-style tests using realistic inputs, workflows, examples, commands, requests, files, or scenarios.
+- Realistic inputs, workflows, examples, commands, requests, files, or scenarios.
 - Regression tests for previously broken or risky behavior.
 - Golden/oracle tests for behavior that must remain equivalent across implementations.
 - Property tests or fuzz tests for broad input spaces.
@@ -359,7 +359,7 @@ Include:
 - Required behavior.
 - Required tests.
 - Acceptance tests for the primary user, caller, operator, or maintainer workflows.
-- At least one realistic end-to-end or user-style scenario demonstrating the intended behavior.
+- At least one realistic integration or end-to-end scenario demonstrating the intended behavior.
 - Negative acceptance tests proving forbidden behavior is rejected or impossible.
 - Required metrics.
 - Required documentation.
