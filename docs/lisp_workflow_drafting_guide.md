@@ -181,18 +181,21 @@ The currently implemented authoring surface includes:
 - debug YAML renderer
 - source-map and build-artifact emission
 
-The ProcRef tranche is in progress. The current surface supports static
-`ProcRef[...]` types and `(proc-ref ...)` resolution/diagnostics. Do not rely on
-`bind-proc`, residual signature specialization, or calling through a `ProcRef`
-until that tranche is accepted and committed.
+The ProcRef tranche currently supports compile-time-only procedure composition:
+`ProcRef[...]` type annotations, explicit `(proc-ref ...)` literals,
+module-aware resolution and diagnostics, keyword-only `bind-proc` partial
+application, residual-signature specialization before lowering, forwarding
+through `ProcRef[...]` parameters, and lexical invocation through ProcRef-bound
+call heads. ProcRef values are still compile-time-only: they cannot cross
+runtime transport seams or survive into executable runtime state.
 
 Still deferred or future:
 
-- `bind-proc`
-- residual signature specialization
 - runtime first-class procedures or closures
 - provider-selected or command-produced procedure values
-- procedure values stored in records, unions, artifacts, state, or ledgers
+- procedure values stored in workflow outputs, records, unions, artifacts,
+  provider results, command results, state, ledgers, or loop-carried runtime
+  state
 - dynamic runtime procedure dispatch
 - runtime-native atomic resource transitions beyond current certified adapters
 - migration of key production workflows to `.orc` with A/B or parity evidence
@@ -1138,11 +1141,14 @@ Use typed `WorkflowRef[...]` parameters for reusable orchestration strategies
 that abstract over whole workflows. Workflow refs resolve at compile/module-link
 time, not by runtime dynamic loading.
 
-Use `ProcRef[...]` only for the currently implemented static reference surface:
-typed procedure parameters, explicit `(proc-ref name)` literals, module
-visibility checks, and runtime-transport rejection. Do not write examples that
-depend on `bind-proc`, residual signatures, or calling through a procedure
-reference until that tranche is implemented.
+Use `ProcRef[...]` for compile-time procedure composition: typed procedure
+parameters, explicit `(proc-ref name)` literals, keyword-only `bind-proc`
+partial application, forwarding through `ProcRef[...]` parameters, and lexical
+call-through after residual specialization. Keep ProcRef values on the
+compile-time side of the boundary: do not route them through workflow outputs,
+records, unions, artifacts, provider results, command results, ledgers, or
+loop-carried runtime state, and do not model provider-selected, command-
+produced, or dynamically dispatched procedures.
 
 ## 17. Loops
 
