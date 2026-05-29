@@ -42,6 +42,7 @@ COLLECTION_STRUCTURED_RESULT_FIXTURE = FIXTURES / "valid" / "collection_structur
 REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
+PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
 LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
 
@@ -1923,6 +1924,264 @@ def test_lower_workflow_definitions_reuse_workflow_ref_specialized_procedure_pri
 
     assert first.authored_mapping["steps"][0]["call"] == private_name
     assert second.authored_mapping["steps"][0]["call"] == private_name
+
+
+def test_lower_workflow_definitions_eliminate_unresolved_proc_ref_targets(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        PROC_REF_BIND_PROC_FIXTURE,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    entry = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
+    assert not any(step.get("call") == "runner" for step in entry.authored_mapping["steps"])
+    assert "runner" not in entry.authored_mapping["inputs"]
+
+
+def test_lower_workflow_definitions_reuse_proc_ref_specialized_private_workflows(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_private_reuse.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defproc helper",
+                "    ((fixed String)",
+                "     (input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ((uses-command run_checks))",
+                "    :lowering private-workflow",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report fixed)',
+                "      :returns WorkflowOutput))",
+                "  (defworkflow first",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (let* ((runner (bind-proc (proc-ref helper)",
+                "                      :fixed \"same\")))",
+                "      (runner input)))",
+                "  (defworkflow second",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (let* ((runner (bind-proc (proc-ref helper)",
+                "                      :fixed \"same\")))",
+                "      (runner input))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    first = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "first")
+    second = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "second")
+    private_name = first.authored_mapping["steps"][0]["call"]
+
+    assert private_name == second.authored_mapping["steps"][0]["call"]
+    assert private_name.startswith("%")
+
+
+def test_lower_workflow_definitions_reuse_proc_ref_specializations_regardless_of_keyword_order(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_private_reuse_keyword_order.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defproc helper",
+                "    ((prefix String)",
+                "     (suffix String)",
+                "     (input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ((uses-command run_checks))",
+                "    :lowering private-workflow",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" prefix input.report suffix)',
+                "      :returns WorkflowOutput))",
+                "  (defworkflow first",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (let* ((runner (bind-proc (proc-ref helper)",
+                '                      :prefix "pre"',
+                '                      :suffix "post")))',
+                "      (runner input)))",
+                "  (defworkflow second",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (let* ((runner (bind-proc (proc-ref helper)",
+                '                      :suffix "post"',
+                '                      :prefix "pre")))',
+                "      (runner input))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    first = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "first")
+    second = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "second")
+    private_name = first.authored_mapping["steps"][0]["call"]
+    proc_ref_specializations = [
+        procedure.definition.name
+        for procedure in result.typed_procedures
+        if procedure.definition.name.startswith("%proc-ref.helper.")
+    ]
+
+    assert private_name == second.authored_mapping["steps"][0]["call"]
+    assert len(proc_ref_specializations) == 1
+
+
+def test_lower_workflow_definitions_distinguish_forwarded_proc_ref_bindings_with_shared_lexical_names(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_forwarded_binding_identity.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defproc helper-a",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ((uses-command run_checks))",
+                "    :lowering private-workflow",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report "a")',
+                "      :returns WorkflowOutput))",
+                "  (defproc helper-b",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ((uses-command run_checks))",
+                "    :lowering private-workflow",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report "b")',
+                "      :returns WorkflowOutput))",
+                "  (defproc forward",
+                "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (runner input))",
+                "  (defworkflow first",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (let* ((runner (proc-ref helper-a))",
+                "           (forwarder (bind-proc (proc-ref forward)",
+                "                        :runner runner)))",
+                "      (forwarder input)))",
+                "  (defworkflow second",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (let* ((runner (proc-ref helper-b))",
+                "           (forwarder (bind-proc (proc-ref forward)",
+                "                        :runner runner)))",
+                "      (forwarder input))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        path,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    forwarded_specializations = [
+        procedure
+        for procedure in result.typed_procedures
+        if procedure.definition.name.startswith("%proc-ref.forward.")
+    ]
+    bound_runner_targets = {
+        procedure.specialization.proc_ref_bindings["runner"].procedure_name
+        for procedure in forwarded_specializations
+    }
+
+    assert len(forwarded_specializations) == 2
+    assert bound_runner_targets == {"helper-a", "helper-b"}
+
+
+def test_lower_workflow_definitions_preserve_proc_ref_provenance_notes(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        PROC_REF_BIND_PROC_FIXTURE,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    entry = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
+    notes = tuple(
+        note
+        for origin in entry.origin_map.step_spans.values()
+        for note in origin.notes
+    )
+
+    assert any("proc-ref" in note for note in notes)
+    assert any("bind-proc" in note for note in notes)
 
 
 def test_compile_stage3_module_renders_helper_provenance_notes_for_shared_validation_errors(

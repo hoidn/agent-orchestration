@@ -297,6 +297,86 @@ def test_compile_stage3_entrypoint_resolves_imported_proc_refs_to_canonical_keys
     assert body.args[0].target_name == "proc_refs/imported_helper::echo-helper"
 
 
+def test_compile_stage3_entrypoint_resolves_imported_bind_proc_bases_to_canonical_keys(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.expressions import BindProcExpr, ProcRefLiteralExpr, ProcedureCallExpr
+
+    source_root = tmp_path / "proc_ref_bind_proc_imports"
+    _write_module(
+        source_root / "proc_refs" / "helper.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule proc_refs/helper)",
+                "  (export helper)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defproc helper",
+                "    ((fixed String)",
+                "     (input String))",
+                "    -> String",
+                "    :effects ()",
+                "    :lowering inline",
+                "    fixed))",
+            ]
+        ),
+    )
+    entry_path = _write_module(
+        source_root / "proc_refs" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule proc_refs/entry)",
+                '  (import proc_refs/helper :as helper)',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport)",
+                "    (label String))",
+                "  (defrecord WorkflowOutput",
+                "    (label String))",
+                "  (defproc forward",
+                "    ((runner ProcRef[String -> String])",
+                "     (input String))",
+                "    -> WorkflowOutput",
+                "    :effects ((uses-command run_checks))",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input)',
+                "      :returns WorkflowOutput))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (forward",
+                "      (bind-proc (proc-ref helper.helper)",
+                "        :fixed input.label)",
+                "      input.label)))",
+            ]
+        ),
+    )
+
+    result = _compile_stage3_entrypoint(entry_path, source_root=source_root, tmp_path=tmp_path)
+    entry = next(
+        workflow
+        for workflow in result.entry_result.typed_workflows
+        if workflow.definition.name == "proc_refs/entry::entry"
+    )
+    body = entry.typed_body.expr
+
+    assert isinstance(body, ProcedureCallExpr)
+    assert isinstance(body.args[0], BindProcExpr)
+    assert isinstance(body.args[0].base_expr, ProcRefLiteralExpr)
+    assert body.args[0].base_expr.target_name == "proc_refs/helper::helper"
+
+
 def test_compile_stage3_entrypoint_rejects_private_imported_proc_refs(tmp_path: Path) -> None:
     compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
     assert callable(compile_fn), "compile_stage3_entrypoint is missing"

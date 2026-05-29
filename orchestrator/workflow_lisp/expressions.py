@@ -199,6 +199,28 @@ class ProcRefLiteralExpr:
 
 
 @dataclass(frozen=True)
+class BindProcBinding:
+    """One authored `bind-proc` keyword/value pair."""
+
+    name: str
+    value_expr: "ExprNode"
+    keyword_span: SourceSpan
+    keyword_form_path: tuple[str, ...]
+    keyword_expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class BindProcExpr:
+    """One compile-time proc-ref partial application."""
+
+    base_expr: "ExprNode"
+    bindings: tuple[BindProcBinding, ...]
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -375,6 +397,7 @@ ExprNode = (
     | PhaseTargetExpr
     | WorkflowRefLiteralExpr
     | ProcRefLiteralExpr
+    | BindProcExpr
     | ProviderResultExpr
     | CommandResultExpr
     | ContinueExpr
@@ -626,6 +649,13 @@ def _elaborate_list(
         return _elaborate_workflow_ref_literal(datum, form_path=form_path)
     if head.resolved_name == "proc-ref":
         return _elaborate_proc_ref_literal(datum, form_path=form_path)
+    if head.resolved_name == "bind-proc":
+        return _elaborate_bind_proc(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "provider-result":
         return _elaborate_provider_result(
             datum,
@@ -697,6 +727,13 @@ def _elaborate_list(
             procedure_names=procedure_names,
         )
     if head.resolved_name in procedure_names:
+        return _elaborate_procedure_call(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    if head.resolved_name in bound_names:
         return _elaborate_procedure_call(
             datum,
             form_path=form_path,
@@ -1219,16 +1256,19 @@ def _elaborate_procedure_call(
 ) -> ProcedureCallExpr:
     callee_identifier = syntax_identifier(datum.items[0])
     assert callee_identifier is not None
-    return ProcedureCallExpr(
-        callee_name=(
+    callee_name = callee_identifier.resolved_name
+    if callee_name not in bound_names:
+        callee_name = (
             _ACTIVE_PROCEDURE_NAME_RESOLVER(
-                callee_identifier.resolved_name,
+                callee_name,
                 callee_identifier.span,
                 form_path,
             )
             if _ACTIVE_PROCEDURE_NAME_RESOLVER is not None
-            else callee_identifier.resolved_name
-        ),
+            else callee_name
+        )
+    return ProcedureCallExpr(
+        callee_name=callee_name,
         args=tuple(
             _elaborate(
                 item,
@@ -1357,6 +1397,61 @@ def _elaborate_proc_ref_literal(
     return ProcRefLiteralExpr(
         target_name=target_name,
         authored_name=authored_name,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_bind_proc(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> BindProcExpr:
+    if len(datum.items) < 4 or len(datum.items[2:]) % 2 != 0:
+        _raise_error(
+            "`bind-proc` requires a proc-ref expression followed by keyword/value pairs",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    base_expr = _elaborate(
+        datum.items[1],
+        form_path=form_path,
+        bound_names=bound_names,
+        procedure_names=procedure_names,
+    )
+    bindings: list[BindProcBinding] = []
+    raw_bindings = datum.items[2:]
+    for index in range(0, len(raw_bindings), 2):
+        keyword_node = raw_bindings[index]
+        value_node = raw_bindings[index + 1]
+        if not isinstance(keyword_node, SyntaxKeyword):
+            _raise_error(
+                "`bind-proc` bindings must use keyword/value pairs",
+                span=keyword_node.span,
+                form_path=form_path,
+                expansion_stack=keyword_node.expansion_stack,
+            )
+        bindings.append(
+            BindProcBinding(
+                name=keyword_node.value[1:],
+                value_expr=_elaborate(
+                    value_node,
+                    form_path=form_path,
+                    bound_names=bound_names,
+                    procedure_names=procedure_names,
+                ),
+                keyword_span=keyword_node.span,
+                keyword_form_path=form_path,
+                keyword_expansion_stack=keyword_node.expansion_stack,
+            )
+        )
+    return BindProcExpr(
+        base_expr=base_expr,
+        bindings=tuple(bindings),
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,

@@ -54,9 +54,10 @@ typed frontend expressions become ordinary workflow dictionaries.
 - `workflows.py`: `defworkflow` definitions, call signatures, extern bindings,
   and command-boundary bindings.
 - `procedures.py`: `defproc` definitions and lowering policy.
-- `procedure_refs.py`: compile-time `ProcRef[...]` resolution and signature
-  validation. ProcRef support is currently static only; specialization and
-  executable proc-ref lowering remain deferred.
+- `procedure_refs.py`: compile-time `ProcRef[...]` resolution, `bind-proc`
+  partial application, specialization naming, and residual-signature
+  validation. ProcRef remains compile-time-only; runtime ProcRef transport and
+  dynamic dispatch are still unsupported.
 - `contracts.py`: conversion from frontend record/union types to runtime
   `output_bundle`, `variant_output`, input, and output contracts.
 - `lowering.py`: generated steps, generated inputs, source maps, and calls into

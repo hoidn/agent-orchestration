@@ -42,6 +42,7 @@ MODULE_FIXTURES = FIXTURES / "modules"
 TYPE_FIXTURE = FIXTURES / "valid" / "type_definitions.orc"
 PHASE_FIXTURE = FIXTURES / "valid" / "neurips_implementation_attempt.orc"
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
+PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
 PROC_REF_RUNTIME_TRANSPORT_FIXTURE = FIXTURES / "invalid" / "proc_ref_runtime_transport_invalid.orc"
 FORM_PATH = ("workflow-lisp", "workflow-expression-test")
 
@@ -713,6 +714,22 @@ def test_workflow_boundary_rejects_top_level_proc_ref_params(tmp_path: Path) -> 
         )
 
     _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
+
+
+def test_workflow_boundary_accepts_proc_ref_specialized_workflows_with_runtime_inputs(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        PROC_REF_BIND_PROC_FIXTURE,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert "entry" in result.validated_bundles
 
 
 def test_workflow_boundary_rejects_proc_ref_record_fields(tmp_path: Path) -> None:

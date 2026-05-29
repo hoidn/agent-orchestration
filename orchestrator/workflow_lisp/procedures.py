@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from enum import StrEnum
@@ -71,6 +72,20 @@ class ProcedureSignature:
 
 
 @dataclass(frozen=True)
+class ProcedureCallableSpecialization:
+    """Compile-time bindings attached to a specialized procedure."""
+
+    base_name: str
+    specialized_name: str
+    workflow_ref_bindings: Mapping[str, object]
+    proc_ref_bindings: Mapping[str, object]
+    value_bindings: Mapping[str, object]
+    bound_param_types: Mapping[str, TypeRef]
+    origin_span: SourceSpan
+    origin_form_path: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class TypedProcedureDef:
     """Procedure definition after body typechecking and effect analysis."""
 
@@ -91,6 +106,25 @@ class ProcedureCatalog:
     signatures_by_name: Mapping[str, ProcedureSignature]
     definitions_by_name: Mapping[str, ProcedureDef]
     call_graph: Mapping[str, frozenset[str]]
+
+
+def proc_ref_specialization_name(
+    base_name: str,
+    proc_ref_bindings: Mapping[str, object],
+) -> str:
+    digest = hashlib.sha1(
+        "|".join(
+            [
+                base_name,
+                *(
+                    f"{name}:{getattr(value, 'call_target_name', type(value).__name__)}"
+                    for name, value in sorted(proc_ref_bindings.items())
+                ),
+            ]
+        ).encode("utf-8")
+    ).hexdigest()[:12]
+    normalized_base = base_name.replace("/", ".").replace("::", ".").replace("-", "_")
+    return f"%proc-ref-call.{normalized_base}.{digest}"
 
 
 def elaborate_procedure_definitions(module_syntax: WorkflowLispSyntaxModule) -> tuple[ProcedureDef, ...]:

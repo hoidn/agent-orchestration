@@ -5,21 +5,47 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
+    _infer_stage3_effect_summaries,
     _typecheck_procedure_definitions,
     _validate_definition_module,
     _validate_procedure_effects_and_cycles,
     compile_stage3_module,
 )
+from orchestrator.workflow_lisp.drain_stdlib import BacklogDrainSpec
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.effects import CallsWorkflowEffect, UsesCommandEffect, UsesProviderEffect
+from orchestrator.workflow_lisp.expressions import (
+    BacklogDrainExpr,
+    BindProcBinding,
+    BindProcExpr,
+    FinalizeSelectedItemExpr,
+    LetStarExpr,
+    LiteralExpr,
+    NameExpr,
+    ProcedureCallExpr,
+    ProcRefLiteralExpr,
+    ProduceOneOfExpr,
+    ResourceTransitionExpr,
+    ResumeOrStartExpr,
+    ReviewReviseLoopExpr,
+    RunProviderPhaseExpr,
+)
 from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering
+from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
 from orchestrator.workflow_lisp.procedures import build_procedure_catalog, elaborate_procedure_definitions
 from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
+from orchestrator.workflow_lisp.typecheck import TypedExpr
 from orchestrator.workflow_lisp.workflows import (
     ExternalToolBinding,
+    TypedWorkflowDef,
+    WorkflowDef,
+    WorkflowSignature,
+    build_command_boundary_environment,
+    build_extern_environment,
     build_workflow_catalog,
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
@@ -36,8 +62,10 @@ PRIVATE_BOUNDARY_FIXTURE = FIXTURES / "invalid" / "procedure_private_boundary_in
 ARITY_FIXTURE = FIXTURES / "invalid" / "procedure_arity_mismatch.orc"
 WORKFLOW_REF_FORWARDING_FIXTURE = FIXTURES / "valid" / "workflow_refs_forwarding.orc"
 PROC_REF_FIXTURE = FIXTURES / "valid" / "proc_ref_static_surface.orc"
+PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
 PROC_REF_LITERAL_REQUIRED_FIXTURE = FIXTURES / "invalid" / "proc_ref_literal_required.orc"
 PROC_REF_SIGNATURE_INVALID_FIXTURE = FIXTURES / "invalid" / "proc_ref_signature_invalid.orc"
+PROC_REF_SPECIALIZATION_CYCLE_FIXTURE = FIXTURES / "invalid" / "proc_ref_specialization_cycle.orc"
 
 
 def _compile(path: Path, *, tmp_path: Path):
@@ -81,8 +109,259 @@ def _assert_diagnostic_code(excinfo: pytest.ExceptionInfo[LispFrontendCompileErr
     assert excinfo.value.diagnostics[0].code == code
 
 
+def _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(
+    excinfo: pytest.ExceptionInfo[LispFrontendCompileError],
+) -> None:
+    diagnostics = excinfo.value.diagnostics
+
+    assert [diagnostic.code for diagnostic in diagnostics] == [
+        "proc_ref_specialization_cycle",
+        "proc_ref_specialization_cycle",
+    ]
+    assert [diagnostic.span.start.line for diagnostic in diagnostics] == [24, 18]
+    assert [diagnostic.form_path for diagnostic in diagnostics] == [
+        ("workflow-lisp", "defproc", "loop-helper"),
+        ("workflow-lisp", "defproc", "use-runner"),
+    ]
+    assert diagnostics[0].message == "recursive procedure specialization cycle detected for `loop-helper`"
+    assert diagnostics[1].message == "recursive procedure specialization cycle detected for `use-runner`"
+    assert all("%proc-ref" not in diagnostic.message for diagnostic in diagnostics)
+
+
 def _compiler_module():
     return importlib.import_module("orchestrator.workflow_lisp.compiler")
+
+
+def _infer_stage3_proc_ref_effects(path: Path):
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    extern_environment = build_extern_environment(
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+    )
+    command_boundary_environment = build_command_boundary_environment(
+        {
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        }
+    )
+    return _infer_stage3_effect_summaries(
+        procedure_defs,
+        workflow_defs=workflow_defs,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+    )
+
+
+def _proc_ref_discovery_context(tmp_path: Path):
+    path = _write_module(
+        tmp_path / "proc_ref_discovery_context.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc helper",
+            "    ((fixed String)",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" input.report fixed)',
+            "      :returns WorkflowOutput))",
+            "  (defproc invoke-runner",
+            "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner input)))",
+        ],
+    )
+    syntax_module = build_syntax_module(read_sexpr_file(path))
+    module = elaborate_definition_module(_definition_only_syntax_module(syntax_module))
+    _validate_definition_module(module)
+    type_env = FrontendTypeEnvironment.from_module(module)
+    workflow_defs = elaborate_workflow_definitions(syntax_module)
+    procedure_defs = elaborate_procedure_definitions(syntax_module)
+    workflow_catalog = build_workflow_catalog(module, workflow_defs, type_env)
+    procedure_catalog = build_procedure_catalog(procedure_defs, type_env=type_env)
+    extern_environment = build_extern_environment(provider_externs={}, prompt_externs={})
+    command_boundary_environment = build_command_boundary_environment(
+        {
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        }
+    )
+    typed_procedures, _typed_workflows, _diagnostics = _infer_stage3_effect_summaries(
+        procedure_defs,
+        workflow_defs=workflow_defs,
+        type_env=type_env,
+        workflow_catalog=workflow_catalog,
+        procedure_catalog=procedure_catalog,
+        extern_environment=extern_environment,
+        command_boundary_environment=command_boundary_environment,
+    )
+    return module, procedure_defs, typed_procedures, procedure_catalog, type_env
+
+
+def _nested_proc_ref_specialization_expr(*, span, form_path: tuple[str, ...]) -> LetStarExpr:
+    runner_ref = BindProcExpr(
+        base_expr=ProcRefLiteralExpr(
+            target_name="helper",
+            authored_name="helper",
+            span=span,
+            form_path=form_path,
+        ),
+        bindings=(
+            BindProcBinding(
+                name="fixed",
+                value_expr=LiteralExpr(
+                    value="same",
+                    literal_kind="string",
+                    span=span,
+                    form_path=form_path,
+                ),
+                keyword_span=span,
+                keyword_form_path=form_path,
+            ),
+        ),
+        span=span,
+        form_path=form_path,
+    )
+    return LetStarExpr(
+        bindings=(("runner", runner_ref),),
+        body=ProcedureCallExpr(
+            callee_name="invoke-runner",
+            args=(
+                NameExpr(name="runner", span=span, form_path=form_path),
+                NameExpr(name="input", span=span, form_path=form_path),
+            ),
+            span=span,
+            form_path=form_path,
+        ),
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _wrap_proc_ref_discovery_expr(case_name: str, nested_expr: LetStarExpr, *, span, form_path: tuple[str, ...]):
+    placeholder = NameExpr(name="placeholder", span=span, form_path=form_path)
+    if case_name == "run_provider_phase":
+        return RunProviderPhaseExpr(
+            phase_name="implementation",
+            ctx_expr=placeholder,
+            inputs_expr=nested_expr,
+            provider=placeholder,
+            prompt=placeholder,
+            returns_type_name="WorkflowOutput",
+            span=span,
+            form_path=form_path,
+        )
+    if case_name == "produce_one_of":
+        return ProduceOneOfExpr(
+            returns_type_name="WorkflowOutput",
+            ctx_expr=placeholder,
+            producer=ProduceOneOfProducerSpec(
+                kind="provider",
+                provider_expr=placeholder,
+                prompt_expr=placeholder,
+                inputs=(nested_expr,),
+            ),
+            candidates=(),
+            span=span,
+            form_path=form_path,
+        )
+    if case_name == "review_revise_loop":
+        return ReviewReviseLoopExpr(
+            loop_name="implementation-review",
+            ctx_expr=placeholder,
+            completed_expr=placeholder,
+            inputs_expr=nested_expr,
+            review_provider=placeholder,
+            fix_provider=placeholder,
+            review_prompt=placeholder,
+            fix_prompt=placeholder,
+            max_expr=LiteralExpr(value=5, literal_kind="int", span=span, form_path=form_path),
+            returns_type_name="WorkflowOutput",
+            span=span,
+            form_path=form_path,
+        )
+    if case_name == "resume_or_start":
+        return ResumeOrStartExpr(
+            resume_name="checks",
+            ctx_expr=placeholder,
+            resume_from_expr=placeholder,
+            valid_when=(),
+            start_expr=nested_expr,
+            returns_type_name="WorkflowOutput",
+            span=span,
+            form_path=form_path,
+        )
+    if case_name == "resource_transition":
+        return ResourceTransitionExpr(
+            spec=ResourceTransitionSpec(
+                transition_name="backlog-item",
+                ctx_expr=placeholder,
+                when_expr=None,
+                resource_expr=nested_expr,
+                from_queue_name="Queue.active",
+                to_queue_name="Queue.in_progress",
+                ledger_expr=placeholder,
+                event_name="SELECTED",
+            ),
+            span=span,
+            form_path=form_path,
+        )
+    if case_name == "finalize_selected_item":
+        return FinalizeSelectedItemExpr(
+            spec=FinalizeSelectedItemSpec(
+                ctx_expr=placeholder,
+                selected_expr=placeholder,
+                queue_transition_expr=placeholder,
+                roadmap_expr=placeholder,
+                plan_expr=nested_expr,
+                implementation_expr=placeholder,
+            ),
+            span=span,
+            form_path=form_path,
+        )
+    if case_name == "backlog_drain":
+        return BacklogDrainExpr(
+            spec=BacklogDrainSpec(
+                drain_name="neurips",
+                ctx_expr=placeholder,
+                selector_name="selector-run",
+                run_item_name="run-selected-item",
+                gap_drafter_name="gap-draft",
+                providers_expr=nested_expr,
+                max_iterations_expr=LiteralExpr(value=4, literal_kind="int", span=span, form_path=form_path),
+            ),
+            span=span,
+            form_path=form_path,
+        )
+    raise AssertionError(f"unknown outer ProcRef discovery case: {case_name}")
 
 
 def test_compile_stage3_collects_defproc_catalog_before_body_checking(tmp_path: Path) -> None:
@@ -793,6 +1072,186 @@ def test_compile_stage3_supports_proc_ref_signature_parameters_and_same_file_lit
     assert call_expr.args[0].target_name == "helper"
 
 
+def test_compile_stage3_supports_bind_proc_forwarding_and_lexical_proc_ref_calls(
+    tmp_path: Path,
+) -> None:
+    from orchestrator.workflow_lisp.expressions import BindProcExpr, LetStarExpr, ProcedureCallExpr
+
+    result = _compile_validated(PROC_REF_BIND_PROC_FIXTURE, tmp_path=tmp_path)
+    invoke_runner = next(
+        procedure for procedure in result.typed_procedures if procedure.definition.name == "invoke-runner"
+    )
+    entry = next(workflow for workflow in result.typed_workflows if workflow.definition.name == "entry")
+    entry_body = entry.typed_body.expr
+
+    assert isinstance(invoke_runner.typed_body.expr, ProcedureCallExpr)
+    assert invoke_runner.typed_body.expr.callee_name == "runner"
+    assert isinstance(entry_body, LetStarExpr)
+    assert isinstance(entry_body.bindings[0][1], BindProcExpr)
+    assert "entry" in result.validated_bundles
+
+
+def test_stage3_materializes_proc_ref_specializations_before_lowering_and_preserves_effects() -> None:
+    typed_procedures, typed_workflows, _ = _infer_stage3_proc_ref_effects(PROC_REF_BIND_PROC_FIXTURE)
+
+    typed_names = {procedure.definition.name for procedure in typed_procedures}
+    entry = next(workflow for workflow in typed_workflows if workflow.definition.name == "entry")
+    specialized_invoke_runner = next(
+        procedure
+        for procedure in typed_procedures
+        if procedure.definition.name.startswith("%proc-ref-call.invoke_runner.")
+    )
+
+    assert any(name.startswith("%proc-ref.helper.") for name in typed_names)
+    assert specialized_invoke_runner.direct_effect_summary.procedure_edges
+    assert entry.effect_summary.transitive_effects == frozenset(
+        {
+            UsesCommandEffect(subject=("run_checks",)),
+        }
+    )
+
+
+@pytest.mark.parametrize(
+    "case_name",
+    [
+        "run_provider_phase",
+        "produce_one_of",
+        "review_revise_loop",
+        "resume_or_start",
+        "resource_transition",
+        "finalize_selected_item",
+        "backlog_drain",
+    ],
+)
+def test_stage3_discovery_walks_nested_proc_ref_specializations_in_owner_forms(
+    tmp_path: Path,
+    case_name: str,
+) -> None:
+    module, procedure_defs, typed_procedures, procedure_catalog, type_env = _proc_ref_discovery_context(tmp_path)
+    span = procedure_defs[0].span
+    form_path = ("workflow-lisp", "defworkflow", f"walk-{case_name}")
+    workflow_return_type = type_env.resolve_type(
+        "WorkflowOutput",
+        span=module.span,
+        form_path=("workflow-lisp",),
+    )
+    nested_expr = _nested_proc_ref_specialization_expr(span=span, form_path=form_path)
+    wrapped_expr = _wrap_proc_ref_discovery_expr(case_name, nested_expr, span=span, form_path=form_path)
+    typed_workflow = TypedWorkflowDef(
+        definition=WorkflowDef(
+            name=f"walk-{case_name}",
+            params=(),
+            return_type_name="WorkflowOutput",
+            body=procedure_defs[0].body,
+            span=span,
+            form_path=form_path,
+        ),
+        signature=WorkflowSignature(
+            name=f"walk-{case_name}",
+            params=(),
+            return_type_ref=workflow_return_type,
+            span=span,
+            form_path=form_path,
+        ),
+        typed_body=TypedExpr(
+            expr=wrapped_expr,
+            type_ref=workflow_return_type,
+            span=span,
+            form_path=form_path,
+        ),
+    )
+
+    compiler_module = _compiler_module()
+    discovered = compiler_module._discover_proc_ref_specializations(
+        typed_procedures=typed_procedures,
+        typed_workflows=(typed_workflow,),
+        procedure_catalog=procedure_catalog,
+        type_env=type_env,
+    )
+
+    assert [
+        procedure.definition.name
+        for procedure in discovered
+        if procedure.definition.name.startswith("%proc-ref-call.invoke_runner.")
+    ]
+
+
+def test_stage3_preserves_nested_proc_ref_effects_inside_run_provider_phase(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_nested_run_provider_phase.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord RunCtx",
+            "    (run-id RunId)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord PhaseCtx",
+            "    (run RunCtx)",
+            "    (phase-name Symbol)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defunion ImplementationAttempt",
+            "    (COMPLETED",
+            "      (report WorkReport)))",
+            "  (defproc build-inputs-helper",
+            "    ((fixed String)",
+            "     (input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ((uses-command run_checks))",
+            "    :lowering inline",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" input.report fixed)',
+            "      :returns WorkflowInput))",
+            "  (defproc invoke-runner",
+            "    ((runner ProcRef[WorkflowInput -> WorkflowInput])",
+            "     (input WorkflowInput))",
+            "    -> WorkflowInput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner input))",
+            "  (defworkflow entry",
+            "    ((phase-ctx PhaseCtx)",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (with-phase phase-ctx implementation",
+            "      (let* ((attempt",
+            "               (run-provider-phase implementation",
+            "                 :ctx phase-ctx",
+            "                 :inputs",
+            "                   (let* ((runner (bind-proc (proc-ref build-inputs-helper)",
+            '                                    :fixed "nested")))',
+            "                     (invoke-runner runner input))",
+            "                 :provider providers.execute",
+            "                 :prompt prompts.implementation.execute",
+            "                 :returns ImplementationAttempt)))",
+            "        (match attempt",
+            "          ((COMPLETED completed)",
+            "           (record WorkflowOutput",
+            "             :report completed.report)))))",
+            "))",
+        ],
+    )
+
+    typed_procedures, typed_workflows, _ = _infer_stage3_proc_ref_effects(path)
+    entry = next(workflow for workflow in typed_workflows if workflow.definition.name == "entry")
+
+    assert any(
+        procedure.definition.name.startswith("%proc-ref-call.invoke_runner.")
+        for procedure in typed_procedures
+    )
+    assert UsesCommandEffect(subject=("run_checks",)) in entry.effect_summary.transitive_effects
+
+
 def test_compile_stage3_rejects_non_literal_proc_ref_arguments(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(PROC_REF_LITERAL_REQUIRED_FIXTURE, tmp_path=tmp_path)
@@ -805,6 +1264,175 @@ def test_compile_stage3_rejects_proc_ref_signature_mismatches(tmp_path: Path) ->
         _compile(PROC_REF_SIGNATURE_INVALID_FIXTURE, tmp_path=tmp_path)
 
     _assert_diagnostic_code(excinfo, "proc_ref_signature_invalid")
+
+
+def test_compile_stage3_rejects_bind_proc_unknown_keywords(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_bind_proc_unknown_keyword.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc helper",
+            "    ((fixed String)",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowOutput",
+            "      :report input.report))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (let* ((runner (bind-proc (proc-ref helper)",
+            "                      :missing input.report)))",
+            "      (runner input))))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_ref_binding_unknown")
+
+
+def test_compile_stage3_rejects_bind_proc_duplicate_keywords(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_bind_proc_duplicate_keyword.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc helper",
+            "    ((fixed String)",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowOutput",
+            "      :report input.report))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (let* ((runner (bind-proc (proc-ref helper)",
+                '                      :fixed "same"',
+                '                      :fixed "same")))',
+                "      (runner input))))",
+            ],
+        )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_ref_binding_duplicate")
+
+
+def test_compile_stage3_rejects_nested_bind_proc_duplicate_keywords(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_bind_proc_nested_duplicate_keyword.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc helper",
+            "    ((fixed String)",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowOutput",
+            "      :report input.report))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (let* ((runner (bind-proc",
+            "                     (bind-proc (proc-ref helper)",
+            '                       :fixed "one")',
+            '                     :fixed "two")))',
+            "      (runner input))))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_ref_binding_duplicate")
+
+
+def test_compile_stage3_rejects_bind_proc_mistyped_bound_values(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "proc_ref_bind_proc_type_invalid.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc helper",
+            "    ((fixed String)",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (record WorkflowOutput",
+            "      :report input.report))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (let* ((runner (bind-proc (proc-ref helper)",
+            "                      :fixed input)))",
+            "      (runner input))))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "proc_ref_binding_type_invalid")
+
+
+def test_compile_stage3_rejects_proc_ref_specialization_cycles(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(PROC_REF_SPECIALIZATION_CYCLE_FIXTURE, tmp_path=tmp_path)
+
+    _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(excinfo)
+
+
+def test_stage3_effect_inference_rejects_proc_ref_specialization_cycles_before_lowering() -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _infer_stage3_proc_ref_effects(PROC_REF_SPECIALIZATION_CYCLE_FIXTURE)
+
+    _assert_proc_ref_cycle_diagnostics_at_authored_call_sites(excinfo)
 
 
 def test_higher_order_procedure_specializations_reuse_private_workflow_lowering(tmp_path: Path) -> None:
