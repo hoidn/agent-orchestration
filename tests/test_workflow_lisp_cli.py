@@ -21,6 +21,9 @@ ENTRYPOINT = FIXTURES / "modules" / "valid" / "imported_bundle_mix" / "neurips" 
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
 CALLABLE_ENTRYPOINT = FIXTURES / "modules" / "valid" / "callables" / "neurips" / "entry.orc"
 CALLABLE_SOURCE_ROOT = FIXTURES / "modules" / "valid" / "callables"
+KISS_ENTRYPOINT = REPO_ROOT / "workflows" / "examples" / "kiss_backlog_item.orc"
+KISS_PROVIDERS = REPO_ROOT / "workflows" / "examples" / "inputs" / "kiss_backlog_item" / "providers.json"
+KISS_PROMPTS = REPO_ROOT / "workflows" / "examples" / "inputs" / "kiss_backlog_item" / "prompts.json"
 
 
 def _build_module():
@@ -166,6 +169,47 @@ def _yaml_run_args(
         live_agent_note_interval_sec=15.0,
         live_agent_note_timeout_sec=30,
         live_agent_note_max_tail_chars=6000,
+    )
+
+
+def _kiss_run_args(*, dry_run: bool = True, input_values: list[str] | None = None) -> Namespace:
+    return Namespace(
+        workflow=str(KISS_ENTRYPOINT),
+        context=None,
+        context_file=None,
+        input=input_values,
+        input_file=None,
+        clean_processed=False,
+        archive_processed=None,
+        debug=False,
+        stream_output=False,
+        dry_run=dry_run,
+        backup_state=False,
+        state_dir=None,
+        on_error="stop",
+        max_retries=0,
+        retry_delay=1000,
+        quiet=False,
+        verbose=False,
+        log_level="info",
+        step_summaries=False,
+        summary_mode=None,
+        summary_provider="claude_sonnet_summary",
+        summary_timeout_sec=120,
+        summary_max_input_chars=12000,
+        summary_profile=None,
+        live_agent_notes=False,
+        live_agent_note_provider=None,
+        live_agent_note_interval_sec=15.0,
+        live_agent_note_timeout_sec=30,
+        live_agent_note_max_tail_chars=6000,
+        entry_workflow="run-backlog-item",
+        source_root=None,
+        provider_externs_file=str(KISS_PROVIDERS),
+        prompt_externs_file=str(KISS_PROMPTS),
+        imported_workflow_bundles_file=None,
+        command_boundaries_file=None,
+        emit_debug_yaml=False,
     )
 
 
@@ -401,6 +445,23 @@ def test_run_workflow_orc_dry_run_requires_bound_inputs(tmp_path: Path, monkeypa
 
     assert result == 2
     assert not (tmp_path / ".orchestrate" / "runs").exists()
+
+
+def test_run_workflow_kiss_backlog_item_dry_run_accepts_only_typed_backlog_inputs(
+    monkeypatch,
+) -> None:
+    monkeypatch.chdir(REPO_ROOT)
+
+    result = run_workflow(
+        _kiss_run_args(
+            input_values=[
+                "inputs__backlog_item=docs/backlog/active/2026-05-29-workflow-lisp-effectful-composition-lowering.md",
+                "inputs__work_instructions=docs/plans/LISP-FRONTEND-AUTONOMOUS-DRAIN/work_instructions.md",
+            ]
+        )
+    )
+
+    assert result == 0
 
 
 def test_run_workflow_yaml_dry_run_requires_bound_inputs(tmp_path: Path, monkeypatch) -> None:

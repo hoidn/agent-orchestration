@@ -195,6 +195,11 @@ def derive_workflow_signature_contracts(
             span=signature.span,
             form_path=signature.form_path,
         ):
+            flattened_field = _apply_workflow_input_defaults(
+                param_name=param_name,
+                param_type=type_ref,
+                flattened_field=flattened_field,
+            )
             inputs[flattened_field.generated_name] = SurfaceContract(
                 name=flattened_field.generated_name,
                 kind=flattened_field.contract_definition["kind"],
@@ -236,6 +241,64 @@ def derive_workflow_signature_contracts(
             flattened_outputs=tuple(flattened_outputs),
         ),
     )
+
+
+def _apply_workflow_input_defaults(
+    *,
+    param_name: str,
+    param_type: TypeRef,
+    flattened_field: FlattenedContractField,
+) -> FlattenedContractField:
+    """Attach bounded defaults for top-level phase-context inputs.
+
+    The runtime already supports workflow-input defaults. Providing deterministic
+    defaults for authored top-level `PhaseCtx` parameters keeps compile/dry-run
+    example entry workflows usable without manual injection of synthetic phase
+    roots and run metadata.
+    """
+
+    if not isinstance(param_type, RecordTypeRef) or param_type.name != "PhaseCtx":
+        return flattened_field
+
+    default_value = _phase_ctx_default_input_value(
+        param_name=param_name,
+        source_path=flattened_field.source_path,
+    )
+    if default_value is None:
+        return flattened_field
+
+    definition = dict(flattened_field.contract_definition)
+    definition["default"] = default_value
+    return FlattenedContractField(
+        generated_name=flattened_field.generated_name,
+        source_path=flattened_field.source_path,
+        contract_definition=definition,
+    )
+
+
+def _phase_ctx_default_input_value(*, param_name: str, source_path: tuple[str, ...]) -> str | None:
+    phase_name = _default_phase_name_for_param(param_name)
+    if source_path == (param_name, "phase-name"):
+        return phase_name
+    if source_path == (param_name, "state-root"):
+        return f"state/{phase_name}"
+    if source_path == (param_name, "artifact-root"):
+        return f"artifacts/{phase_name}"
+    if source_path == (param_name, "run", "run-id"):
+        return "test-run"
+    if source_path == (param_name, "run", "state-root"):
+        return "state/run"
+    if source_path == (param_name, "run", "artifact-root"):
+        return "artifacts/run"
+    return None
+
+
+def _default_phase_name_for_param(param_name: str) -> str:
+    if param_name.endswith("-ctx"):
+        return param_name[: -len("-ctx")]
+    if param_name.endswith("_ctx"):
+        return param_name[: -len("_ctx")]
+    return param_name
 
 
 def derive_union_workflow_boundary_projection(
