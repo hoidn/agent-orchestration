@@ -22,8 +22,10 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
+    _observed_statement_families,
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
+from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_LOWERING_CONTRACTS_BY_FORM
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import (
@@ -234,6 +236,39 @@ def _iter_nested_steps(steps):
             nested_steps = repeat_block.get("steps", [])
             if isinstance(nested_steps, list):
                 yield from _iter_nested_steps(nested_steps)
+
+
+def _assert_contract_matches_observed_families(contract, *, steps) -> set[str]:
+    observed = set(_observed_statement_families(steps))
+    assert set(contract.required_statement_families).issubset(observed)
+    for alternatives in contract.alternative_statement_family_sets:
+        matches = observed.intersection(alternatives)
+        assert len(matches) == 1
+    return observed
+
+
+def _assert_contract_source_map_expectations(
+    contract,
+    lowered,
+    *,
+    hidden_inputs: tuple[str, ...] = (),
+    generated_paths: tuple[str, ...] = (),
+) -> None:
+    authored_steps = list(_iter_nested_steps(lowered.authored_mapping["steps"]))
+    assert authored_steps
+    for step in authored_steps:
+        step_id = step.get("id")
+        if isinstance(step_id, str):
+            assert step_id in lowered.origin_map.step_spans
+            assert lowered.origin_map.step_spans[step_id].origin_key
+    if "high_level_form_origin" in contract.source_map_expectations:
+        assert any(origin.form_path for origin in lowered.origin_map.step_spans.values())
+    if "generated_hidden_input_span" in contract.source_map_expectations:
+        for hidden_input in hidden_inputs:
+            assert hidden_input in lowered.origin_map.internal_input_spans
+    if "generated_hidden_path_span" in contract.source_map_expectations:
+        for generated_path in generated_paths:
+            assert generated_path in lowered.origin_map.generated_path_spans
 
 
 
@@ -1081,6 +1116,200 @@ def test_shared_validation_accepts_resume_or_start(tmp_path: Path) -> None:
     assert {
         workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
     } >= {"resume-record-phase", "resume-plan-gate"}
+
+
+def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Path) -> None:
+    run_provider_result = _compile(VALID_RUN_PROVIDER_FIXTURE, tmp_path=tmp_path)
+    review_loop_result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
+    resume_result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path)
+
+    run_provider_by_name = {
+        workflow.typed_workflow.definition.name: workflow for workflow in run_provider_result.lowered_workflows
+    }
+    review_by_name = {
+        workflow.typed_workflow.definition.name: workflow for workflow in review_loop_result.lowered_workflows
+    }
+    resume_by_name = {
+        workflow.typed_workflow.definition.name: workflow for workflow in resume_result.lowered_workflows
+    }
+
+    run_provider_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["run-provider-phase"]
+    assert run_provider_contract.family == "structured_result_producer"
+    assert run_provider_contract.backend_kinds == ("provider",)
+    assert run_provider_contract.required_statement_families == (
+        "materialize_artifacts",
+        "provider_step",
+    )
+    assert run_provider_contract.alternative_statement_family_sets == (("output_bundle", "variant_output"),)
+    assert run_provider_contract.delegated_statement_family_policy == "none"
+    assert run_provider_contract.state_root_policies == ("active_phase_bundle",)
+    assert run_provider_contract.authority_model == "validated_structured_result_bundle"
+    assert run_provider_contract.proof_model == "contract_validated_bundle"
+    assert run_provider_contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_path_span",
+    )
+    run_provider_lowered = run_provider_by_name["run-provider-phase-demo"]
+    run_provider_authored = run_provider_lowered.authored_mapping
+    run_provider_provider_step = next(
+        step for step in run_provider_authored["steps"] if step.get("provider") == "fake-execute"
+    )
+    observed = _assert_contract_matches_observed_families(
+        run_provider_contract,
+        steps=run_provider_authored["steps"],
+    )
+    assert observed.intersection({"output_bundle", "variant_output"}) == {"variant_output"}
+    _assert_contract_source_map_expectations(
+        run_provider_contract,
+        run_provider_lowered,
+        generated_paths=(run_provider_provider_step["variant_output"]["path"],),
+    )
+
+    produce_one_of_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["produce-one-of"]
+    assert produce_one_of_contract.family == "structured_result_producer"
+    assert produce_one_of_contract.backend_kinds == ("provider",)
+    assert produce_one_of_contract.required_statement_families == (
+        "materialize_artifacts",
+        "pre_snapshot",
+        "provider_step",
+        "select_variant_output",
+        "match",
+    )
+    assert produce_one_of_contract.alternative_statement_family_sets == ()
+    assert produce_one_of_contract.delegated_statement_family_policy == "none"
+    assert produce_one_of_contract.state_root_policies == ("active_phase_bundle_plus_snapshot",)
+    assert produce_one_of_contract.authority_model == "validated_selected_variant_bundle"
+    assert produce_one_of_contract.proof_model == "snapshot_diff_variant_selection"
+    assert produce_one_of_contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_path_span",
+    )
+    produce_one_of_lowered = run_provider_by_name["produce-one-of-demo"]
+    observed = _assert_contract_matches_observed_families(
+        produce_one_of_contract,
+        steps=produce_one_of_lowered.authored_mapping["steps"],
+    )
+    assert "variant_output" not in observed
+    _assert_contract_source_map_expectations(
+        produce_one_of_contract,
+        produce_one_of_lowered,
+        generated_paths=tuple(produce_one_of_lowered.origin_map.generated_path_spans),
+    )
+
+    review_loop_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["review-revise-loop"]
+    assert review_loop_contract.family == "review_reuse_control"
+    assert review_loop_contract.backend_kinds == ("provider",)
+    assert review_loop_contract.required_statement_families == (
+        "repeat_until",
+        "provider_step",
+        "output_bundle",
+        "match",
+        "materialize_artifacts",
+    )
+    assert review_loop_contract.alternative_statement_family_sets == ()
+    assert review_loop_contract.delegated_statement_family_policy == "none"
+    assert review_loop_contract.state_root_policies == ("repeat_until_generated_bundle",)
+    assert review_loop_contract.authority_model == "validated_repeat_until_route_bundle"
+    assert review_loop_contract.proof_model == "typed_review_decision_routing"
+    assert review_loop_contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_input_span",
+        "generated_hidden_path_span",
+    )
+    review_loop_lowered = review_by_name["review-revise-loop-demo"]
+    review_repeat_step = next(
+        step for step in review_loop_lowered.authored_mapping["steps"] if "repeat_until" in step
+    )
+    review_step = next(
+        step
+        for step in _iter_nested_steps(review_repeat_step["repeat_until"]["steps"])
+        if step.get("name") == "ReviewDecision"
+    )
+    review_path = review_step["output_bundle"]["path"]
+    review_hidden_input = review_path.removeprefix("${inputs.").removesuffix("}")
+    _assert_contract_matches_observed_families(
+        review_loop_contract,
+        steps=review_loop_lowered.authored_mapping["steps"],
+    )
+    _assert_contract_source_map_expectations(
+        review_loop_contract,
+        review_loop_lowered,
+        hidden_inputs=(review_hidden_input,),
+        generated_paths=(review_path,),
+    )
+
+    resume_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["resume-or-start"]
+    assert resume_contract.family == "review_reuse_control"
+    assert resume_contract.backend_kinds == ("certified_adapter",)
+    assert resume_contract.required_statement_families == (
+        "command_step",
+        "variant_output",
+        "match",
+    )
+    assert resume_contract.alternative_statement_family_sets == ()
+    assert (
+        resume_contract.delegated_statement_family_policy
+        == "resume_start_branch_delegates_to_wrapped_expression"
+    )
+    assert resume_contract.state_root_policies == ("managed_reusable_boundary_inputs",)
+    assert resume_contract.authority_model == "validated_reusable_state_boundary"
+    assert resume_contract.proof_model == "reusable_state_validation_then_branch_normalization"
+    assert resume_contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_input_span",
+        "generated_hidden_path_span",
+        "adapter_command_step_origin",
+    )
+    assert resume_contract.adapter_binding_names == (
+        "validate_reusable_phase_state",
+        "load_canonical_phase_result__<ReturnType>",
+    )
+
+    resume_record_lowered = resume_by_name["resume-record-phase"]
+    resume_record_authored = resume_record_lowered.authored_mapping
+    resume_record_validator = resume_record_authored["steps"][0]
+    resume_record_path = resume_record_validator["variant_output"]["path"]
+    resume_record_hidden_input = resume_record_path.removeprefix("${inputs.").removesuffix("}")
+    _assert_contract_matches_observed_families(
+        resume_contract,
+        steps=resume_record_authored["steps"],
+    )
+    _assert_contract_source_map_expectations(
+        resume_contract,
+        resume_record_lowered,
+        hidden_inputs=(resume_record_hidden_input,),
+        generated_paths=(resume_record_path,),
+    )
+    record_start_steps = resume_record_authored["steps"][1]["match"]["cases"]["START"]["steps"]
+    assert "command_step" in _observed_statement_families(record_start_steps)
+
+    resume_plan_lowered = resume_by_name["resume-plan-gate"]
+    resume_plan_authored = resume_plan_lowered.authored_mapping
+    resume_plan_validator = resume_plan_authored["steps"][0]
+    resume_plan_path = resume_plan_validator["variant_output"]["path"]
+    resume_plan_hidden_input = resume_plan_path.removeprefix("${inputs.").removesuffix("}")
+    _assert_contract_matches_observed_families(
+        resume_contract,
+        steps=resume_plan_authored["steps"],
+    )
+    _assert_contract_source_map_expectations(
+        resume_contract,
+        resume_plan_lowered,
+        hidden_inputs=(resume_plan_hidden_input,),
+        generated_paths=(resume_plan_path,),
+    )
+    plan_branch_step = next(
+        step
+        for step in resume_plan_authored["steps"]
+        if step.get("match", {}).get("ref")
+        == f"root.steps.{resume_plan_validator['name']}.artifacts.variant"
+    )
+    plan_start_steps = plan_branch_step["match"]["cases"]["START"]["steps"]
+    assert "workflow_call" in _observed_statement_families(plan_start_steps)
 
 
 def test_resume_or_start_workflow_call_uses_shared_managed_write_root_bundle_path(tmp_path: Path) -> None:

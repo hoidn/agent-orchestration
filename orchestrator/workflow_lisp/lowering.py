@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
 from types import MappingProxyType
@@ -877,6 +877,68 @@ def _normalize_generated_step_id(raw_name: str) -> str:
     return normalized
 
 
+def _observed_statement_families(steps: Sequence[Mapping[str, Any]]) -> tuple[str, ...]:
+    """Summarize lowered steps into the reviewed stdlib family vocabulary."""
+
+    observed: set[str] = set()
+
+    def _visit(nested_steps: Sequence[Mapping[str, Any]]) -> None:
+        for step in nested_steps:
+            if "provider" in step:
+                observed.add("provider_step")
+            if "command" in step:
+                observed.add("command_step")
+            if "output_bundle" in step:
+                observed.add("output_bundle")
+            if "variant_output" in step:
+                observed.add("variant_output")
+            if "pre_snapshot" in step:
+                observed.add("pre_snapshot")
+            if "select_variant_output" in step:
+                observed.add("select_variant_output")
+            if "repeat_until" in step:
+                observed.add("repeat_until")
+            if "match" in step:
+                observed.add("match")
+            if "materialize_artifacts" in step:
+                observed.add("materialize_artifacts")
+            if "call" in step:
+                observed.add("workflow_call")
+            if step.get("publishes"):
+                observed.add("publishes")
+
+            match_block = step.get("match")
+            if isinstance(match_block, Mapping):
+                cases = match_block.get("cases")
+                if isinstance(cases, Mapping):
+                    for case in cases.values():
+                        if isinstance(case, Mapping):
+                            case_steps = case.get("steps")
+                            if isinstance(case_steps, Sequence):
+                                _visit(case_steps)
+            repeat_block = step.get("repeat_until")
+            if isinstance(repeat_block, Mapping):
+                nested = repeat_block.get("steps")
+                if isinstance(nested, Sequence):
+                    _visit(nested)
+
+    _visit(steps)
+    ordered_tokens = (
+        "provider_step",
+        "command_step",
+        "output_bundle",
+        "variant_output",
+        "pre_snapshot",
+        "select_variant_output",
+        "repeat_until",
+        "match",
+        "materialize_artifacts",
+        "workflow_call",
+        "publishes",
+    )
+    return tuple(token for token in ordered_tokens if token in observed)
+
+
 def _origin_from_source(source: object, *, span: SourceSpan | None = None) -> LoweringOrigin:
     """Build a source-map origin from any typed frontend node-like object."""
 
@@ -1126,6 +1188,19 @@ def _record_step_origin(context: _LoweringContext, *, step_name: str, step_id: s
     origin = _origin_from_context_source(context, source)
     context.step_spans[step_name] = origin
     context.step_spans[step_id] = origin
+
+
+def _record_missing_step_origins(context: _LoweringContext, raw_steps: object, *, source: object) -> None:
+    """Backfill origin-map entries for generated nested steps that lack one."""
+
+    for step in _walk_generated_steps(raw_steps):
+        step_name = step.get("name")
+        step_id = step.get("id")
+        if not isinstance(step_name, str) or not isinstance(step_id, str):
+            continue
+        if step_name in context.step_spans or step_id in context.step_spans:
+            continue
+        _record_step_origin(context, step_name=step_name, step_id=step_id, source=source)
 
 
 def _lower_expression(
@@ -1444,6 +1519,7 @@ def _lower_run_provider_phase(
     authored_contract = dict(bundle_contract.payload)
     authored_contract["path"] = context.phase_scope.bundle_path_ref
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
+    context.generated_path_spans[authored_contract["path"]] = _origin_from_context_source(context, expr)
     generated_steps, consumes, prompt_consumes, hidden_inputs = _build_phase_stdlib_prompt_input_prelude(
         (
             ("inputs", expr.inputs_expr),
@@ -1471,6 +1547,7 @@ def _lower_run_provider_phase(
         "prompt_consumes": prompt_consumes,
     }
     generated_steps.append(step)
+    _record_missing_step_origins(context, generated_steps, source=expr)
     return generated_steps, _TerminalResult(
         step_name=step_name,
         step_id=step_id,
@@ -1531,6 +1608,7 @@ def _lower_produce_one_of(
     )
     select_payload = dict(select_contract.payload)
     select_payload["path"] = context.phase_scope.bundle_path_ref
+    context.generated_path_spans[select_payload["path"]] = _origin_from_context_source(context, expr)
     select_payload["evidence"] = {
         "mode": "snapshot_diff",
         "snapshot": {
@@ -1725,6 +1803,7 @@ def _lower_produce_one_of(
             },
         ]
     )
+    _record_missing_step_origins(context, generated_steps, source=expr)
     return generated_steps, _TerminalResult(
         step_name=result_step_name,
         step_id=result_step_id,
@@ -2259,6 +2338,7 @@ def _lower_review_revise_loop(
         },
     }
     generated_steps.extend([repeat_step, result_step])
+    _record_missing_step_origins(context, generated_steps, source=expr)
     return generated_steps, _TerminalResult(
         step_name=result_step_name,
         step_id=result_step_id,
@@ -2418,6 +2498,7 @@ def _lower_resume_or_start(
             },
         },
     }
+    context.generated_path_spans[validator_step["variant_output"]["path"]] = _origin_from_context_source(context, expr)
     start_context = _copy_context_with_step_prefix(
         context,
         step_name_prefix=f"{context.step_name_prefix}__start",
@@ -2464,6 +2545,7 @@ def _lower_resume_or_start(
             "path": f"${{inputs.{loader_hidden_input}}}",
         },
     }
+    context.generated_path_spans[f"${{inputs.{loader_hidden_input}}}"] = _origin_from_context_source(context, expr)
     resume_output_contracts = {
         field.generated_name.removeprefix("return__"): dict(field.contract_definition)
         for field in derive_workflow_boundary_fields(
@@ -2540,6 +2622,7 @@ def _lower_resume_or_start(
     }
     hidden_inputs.update(reuse_terminal.hidden_inputs)
     hidden_inputs.update(start_terminal.hidden_inputs)
+    _record_missing_step_origins(context, [validator_step, result_step], source=expr)
     return [validator_step, result_step], _TerminalResult(
         step_name=result_step_name,
         step_id=result_step_id,
@@ -4742,6 +4825,7 @@ def _lower_finalize_selected_item(
             "cases": plan_cases,
         },
     }
+    _record_missing_step_origins(context, [queue_transition_materialize_step, implementation_match_step, step], source=expr)
     return [queue_transition_materialize_step, implementation_match_step, step], _TerminalResult(
         step_name=step_name,
         step_id=step_id,
@@ -5642,6 +5726,7 @@ def _lower_backlog_drain(
             },
         },
     }
+    _record_missing_step_origins(context, [seed_items_processed_step, repeat_step, normalize_step], source=expr)
     return [seed_items_processed_step, repeat_step, normalize_step], _TerminalResult(
         step_name=normalize_step_name,
         step_id=normalize_step_id,
@@ -8371,9 +8456,10 @@ def _lower_record_expr(
 
     record_expr = typed_expr.expr
     assert isinstance(record_expr, RecordExpr)
-    output_refs: dict[str, str] = {}
+    step_name = context.step_name_prefix
+    step_id = _normalize_generated_step_id(step_name)
+    values: list[dict[str, Any]] = []
     for field_name in context.return_output_contracts:
-        output_name = f"return__{field_name}"
         value = _record_expr_value_at_path(record_expr, _return_field_path(field_name))
         source_ref = _render_existing_output_ref(value, local_values=local_values)
         if source_ref is None:
@@ -8386,12 +8472,20 @@ def _lower_record_expr(
                 span=record_expr.span,
                 form_path=record_expr.form_path,
             )
-        output_refs[output_name] = source_ref
-    return [], _TerminalResult(
-        step_name=context.step_name_prefix,
-        step_id=f"{_normalize_generated_step_id(context.step_name_prefix)}__return_projection",
-        output_refs=output_refs,
-        output_kind="projection",
+        values.append(
+            {
+                "name": field_name,
+                "source": {"ref": source_ref},
+                "contract": dict(context.return_output_contracts[field_name]),
+            }
+        )
+    _record_step_origin(context, step_name=step_name, step_id=step_id, source=record_expr)
+    step = _materialize_values_step(step_name=step_name, step_id=step_id, values=values)
+    return [step], _TerminalResult(
+        step_name=step_name,
+        step_id=step_id,
+        output_refs=_record_output_refs(step_name, typed_expr.type_ref),
+        output_kind="step",
         hidden_inputs={},
     )
 

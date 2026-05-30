@@ -14,14 +14,31 @@ from orchestrator.workflow_lisp.compiler import (
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
+from orchestrator.workflow_lisp.expressions import (
+    BacklogDrainExpr,
+    CommandResultExpr,
+    FinalizeSelectedItemExpr,
+    ProduceOneOfExpr,
+    ProviderResultExpr,
+    ResourceTransitionExpr,
+    ResumeOrStartExpr,
+    ReviewReviseLoopExpr,
+    RunProviderPhaseExpr,
+)
 from orchestrator.workflow_lisp.lowering import (
     _managed_write_root_bindings,
     _managed_write_root_requirements_for_callable,
+    _observed_statement_families,
     _workflow_extern_requirements,
     lower_workflow_definitions,
     validate_lowered_workflows,
 )
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
+from orchestrator.workflow_lisp.stdlib_contracts import (
+    STDLIB_LOWERING_CONTRACTS,
+    STDLIB_LOWERING_CONTRACTS_BY_FORM,
+    stdlib_contract_for_expr,
+)
 from orchestrator.workflow_lisp.workflows import (
     CommandBoundaryEnvironment,
     ExternEnvironment,
@@ -105,6 +122,110 @@ def _typed_fixture_workflows():
         command_boundary_environment=_command_boundary_environment(),
     )
     return typed_workflows, workflow_catalog
+
+
+def _assert_contract_matches_observed_families(contract, *, steps) -> set[str]:
+    observed = set(_observed_statement_families(steps))
+    assert set(contract.required_statement_families).issubset(observed)
+    for alternatives in contract.alternative_statement_family_sets:
+        matches = observed.intersection(alternatives)
+        assert len(matches) == 1
+    return observed
+
+
+def test_stdlib_contract_inventory_covers_supported_frontend_forms() -> None:
+    expected_forms = {
+        "provider-result",
+        "command-result",
+        "run-provider-phase",
+        "produce-one-of",
+        "review-revise-loop",
+        "resume-or-start",
+        "resource-transition",
+        "finalize-selected-item",
+        "backlog-drain",
+    }
+    expected_expr_types = {
+        ProviderResultExpr,
+        CommandResultExpr,
+        RunProviderPhaseExpr,
+        ProduceOneOfExpr,
+        ReviewReviseLoopExpr,
+        ResumeOrStartExpr,
+        ResourceTransitionExpr,
+        FinalizeSelectedItemExpr,
+        BacklogDrainExpr,
+    }
+
+    assert len(STDLIB_LOWERING_CONTRACTS) == 9
+    assert {contract.form_name for contract in STDLIB_LOWERING_CONTRACTS} == expected_forms
+    assert set(STDLIB_LOWERING_CONTRACTS_BY_FORM) == expected_forms
+    assert {contract.expr_type for contract in STDLIB_LOWERING_CONTRACTS} == expected_expr_types
+
+    for expr_type in expected_expr_types:
+        contract = stdlib_contract_for_expr(expr_type)
+        assert contract.expr_type is expr_type
+        assert STDLIB_LOWERING_CONTRACTS_BY_FORM[contract.form_name] is contract
+
+
+def test_structured_result_family_contract_matches_lowered_provider_and_command_forms() -> None:
+    typed_workflows, workflow_catalog = _typed_fixture_workflows()
+    lowered = lower_workflow_definitions(
+        typed_workflows,
+        workflow_path=STRUCTURED_RESULTS_FIXTURE,
+        workflow_catalog=workflow_catalog,
+        extern_environment=_extern_environment(),
+        command_boundary_environment=_command_boundary_environment(),
+    )
+    authored_by_name = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping for workflow in lowered
+    }
+
+    command_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["command-result"]
+    assert command_contract.family == "structured_result_producer"
+    assert set(command_contract.backend_kinds) == {"external_tool", "certified_adapter"}
+    assert command_contract.required_statement_families == ("command_step",)
+    assert command_contract.alternative_statement_family_sets == (("output_bundle", "variant_output"),)
+    assert command_contract.delegated_statement_family_policy == "none"
+    assert command_contract.state_root_policies == ("generated_hidden_bundle_input",)
+    assert command_contract.authority_model == "validated_structured_result_bundle"
+    assert command_contract.proof_model == "contract_validated_bundle"
+    assert command_contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_input_span",
+        "generated_hidden_path_span",
+        "adapter_command_step_origin",
+    )
+    command_observed = _assert_contract_matches_observed_families(
+        command_contract,
+        steps=authored_by_name["command_checks"]["steps"],
+    )
+    assert command_observed.intersection({"output_bundle", "variant_output"}) == {"output_bundle"}
+
+    provider_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["provider-result"]
+    assert provider_contract.family == "structured_result_producer"
+    assert provider_contract.backend_kinds == ("provider",)
+    assert provider_contract.required_statement_families == ("provider_step",)
+    assert provider_contract.alternative_statement_family_sets == (("output_bundle", "variant_output"),)
+    assert provider_contract.delegated_statement_family_policy == "none"
+    assert provider_contract.state_root_policies == (
+        "generated_hidden_bundle_input",
+        "active_phase_bundle",
+    )
+    assert provider_contract.authority_model == "validated_structured_result_bundle"
+    assert provider_contract.proof_model == "contract_validated_bundle"
+    assert provider_contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_input_span",
+        "generated_hidden_path_span",
+    )
+    provider_observed = _assert_contract_matches_observed_families(
+        provider_contract,
+        steps=authored_by_name["provider_attempt"]["steps"],
+    )
+    assert provider_observed.intersection({"output_bundle", "variant_output"}) == {"variant_output"}
 
 
 def test_lowering_same_file_workflow_call_uses_managed_write_root_boundary_projection() -> None:

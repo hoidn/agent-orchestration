@@ -869,6 +869,34 @@ def test_source_map_serializes_generated_semantic_effects_for_frontend_build(tmp
     )
 
 
+def test_stdlib_contract_inventory_is_compile_time_only_and_not_serialized_into_frontend_build_artifacts(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    source_map_text = result.artifact_paths["source_map"].read_text(encoding="utf-8")
+    boundary_projection_text = result.artifact_paths["workflow_boundary_projection"].read_text(encoding="utf-8")
+    serialized_artifacts = {
+        name: path.read_text(encoding="utf-8") for name, path in result.artifact_paths.items()
+    }
+    combined = json.dumps(serialized_artifacts, sort_keys=True)
+
+    forbidden_markers = (
+        "StdlibLoweringContract",
+        "structured_result_producer",
+        "review_reuse_control",
+        "resource_finalize_drain",
+        "source_map_expectations",
+    )
+
+    for marker in forbidden_markers:
+        assert marker not in source_map_text
+        assert marker not in boundary_projection_text
+        assert marker not in combined
+
+
 def test_semantic_ir_artifact_serializes_promoted_effects_for_frontend_build(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")

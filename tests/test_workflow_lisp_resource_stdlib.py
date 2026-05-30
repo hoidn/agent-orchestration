@@ -13,7 +13,9 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
+from orchestrator.workflow_lisp.lowering import _observed_statement_families
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
+from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_LOWERING_CONTRACTS_BY_FORM
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import (
@@ -181,6 +183,39 @@ def _iter_nested_steps(steps):
         repeat = step.get("repeat_until")
         if isinstance(repeat, dict):
             yield from _iter_nested_steps(repeat.get("steps"))
+
+
+def _assert_contract_matches_observed_families(contract, *, steps) -> set[str]:
+    observed = set(_observed_statement_families(steps))
+    assert set(contract.required_statement_families).issubset(observed)
+    for alternatives in contract.alternative_statement_family_sets:
+        matches = observed.intersection(alternatives)
+        assert len(matches) == 1
+    return observed
+
+
+def _assert_contract_source_map_expectations(
+    contract,
+    lowered,
+    *,
+    hidden_inputs: tuple[str, ...] = (),
+    generated_paths: tuple[str, ...] = (),
+) -> None:
+    nested_steps = list(_iter_nested_steps(lowered.authored_mapping["steps"]))
+    assert nested_steps
+    for step in nested_steps:
+        step_id = step.get("id")
+        if isinstance(step_id, str):
+            assert step_id in lowered.origin_map.step_spans
+            assert lowered.origin_map.step_spans[step_id].origin_key
+    if "high_level_form_origin" in contract.source_map_expectations:
+        assert any(origin.form_path for origin in lowered.origin_map.step_spans.values())
+    if "generated_hidden_input_span" in contract.source_map_expectations:
+        for hidden_input in hidden_inputs:
+            assert hidden_input in lowered.origin_map.internal_input_spans
+    if "generated_hidden_path_span" in contract.source_map_expectations:
+        for generated_path in generated_paths:
+            assert generated_path in lowered.origin_map.generated_path_spans
 
 
 def test_elaborate_resource_transition_expr() -> None:
@@ -923,3 +958,109 @@ def test_lowering_finalize_selected_item_carries_queue_transition_id(tmp_path: P
         value["source"] == {"ref": "root.steps.run-selected-item__queue-transition.artifacts.transition-id"}
         for value in queue_transition_values
     )
+
+
+def test_resource_stdlib_contract_inventory_matches_lowering_families(tmp_path: Path) -> None:
+    transition_result = _compile(VALID_TRANSITION_FIXTURE, tmp_path=tmp_path)
+    finalize_result = _compile(VALID_FINALIZE_FIXTURE, tmp_path=tmp_path)
+
+    transition_lowered = next(
+        workflow
+        for workflow in transition_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "move-selected-item"
+    )
+    finalize_lowered = next(
+        workflow
+        for workflow in finalize_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "run-selected-item"
+    )
+
+    transition_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["resource-transition"]
+    assert transition_contract.family == "resource_finalize_drain"
+    assert transition_contract.backend_kinds == ("certified_adapter",)
+    assert transition_contract.required_statement_families == ("command_step", "output_bundle")
+    assert transition_contract.alternative_statement_family_sets == ()
+    assert transition_contract.delegated_statement_family_policy == "none"
+    assert transition_contract.state_root_policies == ("generated_hidden_bundle_input",)
+    assert transition_contract.authority_model == "validated_structured_result_bundle"
+    assert transition_contract.proof_model == "contract_validated_bundle"
+    assert transition_contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_input_span",
+        "generated_hidden_path_span",
+        "adapter_command_step_origin",
+    )
+    assert transition_contract.adapter_binding_names == ("apply_resource_transition",)
+    transition_authored = transition_lowered.authored_mapping
+    transition_command_step = next(
+        step
+        for step in _iter_nested_steps(transition_authored["steps"])
+        if step.get("command", [])[:3]
+        == ["python", "-m", "orchestrator.workflow_lisp.adapters.apply_resource_transition"]
+    )
+    transition_path = transition_command_step["output_bundle"]["path"]
+    transition_hidden_input = transition_path.removeprefix("${inputs.").removesuffix("}")
+    _assert_contract_matches_observed_families(
+        transition_contract,
+        steps=transition_authored["steps"],
+    )
+    _assert_contract_source_map_expectations(
+        transition_contract,
+        transition_lowered,
+        hidden_inputs=(transition_hidden_input,),
+        generated_paths=(transition_path,),
+    )
+
+    finalize_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["finalize-selected-item"]
+    assert finalize_contract.family == "resource_finalize_drain"
+    assert finalize_contract.backend_kinds == ("materialize_only",)
+    assert finalize_contract.required_statement_families == (
+        "match",
+        "materialize_artifacts",
+        "publishes",
+    )
+    assert finalize_contract.alternative_statement_family_sets == ()
+    assert finalize_contract.delegated_statement_family_policy == "none"
+    assert finalize_contract.state_root_policies == ("item_or_drain_layout_projection",)
+    assert finalize_contract.authority_model == "match_routed_published_summary"
+    assert finalize_contract.proof_model == "typed_branch_normalization"
+    assert finalize_contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_path_span",
+    )
+    _assert_contract_matches_observed_families(
+        finalize_contract,
+        steps=finalize_lowered.authored_mapping["steps"],
+    )
+    _assert_contract_source_map_expectations(
+        finalize_contract,
+        finalize_lowered,
+        generated_paths=(
+            ".orchestrate/workflow_lisp/run-selected-item/selected_item_summary.txt",
+        ),
+    )
+
+
+def test_shared_validation_accepts_resource_transition_and_finalize_selected_item(tmp_path: Path) -> None:
+    command_boundaries = _command_boundary_environment().bindings_by_name
+    transition_result = compile_stage3_module(
+        VALID_TRANSITION_FIXTURE,
+        command_boundaries=command_boundaries,
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    finalize_result = compile_stage3_module(
+        VALID_FINALIZE_FIXTURE,
+        command_boundaries=command_boundaries,
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert {
+        workflow.typed_workflow.definition.name for workflow in transition_result.lowered_workflows
+    } >= {"move-selected-item"}
+    assert {
+        workflow.typed_workflow.definition.name for workflow in finalize_result.lowered_workflows
+    } >= {"run-selected-item"}

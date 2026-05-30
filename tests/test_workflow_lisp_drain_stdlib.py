@@ -10,8 +10,9 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
-from orchestrator.workflow_lisp.lowering import _managed_write_root_bindings
+from orchestrator.workflow_lisp.lowering import _managed_write_root_bindings, _observed_statement_families
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
+from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_LOWERING_CONTRACTS_BY_FORM
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import ExternEnvironment
@@ -211,6 +212,15 @@ def _iter_nested_steps(steps):
                     yield from _iter_nested_steps(case.get("steps"))
 
 
+def _assert_contract_matches_observed_families(contract, *, steps) -> set[str]:
+    observed = set(_observed_statement_families(steps))
+    assert set(contract.required_statement_families).issubset(observed)
+    for alternatives in contract.alternative_statement_family_sets:
+        matches = observed.intersection(alternatives)
+        assert len(matches) == 1
+    return observed
+
+
 def test_elaborate_backlog_drain_expr() -> None:
     expr = elaborate_expression(
         _expression_syntax(
@@ -383,6 +393,51 @@ def test_compile_stage3_module_validates_backlog_drain_through_shared_surface(tm
     assert repeat_step["repeat_until"]["max_iterations"] == 4
 
 
+def test_command_result_contract_accepts_certified_adapter_backends_without_hiding_command_boundary(
+    tmp_path: Path,
+) -> None:
+    result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path)
+    contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["command-result"]
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "run-selected-item"
+    )
+    authored = lowered.authored_mapping
+    command_step = next(
+        step
+        for step in _iter_nested_steps(authored["steps"])
+        if step.get("command", [])[:2] == ["python", "scripts/execute_selected_item.py"]
+    )
+
+    assert contract.family == "structured_result_producer"
+    assert set(contract.backend_kinds) == {"external_tool", "certified_adapter"}
+    assert contract.required_statement_families == ("command_step",)
+    assert contract.alternative_statement_family_sets == (("output_bundle", "variant_output"),)
+    assert contract.delegated_statement_family_policy == "none"
+    assert contract.state_root_policies == ("generated_hidden_bundle_input",)
+    assert contract.authority_model == "validated_structured_result_bundle"
+    assert contract.proof_model == "contract_validated_bundle"
+    assert contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+        "generated_hidden_input_span",
+        "generated_hidden_path_span",
+        "adapter_command_step_origin",
+    )
+    assert isinstance(
+        result.command_boundary_environment.bindings_by_name["execute_selected_item"],
+        CertifiedAdapterBinding,
+    )
+    observed = _assert_contract_matches_observed_families(contract, steps=authored["steps"])
+    assert observed.intersection({"output_bundle", "variant_output"}) == {"variant_output"}
+    assert command_step["id"] in lowered.origin_map.step_spans
+    assert lowered.origin_map.step_spans[command_step["id"]].origin_key
+    hidden_input = command_step["variant_output"]["path"].removeprefix("${inputs.").removesuffix("}")
+    assert hidden_input in lowered.origin_map.internal_input_spans
+    assert command_step["variant_output"]["path"] in lowered.origin_map.generated_path_spans
+
+
 def test_compile_stage3_module_supports_record_gap_drafter_returns(tmp_path: Path) -> None:
     result = _compile(_record_gap_drafter_fixture(tmp_path), tmp_path=tmp_path, validate_shared=True)
 
@@ -390,6 +445,50 @@ def test_compile_stage3_module_supports_record_gap_drafter_returns(tmp_path: Pat
     rendered = str(drain.authored_mapping)
 
     assert "drain__gap_drafter.artifacts.return__variant" not in rendered
+
+
+def test_backlog_drain_contract_inventory_matches_loop_managed_call_lowering(tmp_path: Path) -> None:
+    result = _compile(VALID_DRAIN_FIXTURE, tmp_path=tmp_path)
+    contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["backlog-drain"]
+    lowered = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "drain"
+    )
+    authored = lowered.authored_mapping
+    repeat_step = next(step for step in authored["steps"] if "repeat_until" in step)
+    body_steps = list(_iter_nested_steps(repeat_step["repeat_until"]["steps"]))
+    workflow_calls = [step for step in body_steps if isinstance(step.get("call"), str)]
+
+    assert contract.family == "resource_finalize_drain"
+    assert contract.backend_kinds == ("workflow_call",)
+    assert contract.required_statement_families == (
+        "repeat_until",
+        "workflow_call",
+        "materialize_artifacts",
+        "match",
+        "publishes",
+    )
+    assert contract.alternative_statement_family_sets == ()
+    assert contract.delegated_statement_family_policy == "none"
+    assert contract.state_root_policies == (
+        "managed_reusable_boundary_inputs",
+        "item_or_drain_layout_projection",
+    )
+    assert contract.authority_model == "loop_accumulator_normalized_result"
+    assert contract.proof_model == "typed_loop_accumulator_normalization"
+    assert contract.source_map_expectations == (
+        "high_level_form_origin",
+        "generated_step_span",
+    )
+    _assert_contract_matches_observed_families(contract, steps=authored["steps"])
+    assert workflow_calls
+    assert any(any(name.startswith("__write_root__") for name in step.get("with", {})) for step in workflow_calls)
+    for step in _iter_nested_steps(authored["steps"]):
+        step_id = step.get("id")
+        if isinstance(step_id, str):
+            assert step_id in lowered.origin_map.step_spans
+            assert lowered.origin_map.step_spans[step_id].origin_key
 
 
 def test_workflow_ref_provider_metadata_must_satisfy_callee_externs(tmp_path: Path) -> None:
