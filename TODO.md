@@ -1,0 +1,2 @@
+- recent changes might have conflated system architecture / spect - type designs with gap designs. the same design template shouldnt be used for both. review git history and fix if needed
+- need a more systematic way of choosing between refactor and feature buiding. maybe a new top level router 
