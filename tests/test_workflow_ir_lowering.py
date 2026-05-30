@@ -6,8 +6,10 @@ from types import MappingProxyType
 
 from pathlib import Path
 
+import pytest
 import yaml
 
+from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.executable_ir import (
     CallStepConfig,
@@ -448,6 +450,110 @@ def test_loader_bundle_exposes_executable_ir_topology_and_node_kinds(tmp_path: P
     assert ir.nodes["root.review_loop"].kind is ExecutableNodeKind.REPEAT_UNTIL_FRAME
     assert ir.nodes["root.review_loop.iteration_body.run_review_loop"].kind is ExecutableNodeKind.CALL_BOUNDARY
     assert ir.nodes["root.finally.cleanup.write_cleanup_marker"].kind is ExecutableNodeKind.FINALIZATION_STEP
+
+
+def test_loader_bundle_exposes_versioned_executable_ir_contract_and_serializer(tmp_path: Path) -> None:
+    workflow_path = _write_ir_workflow(tmp_path)
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    schema_version = getattr(executable_ir, "WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION", None)
+    assert schema_version == "workflow_executable_ir.v1"
+    assert getattr(bundle.ir, "schema_version", None) == schema_version
+
+    serializer = getattr(executable_ir, "workflow_executable_ir_to_json", None)
+    assert callable(serializer)
+    payload = serializer(bundle.ir)
+
+    assert payload["schema_version"] == schema_version
+    assert payload["version"] == bundle.ir.version
+
+
+def test_validate_executable_workflow_accepts_loaded_bundle(tmp_path: Path) -> None:
+    workflow_path = _write_ir_workflow(tmp_path)
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    validator = getattr(executable_ir, "validate_executable_workflow", None)
+    assert callable(validator)
+    validator(bundle.ir)
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_fragment"),
+    [
+        (
+            "unknown_body_node",
+            "body region references unknown node",
+        ),
+        (
+            "kind_config_mismatch",
+            "kind/config mismatch",
+        ),
+        (
+            "unknown_contract_address",
+            "unknown node id",
+        ),
+    ],
+)
+def test_validate_executable_workflow_rejects_invalid_topology_and_addresses(
+    tmp_path: Path,
+    mutation: str,
+    expected_fragment: str,
+) -> None:
+    workflow_path = _write_ir_workflow(tmp_path)
+    bundle = WorkflowLoader(tmp_path).load_bundle(workflow_path)
+
+    validator = getattr(executable_ir, "validate_executable_workflow", None)
+    assert callable(validator)
+
+    if mutation == "unknown_body_node":
+        broken_ir = replace(bundle.ir, body_region=bundle.ir.body_region + ("root.missing",))
+    elif mutation == "kind_config_mismatch":
+        set_ready = bundle.ir.nodes["root.set_ready"]
+        broken_node = replace(set_ready, kind=ExecutableNodeKind.PROVIDER)
+        broken_ir = replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **dict(bundle.ir.nodes),
+                    broken_node.node_id: broken_node,
+                }
+            ),
+        )
+    else:
+        review_loop = bundle.ir.nodes["root.review_loop"]
+        assert isinstance(review_loop, RepeatUntilFrameNode)
+        broken_contract = replace(
+            review_loop.output_contracts["review_decision"],
+            source_address=CallOutputAddress(
+                node_id="root.missing",
+                output_name="review_decision",
+            ),
+        )
+        broken_node = replace(
+            review_loop,
+            output_contracts=MappingProxyType(
+                {
+                    **dict(review_loop.output_contracts),
+                    "review_decision": broken_contract,
+                }
+            ),
+        )
+        broken_ir = replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **dict(bundle.ir.nodes),
+                    broken_node.node_id: broken_node,
+                }
+            ),
+        )
+
+    with pytest.raises(WorkflowValidationError) as excinfo:
+        validator(broken_ir)
+
+    assert excinfo.value.errors
+    assert excinfo.value.errors[0].message.startswith("executable_ir_invalid:")
+    assert expected_fragment in excinfo.value.errors[0].message
 
 
 def test_ir_lowering_binds_structured_refs_to_durable_node_addresses(tmp_path: Path):

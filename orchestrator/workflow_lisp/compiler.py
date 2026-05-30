@@ -17,6 +17,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 
+from orchestrator.exceptions import WorkflowValidationError
+from orchestrator.workflow.executable_ir import validate_executable_workflow
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 
 from .contracts import derive_union_workflow_boundary_projection
@@ -58,7 +60,14 @@ from .functions import (
     typecheck_function_definitions,
     validate_function_cycles,
 )
-from .lowering import lower_workflow_definitions, validate_lowered_workflows
+from .lowering import (
+    _missing_validation_subject_message,
+    _origin_for_validation_subject_refs,
+    _remap_validation_message,
+    _shared_validation_diagnostic_code,
+    lower_workflow_definitions,
+    validate_lowered_workflows,
+)
 from .macros import collect_macro_catalog, collect_macro_catalog_with_imports, expand_module_forms
 from .modules import (
     LinkedModuleGraph,
@@ -129,6 +138,12 @@ from .workflows import (
     build_workflow_catalog,
     elaborate_workflow_definitions,
     typecheck_workflow_definitions,
+)
+
+
+_EXECUTABLE_MESSAGE_FALLBACK_NOTE = (
+    "executable validation provenance matched by message text fallback; "
+    "structured subject refs were unavailable"
 )
 
 
@@ -558,6 +573,10 @@ def _run_stage3_entrypoint_validation_pipeline(
         del state
         assert compile_result is not None
         assert selected_workflow_name is not None
+        _revalidate_stage3_executable_bundles(
+            compile_result.entry_result.validated_bundles,
+            lowered_workflows_by_name=_linked_stage3_lowered_workflows_by_name(compile_result),
+        )
         _validate_stage3_linked_source_map_lineage(
             compile_result,
             selected_name=selected_workflow_name,
@@ -778,6 +797,10 @@ def _run_stage3_validation_pipeline(
         return replace(state, validated_bundles=validated_bundles)
 
     def executable_pass(state: ValidationPipelineState) -> ValidationPipelineState:
+        _revalidate_stage3_executable_bundles(
+            state.validated_bundles,
+            lowered_workflows_by_name=_stage3_lowered_workflows_by_name(state.lowered_workflows),
+        )
         _validate_stage3_source_map_lineage(
             state,
             path=path,
@@ -913,6 +936,105 @@ def _validate_stage3_linked_source_map_lineage(
         selected_name=selected_name,
         display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
     )
+
+
+def _stage3_lowered_workflows_by_name(
+    lowered_workflows: tuple[object, ...],
+) -> dict[str, object]:
+    return {
+        lowered_workflow.typed_workflow.definition.name: lowered_workflow
+        for lowered_workflow in lowered_workflows
+    }
+
+
+def _linked_stage3_lowered_workflows_by_name(
+    compile_result: LinkedStage3CompileResult,
+) -> dict[str, object]:
+    lowered_by_name: dict[str, object] = {}
+    for compiled_result in compile_result.compiled_results_by_name.values():
+        lowered_by_name.update(_stage3_lowered_workflows_by_name(compiled_result.lowered_workflows))
+    return lowered_by_name
+
+
+def _revalidate_stage3_executable_bundles(
+    validated_bundles: Mapping[str, LoadedWorkflowBundle],
+    *,
+    lowered_workflows_by_name: Mapping[str, object],
+) -> None:
+    diagnostics: list[LispFrontendDiagnostic] = []
+    for workflow_name, bundle in validated_bundles.items():
+        try:
+            validate_executable_workflow(bundle.ir)
+        except WorkflowValidationError as exc:
+            lowered_workflow = lowered_workflows_by_name.get(workflow_name)
+            diagnostics.extend(
+                _remap_stage3_executable_validation_errors(
+                    lowered_workflow,
+                    errors=tuple(exc.errors),
+                )
+            )
+    if diagnostics:
+        raise LispFrontendCompileError(tuple(diagnostics))
+
+
+def _remap_stage3_executable_validation_errors(
+    lowered_workflow: object,
+    *,
+    errors: tuple[object, ...],
+) -> tuple[LispFrontendDiagnostic, ...]:
+    diagnostics: list[LispFrontendDiagnostic] = []
+    for error in errors:
+        message = str(error.message)
+        subject_refs = tuple(getattr(error, "subject_refs", ()) or ())
+        origin = None
+        notes: tuple[str, ...] = ()
+        if subject_refs:
+            origin = _origin_for_validation_subject_refs(lowered_workflow.origin_map, subject_refs)
+            if origin is None:
+                diagnostics.append(
+                    with_diagnostic_metadata(
+                        LispFrontendDiagnostic(
+                            code="source_map_validation_ref_missing",
+                            message=_missing_validation_subject_message(subject_refs),
+                            span=lowered_workflow.origin_map.workflow_span,
+                            form_path=lowered_workflow.typed_workflow.definition.form_path,
+                            expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
+                        ),
+                        validation_pass="source_map",
+                    )
+                )
+                continue
+        else:
+            origin = _remap_validation_message(lowered_workflow.origin_map, message)
+            notes = (_EXECUTABLE_MESSAGE_FALLBACK_NOTE,)
+        if origin is None:
+            diagnostics.append(
+                with_diagnostic_metadata(
+                    LispFrontendDiagnostic(
+                        code="source_map_missing",
+                        message=message,
+                        span=lowered_workflow.origin_map.workflow_span,
+                        form_path=lowered_workflow.typed_workflow.definition.form_path,
+                        expansion_stack=lowered_workflow.origin_map.workflow_origin.expansion_stack,
+                    ),
+                    validation_pass="source_map",
+                )
+            )
+            continue
+        diagnostics.append(
+            with_diagnostic_metadata(
+                LispFrontendDiagnostic(
+                    code=_shared_validation_diagnostic_code(message),
+                    message=message,
+                    span=origin.span,
+                    form_path=origin.form_path or lowered_workflow.typed_workflow.definition.form_path,
+                    expansion_stack=origin.expansion_stack,
+                    notes=origin.notes + notes,
+                ),
+                validation_pass="executable",
+            )
+        )
+    return tuple(diagnostics)
 
 
 def _selected_stage3_entry_workflow_name(

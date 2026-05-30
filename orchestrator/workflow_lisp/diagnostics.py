@@ -96,6 +96,7 @@ _AUTHORITY_CODES = frozenset(
     }
 )
 _SOURCE_MAP_CODES = frozenset({"source_map_missing"})
+_EXECUTABLE_CODES = frozenset({"executable_ir_invalid"})
 _TYPE_CODES = frozenset(
     {
         "name_unknown",
@@ -401,6 +402,8 @@ def _infer_validation_pass(code: str, phase: str | None) -> str:
         if code == "semantic_ir_invalid":
             return "semantic_ir"
         return "shared_validation"
+    if code in _EXECUTABLE_CODES:
+        return "executable"
     if code.startswith("source_map_") or code in _SOURCE_MAP_CODES:
         return "source_map"
     if code.startswith("macro_"):

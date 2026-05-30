@@ -168,6 +168,7 @@ _SHARED_VALIDATION_CODE_RE = re.compile(
     r"variant_unavailable|"
     r"atomic_commit_failed|"
     r"bundle_commit_aborted_invalid_candidate|"
+    r"executable_ir_invalid|"
     r"semantic_ir_invalid"
     r")\b"
 )

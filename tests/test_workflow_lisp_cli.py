@@ -84,7 +84,9 @@ def _orc_explain_args(
     source_root: Path = SOURCE_ROOT,
     form: str | None = None,
     imported_workflow_bundles_file: Path = CLI_FIXTURES / "imported_workflow_bundles.json",
+    emit_executable_ir: list[str | None] | None = None,
     emit_core_ast: list[str | None] | None = None,
+    emit_runtime_plan: list[str | None] | None = None,
     emit_semantic_ir: list[str | None] | None = None,
     emit_source_map: list[str | None] | None = None,
     emit_debug_yaml: list[str | None] | None = None,
@@ -98,7 +100,9 @@ def _orc_explain_args(
         prompt_externs_file=str(CLI_FIXTURES / "prompts.json"),
         imported_workflow_bundles_file=str(imported_workflow_bundles_file),
         command_boundaries_file=str(CLI_FIXTURES / "commands.json"),
+        emit_executable_ir=emit_executable_ir or [],
         emit_core_ast=emit_core_ast or [],
+        emit_runtime_plan=emit_runtime_plan or [],
         emit_semantic_ir=emit_semantic_ir or [],
         emit_source_map=emit_source_map or [],
         emit_debug_yaml=emit_debug_yaml or [],
@@ -113,7 +117,9 @@ def _orc_compile_args(
     prompt_externs_file: Path = CLI_FIXTURES / "prompts.json",
     imported_workflow_bundles_file: Path = CLI_FIXTURES / "imported_workflow_bundles.json",
     command_boundaries_file: Path = CLI_FIXTURES / "commands.json",
+    emit_executable_ir: list[str | None] | None = None,
     emit_core_ast: list[str | None] | None = None,
+    emit_runtime_plan: list[str | None] | None = None,
     emit_semantic_ir: list[str | None] | None = None,
     emit_source_map: list[str | None] | None = None,
     emit_debug_yaml: list[str | None] | None = None,
@@ -126,7 +132,9 @@ def _orc_compile_args(
         prompt_externs_file=str(prompt_externs_file),
         imported_workflow_bundles_file=str(imported_workflow_bundles_file),
         command_boundaries_file=str(command_boundaries_file),
+        emit_executable_ir=emit_executable_ir or [],
         emit_core_ast=emit_core_ast or [],
+        emit_runtime_plan=emit_runtime_plan or [],
         emit_semantic_ir=emit_semantic_ir or [],
         emit_source_map=emit_source_map or [],
         emit_debug_yaml=emit_debug_yaml or [],
@@ -232,7 +240,10 @@ def test_parser_supports_compile_and_explain_subcommands() -> None:
             str(CLI_FIXTURES / "imported_workflow_bundles.json"),
             "--command-boundaries-file",
             str(CLI_FIXTURES / "commands.json"),
+            "--emit-executable-ir",
             "--emit-core-ast",
+            "--emit-runtime-plan",
+            "exports/runtime_plan.json",
             "--emit-semantic-ir",
             "exports/semantic_ir.json",
             "--emit-source-map",
@@ -259,20 +270,27 @@ def test_parser_supports_compile_and_explain_subcommands() -> None:
             "--command-boundaries-file",
             str(CLI_FIXTURES / "commands.json"),
             "--emit-debug-yaml",
+            "--emit-executable-ir",
+            "exports/executable_ir.json",
             "--emit-core-ast",
+            "--emit-runtime-plan",
             "--emit-core-ast",
         ]
     )
 
     assert compile_args.command == "compile"
+    assert compile_args.emit_executable_ir == [None]
     assert compile_args.emit_core_ast == [None]
+    assert compile_args.emit_runtime_plan == ["exports/runtime_plan.json"]
     assert compile_args.emit_semantic_ir == ["exports/semantic_ir.json"]
     assert compile_args.emit_source_map == ["out/maps/source_map.json"]
     assert compile_args.emit_debug_yaml == [None]
     assert explain_args.command == "explain"
     assert explain_args.form == "orchestrate"
     assert explain_args.emit_debug_yaml == [None]
+    assert explain_args.emit_executable_ir == ["exports/executable_ir.json"]
     assert explain_args.emit_core_ast == [None, None]
+    assert explain_args.emit_runtime_plan == [None]
 
 
 def test_parser_accepts_orc_specific_run_flags() -> None:
@@ -526,7 +544,9 @@ def test_compile_workflow_exports_requested_artifacts_and_reports_them(
 
     result = compile_workflow(
         _orc_compile_args(
+            emit_executable_ir=[None],
             emit_core_ast=[None],
+            emit_runtime_plan=["exports/runtime_plan.snapshot.json"],
             emit_semantic_ir=["exports/semantic_ir.snapshot.json"],
             emit_source_map=[None],
             emit_debug_yaml=[None],
@@ -536,17 +556,23 @@ def test_compile_workflow_exports_requested_artifacts_and_reports_them(
     payload = json.loads(captured.out)
 
     assert result == 0
+    assert (tmp_path / "executable_ir.json").exists()
     assert (tmp_path / "core_workflow_ast.json").exists()
+    assert (tmp_path / "exports" / "runtime_plan.snapshot.json").exists()
     assert (tmp_path / "source_map.json").exists()
     assert (tmp_path / "expanded.debug.yaml").exists()
     assert (tmp_path / "exports" / "semantic_ir.snapshot.json").exists()
+    assert payload["artifact_paths"]["executable_ir"].endswith("/executable_ir.json")
     assert payload["artifact_paths"]["core_workflow_ast"].endswith("/core_workflow_ast.json")
     assert payload["exported_artifacts"] == {
+        "executable_ir": str((tmp_path / "executable_ir.json").resolve()),
         "core_workflow_ast": str((tmp_path / "core_workflow_ast.json").resolve()),
         "expanded_debug_yaml": str((tmp_path / "expanded.debug.yaml").resolve()),
+        "runtime_plan": str((tmp_path / "exports" / "runtime_plan.snapshot.json").resolve()),
         "semantic_ir": str((tmp_path / "exports" / "semantic_ir.snapshot.json").resolve()),
         "source_map": str((tmp_path / "source_map.json").resolve()),
     }
+    assert payload["artifact_paths"]["executable_ir"] != payload["exported_artifacts"]["executable_ir"]
     assert payload["artifact_paths"]["core_workflow_ast"] != payload["exported_artifacts"]["core_workflow_ast"]
 
 
@@ -560,20 +586,28 @@ def test_explain_workflow_exports_compilation_scoped_artifacts_for_selected_impo
     result = explain_workflow(
         _orc_explain_args(
             form="selector-run",
+            emit_executable_ir=[None],
             emit_core_ast=[None],
+            emit_runtime_plan=["exports/runtime_plan.json"],
             emit_semantic_ir=["exports/semantic_ir.json"],
         )
     )
     captured = capsys.readouterr()
+    exported_executable_ir = json.loads((tmp_path / "executable_ir.json").read_text(encoding="utf-8"))
     exported_core_ast = json.loads((tmp_path / "core_workflow_ast.json").read_text(encoding="utf-8"))
+    exported_runtime_plan = json.loads((tmp_path / "exports" / "runtime_plan.json").read_text(encoding="utf-8"))
     exported_semantic_ir = json.loads((tmp_path / "exports" / "semantic_ir.json").read_text(encoding="utf-8"))
 
     assert result == 0
     assert "Form: selector-run" in captured.out
     assert "Emitted artifacts:" in captured.out
+    assert str((tmp_path / "executable_ir.json").resolve()) in captured.out
     assert str((tmp_path / "core_workflow_ast.json").resolve()) in captured.out
+    assert str((tmp_path / "exports" / "runtime_plan.json").resolve()) in captured.out
     assert str((tmp_path / "exports" / "semantic_ir.json").resolve()) in captured.out
+    assert exported_executable_ir["schema_version"] == "workflow_executable_ir.v1"
     assert exported_core_ast["workflow_name"] == "neurips/entry::orchestrate"
+    assert exported_runtime_plan["schema_version"] == "workflow_runtime_plan.v1"
     assert exported_semantic_ir["workflows"]["neurips/entry::orchestrate"]["workflow_name"] == "neurips/entry::orchestrate"
 
 

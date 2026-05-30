@@ -13,6 +13,7 @@ from typing import Any
 
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow.core_ast import build_core_workflow_ast, workflow_core_ast_to_json
+from orchestrator.workflow.executable_ir import workflow_executable_ir_to_json
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle
 from orchestrator.workflow.runtime_plan import enrich_workflow_runtime_plan
 from orchestrator.workflow.semantic_ir import derive_workflow_semantic_ir, workflow_semantic_ir_to_json
@@ -29,7 +30,9 @@ from .workflows import CertifiedAdapterBinding, ExternalToolBinding
 
 BUILD_SCHEMA_VERSION = "workflow_lisp_build.v1"
 FRONTEND_ARTIFACT_EXPORT_FILENAMES = {
+    "executable_ir": "executable_ir.json",
     "core_workflow_ast": "core_workflow_ast.json",
+    "runtime_plan": "runtime_plan.json",
     "semantic_ir": "semantic_ir.json",
     "source_map": "source_map.json",
     "expanded_debug_yaml": "expanded.debug.yaml",
@@ -895,7 +898,7 @@ def _write_build_artifacts(
         "expanded_frontend_ast": _serialize_expanded_frontend_ast(compile_result),
         "typed_frontend_ast": _serialize_typed_frontend_ast(compile_result),
         "lowered_workflows": _serialize_lowered_workflows(compile_result),
-        "executable_ir": _json_data(validated_bundle.ir),
+        "executable_ir": workflow_executable_ir_to_json(validated_bundle.ir),
         "core_workflow_ast": workflow_core_ast_to_json(validated_bundle.core_workflow_ast),
         "semantic_ir": workflow_semantic_ir_to_json(validated_bundle.semantic_ir),
         "runtime_plan": _json_data(validated_bundle.runtime_plan),
@@ -965,7 +968,9 @@ def _build_manifest(
             for name, path in artifact_paths.items()
         },
         artifact_status={
+            "executable_ir": "emitted",
             "core_workflow_ast": "emitted",
+            "runtime_plan": "emitted",
             "semantic_ir": "emitted",
         },
         diagnostic_count=len(diagnostics),

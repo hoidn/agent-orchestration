@@ -42,8 +42,10 @@ from .executable_ir import (
     SetScalarStepConfig,
     StepCommonConfig,
     WaitForStepConfig,
+    WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION,
     WorkflowInputAddress,
     WorkflowRegion,
+    validate_executable_workflow,
 )
 from .loaded_bundle import LoadedWorkflowBundle
 from .references import SelfOutputReference, StructuredStepReference, WorkflowInputReference
@@ -276,6 +278,7 @@ class _IRBuilder:
         self._patch_linear_fallthrough(self.finalization_region)
 
         executable = ExecutableWorkflow(
+            schema_version=WORKFLOW_EXECUTABLE_IR_SCHEMA_VERSION,
             version=self.surface.version,
             name=self.surface.name,
             provenance=self.surface.provenance,
@@ -1228,6 +1231,7 @@ def build_loaded_workflow_bundle(
 
     core_workflow_ast = build_core_workflow_ast(surface, imports, surface.provenance)
     ir, projection = lower_core_workflow_ast(core_workflow_ast)
+    validate_executable_workflow(ir)
     runtime_plan = derive_workflow_runtime_plan(ir, projection)
     semantic_ir = derive_workflow_semantic_ir(
         core_workflow_ast=core_workflow_ast,

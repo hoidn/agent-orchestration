@@ -704,6 +704,141 @@ def test_compile_stage3_entrypoint_runs_source_map_and_executable_checkpoints(
     assert selected_workflow_validation_states == [False, True]
 
 
+def test_compile_stage3_entrypoint_revalidates_executable_ir_before_linked_source_map(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    compiler_module = _compiler_module()
+    original_build_source_map_document = compiler_module.build_source_map_document
+    call_log: list[tuple[str, object]] = []
+
+    def wrapped_build_source_map_document(*args, **kwargs):
+        compile_result = args[0]
+        selected_name = kwargs["selected_name"]
+        call_log.append(
+            (
+                "source_map",
+                selected_name in compile_result.validated_bundles_by_name,
+            )
+        )
+        return original_build_source_map_document(*args, **kwargs)
+
+    def wrapped_validate_executable_workflow(ir):
+        call_log.append(("validate", ir.name))
+
+    monkeypatch.setattr(
+        compiler_module,
+        "build_source_map_document",
+        wrapped_build_source_map_document,
+    )
+    monkeypatch.setattr(
+        compiler_module,
+        "validate_executable_workflow",
+        wrapped_validate_executable_workflow,
+        raising=False,
+    )
+
+    compile_stage3_entrypoint(
+        MODULE_FIXTURES / "valid" / "callables" / "neurips" / "entry.orc",
+        source_roots=(MODULE_FIXTURES / "valid" / "callables",),
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={
+            "prompts.implementation.execute": "prompts/implementation/execute.md"
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    assert call_log == [
+        ("source_map", False),
+        ("validate", "neurips/entry::orchestrate"),
+        ("source_map", True),
+    ]
+
+
+def test_compile_stage3_module_reports_post_shared_validation_executable_ir_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    compiler_module = _compiler_module()
+    baseline = compile_stage3_module(
+        FIXTURES / "valid" / "structured_results.orc",
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    command_checks = next(
+        workflow
+        for workflow in baseline.lowered_workflows
+        if workflow.typed_workflow.definition.name == "command_checks"
+    )
+    step_subject = next(
+        binding.subject_ref.subject_name
+        for binding in command_checks.origin_map.validation_subject_bindings
+        if binding.subject_ref.subject_kind == "step_id"
+    )
+
+    def fail_executable_revalidation(ir):
+        raise WorkflowValidationError(
+            [
+                ValidationError(
+                    message=(
+                        "executable_ir_invalid: "
+                        f"node `{ir.name}` contains invalid executable bridge state"
+                    ),
+                    subject_refs=(
+                        ValidationSubjectRef(
+                            subject_kind="step_id",
+                            subject_name=step_subject,
+                            workflow_name=command_checks.typed_workflow.definition.name,
+                        ),
+                    ),
+                )
+            ]
+        )
+
+    monkeypatch.setattr(
+        compiler_module,
+        "validate_executable_workflow",
+        fail_executable_revalidation,
+        raising=False,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            FIXTURES / "valid" / "structured_results.orc",
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "executable_ir_invalid"
+    assert diagnostic.phase == "executable"
+    assert diagnostic.validation_pass == "executable"
+    assert diagnostic.span.start.path.endswith("structured_results.orc")
+
+
 def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_imported_workflow_bundle() -> None:
     diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
     serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
@@ -1212,6 +1347,28 @@ def test_serialize_diagnostic_infers_semantic_ir_metadata_from_code() -> None:
     assert payload["phase"] == "semantic_ir"
     assert payload["validation_pass"] == "semantic_ir"
     assert payload["authority_layer"] == "shared"
+
+
+def test_serialize_diagnostic_infers_executable_ir_metadata_from_code() -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    diagnostic = LispFrontendDiagnostic(
+        code="executable_ir_invalid",
+        message="executable_ir_invalid: executable node references unknown target",
+        span=SourceSpan(
+            start=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=14, column=3, offset=0),
+            end=SourcePosition(path="tests/fixtures/workflow_lisp/valid/example.orc", line=14, column=18, offset=0),
+        ),
+        form_path=("workflow-lisp", "defworkflow", "command_checks"),
+    )
+
+    payload = serialize_diagnostic(diagnostic)
+
+    assert payload["code"] == "executable_ir_invalid"
+    assert payload["phase"] == "executable"
+    assert payload["validation_pass"] == "executable"
+    assert payload["authority_layer"] == "frontend"
 
 
 def test_semantic_ir_invalid_preserves_structured_subject_ref_bridge(

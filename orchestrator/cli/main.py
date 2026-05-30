@@ -51,12 +51,28 @@ def _add_frontend_flags(
     )
     if include_emit_artifact_exports:
         parser.add_argument(
+            '--emit-executable-ir',
+            action='append',
+            nargs='?',
+            const=None,
+            metavar='PATH',
+            help='Export canonical executable IR JSON to PATH or cwd default filename'
+        )
+        parser.add_argument(
             '--emit-core-ast',
             action='append',
             nargs='?',
             const=None,
             metavar='PATH',
             help='Export canonical Core Workflow AST JSON to PATH or cwd default filename'
+        )
+        parser.add_argument(
+            '--emit-runtime-plan',
+            action='append',
+            nargs='?',
+            const=None,
+            metavar='PATH',
+            help='Export canonical runtime plan JSON to PATH or cwd default filename'
         )
         parser.add_argument(
             '--emit-semantic-ir',

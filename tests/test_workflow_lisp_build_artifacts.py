@@ -304,6 +304,8 @@ def test_build_accepts_compiled_imported_bundle_manifests(tmp_path: Path) -> Non
 
     assert result.imported_workflow_bundles[0].bundle_kind == "compiled"
     assert result.imported_workflow_bundles[0].workflow_name == "compiled/selector::selector-run"
+    assert result.imported_workflow_bundles[0].bundle.ir.schema_version == "workflow_executable_ir.v1"
+    assert result.imported_workflow_bundles[0].bundle.runtime_plan.schema_version == "workflow_runtime_plan.v1"
     assert workflow_managed_write_root_inputs(result.imported_workflow_bundles[0].bundle) == (
         "__write_root__compiled_selector_selector_run__result__result_bundle",
     )
@@ -390,6 +392,8 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
     result = build_frontend_bundle(_build_request(tmp_path))
+    executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
+    runtime_plan = json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8"))
 
     expected_artifacts = {
         "manifest.json",
@@ -407,10 +411,14 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
     }
 
     assert expected_artifacts.issubset({path.name for path in result.artifact_paths.values()})
+    assert executable_ir["schema_version"] == "workflow_executable_ir.v1"
+    assert runtime_plan["schema_version"] == "workflow_runtime_plan.v1"
     assert result.artifact_paths["core_workflow_ast"].name == "core_workflow_ast.json"
     assert result.artifact_paths["semantic_ir"].name == "semantic_ir.json"
     assert result.artifact_paths["runtime_plan"].name == "runtime_plan.json"
     assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
+    assert result.manifest.artifact_status["executable_ir"] == "emitted"
+    assert result.manifest.artifact_status["runtime_plan"] == "emitted"
     assert result.manifest.artifact_status["core_workflow_ast"] == "emitted"
     assert result.manifest.artifact_status["semantic_ir"] == "emitted"
 
@@ -498,16 +506,19 @@ def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manif
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
     result = build_frontend_bundle(_structured_results_request(tmp_path))
+    executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
     runtime_plan = json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8"))
     semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
     source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
     selected_workflow = result.validated_bundle.surface.name
     runtime_plan_node_ids = set(runtime_plan["nodes"])
+    executable_ir_node_ids = set(executable_ir["nodes"])
     source_map_node_ids = {
         node["node_id"]
         for node in source_map["workflows"][selected_workflow]["executable_nodes"]
     }
 
+    assert executable_ir["schema_version"] == "workflow_executable_ir.v1"
     assert runtime_plan["schema_version"] == "workflow_runtime_plan.v1"
     assert runtime_plan["workflow_name"] == selected_workflow
     assert semantic_ir["schema_version"] == "workflow_semantic_ir.v1"
@@ -515,8 +526,11 @@ def test_build_runtime_plan_artifact_matches_selected_workflow_lineage_and_manif
     assert json.loads(result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8"))["schema_version"] == (
         "core_workflow_ast.v1"
     )
+    assert executable_ir_node_ids == runtime_plan_node_ids
     assert runtime_plan_node_ids == source_map_node_ids
     assert result.manifest.artifact_paths["runtime_plan"].endswith("/runtime_plan.json")
+    assert result.manifest.artifact_status["executable_ir"] == "emitted"
+    assert result.manifest.artifact_status["runtime_plan"] == "emitted"
     assert result.manifest.artifact_status["core_workflow_ast"] == "emitted"
     assert result.manifest.artifact_status["semantic_ir"] == "emitted"
 
@@ -589,7 +603,9 @@ def test_export_request_normalization_resolves_default_and_explicit_destinations
 
     requests = normalize_exports(
         {
+            "executable_ir": [None],
             "core_workflow_ast": [None],
+            "runtime_plan": ["exports/runtime/runtime_plan.snapshot.json"],
             "semantic_ir": ["exports/semantic_ir.snapshot.json"],
             "source_map": [None],
         },
@@ -597,7 +613,11 @@ def test_export_request_normalization_resolves_default_and_explicit_destinations
         source_path=ENTRYPOINT,
     )
 
+    assert requests["executable_ir"].destination == (tmp_path / "executable_ir.json").resolve()
     assert requests["core_workflow_ast"].destination == (tmp_path / "core_workflow_ast.json").resolve()
+    assert requests["runtime_plan"].destination == (
+        tmp_path / "exports" / "runtime" / "runtime_plan.snapshot.json"
+    ).resolve()
     assert requests["semantic_ir"].destination == (tmp_path / "exports" / "semantic_ir.snapshot.json").resolve()
     assert requests["source_map"].destination == (tmp_path / "source_map.json").resolve()
     assert (tmp_path / "exports").is_dir()
@@ -651,7 +671,9 @@ def test_exported_artifacts_copy_canonical_bytes_without_mutating_manifest_or_ca
     original_artifact_paths = dict(result.artifact_paths)
     export_requests = normalize_exports(
         {
+            "executable_ir": ["exports/runtime/executable_ir.json"],
             "core_workflow_ast": ["exports/core/core_workflow_ast.json"],
+            "runtime_plan": ["exports/runtime/runtime_plan.json"],
             "semantic_ir": ["exports/semantic/semantic_ir.json"],
             "source_map": ["exports/maps/source_map.json"],
             "expanded_debug_yaml": ["exports/debug/expanded.debug.yaml"],
@@ -662,12 +684,26 @@ def test_exported_artifacts_copy_canonical_bytes_without_mutating_manifest_or_ca
 
     exported = emit_exports(result=result, export_requests=export_requests)
 
+    assert exported["executable_ir"].read_bytes() == result.artifact_paths["executable_ir"].read_bytes()
     assert exported["core_workflow_ast"].read_bytes() == result.artifact_paths["core_workflow_ast"].read_bytes()
+    assert exported["runtime_plan"].read_bytes() == result.artifact_paths["runtime_plan"].read_bytes()
     assert exported["semantic_ir"].read_bytes() == result.artifact_paths["semantic_ir"].read_bytes()
     assert exported["source_map"].read_bytes() == result.artifact_paths["source_map"].read_bytes()
     assert exported["expanded_debug_yaml"].read_bytes() == result.artifact_paths["expanded_debug_yaml"].read_bytes()
     assert result.manifest.artifact_paths == original_manifest_paths
     assert dict(result.artifact_paths) == original_artifact_paths
+
+
+def test_build_result_same_file_validated_bundles_keep_executable_and_runtime_surfaces(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+
+    result = build_frontend_bundle(_structured_results_request(tmp_path))
+    command_checks_bundle = result.compile_result.validated_bundles_by_name["lineage_pkg/entry::command_checks"]
+
+    assert isinstance(command_checks_bundle, type(result.validated_bundle))
+    assert command_checks_bundle.ir.schema_version == "workflow_executable_ir.v1"
+    assert command_checks_bundle.runtime_plan.schema_version == "workflow_runtime_plan.v1"
 
 
 def test_build_emits_debug_yaml_when_requested_and_marks_manifest_status(tmp_path: Path) -> None:

@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from orchestrator.exceptions import ValidationError, ValidationSubjectRef
+from orchestrator.exceptions import ValidationError, ValidationSubjectRef, WorkflowValidationError
 from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
@@ -1233,6 +1233,80 @@ def test_compile_stage3_module_remaps_shared_validation_failures() -> None:
     assert all(diagnostic.validation_pass == "shared_validation" for diagnostic in diagnostics)
     assert all(diagnostic.authority_layer == "shared_validation" for diagnostic in diagnostics)
     assert "id must match" not in diagnostics[0].message
+
+
+def test_compile_stage3_module_remaps_executable_ir_shared_validation_failures(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    lowering_module = importlib.import_module("orchestrator.workflow_lisp.lowering")
+    original_build_loaded_workflow_bundle = lowering_module.build_loaded_workflow_bundle
+    baseline = compile_stage3_module(
+        STRUCTURED_RESULTS_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+    command_checks = next(
+        workflow
+        for workflow in baseline.lowered_workflows
+        if workflow.typed_workflow.definition.name == "command_checks"
+    )
+    generated_step_id = next(iter(command_checks.origin_map.step_spans))
+
+    def fail_executable_checkpoint(*args, **kwargs):
+        del args, kwargs
+        raise WorkflowValidationError(
+            [
+                ValidationError(
+                    message=(
+                        "executable_ir_invalid: "
+                        f"node `{generated_step_id}` fallthrough target references unknown node id `missing`"
+                    )
+                )
+            ]
+        )
+
+    monkeypatch.setattr(
+        lowering_module,
+        "build_loaded_workflow_bundle",
+        fail_executable_checkpoint,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            STRUCTURED_RESULTS_FIXTURE,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "executable_ir_invalid"
+    assert diagnostic.validation_pass == "shared_validation"
+    assert diagnostic.authority_layer == "shared_validation"
+    assert diagnostic.span.start.path.endswith("structured_results.orc")
+    assert "unknown node id `missing`" in diagnostic.message
+
+    monkeypatch.setattr(
+        lowering_module,
+        "build_loaded_workflow_bundle",
+        original_build_loaded_workflow_bundle,
+    )
 
 
 def test_compile_stage3_module_validates_hyphenated_workflow_names(tmp_path: Path) -> None:

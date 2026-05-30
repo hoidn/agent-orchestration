@@ -38,7 +38,9 @@ def compile_workflow(args: Namespace) -> int:
     try:
         export_requests = normalize_frontend_artifact_exports(
             {
+                "executable_ir": list(getattr(args, "emit_executable_ir", ()) or ()),
                 "core_workflow_ast": list(getattr(args, "emit_core_ast", ()) or ()),
+                "runtime_plan": list(getattr(args, "emit_runtime_plan", ()) or ()),
                 "semantic_ir": list(getattr(args, "emit_semantic_ir", ()) or ()),
                 "source_map": list(getattr(args, "emit_source_map", ()) or ()),
                 "expanded_debug_yaml": list(getattr(args, "emit_debug_yaml", ()) or ()),

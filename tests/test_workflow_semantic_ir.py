@@ -14,6 +14,7 @@ import yaml
 from orchestrator.exceptions import WorkflowValidationError
 from orchestrator.loader import WorkflowLoader
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -262,6 +263,57 @@ def test_derive_semantic_ir_from_yaml_bundle_records_contracts_refs_effects_and_
     )
 
 
+def test_compiled_bundle_bridge_node_sets_match_executable_runtime_semantic_and_source_map_surfaces(
+    tmp_path: Path,
+) -> None:
+    result = _build_frontend_bundle_from_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/pointer_materialization_effects.orc"),
+        module_name="pointer_effects",
+        entry_workflow="orchestrate",
+    )
+    bundle = result.validated_bundle
+    workflow = bundle.semantic_ir.workflows[bundle.surface.name]
+    source_map_path = bundle.surface.provenance.frontend_source_trace_path
+    assert isinstance(source_map_path, Path)
+    source_map_payload = json.loads(source_map_path.read_text(encoding="utf-8"))
+
+    executable_node_ids = set(bundle.ir.nodes)
+    runtime_plan_node_ids = set(bundle.runtime_plan.nodes)
+    semantic_bridge_node_ids = set(workflow.executable_bridge.node_ids)
+    source_map_node_ids = {
+        node["node_id"]
+        for node in source_map_payload["workflows"][bundle.surface.name]["executable_nodes"]
+    }
+
+    assert executable_node_ids == runtime_plan_node_ids
+    assert executable_node_ids == semantic_bridge_node_ids
+    assert executable_node_ids == source_map_node_ids
+
+
+def test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload_keys(
+    tmp_path: Path,
+) -> None:
+    result = _build_frontend_bundle_from_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/pointer_materialization_effects.orc"),
+        module_name="pointer_effects",
+        entry_workflow="orchestrate",
+    )
+    executable_ir_payload = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
+    serialized = json.dumps(executable_ir_payload, sort_keys=True)
+
+    assert executable_ir_payload["schema_version"] == "workflow_executable_ir.v1"
+    assert "_surface_step" not in serialized
+    assert "_surface_workflow" not in serialized
+    assert "typed_workflow" not in serialized
+    assert "form_path" not in serialized
+    assert "expansion_stack" not in serialized
+    assert "validation_subjects" not in serialized
+    assert "ProcRef" not in serialized
+    assert "WorkflowRef" not in serialized
+
+
 def test_semantic_ir_helper_returns_shared_surface_from_loaded_bundle(tmp_path: Path) -> None:
     loaded_bundle_module = importlib.import_module("orchestrator.workflow.loaded_bundle")
     bundle = WorkflowLoader(tmp_path).load_bundle(_write_semantic_ir_workflow(tmp_path))
@@ -305,6 +357,7 @@ def test_semantic_ir_validation_rejects_missing_executable_bridge_node(tmp_path:
 
     error = excinfo.value.errors[0]
     assert "semantic_ir_invalid" in error.message
+    assert "executable_ir_invalid" not in error.message
     assert error.subject_refs
     assert error.subject_refs[0].subject_kind == "step_id"
     assert error.subject_refs[0].subject_name.endswith("run_checks")
@@ -522,6 +575,54 @@ def test_derive_semantic_ir_rejects_invalid_frontend_source_map_bridges(
     assert expected_fragment in error.message
     assert error.subject_refs
     assert error.subject_refs[0].workflow_name == bundle.surface.name
+
+
+def test_source_map_executable_coverage_failures_stay_in_source_map_diagnostic_family(
+    tmp_path: Path,
+) -> None:
+    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+    source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
+    request_cls = getattr(build_module, "FrontendBuildRequest")
+    result = build_module.build_frontend_bundle(
+        request_cls(
+            source_path=Path("tests/fixtures/workflow_lisp/modules/valid/imported_bundle_mix/neurips/entry.orc"),
+            source_roots=(Path("tests/fixtures/workflow_lisp/modules/valid/imported_bundle_mix"),),
+            entry_workflow="orchestrate",
+            provider_externs_path=Path("tests/fixtures/workflow_lisp/cli/providers.json"),
+            prompt_externs_path=Path("tests/fixtures/workflow_lisp/cli/prompts.json"),
+            imported_workflow_bundles_path=Path("tests/fixtures/workflow_lisp/cli/imported_workflow_bundles.json"),
+            command_boundaries_path=Path("tests/fixtures/workflow_lisp/cli/commands.json"),
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    source_map_document = source_map_module.build_source_map_document(
+        result.compile_result,
+        selected_name=result.selected_workflow_name,
+        display_name_resolver=lambda workflow_name: workflow_name.rsplit("::", 1)[-1],
+    )
+    selected_workflow = source_map_document.workflows[result.validated_bundle.surface.name]
+    broken_node = replace(selected_workflow.executable_nodes[0], origin_key="missing-origin")
+    broken_workflow = replace(
+        selected_workflow,
+        executable_nodes=(broken_node, *selected_workflow.executable_nodes[1:]),
+    )
+    broken_document = replace(
+        source_map_document,
+        workflows={
+            **dict(source_map_document.workflows),
+            selected_workflow.workflow_name: broken_workflow,
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(broken_document)
+
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    classified = diagnostics_module.with_diagnostic_metadata(excinfo.value.diagnostics[0])
+
+    assert classified.code == "source_map_executable_node_unmapped"
+    assert classified.validation_pass == "source_map"
 
 
 def test_load_returns_typed_bundle_with_semantic_ir(tmp_path: Path) -> None:
