@@ -31,7 +31,7 @@ Do not report `FIXED_AND_RESUMED` just because the run state says `running`.
 After resume, re-read the target `state.json` and verify that the resumed pid is
 alive, the heartbeat advanced, no top-level step is failed, and no
 `call_frames[*].state.steps` entry is failed. If any check fails, report
-`BLOCKED` with `recovery_action: "DECLINED"` instead.
+`BLOCKED`; keep the actual recovery action taken, such as `RESUME`.
 
 Write `${inputs.repair_result_target_path}` as JSON with this shape:
 
