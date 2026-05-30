@@ -96,6 +96,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** lisp-frontend, mvp, comparison, yaml, orc, readability
 **Use this when:** You want the quickest concrete answer to whether the Lisp frontend is an actual authoring improvement.
 
+### [Workflow Lisp Unified Design for Unimplemented Surfaces](design/workflow_lisp_unified_frontend_design.md)
+**Description:** Incremental future-target design for Workflow Lisp surfaces that are non-implemented, partial, or deferred, with explicit compile-time/runtime boundaries and acceptance gates.
+**Keywords:** lisp-frontend, future-target, let-proc, effectful-composition, runtime-closures
+**Use this when:** Selecting, designing, or reviewing the next missing Workflow Lisp frontend increment without treating the target as a replacement specification.
+
 ### [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
 **Description:** Accepted baseline and umbrella contract for a typed procedural Lisp frontend that lowers to shared core workflow AST, validation, semantic IR, executable IR, and the existing runtime rather than YAML text.
 **Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, macros, defworkflow

@@ -7,10 +7,15 @@ workflow loader and runtime pipeline.
 
 Start with these project docs before changing the package:
 
+- [Workflow Lisp Unified Design for Unimplemented Surfaces](../../docs/design/workflow_lisp_unified_frontend_design.md):
+  incremental future-target design for non-implemented, partial, and deferred
+  Workflow Lisp surfaces. Use this when selecting or reviewing the next missing
+  frontend increment.
 - [Workflow Lisp Frontend Specification](../../docs/design/workflow_lisp_frontend_specification.md):
-  full frontend design, diagrams, terminology, and long-term architecture.
+  parent baseline and north-star frontend design, diagrams, terminology, and
+  long-term architecture.
 - [Workflow Lisp Frontend MVP Specification](../../docs/design/workflow_lisp_frontend_mvp_specification.md):
-  implemented MVP scope and intentionally deferred frontend features.
+  historical MVP scope and original acceptance story.
 - [Workflow Lisp MVP Comparison](../../docs/workflow_lisp_mvp_comparison.md):
   quick side-by-side explanation of why the `.orc` form is more concise than
   the equivalent YAML.
@@ -79,7 +84,7 @@ The larger design split these internal concepts into separate documents:
 - [Legacy Adapter](../../docs/design/workflow_lisp_legacy_adapter.md)
 - [Debug YAML Renderer](../../docs/design/workflow_lisp_debug_yaml_renderer.md)
 
-Some of those docs describe the intended future architecture more broadly than
-the MVP code currently implements. When code and docs differ, use the MVP spec
-and tests to determine current behavior, and use the full specification for
-directional design constraints.
+Some of those docs describe intended future architecture more broadly than the
+current code implements. When code and docs differ, current source and tests
+determine implemented behavior. Use the unified design for future-target gaps
+and the parent specification for baseline design constraints.

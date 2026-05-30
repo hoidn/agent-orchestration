@@ -2,6 +2,7 @@
 
 Status: draft unified future-design contract  
 Scope: only the non-implemented, partial, or explicitly deferred portions of the Workflow Lisp design set  
+Design style: incremental target over the current implementation, not a replacement specification  
 Baseline: current Workflow Lisp frontend implementation, including compile-time `ProcRef` / `bind-proc`, is treated as fixed input and is not respecified here  
 Supersedes-as-future-scope: the unimplemented portions of `workflow_lisp_frontend_specification.md`, `workflow_lisp_let_proc_local_proc_refs.md`, and `workflow_lisp_runtime_closures_boundary.md`  
 Does not supersede: current implementation behavior, current tests, shared workflow validation, existing runtime semantics, or the accepted implemented `ProcRef` / `bind-proc` contract
@@ -12,7 +13,9 @@ Does not supersede: current implementation behavior, current tests, shared workf
 
 This document is the unified design for Workflow Lisp features that are **not yet implemented**, are **only partially implemented**, or are **explicitly deferred**.
 
-It is intentionally **not** a full restatement of the current Workflow Lisp frontend. Existing implemented behavior is treated as the baseline substrate. This document exists to make the remaining design work coherent, ordered, and safe to implement without accidentally changing already-working semantics.
+It is intentionally **not** a full restatement of the current Workflow Lisp frontend. Existing implemented behavior is treated as the baseline substrate. This is a target-style delta: use it to identify, design, and implement the next missing increment, while preserving the current compiler/runtime contracts unless a section explicitly changes them.
+
+The target is the gap between this document and the current repository implementation. The baseline remains the current code, tests, shared validation, and accepted implemented procedure-reference behavior.
 
 The central rule is:
 
@@ -117,6 +120,23 @@ bind-proc      -> compile-time only
 let-proc       -> compile-time only
 runtime closure -> rejected unless future acceptance gate is met
 ```
+
+### 4.1.1 Value Strata
+
+Workflow Lisp values belong to three strata:
+
+- **Type-level values:** types, contracts, schemas, and proof metadata used by
+  the frontend and shared validation.
+- **Compile-time authoring values:** `ProcRef`, `bind-proc` results,
+  `let-proc` bindings, generated names, macro-expanded syntax, and proof
+  contexts that must be eliminated before runtime artifacts are produced.
+- **Runtime workflow values:** values that may appear in workflow inputs,
+  outputs, state, artifacts, provider results, command results, ledgers, output
+  bundles, and executable plans.
+
+A frontend binding may hold a compile-time authoring value only if the compiler
+fully consumes it before lowering. Compile-time values must not be emitted as
+runtime workflow values.
 
 ### 4.2 No hidden effects
 
@@ -472,14 +492,17 @@ The generated procedure is private and compiler-internal. It may appear in diagn
 
 Generated names must be deterministic and collision-resistant.
 
+Stable identity must be based on resolved semantic identities and canonicalized
+typed forms. Source spans belong in source maps; they must not be the primary
+identity input for executable bundle identity.
+
 The stable identity should cover:
 
 - source module identity;
-- lexical source span;
 - local procedure name;
 - declared residual signature;
 - explicit capture list;
-- body source identity or normalized body hash;
+- normalized body hash;
 - relevant imported procedure identities;
 - compiler version or lowering schema version, if needed for replay/debug compatibility.
 
@@ -884,7 +907,7 @@ In-scope future forms include:
 - `review-revise-loop`;
 - `resource-transition`;
 - `finalize-selected-item`;
-- `backlog-drain`.
+- bounded iteration helpers.
 
 Each form needs a lowering contract specifying:
 
@@ -955,6 +978,16 @@ Future architecture may promote the pipeline to explicit internal layers:
 
 Under current behavior, lowering to ordinary workflow dictionaries is the practical runtime boundary. A future IR pipeline must preserve compatibility with that boundary or replace it only through an explicitly reviewed migration.
 
+An accepted compiler artifact is one of:
+
+- an ordinary workflow dictionary accepted by shared validation;
+- a documented in-repo AST/IR data structure with tests showing validation
+  ownership, source-map propagation, and runtime compatibility;
+- a private generated workflow/procedure artifact that lowers to one of those
+  forms.
+
+Design vocabulary alone is not an accepted compiler artifact.
+
 ## 34. Core Workflow AST Contract
 
 The Core Workflow AST is the syntax-neutral representation shared by YAML-like authoring and Workflow Lisp.
@@ -1002,7 +1035,7 @@ At minimum:
 - variant output;
 - select variant output;
 - resource transition;
-- backlog drain;
+- bounded iteration;
 - finalization;
 - runtime-closure invocation, if ever accepted.
 
@@ -1423,7 +1456,7 @@ Do not implement any of these as a small closure feature:
 - Python function objects or host-language closures in state;
 - dynamic imports or runtime code loading;
 - executable IR nodes that dispatch without a closed target universe;
-- closures stored in artifacts, ledgers, provider results, command results, or workflow outputs in the first tranche;
+- closures stored in artifacts, ledgers, provider results, command results, or workflow outputs in the first executable profile;
 - closures that bypass effect checking;
 - closures that bypass capability checking;
 - closures that bypass source-map checking;
@@ -1434,7 +1467,7 @@ Runtime closures must not be introduced as a workaround for unresolved `ProcRef`
 
 ## 57. Minimum Executable Surface
 
-The first executable runtime-closure tranche, if ever accepted, must be intentionally narrow.
+The first executable runtime-closure profile, if ever accepted, must be intentionally narrow.
 
 Allowed:
 
@@ -1533,20 +1566,20 @@ Every field affecting invocation, validation, replay, source mapping, or authori
 
 The closure design must distinguish capture modes.
 
-| Mode | Meaning | First tranche? |
+| Mode | Meaning | First executable profile? |
 | --- | --- | --- |
 | by value | immutable serialized snapshot stored with closure | allowed for simple typed data |
 | by reference | stable runtime reference re-resolved on resume | deferred |
-| by capability | authority carried by closure | deferred/rejected in first tranche |
+| by capability | authority carried by closure | deferred/rejected in the first executable profile |
 
-First tranche may allow only immutable by-value captures:
+The first executable profile may allow only immutable by-value captures:
 
 - typed scalar values;
 - typed records and unions with stable schemas;
 - workflow input values represented as immutable data;
 - pure path or context descriptors only if replay behavior is defined.
 
-First tranche must reject:
+The first executable profile must reject:
 
 - provider role captures;
 - closure captures;
@@ -1561,7 +1594,7 @@ Provider roles and similar authority-bearing references are capability captures,
 
 V1 runtime closures must reject provider-role captures categorically.
 
-A later capability-capture tranche must prove:
+A later capability-capture profile must prove:
 
 - the closure was created with that capability;
 - the invocation site explicitly accepts that capability;
@@ -1663,9 +1696,9 @@ Provider/model output must not create new callable identities.
 
 ## 65. Storage and Transport
 
-First executable runtime-closure tranche may store closures only in runtime-managed state if storage is needed.
+The first executable runtime-closure profile may store closures only in runtime-managed state if storage is needed.
 
-First tranche must reject closure values in:
+The first executable profile must reject closure values in:
 
 - artifacts;
 - ledgers;
@@ -1676,7 +1709,7 @@ First tranche must reject closure values in:
 - exported union fields;
 - external serialized bundles not owned by runtime state.
 
-A later transport tranche would need a separate design for schema, authority, replay, versioning, and migration.
+A later transport profile would need a separate design for schema, authority, replay, versioning, and migration.
 
 ## 66. Replay and Resume
 
