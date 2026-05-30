@@ -81,6 +81,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** design, template, architecture, contracts, invariants, verification, migration
 **Use this when:** Drafting or reviewing a design that needs explicit authority, contracts, dependencies, failure modes, usage/integration checks, documentation impact, and implementation handoff.
 
+### [Design Gap Architecture Template](templates/design_gap_implementation_architecture_template.md)
+**Description:** Narrow template for gap designs / implementation architectures that close one selected gap in an already accepted design without redefining system-wide contracts.
+**Keywords:** design-gap, implementation-architecture, gap-design, template, bounded-slice, handoff
+**Use this when:** Drafting or reviewing a generated `implementation_architecture.md` under `docs/plans/**/design-gaps/`; use the general design template for broader system/spec designs instead.
+
 ### [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 **Description:** Cross-frontend design principles for semantic authority, typed transitions, report/pointer boundaries, validation-before-commit, variant proof, effects, source maps, and future frontend requirements.
 **Keywords:** workflow-language, semantics, authority, typed-transitions, frontend, lisp, ir

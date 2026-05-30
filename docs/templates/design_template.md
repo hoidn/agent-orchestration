@@ -1,8 +1,15 @@
 # Design Template
 
 Use this template for design documents that introduce, change, or clarify
-system behavior. Keep it short for small changes. Delete sections that do not
-apply, or mark them `N/A` with one sentence explaining why.
+system behavior, architecture, public contracts, migration policy, or
+operational behavior. Keep it short for small changes. Delete sections that do
+not apply, or mark them `N/A` with one sentence explaining why.
+
+Do not use this as the default structure for a bounded design-gap architecture
+or `implementation_architecture.md` file. A gap architecture is narrower: it
+applies an accepted design to one selected missing slice. Use
+[`design_gap_implementation_architecture_template.md`](design_gap_implementation_architecture_template.md)
+for that case.
 
 The purpose is to make decisions, contracts, risks, and verification clear
 enough that implementation and review do not have to infer missing architecture.
