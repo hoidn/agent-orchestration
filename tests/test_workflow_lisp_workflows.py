@@ -716,6 +716,20 @@ def test_workflow_boundary_rejects_top_level_proc_ref_params(tmp_path: Path) -> 
     _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
 
 
+def test_workflow_boundary_rejects_macro_emitted_proc_ref_runtime_transport(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            FIXTURES / "invalid" / "macro_proc_ref_runtime_transport.orc",
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    _assert_diagnostic_code(excinfo, "proc_ref_runtime_transport_forbidden")
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-proc-ref-workflow"
+
+
 def test_workflow_boundary_accepts_proc_ref_specialized_workflows_with_runtime_inputs(tmp_path: Path) -> None:
     result = compile_stage3_module(
         PROC_REF_BIND_PROC_FIXTURE,

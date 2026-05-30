@@ -261,6 +261,66 @@ def test_compile_stage3_rejects_macro_introduced_provider_effects_as_macro_hidde
     assert payload["authority_layer"] == "frontend"
 
 
+def test_compile_stage3_rejects_macro_introduced_hidden_command_effects_as_macro_hidden_effect(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            FIXTURES / "invalid" / "macro_hidden_command_effect.orc",
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "macro_hidden_effect"
+    assert "hidden command effect" in diagnostic.message
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "emit-command-workflow"
+    payload = serialize_diagnostic(diagnostic)
+    assert payload["diagnostic_kind"] == "required_lint"
+    assert payload["validation_pass"] == "effect"
+    assert payload["authority_layer"] == "frontend"
+
+
+def test_compile_stage3_entrypoint_rejects_imported_macros_that_introduce_hidden_command_effects(
+    tmp_path: Path,
+) -> None:
+    compile_fn = getattr(_compiler_module(), "compile_stage3_entrypoint", None)
+    assert callable(compile_fn), "compile_stage3_entrypoint is missing"
+
+    source_root = MODULE_FIXTURES / "invalid" / "import_macro_hidden_command"
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_fn(
+            source_root / "neurips" / "entry.orc",
+            source_roots=(source_root,),
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "macro_hidden_effect"
+    assert diagnostic.span.start.path.endswith(
+        "modules/invalid/import_macro_hidden_command/neurips/macros.orc"
+    )
+    payload = serialize_diagnostic(diagnostic)
+    assert payload["diagnostic_kind"] == "required_lint"
+    assert payload["validation_pass"] == "effect"
+    assert payload["authority_layer"] == "frontend"
+
+
 def test_compile_stage1_rejects_defun_as_a_reserved_macro_name(tmp_path: Path) -> None:
     fixture = tmp_path / "macro_reserved_defun.orc"
     fixture.write_text(

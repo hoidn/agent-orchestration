@@ -1225,6 +1225,72 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_name_unknow
     assert "macro definition at" in rendered
 
 
+def test_compile_stage3_renders_nested_macro_notes_for_hidden_command_effect(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            FIXTURES / "invalid" / "macro_nested_hidden_command_effect.orc",
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    rendered = render_diagnostic(excinfo.value.diagnostics[0])
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "macro_hidden_effect"
+    assert [frame.macro_name for frame in diagnostic.expansion_stack] == [
+        "emit-command-wrapper",
+        "emit-command-workflow",
+    ]
+    outer_call = "expanded from macro `emit-command-wrapper` call at"
+    inner_call = "expanded from macro `emit-command-workflow` call at"
+    definition_note = "macro definition at"
+    assert rendered.count(outer_call) == 1
+    assert rendered.count(inner_call) == 1
+    assert rendered.count(definition_note) == 2
+    outer_call_index = rendered.index(outer_call)
+    outer_def_index = rendered.index(definition_note, outer_call_index)
+    inner_call_index = rendered.index(inner_call, outer_def_index)
+    inner_def_index = rendered.index(definition_note, inner_call_index)
+    assert outer_call_index < outer_def_index < inner_call_index < inner_def_index
+
+
+def test_compile_stage3_renders_nested_macro_notes_for_downstream_name_unknown(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            FIXTURES / "invalid" / "macro_nested_name_unknown.orc",
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    rendered = render_diagnostic(excinfo.value.diagnostics[0])
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "name_unknown"
+    assert [frame.macro_name for frame in diagnostic.expansion_stack] == [
+        "emit-record-wrapper",
+        "emit-record-workflow",
+    ]
+    outer_call = "expanded from macro `emit-record-wrapper` call at"
+    inner_call = "expanded from macro `emit-record-workflow` call at"
+    definition_note = "macro definition at"
+    assert rendered.count(outer_call) == 1
+    assert rendered.count(inner_call) == 1
+    assert rendered.count(definition_note) == 2
+    outer_call_index = rendered.index(outer_call)
+    outer_def_index = rendered.index(definition_note, outer_call_index)
+    inner_call_index = rendered.index(inner_call, outer_def_index)
+    inner_def_index = rendered.index(definition_note, inner_call_index)
+    assert outer_call_index < outer_def_index < inner_call_index < inner_def_index
+
+
 def test_compile_stage3_renders_procedure_provenance_notes_for_shared_validation_errors(tmp_path: Path) -> None:
     path = tmp_path / "procedure_validation_notes.orc"
     path.write_text(

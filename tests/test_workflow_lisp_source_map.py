@@ -17,9 +17,10 @@ VALID_RESOURCE_TRANSITION_EFFECTS_FIXTURE = FIXTURES / "valid" / "resource_trans
 VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effects.orc"
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
 VALID_LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
+VALID_MACRO_ALIAS_FIXTURE = FIXTURES / "valid" / "macro_workflow_alias.orc"
 
 
-def _compile(path: Path, *, tmp_path: Path):
+def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
     return compile_stage3_module(
         path,
         provider_externs={"providers.execute": "test-provider"},
@@ -32,14 +33,20 @@ def _compile(path: Path, *, tmp_path: Path):
                 stable_command=("python", "scripts/run_checks.py"),
             )
         },
-        validate_shared=False,
+        validate_shared=validate_shared,
         workspace_root=tmp_path,
     )
 
 
-def _build_source_map_document(path: Path, *, tmp_path: Path, selected_name: str):
+def _build_source_map_document(
+    path: Path,
+    *,
+    tmp_path: Path,
+    selected_name: str,
+    validate_shared: bool = False,
+):
     source_map_module = importlib.import_module("orchestrator.workflow_lisp.source_map")
-    compile_result = _compile(path, tmp_path=tmp_path)
+    compile_result = _compile(path, tmp_path=tmp_path, validate_shared=validate_shared)
     canonical_name = next(
         workflow.definition.name
         for workflow in compile_result.typed_workflows
@@ -191,3 +198,36 @@ def test_source_map_records_let_proc_authored_lineage(tmp_path: Path) -> None:
         for entry in workflow.step_ids.values()
         for note in entry.notes
     )
+
+
+def test_source_map_validator_rejects_macro_origin_executable_node_without_origin(
+    tmp_path: Path,
+) -> None:
+    source_map_module, document, workflow_name = _build_source_map_document(
+        VALID_MACRO_ALIAS_FIXTURE,
+        tmp_path=tmp_path,
+        selected_name="command_checks",
+        validate_shared=True,
+    )
+    workflow = document.workflows[workflow_name]
+    assert workflow.executable_nodes
+    broken_node = replace(workflow.executable_nodes[0], origin_key="missing-origin")
+    broken_document = replace(
+        document,
+        workflows={
+            **dict(document.workflows),
+            workflow_name: replace(
+                workflow,
+                executable_nodes=(broken_node,) + workflow.executable_nodes[1:],
+            ),
+        },
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        source_map_module.validate_source_map_document(broken_document)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "source_map_executable_node_unmapped"
+    assert diagnostic.span.start.path.endswith("tests/fixtures/workflow_lisp/valid/macro_workflow_alias.orc")
+    assert diagnostic.expansion_stack
+    assert diagnostic.expansion_stack[0].macro_name == "defworkflow-alias"

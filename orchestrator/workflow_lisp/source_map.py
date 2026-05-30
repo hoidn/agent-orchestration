@@ -1070,4 +1070,6 @@ def _diagnostic_for_entry(
         ),
         phase="lowering",
         form_path=entry.form_path,
+        expansion_stack=entry.expansion_stack,
+        notes=entry.notes,
     )
