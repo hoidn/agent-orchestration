@@ -251,46 +251,51 @@ The following component docs define the missing implementation contracts:
    Validated type-rich IR that records contracts, refs, effects, proofs, state
    layout, and source maps.
 
-4. [Reference Catalog](workflow_lisp_reference_catalog.md)  
+4. [Executable IR](workflow_lisp_executable_ir.md)  
+   Current-checkout executable contract documenting validated
+   `LoadedWorkflowBundle.ir` / `ExecutableWorkflow` as the runtime-facing
+   authority and adjacent projections as derived views.
+
+5. [Reference Catalog](workflow_lisp_reference_catalog.md)  
    Unified catalog for artifact refs, snapshot refs, outcome refs, exit-code
    refs, workflow inputs/outputs, and variant availability.
 
-5. [Type Catalog](workflow_lisp_type_catalog.md)  
+6. [Type Catalog](workflow_lisp_type_catalog.md)  
    Mapping from Lisp types to workflow contracts, output-bundle schemas, and
    variant-output schemas.
 
-6. [Effect Graph](workflow_lisp_effect_graph.md)  
+7. [Effect Graph](workflow_lisp_effect_graph.md)  
    Representation and checking of reads, writes, provider calls, command calls,
    workflow calls, state updates, ledger updates, resource moves, snapshots,
    and pointer materializations.
 
-7. [Proof Graph](workflow_lisp_proof_graph.md)  
+8. [Proof Graph](workflow_lisp_proof_graph.md)  
    How `match`, `requires_variant`, and compiler-generated proof contexts make
    variant-specific fields available.
 
-8. [State Layout](workflow_lisp_state_layout.md)  
+9. [State Layout](workflow_lisp_state_layout.md)  
    Derivation of phase state paths, snapshot paths, bundle paths, temp paths,
    artifact roots, and pointer paths from typed contexts.
 
-9. [Source Map](workflow_lisp_source_map.md)  
+10. [Source Map](workflow_lisp_source_map.md)  
    Required mapping from frontend syntax through Core AST, Semantic IR,
    Executable IR, runtime logs, and diagnostics.
 
-10. [Frontend Standard Library Lowering](workflow_lisp_stdlib_lowering.md)  
+11. [Frontend Standard Library Lowering](workflow_lisp_stdlib_lowering.md)  
     Exact lowering contracts for `provider-result`, `produce-one-of`,
     `run-provider-phase`, `resume-or-start`, `review-revise-loop`,
     `resource-transition`, `finalize-selected-item`, and `backlog-drain`.
 
-11. [Legacy Adapter](workflow_lisp_legacy_adapter.md)  
+12. [Legacy Adapter](workflow_lisp_legacy_adapter.md)  
     Rules for quarantined markdown parsing, old scripts, pointer conventions,
     and command adapters.
 
-12. [Command Adapter Contract](workflow_command_adapter_contract.md)
+13. [Command Adapter Contract](workflow_command_adapter_contract.md)
     Certified command-adapter boundary for procedural behavior implemented by
     scripts or external commands, including inline-glue lint policy, adapter
     fixtures, source maps, and runtime-native promotion criteria.
 
-13. [Debug YAML Renderer](workflow_lisp_debug_yaml_renderer.md)
+14. [Debug YAML Renderer](workflow_lisp_debug_yaml_renderer.md)
     Optional, explicitly non-authoritative projection from Core AST or Semantic
     IR.
 
