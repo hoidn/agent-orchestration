@@ -358,7 +358,7 @@ V1 captures:
 - must be unique;
 - must typecheck against generated procedure parameters;
 - are bound at compile-time specialization/elaboration;
-- must not be treated as runtime closure captures.
+- must not be treated as runtime closure environment fields.
 
 Valid:
 
@@ -907,7 +907,11 @@ In-scope future forms include:
 - `review-revise-loop`;
 - `resource-transition`;
 - `finalize-selected-item`;
-- bounded iteration helpers.
+- generic bounded iteration helpers.
+
+Application-specific helper names, storage conventions, and lifecycle policies
+are outside this future-design contract. They must be specified by the
+application-level workflow or standard-library design that owns them.
 
 Each form needs a lowering contract specifying:
 
@@ -1035,7 +1039,7 @@ At minimum:
 - variant output;
 - select variant output;
 - resource transition;
-- bounded iteration;
+- generic bounded iteration;
 - finalization;
 - runtime-closure invocation, if ever accepted.
 
@@ -1483,7 +1487,7 @@ Rejected:
 - provider/model/command-produced closures;
 - provider/model/command-produced closure family ids;
 - provider/model/command-produced code ids;
-- closure captures;
+- captures of another closure value;
 - provider role captures in V1;
 - mutable state captures;
 - live context object captures;
@@ -1582,7 +1586,7 @@ The first executable profile may allow only immutable by-value captures:
 The first executable profile must reject:
 
 - provider role captures;
-- closure captures;
+- captures of another closure value;
 - mutable state references;
 - live context objects;
 - arbitrary runtime handles;
@@ -1780,9 +1784,9 @@ Required forbidden fixtures:
 - command-produced closure;
 - closure stored in artifact;
 - closure exported as workflow output;
-- closure captures provider role;
-- closure captures mutable state;
-- closure captures another closure;
+- provider-role capture;
+- mutable-state capture;
+- capture of another closure value;
 - closure invoked without accepted family;
 - closure with effect bound exceeding call-site bound;
 - closure with capability bound exceeding call-site bound;
