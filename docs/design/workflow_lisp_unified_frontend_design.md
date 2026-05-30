@@ -1,2010 +1,2124 @@
-# Workflow Lisp Unified Frontend Design
+# Workflow Lisp Unified Design for Unimplemented Surfaces
 
-Status: draft unified design / proposed authoritative frontend contract  
-Date: 2026-05-29  
-Intended path: `docs/design/workflow_lisp_unified_frontend_design.md`  
-Primary owner: Workflow Lisp frontend / workflow validation maintainers  
-Target substrate: existing validated workflow loader/runtime, with future Core Workflow AST / Semantic IR integration only where explicitly accepted
+Status: draft unified future-design contract  
+Scope: only the non-implemented, partial, or explicitly deferred portions of the Workflow Lisp design set  
+Baseline: current Workflow Lisp frontend implementation, including compile-time `ProcRef` / `bind-proc`, is treated as fixed input and is not respecified here  
+Supersedes-as-future-scope: the unimplemented portions of `workflow_lisp_frontend_specification.md`, `workflow_lisp_let_proc_local_proc_refs.md`, and `workflow_lisp_runtime_closures_boundary.md`  
+Does not supersede: current implementation behavior, current tests, shared workflow validation, existing runtime semantics, or the accepted implemented `ProcRef` / `bind-proc` contract
 
-## 0. Summary
+---
 
-Workflow Lisp is a typed frontend compiler for authoring deterministic workflows. It is not a second runtime, not a YAML-text generator, and not a mechanism for runtime code loading. Its job is to parse `.orc` source, elaborate high-level authoring forms, typecheck them, preserve effect and authority information, lower them into the existing validated workflow pipeline, and produce source-mapped diagnostics and explainable generated workflow artifacts.
+## 0. Purpose
 
-This document merges the prior Workflow Lisp design cluster into one self-contained contract. It preserves the key decisions from the umbrella frontend design, the MVP design, the accepted `ProcRef` / `bind-proc` design, the proposed `let-proc` design, and the deferred runtime-closure boundary. It also clarifies which parts are current, historical, proposed, or deferred.
+This document is the unified design for Workflow Lisp features that are **not yet implemented**, are **only partially implemented**, or are **explicitly deferred**.
 
-The central invariant is:
+It is intentionally **not** a full restatement of the current Workflow Lisp frontend. Existing implemented behavior is treated as the baseline substrate. This document exists to make the remaining design work coherent, ordered, and safe to implement without accidentally changing already-working semantics.
 
-```text
-Workflow Lisp may add authoring structure, type information, reusable procedures,
-and source-mapped compiler generation, but it must not weaken shared workflow
-validation or introduce hidden runtime semantics.
-```
-
-The current frontend boundary is:
+The central rule is:
 
 ```text
-.orc source
-  -> reader / syntax objects
-  -> macro expansion and definition collection
-  -> module/import/export resolution where supported
-  -> type environment construction
-  -> expression and definition typechecking
-  -> procedure/workflow validation
-  -> effect-summary inference
-  -> lowering to ordinary workflow dictionaries
-  -> shared workflow validation
-  -> existing workflow loader/runtime
+Future Workflow Lisp features may add authoring power only by lowering into the existing validated workflow model or into a separately accepted future runtime contract.
 ```
 
-The long-term internal architecture may introduce explicit Core Workflow AST, Semantic IR, and Executable IR layers. Those layers are design targets, not assumptions that every layer already exists as a serialized production artifact.
+A feature described here is not considered implementation-ready merely because it appears in this document. Each section defines its own acceptance gate.
 
-## 1. Design status and merged-document authority
+---
 
-This document should become the single high-level design authority for Workflow Lisp frontend behavior.
+## 1. Fixed Baseline Assumptions
 
-The prior documents should be reclassified as follows:
+The following behavior is assumed to exist or to be otherwise outside this document's implementation scope.
 
-| Prior document | New role |
-| --- | --- |
-| `workflow_lisp_frontend_specification.md` | Superseded umbrella / background architecture. Keep for historical rationale and detailed component sketches. |
-| `workflow_lisp_frontend_mvp_specification.md` | Historical MVP tranche. Use for the original first-slice acceptance story, not as current feature status. |
-| `workflow_lisp_proc_refs_partial_application.md` | Accepted design delta. Fold into this document as the current compile-time procedure-reference contract. |
-| `workflow_lisp_let_proc_local_proc_refs.md` | Proposed follow-on delta. Fold into this document as the next compile-time procedure ergonomics feature. |
-| `workflow_lisp_runtime_closures_boundary.md` | Deferred acceptance gate. Fold into this document as the runtime-callable-value prohibition and future gate. |
+### 1.1 Current frontend baseline
 
-This document is self-contained. A reader should not need the prior files to understand the intended language, compiler boundary, procedure model, or deferred runtime-closure boundary.
+Workflow Lisp is a frontend compiler. It parses `.orc` source, typechecks it, lowers it to ordinary workflow dictionaries, and delegates execution to the existing workflow loader/runtime path.
 
-## 2. Implementation-status tiers
+This future-design document must not turn Workflow Lisp into a separate runtime, a YAML text generator, or an alternative executor.
 
-Use these status labels consistently in design, implementation plans, tests, and review notes.
+### 1.2 Current procedure-composition baseline
 
-| Status | Meaning |
-| --- | --- |
-| Current | Implemented or substantially represented in the active frontend path. Tests and source remain the final authority. |
-| Accepted / active target | Design accepted and intended for implementation or already partially implemented, but acceptance tests must still determine completeness. |
-| Historical | A prior tranche description that may be stale as a status source. Useful for rationale only. |
-| Proposed | Directionally accepted enough to review, but not yet current implementation behavior. Must pass its gate before being marked accepted/current. |
-| Deferred | Explicitly not an implementation target. Current behavior must reject it or keep it as design-only fixtures. |
-| Component target | Internal architecture or validation component that may be partly present but is not itself an author-facing promise. |
+The accepted/current procedure-composition baseline is:
 
-### 2.1 Current or substantially implemented
+- `defproc` exists as a reusable procedure definition surface.
+- `ProcRef[...]` is a compile-time procedure-reference type.
+- `(proc-ref name)` creates an explicit compile-time reference to a visible `defproc`.
+- `bind-proc` partially applies a known procedure reference by statically binding named arguments.
+- Specialization happens before runtime artifacts are produced.
+- Executable/runtime artifacts must not contain unresolved procedure values.
+- Runtime transport of `ProcRef` values and dynamic procedure dispatch remain forbidden.
 
-The active frontend is a compiler to existing workflow machinery. It parses `.orc`, typechecks, lowers to ordinary workflow dictionaries, and validates through the existing workflow loader/runtime path.
+This document does not redesign those rules. It uses them as the semantic base for `let-proc` and for runtime-closure boundary decisions.
 
-The following are current or substantially represented in the compiler architecture:
+### 1.3 Current validation authority
 
-| Subset | Status | Contract |
+Shared workflow validation remains authoritative. The frontend may reject earlier and explain better, but it may not bypass or weaken shared validation.
+
+### 1.4 Current runtime authority
+
+The existing runtime owns:
+
+- provider execution semantics;
+- command execution semantics;
+- state persistence;
+- artifact lineage and publication;
+- path safety enforcement;
+- pointer authority;
+- replay/resume behavior;
+- observability and runtime event identity.
+
+No future frontend feature may silently assume ownership of those semantics.
+
+---
+
+## 2. In-Scope Future Work
+
+This unified design covers the following non-implemented or incomplete surfaces.
+
+| Area | Status in this document | Implementation intent |
 | --- | --- | --- |
-| `.orc` frontend compiler path | Current | Compile authoring source to validated workflow artifacts; do not execute independently. |
-| Typed definitions for enums, paths, records, unions, schemas | Current | Define structured workflow-facing types and contracts. |
-| `defworkflow` | Current | Define runtime-callable workflows that lower into existing workflow dictionaries. |
-| `defproc` | Current / active | Define reusable workflow procedures that may lower inline or as private generated workflow structure. |
-| Shared validation after lowering | Current | Frontend validation may reject earlier but may not replace or weaken shared validation. |
-| Modules/imports/exports | Current or partially current | Use current tests/source to determine exact supported surface. Design requires deterministic, non-ambiguous resolution. |
-| `WorkflowRef` | Current or partially current | Compile-time/module-link workflow reference; not runtime code loading. |
-| `ProcRef[...]`, `(proc-ref ...)`, `bind-proc` | Accepted / current compile-time feature | Procedure references are compile-time only and must disappear before executable/runtime artifacts. |
-| Source maps and diagnostics | Current / required | Generated nodes must remain attributable to authored syntax. |
+| `let-proc` local procedure bindings | proposed near-term feature | implementable as compile-time syntax over generated private `defproc` plus existing `ProcRef` semantics |
+| Effectful composition completion | partial/future compiler work | needed for realistic local procedure bodies and higher-level expression composition |
+| Full component-contract architecture | future/internal architecture | promote or formalize Core AST, Semantic IR, Executable IR, effect graph, proof graph, state layout, source map, and standard-library lowering contracts |
+| Full macro-system safety contract | future/finalization work | constrain any full `defmacro`/hygiene surface so expansion cannot hide effects or break source maps |
+| Runtime closures | explicitly deferred | not implementation-ready; current required behavior is rejection |
+| Runtime first-class procedures and dynamic dispatch | explicitly deferred | allowed only through a future runtime-closure acceptance gate |
 
-### 2.2 Historical or partially superseded
+---
 
-The MVP design remains useful because it captures the first proof obligations: direct lowering, typed records/unions, variant proof via `match`, one real workflow phase migration, source spans, and shared validation. It is not a reliable current feature-status list because several features it deferred may now exist or be partially implemented.
+## 3. Out-of-Scope Implemented Baseline
 
-The MVP should be labeled:
+The following are not designed here except as constraints on future work:
+
+- basic `.orc` parsing;
+- existing expression typechecking;
+- lowering to ordinary workflow dictionaries;
+- current shared validation integration;
+- current `defworkflow` and `defproc` behavior;
+- current `ProcRef` and `bind-proc` behavior;
+- existing procedure-reference diagnostics;
+- current runtime execution.
+
+If this document appears to contradict current code or tests for an implemented feature, treat this document as wrong for that implemented feature and revise it.
+
+---
+
+## 4. Cross-Cutting Future Invariants
+
+Every future feature in this document must preserve these invariants.
+
+### 4.1 No hidden runtime values
+
+Compile-time abstractions must compile away before executable/runtime artifacts unless a future section explicitly accepts a runtime value type.
+
+For now:
 
 ```text
-Status: Historical MVP design. Some unsupported features listed here have since
-been implemented or partially implemented. Use the unified design, current tests,
-and current source for feature status.
+ProcRef        -> compile-time only
+bind-proc      -> compile-time only
+let-proc       -> compile-time only
+runtime closure -> rejected unless future acceptance gate is met
 ```
 
-### 2.3 Proposed or deferred
-
-| Subset | Status | Contract |
-| --- | --- | --- |
-| `let-proc` | Proposed follow-on | Compile-time lexical procedure binding that closure-converts to a private generated `defproc` equivalent. It must not create runtime closures. |
-| Runtime closures | Deferred | Runtime callable values are not allowed. Current behavior must reject runtime closure values unless a future acceptance gate is satisfied. |
-| Runtime first-class procedures / dynamic dispatch | Deferred | No provider-selected procedures, procedure serialization, runtime proc registries, or dynamic invocation in executable artifacts. |
-| Full Semantic IR / Executable IR serialization | Component target | A future internal architecture target. Do not claim current behavior depends on a production serialized layer unless implemented. |
-| Full hygienic macro system | Component target / deferred until gated | Macro support must not hide effects or emit unchecked runtime behavior. |
-| Debug YAML renderer | Optional tooling target | Debug projection only; never semantic authority. |
-| Legacy adapter framework | Component target | Migration-only boundary for quarantined old behavior, especially markdown parsing or command glue. |
-| Full effect graph, proof graph, reference catalog, state layout catalog | Component targets | Internal validation contracts required for broader runtime-integrated implementation. |
-
-## 3. Core thesis
-
-Workflow Lisp exists because workflow authoring needs abstractions that YAML cannot express safely or ergonomically:
-
-- typed workflow inputs, outputs, records, unions, and variants;
-- reusable workflow procedures;
-- module-level reuse;
-- structured provider/command results;
-- variant proof contexts;
-- source-mapped compiler generation;
-- derived path/state contexts;
-- explicit effect visibility;
-- safe compile-time references to workflows and procedures.
-
-It must not merely translate punctuation. This is not valuable:
-
-```lisp
-(step MaterializeImplementationInputs ...)
-```
-
-if it is only a syntactic rewrite of:
-
-```yaml
-steps:
-  - name: MaterializeImplementationInputs
-```
-
-The valuable surface is higher-level workflow logic that preserves the existing runtime's authority:
-
-```lisp
-(defworkflow run-selected-item
-  ((ctx ItemCtx)
-   (selection SelectionInput)
-   (providers ItemProviders))
-  -> SelectedItemResult
-
-  (let* ((selected (resolve-selected-item ctx selection))
-         (roadmap  (call roadmap/sync
-                     :ctx (phase-ctx ctx 'roadmap)
-                     :selected selected
-                     :providers providers.roadmap))
-         (plan     (ensure-approved-plan
-                     :ctx (phase-ctx ctx 'plan)
-                     :selected selected
-                     :roadmap roadmap.current
-                     :providers providers.plan))
-         (impl     (call implementation/run
-                     :ctx (phase-ctx ctx 'implementation)
-                     :inputs (make-implementation-inputs ctx selected plan)
-                     :providers providers.implementation)))
-    (finalize-selected-item ctx selected plan impl)))
-```
-
-The authored form should rarely require ordinary users to hand-spell state JSON paths, pointer paths, snapshot names, variant bundle paths, `requires_variant` pairings, line-prefix report extraction, or temporary write roots. Those are compiler/runtime responsibilities.
-
-## 4. Non-goals
-
-Workflow Lisp does not provide:
-
-- a second workflow runtime;
-- arbitrary Lisp evaluation;
-- runtime code loading;
-- untyped dynamic dispatch;
-- procedure serialization;
-- hidden provider calls;
-- hidden command calls;
-- hidden filesystem I/O;
-- semantic parsing of markdown reports;
-- weakening of existing workflow validation;
-- replacement of artifact/path authority with pointer-file conventions;
-- YAML text as the authoritative compiler target;
-- provider-produced callable code or provider-selected procedures;
-- runtime procedure values in state, artifacts, ledgers, records, unions, or output bundles.
-
-Generated YAML may exist only as a debug, audit, migration-comparison, or golden-fixture projection. It is never the semantic target.
-
-## 5. Global invariants
-
-### 5.1 Existing runtime authority
-
-The existing workflow loader/runtime remains authoritative for execution semantics, provider invocation, command invocation, state writes, artifact publication, resume behavior, observability, and runtime safety.
-
-The frontend owns authoring-time structure: parsing, syntax objects, modules, type definitions, procedure/workflow elaboration, source maps, and lowering.
-
-The frontend must not own runtime execution.
-
-### 5.2 Shared validation authority
-
-Frontend checks may reject invalid source earlier and with better diagnostics. They may not replace shared validation.
-
-Every lowered workflow artifact must pass shared validation unless the caller explicitly requests a partial compile stage that is documented as non-executable.
-
-### 5.3 Structured data authority
-
-Structured records, unions, output bundles, typed provider results, and typed command results are semantic authority.
-
-Reports are views. Dashboards are views. Debug projections are views. Pointer files are representations. None of those should be parsed as the source of semantic truth in normal workflow code.
-
-### 5.4 Artifact values, not pointer files
-
-An artifact/path value is the semantic value. A pointer file may be materialized for legacy interop, prompt visibility, audit, or runtime convention, but the pointer file is not the authority.
-
-Bad:
-
-```lisp
-(read-pointer-file report-pointer-path)
-```
-
-Good:
-
-```lisp
-completed.execution-report
-```
-
-where `completed` is a typed union branch value proven by `match`.
-
-### 5.5 Variant proof before variant-specific access
-
-Variant-only fields require proof. Proof comes from `match`, explicit `requires_variant`-equivalent constructs, or a compiler-generated proof context with the same semantic strength.
-
-Bad:
-
-```lisp
-(if (= implementation.status 'COMPLETED)
-  implementation.execution-report
-  nil)
-```
-
-Good:
-
-```lisp
-(match implementation
-  ((COMPLETED completed) completed.execution-report)
-  ((BLOCKED blocked) nil))
-```
-
-### 5.6 Effects remain visible
+### 4.2 No hidden effects
 
 No abstraction may hide:
 
 - provider calls;
 - command calls;
 - workflow calls;
-- state updates;
-- artifact reads or writes;
-- snapshot reads or writes;
-- resource moves;
-- queue/backlog mutations;
+- state writes;
 - ledger updates;
+- resource transitions;
+- artifact materialization or publication;
+- snapshot creation;
 - pointer materialization;
-- write-root allocation.
+- generated write roots;
+- runtime capabilities.
 
-Macros, procedures, `ProcRef`, `bind-proc`, and future `let-proc` must preserve effect summaries and source-map provenance.
+If a lower-level form would expose an effect, a future high-level form must expose the same effect after elaboration.
 
-### 5.7 Generated nodes are source-mapped
+### 4.3 No second lowering path
 
-Every generated node that can affect validation, diagnostics, runtime explain output, or observability must be traceable to authored source. This includes macro expansions, generated procedure names, `ProcRef` specializations, generated private workflows, lowered match branches, generated path contracts, and future `let-proc` closure-conversion products.
+A future ergonomic form may introduce syntax, binding structure, or generated private definitions. It must not introduce a private alternate lowerer that bypasses the ordinary procedure/workflow validation path.
 
-### 5.8 Contracts may only narrow
+### 4.4 Source maps are mandatory for generated structure
 
-Frontend type refinements, path refinements, schema refinements, and procedure/workflow signatures must not weaken existing runtime contracts. A lowering may add stricter checks, but it must not bypass or broaden shared validation.
+Any feature that generates procedures, statements, IR nodes, specializations, closure families, or runtime invocation nodes must preserve source maps back to the authored form.
 
-## 6. Pipeline and authority boundary
+Diagnostics must report the most actionable authored location, not only generated names.
 
-### 6.1 Current executable pipeline
+### 4.5 Reports are views, not authority
 
-The current executable pipeline is conceptually:
+Debug YAML, explain output, dashboard reports, rendered plans, and metadata summaries are projections. They may aid debugging but must not become the semantic source of truth.
 
-```text
-source file
-  -> S-expression reader
-  -> source-mapped syntax tree
-  -> macro expansion where supported
-  -> definition elaboration
-  -> module/import/export resolution where supported
-  -> type environment construction
-  -> workflow/procedure/function catalog construction
-  -> expression typechecking
-  -> effect inference and validation
-  -> lowering to ordinary workflow dictionaries
-  -> source-map document construction
-  -> shared workflow validation
-  -> existing loader/runtime
-```
+### 4.6 Contracts may narrow, not widen
 
-`compile_stage1`-style operations may validate module and type-definition surfaces without requiring executable provider, prompt, command, or imported workflow bindings.
+Frontend declarations and generated code may refine contracts into stricter forms. They must not widen runtime authority, artifact permissions, accepted output shapes, or variant availability.
 
-`compile_stage3`-style operations must produce executable lowered workflow artifacts and, when requested, validate them through the existing workflow loader.
+---
 
-### 6.2 Long-term internal architecture
+# Part I — `let-proc` Local Compile-Time Procedure Bindings
 
-The long-term target architecture may become:
+## 5. Feature Summary
+
+`let-proc` is the near-term future feature that lets an author define a local procedure near the point of use while retaining the existing compile-time `ProcRef` model.
+
+It is not a runtime closure. It is not a runtime procedure value. It is not dynamic dispatch.
+
+Conceptual lowering:
 
 ```text
-.orc source
-  -> Frontend AST
-  -> Macro/procedure elaboration
-  -> Core Workflow AST
-  -> Shared validation
-  -> Semantic Workflow IR
-  -> Executable IR
-  -> Existing runtime
+let-proc source
+  -> lexical local procedure binding
+  -> capture validation
+  -> private generated defproc-equivalent
+  -> ordinary defproc typecheck/effect/lowering path
+  -> existing ProcRef / bind-proc specialization
+  -> shared validation
+  -> no residual procedure value in runtime artifacts
 ```
 
-This document treats Core Workflow AST, Semantic IR, and Executable IR as useful names for design contracts. The current implementation may instead lower directly to ordinary workflow dictionaries while preserving the same invariants.
-
-A design may claim runtime-integrated implementation readiness only when it specifies:
-
-1. what shape crosses the frontend/shared boundary;
-2. which existing validation pass owns each check;
-3. which frontend checks are new;
-4. which lowering choices are allowed;
-5. which runtime behavior already exists;
-6. which runtime behavior would be newly required;
-7. how diagnostics and source maps are reported;
-8. how generated artifacts are explained and tested.
-
-## 7. Language surface
-
-### 7.1 File form
-
-Workflow Lisp source files use `.orc`.
-
-Two module-header styles may coexist during migration:
-
-MVP-style single compilation unit:
-
-```lisp
-(workflow-lisp
-  (:language "0.1")
-  (:target-dsl "2.14")
-  ...)
-```
-
-Module-style source:
-
-```lisp
-(defmodule neurips.implementation
-  (:language workflow-lisp "0.1")
-  (:target-dsl "2.14")
-  (import core)
-  (import std/paths :as path)
-  (import neurips/types :as nt)
-  (export ImplementationInputs ImplementationResult run-implementation-phase))
-```
-
-The module-style form is the design target for reusable code. The MVP-style form may remain supported as a compatibility surface if current tests require it.
-
-### 7.2 Lexical syntax
-
-Workflow Lisp syntax consists of atoms, keywords, strings, numbers, booleans, `nil`, quoted symbols, comments, lists, and optional vector literal shorthand.
-
-Examples:
+The core invariant is:
 
 ```text
-symbols         implementation/run, ctx, selected.plan
-keywords        :ctx, :inputs, :providers
-strings         "artifacts/work/report.md"
-integers        86400
-floats          0.25
-booleans        true, false
-nil             nil
-quoted symbols  'implementation
-comments        ; this is a comment
-lists           (form arg1 arg2 :keyword value)
-vectors         [APPROVE REVISE]
+If the equivalent generated defproc cannot lower, the let-proc form cannot lower.
 ```
 
-Vector shorthand is optional. A frontend version may omit it if tests and reader compatibility favor a smaller parser.
+## 6. Motivation
 
-### 7.3 Name resolution
+`ProcRef` and `bind-proc` make higher-order procedural composition safe because selected procedures remain statically known. However, some reusable phase skeletons require short local behavior definitions that capture nearby values.
 
-Names resolve deterministically. The compiler must reject ambiguous unqualified names.
+Without `let-proc`, authors must either:
 
-Resolution order:
+- define a module-level wrapper `defproc` far away from its use;
+- write verbose `bind-proc` forms over an existing procedure;
+- avoid reusable skeletons and manually thread context.
 
-1. lexical bindings;
-2. local definitions;
-3. imported aliases;
-4. module-qualified names;
-5. standard prelude names.
+`let-proc` addresses only that ergonomic gap.
 
-Examples:
+## 7. Non-Goals
 
-```text
-ctx
-selected.plan-path
-providers.implementation.execute
-implementation/run
-path.execution-report
-```
+`let-proc` must not provide:
 
-Collisions between functions, workflows, procedures, records, unions, schemas, macros, and generated names must be rejected unless the relevant namespaces are explicitly distinct and diagnostics can explain the ambiguity.
+- runtime first-class procedures;
+- runtime closures;
+- arbitrary implicit lexical capture;
+- provider-selected procedures;
+- model-selected procedures;
+- command-produced procedures;
+- procedure serialization;
+- procedure values stored in records, unions, state, ledgers, artifacts, provider results, command results, workflow outputs, or runtime loop state;
+- dynamic dispatch in executable/runtime artifacts;
+- a second effect-analysis system;
+- a second source-map system;
+- a special body lowerer that can lower things ordinary generated `defproc` cannot lower.
 
-### 7.4 Primitive types
+## 8. V1 Syntax
 
-Supported primitive type names:
-
-```text
-String
-Int
-Float
-Bool
-Json
-TimestampNs
-RunId
-Symbol
-```
-
-A frontend version may support fewer primitives if a compile-stage gate explicitly documents that restriction. Unsupported primitives must fail with stable diagnostics rather than silently degrade to `Json`.
-
-### 7.5 Enum types
-
-Enums define scalar values with a fixed allowed set.
+V1 supports exactly one local procedure binding per `let-proc`.
 
 ```lisp
-(defenum ReviewDecision APPROVE REVISE)
-(defenum DrainStatus CONTINUE BLOCKED EMPTY)
+(let-proc (name ((param ParamType) ...) -> ReturnType
+             :captures (capture-name ...)
+             body-form)
+  body-form ...)
 ```
 
-Enums lower to scalar contracts with allowed values and may be used as union discriminants or ordinary record fields.
-
-### 7.6 Path types
-
-Path types define refined path contracts.
-
-Use one spelling for existence semantics:
-
-```lisp
-(defpath Path.state-file
-  :kind relpath
-  :under "state"
-  :must-exist false)
-
-(defpath Path.execution-report
-  :kind relpath
-  :under "artifacts/work"
-  :must-exist true)
-
-(defpath Path.execution-report-target
-  :kind relpath
-  :under "artifacts/work"
-  :must-exist false)
-```
-
-The preferred option is `:must-exist`. Target paths are represented by a target path type whose `:must-exist` is `false`, not by a separate `:must-exist-target` option. If an implementation retains `:must-exist-target` for compatibility, it should be treated as an alias with a deprecation warning or explicitly documented as a distinct target-path option.
-
-Path values are not pointer-file paths. Pointer files are optional materialized representations.
-
-### 7.7 Schemas
-
-Schemas define reusable field groups independent of concrete record types.
-
-```lisp
-(defschema ReportTargets
-  (execution-report-target Path.execution-report-target)
-  (checks-report-target Path.checks-report-target)
-  (review-report-target Path.review-report-target))
-```
-
-Schema expansion must preserve source-map frames so diagnostics can identify both the schema field origin and the record using it.
-
-### 7.8 Records
-
-Records define product types.
-
-```lisp
-(defrecord ImplementationInputs
-  (design Path.design)
-  (plan Path.plan)
-  (check-commands Path.check-commands)
-  (execution-report-target Path.execution-report-target)
-  (checks-report-target Path.checks-report-target)
-  (review-report-target Path.review-report-target))
-```
-
-Records may lower to typed input/output contracts, output bundles, provider result schemas, command result schemas, or internal typed values depending on context.
-
-Records may not contain runtime procedure values. `ProcRef` values are compile-time-only and may not be stored in record fields.
-
-### 7.9 Unions
-
-Unions define tagged variant types.
-
-```lisp
-(defunion ImplementationResult
-  (COMPLETED
-    (execution-report Path.execution-report)
-    (checks-report Path.checks-report)
-    (review-report Path.review-report)
-    (review-decision ReviewDecision))
-  (BLOCKED
-    (progress-report Path.progress-report)
-    (blocker Blocker)))
-```
-
-Each union has:
-
-- a discriminant;
-- variant names;
-- variant-specific fields;
-- optional shared fields;
-- availability/proof metadata.
-
-Variant-specific fields are accessible only inside proof contexts.
-
-Union values may not contain runtime procedure values. `ProcRef` values are compile-time-only and may not be stored in union fields.
-
-### 7.10 Optional, list, and map types
-
-Parameterized types:
-
-```text
-Optional[String]
-List[Path.execution-report]
-Map[String, Json]
-```
-
-Initial or partial implementations may restrict these to structured values whose runtime contracts are already supported. Restrictions must be explicit and source-mapped.
-
-### 7.11 Workflow references
-
-`WorkflowRef[...]` names a workflow signature known at compile time or module-link time.
-
-```text
-WorkflowRef[SelectedItemInput -> SelectedItemResult]
-WorkflowRef[(DrainCtx SelectionState) -> SelectionResult]
-WorkflowRef[() -> C]
-```
-
-Workflow references are not runtime code loading. They may support higher-order orchestration when the selected workflow identity remains statically known before lowering.
-
-Workflow refs may not smuggle dynamic runtime dispatch. If a workflow reference crosses a runtime workflow boundary, the design must prove that the lowered runtime representation is an ordinary supported workflow call target, not an arbitrary callable value.
-
-### 7.12 Procedure references
-
-`ProcRef[...]` names a `defproc` signature known at compile time.
-
-```text
-ProcRef[PhaseInput -> PhaseResult]
-ProcRef[(SelectedItem Design Plan) -> ImplementationResult]
-ProcRef[() -> C]
-```
-
-`ProcRef` is compile-time only. It must not appear in runtime state, artifact bundles, ledgers, records, unions, workflow outputs, provider outputs, command outputs, or executable runtime plans.
-
-The accepted surface is:
-
-```lisp
-(proc-ref implementation/run)
-
-(bind-proc (proc-ref implementation/run)
-  :design design
-  :plan plan
-  :providers providers.implementation)
-```
-
-Bare procedure names are not procedure values. Direct calls remain direct:
-
-```lisp
-(call implementation/run
-  :ctx ctx
-  :inputs inputs)
-```
-
-## 8. Definition forms
-
-### 8.1 `defenum`
-
-```lisp
-(defenum SelectionMode ACTIVE_SELECTION RECOVERED_IN_PROGRESS)
-```
-
-Defines scalar enum values.
-
-### 8.2 `defpath`
-
-```lisp
-(defpath Path.backlog-active
-  :kind relpath
-  :under "docs/backlog/active"
-  :must-exist true)
-```
-
-Defines a path contract refinement.
-
-### 8.3 `defschema`
-
-```lisp
-(defschema ProviderRoles
-  (execute ProviderRole)
-  (review ProviderRole)
-  (fix ProviderRole))
-```
-
-Defines reusable field structure.
-
-### 8.4 `defrecord`
-
-```lisp
-(defrecord SelectedItemInputs
-  (selection-mode SelectionMode)
-  (selected-item-active-path Path.backlog-active)
-  (selected-item-in-progress-path Path.backlog-in-progress)
-  (selected-item-context-path Path.state-existing)
-  (check-commands-path Path.state-existing))
-```
-
-Defines a product type.
-
-### 8.5 `defunion`
-
-```lisp
-(defunion SelectedItemResult
-  (CONTINUE
-    (item-summary Path.work-report)
-    (run-state Path.state-existing))
-  (BLOCKED
-    (item-summary Path.work-report)
-    (reason String)
-    (stage FailedStage)))
-```
-
-Defines a tagged outcome type.
-
-### 8.6 `defun`
-
-```lisp
-(defun phase-name->state-key ((phase Symbol)) -> String
-  (string/concat (symbol/name phase) "_state"))
-```
-
-`defun` defines pure helper logic. It may construct records, construct paths symbolically, select fields, combine strings, compute constants, and build type-level descriptors.
-
-It may not read files, write files, call providers, call workflows, run commands, inspect wall-clock time, generate random values, or allocate hidden state.
-
-A `defun` may evaluate at compile time or lower to pure expression IR, depending on implementation stage.
-
-### 8.7 `defmacro`
-
-```lisp
-(defmacro with-phase ((ctx phase-name) &body body)
-  ...)
-```
-
-Macros transform syntax objects, not raw strings.
-
-Macros may construct frontend AST, introduce hygienic bindings, expand shorthand, and emit source-map frames.
-
-Macros may not perform filesystem I/O, network I/O, provider calls, command calls, wall-clock reads, random generation, contract weakening, or direct executable/runtime emission.
-
-A macro expansion is valid only if the expanded frontend AST passes normal validation. Macros cannot hide effects.
-
-Full hygienic macro support is a component target unless current tests prove a narrower surface.
-
-### 8.8 `defproc`
-
-`defproc` defines reusable workflow behavior.
-
-```lisp
-(defproc ensure-approved-plan
-  ((ctx PhaseCtx)
-   (selected SelectedItemInputs)
-   (roadmap RoadmapState)
-   (providers PlanProviders))
-  -> PlanGateResult
-  :effects ((reads selected selected.selected-item-context-path)
-            (uses-provider providers.generate providers.review)
-            (writes Path.plan-target Path.review-report)
-            (updates-state ctx))
-  ...)
-```
-
-A `defproc` is not necessarily a runtime-callable workflow boundary. It may lower by:
-
-- inlining into the caller;
-- lowering to a private generated workflow;
-- lowering to a certified runtime effect if such a policy is accepted.
-
-The lowering choice must preserve source maps, type correctness, effect transparency, validation behavior, and deterministic generated names.
-
-`defproc` exists because reusable workflow behavior is semantic, not just syntactic. Examples include `resume-or-start`, `resource-transition`, `review-revise-loop`, `run-provider-phase`, and `finalize-selected-item`.
-
-### 8.9 `defworkflow`
-
-`defworkflow` defines an exported runtime-callable workflow.
-
-```lisp
-(defworkflow run-implementation-phase
-  ((ctx PhaseCtx)
-   (inputs ImplementationInputs)
-   (providers ImplementationProviders))
-  -> ImplementationResult
-  :effects ((reads inputs.design inputs.plan)
-            (uses-provider providers.execute providers.review providers.fix)
-            (writes Path.execution-report Path.checks-report Path.review-report)
-            (updates-state ctx))
-  ...)
-```
-
-A workflow has:
-
-- a typed input signature;
-- a typed output signature;
-- declared or inferred effects;
-- a body;
-- a module-qualified name;
-- a target DSL/runtime compatibility version.
-
-Calls to a workflow lower to existing workflow call semantics and must obey version, input, output, effect, and validation rules.
-
-## 9. Expression and control forms
-
-### 9.1 Pure expressions
-
-Pure expressions are side-effect-free and may appear in path construction, record construction, conditions over already-available values, and arguments to procedures/workflows.
-
-```lisp
-(let ((x 1) (y 2))
-  (+ x y))
-```
-
-Pure expressions cannot read files, call providers, call commands, update state, mutate resources, or allocate runtime side effects.
-
-### 9.2 Sequential binding with `let*`
-
-```lisp
-(let* ((selected (resolve-selected-item ctx selection))
-       (plan (ensure-approved-plan ctx selected providers.plan))
-       (implementation (call implementation/run
-                         :ctx (phase-ctx ctx 'implementation)
-                         :inputs (make-implementation-inputs ctx selected plan)
-                         :providers providers.implementation)))
-  (finalize-selected-item ctx selected plan implementation))
-```
-
-`let*` establishes sequential dependency order. Each binding may reference earlier bindings. Effectful bindings lower to one or more ordered workflow statements. Pure bindings lower to expression IR or generated inputs as appropriate.
-
-The runtime remains deterministic and sequential unless the core runtime explicitly supports parallelism and the frontend proves independence.
-
-### 9.3 Pattern matching
-
-```lisp
-(match implementation
-  ((COMPLETED completed)
-    (publish-completed ctx completed))
-  ((BLOCKED blocked)
-    (record-blocked ctx blocked)))
-```
-
-`match` over a union creates a proof context. Inside a branch, the compiler knows which variant is available and which variant-specific fields may be referenced.
-
-Lowering must retain runtime guard semantics equivalent to `requires_variant` so invalid variant references cannot appear through unchecked paths.
-
-### 9.4 Conditionals
-
-`if` is allowed for pure or already-proven values.
-
-```lisp
-(if selected.active?
-  (resource-transition ...)
-  selected)
-```
-
-For union values, prefer `match`. The compiler should warn or reject patterns that manually inspect discriminants and then access variant-only fields without proof.
-
-### 9.5 Loops
-
-Bounded loops may be supported through a form such as:
-
-```lisp
-(loop/recur
-  :max max-iterations
-  :state initial-state
-  (fn (state)
-    ...))
-```
-
-The loop body returns either:
-
-```lisp
-(continue new-state)
-(done result)
-```
-
-Lowering options include a core repeat construct, generated workflow loop, or runtime loop IR if supported. The compiler must preserve boundedness, typed loop state, typed result, effect visibility, and deterministic resume semantics.
-
-Variant proof does not automatically survive across iterations unless an explicit proof-carrying loop contract is accepted.
-
-### 9.6 Workflow calls
-
-```lisp
-(call implementation/run
-  :ctx implementation-ctx
-  :inputs implementation-inputs
-  :providers providers.implementation)
-```
-
-Checks:
-
-- callee exists;
-- callee is visible;
-- target DSL/runtime version is compatible;
-- argument names match;
-- argument types match;
-- effects are permitted;
-- return type matches the binding or context.
-
-### 9.7 Procedure calls
-
-A direct call to a `defproc` uses ordinary call syntax where the compiler can distinguish procedure and workflow catalogs.
-
-```lisp
-(call ensure-approved-plan
-  :ctx plan-ctx
-  :selected selected
-  :roadmap roadmap.current
-  :providers providers.plan)
-```
-
-After `ProcRef` specialization or `let-proc` lowering, procedure calls must reach the same validation and lowering path as ordinary authored `defproc` calls.
-
-### 9.8 Provider result
-
-A provider call should return structured, typed output.
-
-```lisp
-(provider-result providers.review
-  :prompt prompts.review-plan
-  :inputs (record ReviewInputs
-            :design design
-            :plan plan)
-  :returns ReviewResult)
-```
-
-The frontend must make provider effects visible, inject/validate output contracts, and lower to existing provider invocation semantics. Provider output may not produce `ProcRef`, runtime closure values, or executable code.
-
-### 9.9 Command result
-
-A command call should return structured, typed output.
-
-```lisp
-(command-result run-checks
-  :argv ["python" "-m" "checks.run" inputs.check-commands]
-  :returns ChecksResult)
-```
-
-Commands must be explicit effects. Inline shell/Python glue should be linted or rejected unless wrapped in a certified command adapter with fixtures and typed output contracts.
-
-Command output may not produce `ProcRef`, runtime closure values, or executable code.
-
-### 9.10 Record construction and field access
-
-```lisp
-(record ImplementationInputs
-  :design design
-  :plan plan
-  :execution-report-target (target-path ctx 'execution-report))
-
-inputs.plan
-completed.execution-report
-```
-
-Field access must be typechecked. Variant-specific field access requires proof.
-
-## 10. Effects and authority
-
-### 10.1 Effect kinds
-
-The frontend must track or infer at least these effect kinds where relevant:
-
-```text
-reads(path-or-artifact)
-writes(path-or-contract)
-publishes(artifact-name)
-uses-provider(provider)
-uses-command(command)
-calls-workflow(workflow)
-calls-procedure(proc)
-updates-state(context)
-writes-snapshot(snapshot-kind)
-reads-snapshot(snapshot-ref)
-moves-resource(resource, from, to)
-updates-ledger(ledger)
-materializes-pointer(optional)
-allocates-write-root(scope)
-```
-
-### 10.2 Effect declarations
-
-Effects may be declared on `defworkflow` and `defproc`:
-
-```lisp
-:effects ((reads inputs.design inputs.plan)
-          (uses-provider providers.execute)
-          (writes Path.execution-report Path.progress-report)
-          (updates-state ctx))
-```
-
-The compiler may infer additional internal effects, but it must not silently drop effects absent from declarations. A declaration mismatch should produce diagnostics or require an explicit mode that says effects are inferred and explainable.
-
-### 10.3 Effect transparency
-
-Every high-level form must expose its transitive effects after lowering. In particular:
-
-- macros cannot hide effects;
-- `defproc` summaries include nested calls;
-- `ProcRef` consumers include selected procedure effects after specialization;
-- `bind-proc` does not hide effects of bound values or the specialized body;
-- `let-proc` generated procedures expose the same effects as equivalent authored `defproc` code;
-- future runtime closures cannot capture authority without explicit capability/effect validation.
-
-### 10.4 Capability and authority checks
-
-Effects that imply authority must be backed by explicit values or validated capabilities. Examples:
-
-- provider roles must be typed and explicitly passed;
-- command adapters must be certified or linted;
-- write roots must be derived or allocated deterministically;
-- artifact reads/writes must use path/artifact contracts;
-- resource transitions must prove source and destination authority;
-- workflow calls must obey version and export boundaries.
-
-## 11. State, contexts, and derived paths
-
-High-level workflow code should use typed contexts instead of hand-managing state paths.
-
-```lisp
-(defrecord RunCtx
-  (run-id RunId)
-  (state-root Path.state-root)
-  (artifact-root Path.artifact-root))
-
-(defrecord PhaseCtx
-  (run RunCtx)
-  (phase-name Symbol)
-  (state-root Path.state-root)
-  (artifact-root Path.artifact-root))
-
-(defrecord ItemCtx
-  (run RunCtx)
-  (item-id String)
-  (state-root Path.state-root)
-  (artifact-root Path.artifact-root)
-  (ledger Path.state-existing))
-```
-
-Context helpers derive narrower contexts:
-
-```lisp
-(phase-ctx item-ctx 'implementation)
-(item-ctx drain-ctx selected-item)
-```
-
-Derived path/state responsibilities include:
-
-- phase state bundle path;
-- snapshot names;
-- candidate target paths;
-- temporary bundle paths;
-- canonical artifact names;
-- optional pointer paths;
-- observability labels;
-- deterministic generated write roots.
-
-Ordinary authors should not write strings such as:
-
-```text
-${inputs.state_root}/implementation_state.json
-```
-
-unless operating inside explicit low-level interop or legacy adapter code.
-
-## 12. Reports, legacy adapters, and command boundaries
-
-### 12.1 Reports are views
-
-Markdown reports may be written, published, reviewed, and displayed. They must not be parsed as normal semantic state.
-
-Forbidden in ordinary workflow code:
-
-```lisp
-:extract (:line-prefix "Blocker Class:")
-:parse-markdown-field "Review Decision:"
-:grep "APPROVE"
-```
-
-### 12.2 Legacy adapters
-
-Legacy parsing may exist only behind an explicit adapter boundary:
-
-```lisp
-(deflegacy-adapter parse-old-progress-report
-  ((report Path.progress-report))
-  -> Blocker
-  :deprecated true
-  :requires-fixtures true
-  (legacy/line-prefix
-    :field blocker-class
-    :type BlockerClass
-    :prefix "Blocker Class:"))
-```
-
-Legacy adapters must be marked as migration debt, fixture-tested, linted, and excluded from new standard-library behavior unless an exception is reviewed.
-
-### 12.3 Command adapter contract
-
-Command adapters bridge external scripts or programs into typed workflow semantics. They must declare typed inputs, typed outputs, command effects, fixture expectations, and source-map behavior.
-
-Inline glue is suspect because it tends to hide parsing, filesystem, environment, and process assumptions. It should be linted, rejected, or promoted into a certified adapter.
-
-## 13. Modules, imports, and exports
-
-### 13.1 Module identity
-
-Each module has:
-
-- a module name;
-- a language version;
-- a target DSL/runtime version;
-- imports;
-- exports;
-- type definitions;
-- functions, macros, procedures, and workflows.
-
-### 13.2 Imports
-
-```lisp
-(import std/paths)
-(import std/paths :as path)
-(import neurips/implementation :only (run-implementation-phase ImplementationResult))
-```
-
-Imports must be deterministic. Ambiguous imports are invalid.
-
-### 13.3 Exports
-
-```lisp
-(export run-implementation-phase ImplementationResult ImplementationInputs)
-```
-
-Only exported names are visible to importing modules.
-
-Private procedures may be used internally, including as sources for same-module `ProcRef`. Private procedures from other modules are not referenceable.
-
-### 13.4 Generated names
-
-Generated names must be deterministic, collision-resistant, and unimportable unless explicitly promoted.
-
-Recommended shapes:
-
-```text
-%proc-ref.<module>.<procedure>.<stable-hash>
-%let-proc.<module>.<enclosing-definition>.<local-name>.<stable-hash>
-%private-workflow.<module>.<procedure>.<stable-hash>
-```
-
-Generated names may appear in source maps, explain output, debug output, or diagnostics, but user-facing diagnostics should first point to the authored form.
-
-## 14. Procedure model
-
-### 14.1 `defproc` semantics
-
-`defproc` represents reusable workflow behavior. It is not automatically a runtime-callable workflow.
-
-A procedure has:
-
-- a module-qualified identity;
-- a parameter list with names and types;
-- a return type;
-- a body expression;
-- declared or inferred effect summary;
-- lowering policy;
-- source-map identity.
-
-Allowed lowering policies:
-
-| Policy | Meaning |
-| --- | --- |
-| `inline` | Substitute/lower body into caller while preserving source maps. |
-| `private-workflow` | Emit hidden private workflow structure and call it through ordinary workflow call semantics. |
-| `auto` | Compiler chooses between inline and private workflow using deterministic policy. |
-
-A procedure lowering policy must not change semantics, hide effects, or create runtime procedure values.
-
-### 14.2 Procedure cycles
-
-Procedure cycles are invalid unless a future design explicitly defines recursion, boundedness, and runtime behavior. `ProcRef` specialization cycles are also invalid unless cycle analysis proves there is no recursive executable expansion.
-
-### 14.3 Procedure visibility
-
-Same-module procedures are visible by local name. Imported procedures are visible only if exported. Private imported procedures are invalid targets for `proc-ref`.
-
-Name collisions with workflows, functions, schemas, records, macros, or generated names must be rejected or diagnosed under explicit namespace rules.
-
-## 15. `ProcRef` and `bind-proc`
-
-### 15.1 Status
-
-`ProcRef` and `bind-proc` are accepted compile-time procedure-composition features. They are the current semantic base for higher-order procedure reuse.
-
-### 15.2 Decision
-
-Workflow Lisp supports higher-order procedural composition through compile-time procedure references.
-
-The accepted model:
-
-1. `ProcRef[...]` types reference named `defproc` definitions.
-2. Procedure references resolve at parse/typecheck/module-link time.
-3. `(proc-ref name)` creates a compile-time reference to a visible `defproc`.
-4. `bind-proc` partially binds named arguments and produces a specialized compile-time procedure reference.
-5. Specialization happens before lowered executable/runtime artifacts are produced.
-6. Runtime artifacts must contain no unresolved procedure values.
-7. Procedure references are not runtime values and may not be stored in state, artifacts, records, unions, ledgers, provider results, command results, workflow outputs, or result bundles.
-
-### 15.3 Syntax
-
-Procedure-reference types:
-
-```text
-ProcRef[A -> B]
-ProcRef[(A B) -> C]
-ProcRef[() -> C]
-```
-
-Procedure-reference literal:
-
-```lisp
-(proc-ref implementation/run)
-```
-
-Partial application:
-
-```lisp
-(bind-proc (proc-ref implementation/run)
-  :design design
-  :plan plan
-  :providers providers.implementation)
-```
-
-Residual signature example:
-
-```text
-Original procedure:
-  implementation/run:
-    (SelectedItem Design Plan Providers) -> ImplementationResult
-
-Binding:
-  :design design
-  :plan plan
-  :providers providers.implementation
-
-Residual:
-  ProcRef[SelectedItem -> ImplementationResult]
-```
-
-Bindings are keyword-only. Positional binding, default arguments, variadic keyword bags, and mixed positional/keyword binding are out of scope for the first accepted tranche.
-
-### 15.4 Typechecking rules
-
-The compiler must provide a `ProcRefTypeRef` parallel to workflow-reference typing.
-
-Rules:
-
-- `(proc-ref name)` must resolve to a visible `defproc`.
-- The referenced procedure's signature must match the expected `ProcRef`.
-- `bind-proc` must receive a `ProcRef`.
-- Every bound keyword must name a parameter in the referenced procedure.
-- A parameter may be bound at most once.
-- Each bound expression must typecheck against the corresponding parameter type.
-- The residual signature preserves original parameter order for unbound parameters.
-- A zero-argument residual procedure is allowed only where the expected type is `ProcRef[() -> R]`.
-- Procedure references are compile-time values only.
-- `ProcRef` values may be forwarded through `defproc` parameters typed as `ProcRef[...]`.
-- `ProcRef` values may not cross exported runtime workflow boundaries as ordinary structured values.
-
-### 15.5 Specialization rules
-
-Specialization happens before ordinary `defproc` lowering.
-
-The compiler must:
-
-1. resolve the base procedure reference;
-2. typecheck and record bound arguments;
-3. compute the residual signature;
-4. create a deterministic hidden specialized procedure;
-5. substitute bound values at the specialized call site;
-6. continue through the existing `defproc` validation and lowering path.
-
-Generated specialization names must be deterministic and collision-resistant.
-
-Recommended stable-hash inputs:
-
-- resolved base procedure identity;
-- bound parameter names;
-- bound expression source identities where available;
-- residual signature;
-- enclosing module identity;
-- compiler/language version if required for replay stability.
-
-### 15.6 Lowering rules
-
-After specialization, lowering sees only ordinary concrete procedure calls.
-
-`defproc` lowering policy applies after specialization:
-
-- `inline` specializes and then inlines;
-- `private-workflow` specializes and then emits a hidden private workflow;
-- `auto` chooses deterministically.
-
-Executable/runtime artifacts, debug runtime plans, state, and artifact bundles must not contain unresolved `ProcRef` values.
-
-### 15.7 Effect rules
-
-`proc-ref` and `bind-proc` do not introduce runtime effects by themselves.
-
-The caller-visible effect summary for a procedure that accepts or calls a `ProcRef` must include the selected procedure's transitive effects after specialization.
-
-Bound values do not hide effects. If a bound value was produced by an earlier effectful expression, that producer remains visible in normal dataflow. If the specialized procedure later uses the bound value, the procedure's reads/writes/calls/provider/command effects remain visible in the specialized summary.
-
-Effect checking must happen after procedure references are resolved and before lowering commits generated nodes.
-
-### 15.8 Diagnostics
-
-Required stable diagnostic codes:
-
-```text
-proc_ref_unknown
-proc_ref_literal_required
-proc_ref_signature_invalid
-proc_ref_runtime_transport_forbidden
-proc_ref_binding_unknown
-proc_ref_binding_duplicate
-proc_ref_binding_type_invalid
-proc_ref_specialization_cycle
-proc_ref_private_import_invalid
-```
-
-Diagnostics should point first to the authored source that the user can fix:
-
-- unknown procedure: `(proc-ref name)`;
-- signature mismatch: the argument supplying the ref;
-- bad binding name or duplicate binding: the `bind-proc` keyword;
-- bad bound value type: the bound expression;
-- runtime transport violation: the field/output/state form attempting to carry the `ProcRef`.
-
-### 15.9 Acceptance tests
-
-Positive tests must prove:
-
-- a `defproc` can accept a `ProcRef[...]` parameter;
-- `(proc-ref name)` can pass a visible named procedure;
-- an imported exported `defproc` can be referenced;
-- `bind-proc` binds a subset of arguments and exposes the correct residual signature;
-- a specialized procedure can lower inline;
-- a specialized procedure can lower as a private workflow when policy requires;
-- effect summaries include selected and bound procedure behavior;
-- source-map/explain artifacts expose original `defproc`, `proc-ref`, `bind-proc`, specialization, and lowered nodes;
-- executable/runtime artifacts contain no unresolved procedure values.
-
-Negative tests must prove:
-
-- unknown procedure reference is rejected;
-- signature mismatch is rejected;
-- duplicate bound argument is rejected;
-- unknown bound argument is rejected;
-- bad bound value type is rejected;
-- private imported procedure reference is rejected;
-- specialization cycle is rejected;
-- provider/command outputs cannot produce `ProcRef`;
-- records, unions, workflow outputs, artifacts, ledgers, and runtime state cannot contain `ProcRef`.
-
-## 16. `let-proc`
-
-### 16.1 Status
-
-`let-proc` is a proposed follow-on feature. It is not a runtime closure and must not be implemented as one.
-
-### 16.2 Decision
-
-Add `let-proc` as an ergonomic compile-time layer over accepted `ProcRef` / `bind-proc` semantics.
-
-A V1 `let-proc` binding:
-
-- introduces exactly one local procedure name;
-- declares explicit residual parameters;
-- declares an explicit return type;
-- declares explicit identifier captures;
-- contains one body expression;
-- may be referenced only through `(proc-ref local-name)`;
-- closure-converts to a private generated `defproc` equivalent;
-- lowers through ordinary `defproc` validation and lowering;
-- produces no runtime procedure value.
-
-### 16.3 Syntax
-
-Proposed shape:
+Example:
 
 ```lisp
 (let* ((impl-provider providers.implementation))
-  (let-proc
-    (run-impl
-      ((selected SelectedItem)) -> ImplementationResult
-      :captures (design plan impl-provider)
-      (call implementation/run
-        :selected selected
-        :design design
-        :plan plan
-        :providers impl-provider))
-
+  (let-proc (run-impl ((selected SelectedItem)) -> ImplementationResult
+               :captures (design plan impl-provider)
+               (call implementation/run
+                 :selected selected
+                 :design design
+                 :plan plan
+                 :providers impl-provider))
     (call iter-proc
       :execute (proc-ref run-impl)
       :input selected)))
 ```
 
-The local procedure is visible only in the body of the `let-proc` form.
+## 9. V1 Restrictions
 
-### 16.4 Core invariant
+V1 intentionally rejects the following:
 
-```text
-If the equivalent ordinary generated defproc cannot lower,
-let-proc cannot lower it either.
+- multiple local procedure bindings in one `let-proc`;
+- nested `let-proc`;
+- recursive local procedures;
+- mutually recursive local procedures;
+- direct calls to a local procedure by bare name;
+- implicit captures;
+- capture expressions;
+- capture aliases;
+- provider/model/command-produced procedure references;
+- local procedure references escaping their lexical body.
+
+### 9.1 Single binding only
+
+Valid:
+
+```lisp
+(let-proc (run-impl ((selected SelectedItem)) -> ImplementationResult
+             :captures (design plan)
+             body)
+  use-site)
 ```
 
-`let-proc` is lexical syntax over generated `defproc` plus existing `ProcRef` semantics. It is not a new lowering path.
+Invalid in V1:
 
-### 16.5 Capture rules
-
-All captures must be explicit.
-
-Rules:
-
-- every captured identifier must resolve in the enclosing lexical environment;
-- every use of an outer binding inside the local procedure body must appear in `:captures`;
-- captures have the same types as the captured bindings;
-- captures become generated parameters on the private generated `defproc` equivalent;
-- captures are supplied by generated `bind-proc`-equivalent specialization or equivalent compile-time substitution;
-- captures may not include runtime procedure values;
-- captures may not smuggle provider roles, command authority, write roots, or state authority without ordinary effect/capability checks.
-
-V1 should reject implicit captures. It should also reject broad capture bags such as `:captures *`.
-
-### 16.6 Lowering
-
-Conceptual lowering:
-
-```text
-(let-proc
-  (run-impl ((selected SelectedItem)) -> ImplementationResult
-    :captures (design plan impl-provider)
-    body)
-  use-body)
-
-=>
-
-private generated defproc:
-  %let-proc.<module>.<enclosing>.<run-impl>.<hash>
-    ((design Design)
-     (plan Plan)
-     (impl-provider ImplementationProvider)
-     (selected SelectedItem))
-    -> ImplementationResult
-    body
-
-compile-time local binding:
-  run-impl =
-    (bind-proc
-      (proc-ref %let-proc.<...>)
-      :design design
-      :plan plan
-      :impl-provider impl-provider)
-
-then lower use-body through ordinary ProcRef and defproc mechanics
+```lisp
+(let-proc ((run-impl ...)
+           (review-impl ...))
+  use-site)
 ```
 
-The generated procedure is private and compiler-internal. It may appear in diagnostics, source maps, and explain/debug output, but it is not importable, exportable, or author-referenceable by generated name.
+### 9.2 No nested `let-proc`
 
-### 16.7 Effect rules
+Invalid in V1:
 
-`let-proc` must expose the same effects as the equivalent generated `defproc`.
+```lisp
+(let-proc (outer ((x X)) -> Y :captures ()
+             (let-proc (inner ((z Z)) -> W :captures () inner-body)
+               outer-body))
+  use-site)
+```
 
-A local procedure's effects include:
+Nested local procedures require additional rules for lexical procedure environments, capture visibility, source-map stacking, generated identity, and collision behavior. They are deferred.
 
-- effects of its body;
-- effects implied by captured values only when those values are used in effectful operations;
-- transitive effects of called procedures/workflows;
-- selected effects after `ProcRef` specialization.
+### 9.3 No recursion
 
-`let-proc` must not make invalid effectful compositions valid. If effectful `let*`, effectful `match`, workflow calls, provider calls, command calls, or generated write roots cannot lower safely in an ordinary `defproc`, they cannot lower safely inside `let-proc`.
+Invalid:
 
-### 16.8 Source maps
+```lisp
+(let-proc (loop-impl ((x X)) -> Y
+             :captures ()
+             (call something :next (proc-ref loop-impl) :x x))
+  use-site)
+```
 
-Diagnostics and explain output must preserve frames for:
+Any specialization cycle involving a local procedure is rejected.
+
+### 9.4 Local procedure references require explicit `proc-ref`
+
+Valid:
+
+```lisp
+(call iter-proc :execute (proc-ref run-impl) :input selected)
+```
+
+Invalid:
+
+```lisp
+(call iter-proc :execute run-impl :input selected)
+```
+
+Bare local procedure names are not values.
+
+### 9.5 Direct local procedure calls are deferred
+
+V1 does not support:
+
+```lisp
+(call run-impl :selected selected)
+```
+
+The only V1 use site is `(proc-ref local-name)` inside the lexical body.
+
+## 10. Capture Semantics
+
+Captures are explicit ordinary dataflow inputs to the generated private procedure.
+
+They are not closure fields. They are not serialized procedure environments. They do not create runtime procedure values.
+
+V1 captures:
+
+- must be simple identifiers;
+- must resolve to in-scope values;
+- must be unique;
+- must typecheck against generated procedure parameters;
+- are bound at compile-time specialization/elaboration;
+- must not be treated as runtime closure captures.
+
+Valid:
+
+```lisp
+:captures (design plan impl-provider)
+```
+
+Invalid in V1:
+
+```lisp
+:captures (design providers.implementation)
+```
+
+Field selections must be named before capture:
+
+```lisp
+(let* ((impl-provider providers.implementation))
+  (let-proc (run-impl ((selected SelectedItem)) -> ImplementationResult
+               :captures (design plan impl-provider)
+               body)
+    use-site))
+```
+
+Capture aliases are deferred:
+
+```lisp
+:captures ((impl-provider providers.implementation) design plan)
+```
+
+## 11. Name Resolution
+
+`let-proc` introduces one name into the lexical procedure namespace.
+
+Resolution of `(proc-ref name)` inside a `let-proc` body proceeds as follows:
+
+1. Check the active V1 lexical procedure binding.
+2. If no lexical binding matches, resolve through the visible module/procedure catalog.
+3. Reject references to the lexical procedure outside its lexical scope.
+4. Reject same-scope collisions between the local procedure name and ordinary value names.
+5. Reject authored references to generated procedure names.
+
+Example:
+
+```lisp
+(let-proc (run-impl ((selected SelectedItem)) -> ImplementationResult
+             :captures (design plan)
+             body)
+  ;; visible here
+  (call iter-proc :execute (proc-ref run-impl) :input selected))
+```
+
+Invalid outside the lexical body:
+
+```lisp
+(proc-ref run-impl)
+```
+
+Same-scope collisions are rejected:
+
+```lisp
+(let* ((run-impl some-value))
+  (let-proc (run-impl ((selected SelectedItem)) -> ImplementationResult
+               :captures (design)
+               body)
+    use-site))
+```
+
+## 12. Type Rules
+
+A local procedure has a residual `ProcRef` type derived from its declared parameter list and return type.
+
+Example:
+
+```lisp
+(let-proc (run-impl ((selected SelectedItem)) -> ImplementationResult
+             :captures (design plan impl-provider)
+             body)
+  use-site)
+```
+
+Local type:
+
+```text
+run-impl : ProcRef[SelectedItem -> ImplementationResult]
+```
+
+The private generated procedure has an expanded internal signature:
+
+```text
+%let-proc/run-impl/... : (Design, Plan, ImplementationProviderRole, SelectedItem) -> ImplementationResult
+```
+
+The capture parameters are not part of the residual callable signature exposed to consumers.
+
+Validation must check:
+
+- each residual parameter has an explicit type;
+- return type is explicit;
+- each capture resolves to an in-scope value;
+- each capture is a simple identifier in V1;
+- duplicate captures are rejected;
+- capture names do not collide with residual parameters;
+- the body returns the declared return type;
+- `(proc-ref local-name)` matches expected `ProcRef[...]` signature at use sites;
+- the generated procedure's expanded signature typechecks through the ordinary `defproc` path.
+
+## 13. Lowering Rule
+
+The compiler must closure-convert `let-proc` into a private generated `defproc`-equivalent before ordinary procedure effect analysis and lowering.
+
+No `let-proc`-specific body lowerer is allowed.
+
+Pipeline:
+
+```text
+let-proc source
+  -> lexical procedure discovery
+  -> capture validation
+  -> generated private defproc-equivalent
+  -> ordinary defproc typechecking
+  -> ordinary effect analysis
+  -> ordinary defproc lowering
+  -> ProcRef specialization
+  -> shared validation
+  -> executable/runtime artifacts without procedure values
+```
+
+The generated procedure is private and compiler-internal. It may appear in diagnostics, source maps, or explain output, but it is not importable, exportable, or author-referenceable by generated name.
+
+## 14. Generated Procedure Identity
+
+Generated names must be deterministic and collision-resistant.
+
+The stable identity should cover:
+
+- source module identity;
+- lexical source span;
+- local procedure name;
+- declared residual signature;
+- explicit capture list;
+- body source identity or normalized body hash;
+- relevant imported procedure identities;
+- compiler version or lowering schema version, if needed for replay/debug compatibility.
+
+Recommended generated-name shape:
+
+```text
+%let-proc/<module>/<local-name>/<stable-hash>
+```
+
+Authored source must not be allowed to reference this generated name:
+
+```lisp
+(proc-ref %let-proc/my-module/run-impl/abc123) ; invalid
+```
+
+## 15. Effect Rules
+
+`let-proc` introduces no runtime effects by itself.
+
+Effects inside the local procedure body are effects of the generated private procedure and must be visible after specialization.
+
+Rule:
+
+```text
+If an ordinary generated defproc body would expose effect E,
+the equivalent let-proc body must expose effect E.
+```
+
+And:
+
+```text
+If ordinary defproc lowering cannot represent effect E yet,
+let-proc must reject rather than invent a representation.
+```
+
+The caller-visible effect summary for a use site must include the transitive effects of the selected local procedure after capture specialization.
+
+## 16. V1 Body Boundary
+
+V1 `let-proc` bodies may contain only forms currently supported by ordinary `defproc` lowering and shared validation.
+
+Unsupported effectful-composition patterns must be rejected, including but not limited to:
+
+- `match` as an intermediate effectful `let*` binding, when ordinary `defproc` lowering does not support it;
+- `with-phase` as a composable intermediate expression, when unsupported;
+- effectful `match` arms that do not lower cleanly;
+- standard-library forms whose generated write roots cannot cross reusable workflow boundaries;
+- same-file call bindings for locally constructed records, when unsupported by ordinary procedure lowering.
+
+The diagnostic must preserve the original body-lowering cause and add local-procedure context.
+
+Invalid example:
+
+```lisp
+(let-proc (run-impl ((selected SelectedItem)) -> ImplementationResult
+             :captures (ctx providers)
+             (let* ((attempt (call provider/run :ctx ctx :selected selected))
+                    (decision
+                      (match attempt
+                        ((OK value) (call review/run :value value))
+                        ((ERR reason) (call fix/run :reason reason)))))
+               decision))
+  (call iter-proc :execute (proc-ref run-impl) :input selected))
+```
+
+Expected diagnostic class:
+
+```text
+unsupported effectful composition inside local procedure body
+```
+
+Not:
+
+```text
+ProcRef runtime transport violation
+```
+
+unless the actual failure is procedure-reference transport.
+
+## 17. Source Maps for `let-proc`
+
+Generated nodes must be source-mapped to:
 
 - the `let-proc` form;
 - the local procedure name;
-- the declared parameters;
-- the return type;
-- each capture identifier;
-- the body expression;
-- the generated private procedure;
-- generated `bind-proc` or specialization nodes;
-- the call site consuming `(proc-ref local-name)`.
+- residual parameters;
+- return type;
+- capture list;
+- body expression;
+- `(proc-ref local-name)` use site;
+- generated private `defproc` equivalent;
+- generated Core/Semantic/Executable nodes, when those layers exist;
+- lowered workflow dictionary nodes under the current implementation.
 
-User-facing diagnostics should point to authored `let-proc` code before generated names.
+A diagnostic from the generated procedure must explain both:
 
-### 16.9 Diagnostics
+1. the original lowering/type/effect cause; and
+2. that the failure occurred inside local procedure `<name>`.
 
-`let-proc` should use stable diagnostic codes before being marked accepted/current.
+## 18. Diagnostics for `let-proc`
 
-Required proposed codes:
+The first implementation should stabilize diagnostic codes rather than leaving them implementation-defined.
 
-```text
-let_proc_shape_invalid
-let_proc_name_invalid
-let_proc_param_invalid
-let_proc_return_type_invalid
-let_proc_capture_unknown
-let_proc_capture_duplicate
-let_proc_capture_missing
-let_proc_capture_forbidden
-let_proc_body_invalid
-let_proc_generated_proc_invalid
-let_proc_effect_boundary_invalid
-let_proc_runtime_transport_forbidden
-let_proc_source_map_missing
-```
+Required codes:
 
-### 16.10 V1 restrictions
-
-V1 should reject:
-
-- multiple local procedure bindings in one `let-proc` form;
-- recursive local procedures;
-- mutually recursive local procedures;
-- implicit captures;
-- variadic parameters;
-- default parameters;
-- runtime closure values;
-- local procedure values stored in records/unions/state/artifacts;
-- export/import of local procedure names;
-- provider/command output that creates a local procedure;
-- any body that cannot lower through ordinary `defproc` rules.
-
-### 16.11 Acceptance gate
-
-Do not mark `let-proc` implemented until:
-
-1. syntax exists;
-2. AST representation exists;
-3. capture analysis exists;
-4. generated private `defproc` equivalents are created deterministically;
-5. generated procedures use ordinary `defproc` validation;
-6. captures are explicit and typechecked;
-7. effects are preserved;
-8. invalid effectful bodies are rejected, not silently lowered;
-9. source maps point back to local authored syntax;
-10. no runtime procedure or closure value appears in executable/runtime artifacts;
-11. positive and negative tests cover same-module and imported contexts;
-12. diagnostic codes are stable.
-
-## 17. Runtime closures
-
-### 17.1 Status
-
-Runtime closures are deferred. They are not an implementation target for the current compiler.
-
-### 17.2 Boundary
-
-Runtime closures are runtime-owned callable values. They are separate from `ProcRef`, `bind-proc`, and `let-proc`.
-
-```text
-ProcRef / bind-proc  = compile-time procedure references and specialization
-let-proc             = lexical syntax over generated defproc + ProcRef
-runtime closures     = runtime-owned callable values with runtime semantics
-```
-
-Current compile-time procedure features must continue to compile away before executable/runtime artifacts.
-
-### 17.3 Disabled profile
-
-The disabled profile is the current required behavior.
-
-The compiler/runtime must reject authored or runtime closure values with:
-
-```text
-runtime_closure_not_enabled
-```
-
-Design fixtures may describe closure syntax, invalid examples, registry shapes, diagnostics, or source-map metadata. They must not execute closures or serialize runtime closure values as ordinary data.
-
-### 17.4 Design-fixture profile
-
-A design-fixture profile may validate rejected examples, forbidden shapes, registry metadata, and diagnostics before execution support exists. It still rejects closure execution.
-
-This profile exists to prove that forbidden cases are understood before runtime behavior is added.
-
-### 17.5 Minimum executable profile
-
-Runtime closure implementation may begin only after the repository has:
-
-- completed or explicitly bounded `ProcRef` / `bind-proc` semantics;
-- completed or explicitly bounded `let-proc` semantics if `let-proc` is used as motivation;
-- a concrete executable IR extension point for checked dynamic invocation;
-- a closure-family registry design owned by executable bundles;
-- a source-map format for closure creation and invocation;
-- an effect/capability model strong enough to reject authority smuggling;
-- a deterministic write-root allocation model for repeated dynamic invocation;
-- a replay/resume compatibility policy based on executable bundle identity;
-- forbidden-shape fixtures proving invalid closures are rejected;
-- no fallback to dynamic Python objects, procedure-name strings, serialized code, provider-produced procedures, or unchecked executable IR.
-
-### 17.6 V1 provider-role capture policy
-
-The first executable runtime-closure tranche, if it is ever implemented, should reject provider-role captures categorically.
-
-Any policy that allows provider-role capture requires a later capability-capture tranche with explicit proof obligations. Do not mix that future capability model into V1.
-
-### 17.7 Runtime closure forbidden shapes
-
-Current and disabled-profile behavior must reject:
-
-- closure values in records;
-- closure values in unions;
-- closure values in workflow outputs;
-- closure values in provider outputs;
-- closure values in command outputs;
-- closure values in artifacts;
-- closure values in ledgers;
-- closure values in runtime loop state;
-- provider-produced procedures;
-- serialized procedure code;
-- dynamic Python callable objects;
-- procedure-name strings used as runtime dispatch;
-- closures that capture write roots without deterministic allocation;
-- closures that capture provider roles;
-- closures that lack source-map provenance;
-- closures whose executable bundle identity is not replay/resume safe.
-
-### 17.8 Runtime closure diagnostics
-
-Required or reserved diagnostic codes:
-
-```text
-runtime_closure_not_enabled
-runtime_closure_shape_invalid
-runtime_closure_runtime_transport_forbidden
-runtime_closure_registry_missing
-runtime_closure_registry_invalid
-runtime_closure_capture_forbidden
-runtime_closure_capability_invalid
-runtime_closure_effect_unsound
-runtime_closure_invocation_invalid
-runtime_closure_replay_identity_mismatch
-runtime_closure_resume_code_mismatch
-runtime_closure_source_map_missing
-```
-
-## 18. Standard-library lowering contracts
-
-High-level standard-library forms are acceptable only when their lowering is explicit, validated, and source-mapped.
-
-Examples:
-
-| Form | Required lowering property |
+| Code | Meaning |
 | --- | --- |
-| `provider-result` | Explicit provider invocation with typed output contract. |
-| `command-result` | Explicit command invocation or certified adapter with typed output contract. |
-| `produce-one-of` | Typed union construction with one valid variant. |
-| `run-provider-phase` | Provider call plus structured result handling and effect summary. |
-| `resume-or-start` | Deterministic state/snapshot behavior using existing resume semantics. |
-| `review-revise-loop` | Bounded loop with typed review/fix state and visible provider/command effects. |
-| `resource-transition` | Validated resource movement with source/destination authority. |
-| `finalize-selected-item` | Validated artifact/state finalization, not unchecked writes. |
-| `backlog-drain` | Bounded selection/run/gap behavior with typed state and ledger effects. |
+| `let_proc_syntax_invalid` | malformed `let-proc` form |
+| `let_proc_multiple_bindings_unsupported` | V1 multiple local bindings rejected |
+| `let_proc_nested_unsupported` | nested `let-proc` rejected |
+| `let_proc_recursive_unsupported` | recursion or specialization cycle involving local proc |
+| `let_proc_capture_unknown` | capture name not in scope |
+| `let_proc_capture_duplicate` | duplicate capture name |
+| `let_proc_capture_not_identifier` | V1 capture expression or field selection rejected |
+| `let_proc_name_collision` | local procedure name collides with value/procedure binding |
+| `let_proc_bare_name_invalid` | bare local procedure name used as value |
+| `let_proc_scope_escape` | local procedure referenced outside lexical scope |
+| `let_proc_generated_name_private` | authored reference to generated private name |
+| `let_proc_body_lowering_unsupported` | body cannot lower through ordinary generated `defproc` path |
+| `let_proc_return_type_invalid` | body return type does not match declared return type |
+| `let_proc_proc_ref_signature_invalid` | local ProcRef does not match expected signature at use site |
 
-A standard-library form is implementation-ready only if it answers:
+Diagnostics should prefer the most specific ordinary diagnostic and add `let-proc` context. For example, a type mismatch in a capture expression should retain the ordinary type mismatch code if one already exists, with local-procedure context.
 
-1. what typed inputs and outputs it has;
-2. what effects it emits;
-3. what existing workflow statements it lowers to;
-4. what validation pass checks it;
-5. what source-map frames it emits;
-6. what fixtures prove invalid behavior is rejected.
+## 19. Explain / Debug Metadata for `let-proc`
 
-## 19. Lowering contracts
+The first implementation should emit minimal explain/debug metadata for generated local procedures:
 
-### 19.1 Authoring forms lower to validated workflow structure
-
-Every high-level authoring form must lower to one of:
-
-- existing ordinary workflow dictionaries;
-- accepted Core Workflow AST nodes;
-- accepted Semantic IR nodes;
-- accepted private generated workflow/procedure artifacts;
-- explicit legacy adapter boundaries.
-
-If a form cannot lower to accepted structure, it remains a design sketch.
-
-### 19.2 No direct YAML authority
-
-The frontend must not use YAML text as the semantic intermediate. A debug YAML renderer may exist, but it is a projection from typed/lowered structure.
-
-### 19.3 Generated workflow dictionaries
-
-When the current implementation lowers to ordinary workflow dictionaries, those dictionaries must be treated as the authoritative executable artifact only after shared validation.
-
-Generated dictionaries must carry or be accompanied by source-map metadata sufficient to diagnose errors in authored `.orc` terms.
-
-### 19.4 Validation before commit
-
-Lowered artifacts are not executable until validation succeeds. A compile path that returns invalid lowered data must label it as diagnostic/debug data only.
-
-## 20. Source maps and explain output
-
-### 20.1 Source-map requirements
-
-Source maps must represent:
-
-- source file identity;
-- span information for syntax nodes;
-- macro expansion frames;
-- schema expansion frames;
-- generated procedure frames;
-- generated workflow frames;
-- `ProcRef` specialization frames;
-- future `let-proc` conversion frames;
-- lowered statement/output frames;
-- validation diagnostic locations;
-- runtime/explain node identity where available.
-
-### 20.2 Diagnostic pointing policy
-
-Diagnostics should point to the most actionable authored form first, then include generated context if helpful.
-
-Examples:
-
-| Problem | Primary location |
-| --- | --- |
-| Unknown field | field access or record construction field. |
-| Unknown variant | branch pattern. |
-| Invalid variant-only access | field access outside proof context. |
-| Bad path contract | `defpath` or value constructing path. |
-| Provider output mismatch | provider-result `:returns` or output field. |
-| Command output mismatch | command-result `:returns` or adapter fixture. |
-| Unknown procedure reference | `(proc-ref name)`. |
-| Bad `bind-proc` keyword | keyword in `bind-proc`. |
-| Missing `let-proc` capture | identifier use in local procedure body. |
-| Runtime closure attempted | authored closure form or structured field carrying closure. |
-
-### 20.3 Explain output
-
-Explain output may include generated names and internal nodes, but it must map them back to authored source.
-
-For generated procedure specializations, explain output should show:
-
-- base procedure;
-- specialization reason;
-- bound parameters;
-- residual signature;
-- generated name;
-- lowered policy;
-- effect summary;
-- source spans.
-
-## 21. Diagnostics policy
-
-Accepted/current features must use stable diagnostic codes. Proposed features must define stable codes before integration.
-
-Diagnostic codes should be namespaced by feature:
-
-```text
-type_*
-path_*
-record_*
-union_*
-variant_*
-workflow_*
-procedure_*
-proc_ref_*
-let_proc_*
-runtime_closure_*
-effect_*
-source_map_*
-module_*
-validation_*
+```yaml
+kind: let-proc-generated-procedure
+local_name: run-impl
+generated_name: "%let-proc/my-module/run-impl/abc123"
+source_span: ...
+residual_signature:
+  params:
+    - name: selected
+      type: SelectedItem
+  return: ImplementationResult
+captures:
+  - name: design
+    type: Design
+    source_span: ...
+  - name: plan
+    type: Plan
+    source_span: ...
+lowering_policy: generated-private-defproc
+source_map_refs:
+  let_proc_form: ...
+  generated_defproc: ...
+  proc_ref_consumer: ...
 ```
 
-Diagnostics should include:
+This metadata is not semantic authority. It must not become an alternate procedure registry or runtime dispatch table.
 
-- code;
-- severity;
-- source span;
-- short message;
-- expected type/shape where relevant;
-- actual type/shape where relevant;
-- generated context when relevant;
-- suggested fix when unambiguous.
+## 20. Acceptance Gate for `let-proc`
 
-## 22. Testing strategy
+Do not mark `let-proc` implemented until all of the following pass.
 
-### 22.1 Test categories
+Positive tests:
 
-Required categories:
+- simple local procedure with one residual parameter;
+- explicit captures become generated private procedure parameters;
+- `(proc-ref local-name)` passes to a consumer expecting `ProcRef[...]`;
+- generated procedure uses ordinary `defproc` validation;
+- transitive effects of the generated procedure are visible to the caller;
+- generated name is deterministic;
+- source maps point from generated diagnostics to authored `let-proc` locations;
+- runtime artifacts contain no procedure value or generated closure object.
 
-1. reader/parser tests;
-2. syntax/source-span tests;
-3. macro expansion tests where macros are enabled;
-4. type definition tests;
-5. record/union/path lowering tests;
-6. expression typechecking tests;
-7. variant-proof tests;
-8. effect-summary tests;
-9. procedure lowering tests;
-10. `ProcRef` / `bind-proc` tests;
-11. `let-proc` tests when proposed implementation begins;
-12. runtime-closure rejection tests;
-13. shared-validation tests;
-14. source-map/explain tests;
-15. migration/golden tests comparing representative `.orc` to existing workflow behavior.
+Negative tests:
 
-### 22.2 Positive/negative balance
+- malformed syntax rejected;
+- multiple bindings rejected;
+- nested `let-proc` rejected;
+- recursion rejected;
+- unknown capture rejected;
+- duplicate capture rejected;
+- field-selection capture rejected;
+- capture alias rejected;
+- bare local procedure name rejected;
+- local procedure scope escape rejected;
+- generated name reference rejected;
+- body-lowering limitation rejected with ordinary cause plus local context;
+- provider/model/command-produced procedure reference rejected;
+- attempt to store local procedure reference in runtime data rejected.
 
-Every new form needs positive and negative tests.
+---
 
-Positive tests prove lowerability, type correctness, effect summaries, source maps, and shared validation.
+# Part II — Effectful Composition Completion
 
-Negative tests prove invalid source is rejected before or during shared validation with stable diagnostics.
+## 21. Feature Summary
 
-### 22.3 Oracle/equivalence tests
+Effectful composition completion is the compiler work needed so Workflow Lisp can compose higher-level effectful expressions without using ad hoc lowerers or hidden runtime behavior.
 
-For migrated workflows, tests should compare `.orc` output to known-good existing workflow behavior at the semantic artifact level, not by requiring identical textual YAML.
+This work is partially independent of `let-proc`, but realistic `let-proc` bodies will depend on it.
 
-Equivalence should check:
+The future compiler must provide a single representation for expression-level effect composition that can lower into validated workflow statements while preserving type, effect, proof, state, and source-map information.
 
-- workflow names and boundaries;
-- inputs and outputs;
+## 22. Current Gap
+
+Some future authoring patterns require effectful expressions to appear in places currently treated like pure expression composition.
+
+Examples of future-needed patterns:
+
+- effectful `let*` intermediate bindings;
+- effectful `match` arms;
+- `match` results used as intermediate values;
+- `with-phase` as a composable expression;
+- same-file call bindings for locally constructed records;
+- standard-library forms with generated write roots crossing reusable workflow boundaries;
+- reusable procedures whose bodies contain provider/command/resource effects and return structured values.
+
+These should not be implemented case-by-case inside `let-proc`, macros, or standard-library forms. They need one shared lowering model.
+
+## 23. Design Goal
+
+The compiler should support effectful expression composition by translating it into an explicit statement/dataflow representation before shared validation.
+
+Conceptual model:
+
+```text
+authored expression tree
+  -> typed expression/effect tree
+  -> effectful block normalization
+  -> explicit statement/dataflow nodes
+  -> proof/effect/source-map annotations
+  -> shared validation
+```
+
+The normalized representation must make sequencing, data dependencies, control flow, variant proofs, write roots, and effects explicit.
+
+## 24. Expression Categories
+
+The compiler should classify expressions into at least these categories:
+
+| Category | Meaning | Examples |
+| --- | --- | --- |
+| pure | no runtime effect; value computed from existing data | literals, field selections, pure record constructors |
+| compile-time | erased before runtime | `proc-ref`, `bind-proc`, `let-proc` binding structure |
+| effectful-single | produces value by one runtime statement | provider call, command call, workflow/procedure call after lowering |
+| effectful-block | sequence/control expression that contains effects | effectful `let*`, effectful `match`, composable phase blocks |
+| proof-producing | refines variant availability or type branch | `match`, `requires_variant`, typed variant checks |
+| authority-producing | creates or refines artifact/path/state authority | materialization, snapshot, path contract refinement |
+
+Lowering must reject any expression whose category cannot be represented in the target statement model.
+
+## 25. Effectful `let*`
+
+Future `let*` should allow effectful intermediate bindings when the compiler can normalize them into explicit ordered statements.
+
+Example:
+
+```lisp
+(let* ((attempt (call provider/run :ctx ctx :input input))
+       (review (call review/run :attempt attempt)))
+  (make Result :attempt attempt :review review))
+```
+
+Normalization:
+
+```text
+stmt_1 = call provider/run(ctx, input) -> attempt
+stmt_2 = call review/run(attempt) -> review
+result = make Result(attempt, review)
+```
+
+Rules:
+
+- Binding order is sequential.
+- Each effectful binding receives a stable generated statement id.
+- Later bindings may depend on earlier outputs.
+- Pure bindings may remain expression-level or be lifted for source-map clarity.
+- Generated state/write roots must be deterministic.
+- Effect summaries include all lifted effectful bindings.
+
+Reject if:
+
+- an effectful binding is used in a context that requires compile-time evaluation;
+- generated write roots are ambiguous;
+- a binding would hide provider/command/workflow effects;
+- a binding creates runtime procedure values;
+- source maps cannot identify the authored binding.
+
+## 26. Effectful `match`
+
+Future `match` should support effectful arms when the compiler can represent branch-specific statements and proof contexts.
+
+Example:
+
+```lisp
+(match attempt
+  ((OK value)
+    (call review/run :value value))
+  ((ERR reason)
+    (call fix/run :reason reason)))
+```
+
+Normalization must create:
+
+- a discriminant evaluation;
+- branch proof contexts;
+- branch-local bindings;
+- branch-specific effect summaries;
+- a joined result type;
+- explicit source maps for each arm;
+- shared validation proof that each arm's variant-specific fields are available only inside the corresponding proof context.
+
+Rules:
+
+- All arms must return a compatible joined type.
+- Each arm's effects remain visible.
+- Variant-specific references require proof from the active arm.
+- Generated write roots must be deterministic per arm.
+- Branch effects are conservatively summarized at the match site.
+
+Reject if:
+
+- arms have incompatible return types;
+- a variant-specific field escapes its proof context;
+- branch write-root allocation is ambiguous;
+- an arm returns or stores a compile-time-only value;
+- effects in one arm are hidden from the joined summary.
+
+## 27. `with-phase` as Composable Expression
+
+Future `with-phase` may be allowed inside expression composition only if it lowers to explicit phase-scoped statements with clear state/write-root identity.
+
+Rules:
+
+- Phase identity must be deterministic.
+- Generated state roots must derive from context, not author-managed strings.
+- Phase-scoped provider/command/resource effects must remain visible.
+- Nested phase composition must preserve source maps.
+- Reusable procedures must receive phase roots through explicit generated parameters or validated context, not hidden globals.
+
+Reject if:
+
+- phase state roots depend on unstable expression identity;
+- repeated invocation cannot allocate deterministic roots;
+- a phase block crosses a reusable workflow boundary without a root policy;
+- source maps collapse generated phase nodes into an opaque block.
+
+## 28. Same-File Call Bindings for Locally Constructed Records
+
+Future compiler behavior should allow local record construction followed by same-file procedure calls when type and lowering order are clear.
+
+Example:
+
+```lisp
+(let* ((ctx (make ImplementationContext
+              :design design
+              :plan plan
+              :providers providers))
+       (result (call implementation/run :ctx ctx :selected selected)))
+  result)
+```
+
+Rules:
+
+- Locally constructed records must have fully resolved schemas.
+- The call signature must accept the constructed type exactly or by valid narrowing.
+- Lowering must preserve the data dependency from construction to call.
+- No generated YAML/text serialization step may become authority.
+
+Reject if:
+
+- the record type is ambiguous;
+- construction relies on runtime-only procedure values;
+- a downstream call requires a broader contract than the constructed value proves;
+- source maps cannot link field-level construction errors to authored fields.
+
+## 29. Reusable Workflow Boundary Write Roots
+
+Reusable procedures/workflows that contain effectful operations need deterministic write-root allocation.
+
+Future design must answer:
+
+- whether write roots are derived from the caller, callee, call-site id, iteration index, phase id, or explicit generated policy;
+- how repeated calls are disambiguated;
+- how private generated procedures receive roots;
+- how branch-specific roots are allocated;
+- how resume reconstructs the same root identities;
+- how source maps expose generated roots.
+
+Minimum rule:
+
+```text
+If generated write roots cannot be made deterministic and source-mapped, the form is rejected.
+```
+
+## 30. Standard-Library Lowering Completion
+
+High-level standard-library forms must lower through the same effectful composition model.
+
+In-scope future forms include:
+
+- `provider-result`;
+- `command-result`;
+- `produce-one-of`;
+- `run-provider-phase`;
+- `resume-or-start`;
+- `review-revise-loop`;
+- `resource-transition`;
+- `finalize-selected-item`;
+- `backlog-drain`.
+
+Each form needs a lowering contract specifying:
+
+- input type requirements;
+- output contract;
+- generated statements;
+- effects;
+- state roots;
+- artifact/path authority;
+- variant proof behavior;
+- source-map points;
+- failure diagnostics;
+- fixtures.
+
+No standard-library form may hide a provider/command call or encode semantic authority in rendered text.
+
+## 31. Acceptance Gate for Effectful Composition
+
+Do not mark effectful composition complete until tests cover:
+
+Positive cases:
+
+- effectful `let*` with sequential calls;
+- pure and effectful bindings mixed in order;
+- effectful `match` with compatible arm return types;
+- variant proof available only inside the correct arm;
+- composable `with-phase` with deterministic state roots;
+- same-file constructed record passed to a local call;
+- reusable procedure call with deterministic generated write roots;
+- source maps for lifted statements;
+- effect summaries containing every lifted call.
+
+Negative cases:
+
+- hidden provider call rejected;
+- hidden command call rejected;
+- incompatible match arm types rejected;
+- variant-specific field escape rejected;
+- ambiguous generated write root rejected;
+- runtime procedure value in effectful block rejected;
+- unsupported standard-library lowering rejected with form-specific diagnostic;
+- source-map missing for lifted effectful binding rejected in compiler tests.
+
+---
+
+# Part III — Future Component-Contract Architecture
+
+## 32. Feature Summary
+
+The broader frontend design describes a richer internal architecture than the current implementation fully exposes. This future work formalizes internal component contracts so high-level Workflow Lisp features can lower through stable semantic layers rather than ad hoc dictionary generation.
+
+This part is not required to preserve current behavior. It is required before claiming full runtime-integrated support for the broader north-star architecture.
+
+## 33. Target Pipeline
+
+Future architecture may promote the pipeline to explicit internal layers:
+
+```text
+.orc source
+  -> frontend syntax tree
+  -> macro/procedure elaboration
+  -> Core Workflow AST
+  -> shared validation
+  -> Semantic Workflow IR
+  -> Executable IR
+  -> existing runtime
+```
+
+Under current behavior, lowering to ordinary workflow dictionaries is the practical runtime boundary. A future IR pipeline must preserve compatibility with that boundary or replace it only through an explicitly reviewed migration.
+
+## 34. Core Workflow AST Contract
+
+The Core Workflow AST is the syntax-neutral representation shared by YAML-like authoring and Workflow Lisp.
+
+It must define:
+
+- workflow definitions;
+- procedure/private-workflow definitions;
+- statements;
+- calls;
+- provider steps;
+- command steps;
+- materialization;
+- snapshots;
+- variant outputs;
+- variant selection;
+- resource transitions;
+- loops/retries;
+- generated statements;
+- source-map references.
+
+Acceptance questions:
+
+- What exact data shape crosses from frontend lowering into shared validation?
+- Which fields are semantic authority?
+- Which fields are projections/debug-only?
+- How are generated nodes identified?
+- How does dictionary lowering map into this AST during migration?
+
+## 35. Core Statement Taxonomy Contract
+
+The statement taxonomy must enumerate every executable or validation-relevant statement family.
+
+At minimum:
+
+- pure value binding;
+- provider step;
+- command step;
+- workflow call;
+- procedure/private-workflow call;
+- branch/match;
+- loop/recur;
+- materialize artifact;
+- pre-snapshot;
+- variant output;
+- select variant output;
+- resource transition;
+- backlog drain;
+- finalization;
+- runtime-closure invocation, if ever accepted.
+
+For each statement family, define:
+
+- inputs;
+- outputs;
+- effects;
 - contracts;
-- provider/command calls;
-- state writes;
-- artifact outputs;
-- variant guards;
-- resume behavior where relevant;
-- observability labels where relevant.
+- proof behavior;
+- state/write-root behavior;
+- source-map fields;
+- shared validation owner;
+- runtime owner.
 
-### 22.4 Runtime closure disabled-profile tests
+## 36. Semantic Workflow IR Contract
 
-Even before runtime closures are implemented, tests must prove the current system rejects runtime closure values in all forbidden locations.
+Semantic IR is the validated, type-rich layer.
 
-## 23. Acceptance gates
+It must record:
 
-### 23.1 Gate A: current frontend feature
+- resolved type references;
+- input/output contracts;
+- artifact/path authority;
+- variant proof graph references;
+- effect graph references;
+- reference catalog entries;
+- state layout references;
+- source-map references;
+- generated procedure identities;
+- validation results.
 
-A feature belongs to the current frontend only if:
+Semantic IR is not an authoring format. It is an internal authority layer for validated semantics.
 
-- it parses through the current reader;
-- it has source spans;
-- it typechecks through the current environment;
-- it lowers to ordinary workflow dictionaries or an accepted compiler artifact;
-- it passes shared validation when executable;
-- it has positive and negative tests;
-- generated names are deterministic;
-- diagnostics preserve source-map intent.
+## 37. Executable IR Contract
 
-### 23.2 Gate B: accepted compile-time procedure feature
+Executable IR is the runtime-facing representation.
 
-A procedure feature is accepted only if:
+It must record only executable semantics that the runtime can validate and execute.
 
-- it compiles away before executable/runtime artifacts;
-- it uses ordinary `defproc` validation/lowering;
-- it preserves effects;
-- it preserves source maps;
-- it has stable diagnostics;
-- it cannot be stored in runtime data;
-- it cannot introduce dynamic runtime dispatch.
+Rules:
 
-### 23.3 Gate C: `let-proc`
+- No unresolved `ProcRef` values.
+- No unresolved `let-proc` bindings.
+- No runtime closures unless the runtime-closure acceptance gate has been satisfied.
+- No debug-only YAML/text authority.
+- All effects, contracts, state roots, and source-map ids required for runtime behavior must be explicit.
 
-`let-proc` may move from proposed to accepted/current only when:
+If a future feature requires an Executable IR extension, implementation may not start until the extension is specified and reviewed.
 
-- generated `defproc` conversion is implemented;
-- explicit capture analysis is implemented;
-- missing/duplicate/forbidden captures are rejected;
-- invalid effectful bodies are rejected;
-- generated source maps are correct;
-- no runtime closure/procedure value appears;
-- tests cover success, failure, imports, source maps, effects, and shared validation.
+## 38. Reference Catalog Contract
 
-### 23.4 Gate D: runtime closures
+The Reference Catalog must unify references for:
 
-Runtime closures may move from deferred to implementation planning only when:
+- workflow inputs;
+- workflow outputs;
+- procedure outputs;
+- artifact refs;
+- snapshot refs;
+- provider results;
+- command results;
+- exit codes;
+- variant-specific fields;
+- generated procedure outputs;
+- closure values, if ever accepted.
 
-- the disabled-profile tests exist and pass;
-- executable IR has a checked dynamic invocation shape;
-- closure-family registry design is accepted;
-- closure creation/invocation source maps are accepted;
-- effect/capability capture rules are accepted;
-- deterministic write-root allocation is accepted;
-- replay/resume policy is accepted;
-- provider-role capture is either categorically rejected or governed by an accepted capability-capture design;
-- forbidden-shape fixtures exist;
-- no dynamic Python object, serialized code, provider-produced procedure, or string-dispatch fallback is used.
+It must answer:
 
-## 24. Migration plan for existing docs
+- what identity each reference carries;
+- what proof is required to use it;
+- which references may cross workflow boundaries;
+- which references may be persisted;
+- which are compile-time-only;
+- how diagnostics name them.
 
-### 24.1 Add this document
+## 39. Type Catalog Contract
 
-Add:
+The Type Catalog maps Workflow Lisp types to runtime contracts.
+
+It must define:
+
+- primitive types;
+- records;
+- enums;
+- tagged unions;
+- path/artifact types;
+- output bundles;
+- variant outputs;
+- `WorkflowRef` types;
+- `ProcRef` types as compile-time-only;
+- `Closure[...]` types only if future runtime closures are accepted.
+
+The catalog must prevent compile-time-only types from entering runtime schemas.
+
+## 40. Effect Graph Contract
+
+The Effect Graph records runtime-visible effects.
+
+It must represent:
+
+- reads;
+- writes;
+- provider calls;
+- command calls;
+- workflow calls;
+- procedure/private-workflow calls;
+- state updates;
+- ledger updates;
+- resource moves;
+- snapshots;
+- artifact materialization;
+- pointer materialization;
+- runtime closure creation/invocation, if ever accepted.
+
+Effect graph rules:
+
+- Macros cannot hide effects.
+- `let-proc` cannot hide effects.
+- `bind-proc` cannot hide effects of selected procedures.
+- Effectful composition must lift effects into explicit nodes.
+- Runtime closure invocation, if ever accepted, must expose every possible target effect.
+
+## 41. Proof Graph Contract
+
+The Proof Graph records why a type, variant, output, artifact, or field is valid in a particular context.
+
+It must support:
+
+- `match` branch proofs;
+- `requires_variant` proofs;
+- `select_variant_output` proofs;
+- variant-specific artifact references;
+- proof joining after branches;
+- proof invalidation outside scope;
+- diagnostics for missing proofs.
+
+No generated high-level form may access a variant-specific field without a proof path.
+
+## 42. State Layout Contract
+
+The State Layout contract defines how state paths, artifact roots, bundle paths, temporary paths, phase roots, and pointer paths are derived.
+
+Rules:
+
+- State paths derive from typed contexts, not hand-managed strings.
+- Generated roots must be deterministic.
+- Repeated calls and loops must disambiguate roots predictably.
+- Reusable workflow/procedure boundaries must receive root policy explicitly.
+- Resume must reconstruct the same layout.
+- Source maps must explain generated roots.
+
+## 43. Source Map Contract
+
+Source maps must cover the full path from authored source to runtime diagnostics.
+
+Required mappings:
+
+- source syntax node;
+- macro-expanded node;
+- generated `defproc`/`let-proc` node;
+- specialized `ProcRef` node;
+- Core AST node;
+- Semantic IR node;
+- Executable IR node;
+- lowered workflow dictionary node;
+- runtime event/log node;
+- diagnostic location.
+
+Generated code must not collapse diagnostics into opaque generated filenames or synthetic names without authored context.
+
+## 44. Legacy Adapter Contract
+
+Legacy adapters are allowed only as explicit quarantine boundaries.
+
+They may wrap old scripts, pointer conventions, or markdown parsing when migration is not yet complete.
+
+Rules:
+
+- Adapter use must be visible in generated workflow semantics.
+- Adapter inputs/outputs must have typed contracts.
+- Hidden markdown parsing must not become semantic authority.
+- Adapter boundaries must be lintable.
+- Adapter replacement/promotion criteria must be documented.
+
+## 45. Debug YAML Renderer Contract
+
+A debug YAML renderer may exist only as a projection.
+
+It must not be:
+
+- an authoring authority;
+- the semantic lowering target;
+- a runtime contract;
+- the only source map for generated nodes;
+- the only explanation of artifact/path authority.
+
+## 46. Acceptance Gate for Component Architecture
+
+Do not claim full component-contract architecture until:
+
+- each component contract has a reviewed schema;
+- ownership between frontend/shared validation/runtime is explicit;
+- current dictionary lowering has a migration/compatibility path;
+- shared validation consumes or checks the new authoritative layer;
+- source maps span all layers;
+- explain/debug output is explicitly non-authoritative;
+- fixtures show accepted and rejected examples for every statement family.
+
+---
+
+# Part IV — Full Macro-System Safety Contract
+
+## 47. Feature Summary
+
+Current compiler infrastructure may include macro expansion, but the full future macro language must be treated as incomplete until hygiene, effect visibility, source maps, and validation ownership are specified.
+
+This part governs any future `defmacro` or general macro surface.
+
+## 48. Macro Principles
+
+Macros are syntax expansion tools. They are not semantic loopholes.
+
+A macro may:
+
+- introduce repeated syntax;
+- generate common workflow patterns;
+- abstract over boilerplate;
+- improve local readability;
+- generate source-mapped high-level forms that later lower normally.
+
+A macro must not:
+
+- hide provider/command/state/artifact effects;
+- introduce runtime procedure values;
+- bypass typechecking;
+- bypass shared validation;
+- create dynamic dispatch;
+- inspect runtime values at compile time;
+- generate untracked state paths;
+- generate unsource-mapped statements;
+- depend on ambient filesystem state;
+- make rendered text into semantic authority.
+
+## 49. Hygiene Requirements
+
+A future full macro system must define:
+
+- generated symbol identity;
+- capture rules;
+- intentional capture syntax, if allowed;
+- import/export behavior;
+- module-qualified expansion;
+- collision diagnostics;
+- generated-name source maps;
+- explain output for expansion.
+
+Unintentional capture must be rejected or impossible by construction.
+
+## 50. Macro Effect Visibility
+
+Macro expansion must happen before effect analysis.
+
+Any effectful form produced by a macro must be visible to the same effect graph as authored syntax.
+
+Rule:
 
 ```text
-docs/design/workflow_lisp_unified_frontend_design.md
+A macro-expanded provider call is still a provider call.
+A macro-expanded command call is still a command call.
+A macro-expanded state write is still a state write.
 ```
 
-### 24.2 Re-label old documents
+No macro may mark generated effectful forms as pure.
 
-Update old docs with top banners:
+## 51. Macro Source Maps
 
-For `workflow_lisp_frontend_specification.md`:
+Macro-generated syntax must map diagnostics to:
+
+- the macro call site;
+- the macro definition, when relevant;
+- generated subform locations;
+- expanded semantic nodes;
+- runtime events derived from expansion.
+
+Diagnostics should distinguish:
+
+- invalid macro call syntax;
+- invalid macro expansion shape;
+- type errors inside expanded forms;
+- effects introduced by expansion;
+- shared validation failures in expanded nodes.
+
+## 52. Macro Acceptance Gate
+
+Do not mark full macros implemented until tests cover:
+
+Positive cases:
+
+- hygienic generated binding;
+- intentional explicit capture, if supported;
+- generated effectful form visible in effect summary;
+- generated branch/source maps;
+- nested macro expansion with stable diagnostics.
+
+Negative cases:
+
+- unintentional capture rejected;
+- hidden provider call rejected;
+- hidden command call rejected;
+- generated runtime procedure value rejected;
+- generated unsource-mapped statement rejected;
+- macro expansion depending on runtime value rejected;
+- macro-generated invalid workflow rejected by shared validation.
+
+---
+
+# Part V — Runtime Closures Boundary
+
+## 53. Feature Summary
+
+Runtime closures are explicitly deferred. They are not implementation-ready.
+
+This document includes them only to prevent near-term compile-time features from drifting into unsafe runtime callable values.
+
+The split is:
 
 ```text
-Status: superseded umbrella/background design. The authoritative unified
-contract is workflow_lisp_unified_frontend_design.md. Keep this document for
-rationale and detailed historical sketches.
+ProcRef / bind-proc = compile-time procedure references and specialization
+let-proc             = compile-time lexical syntax over generated defproc + ProcRef
+runtime closures     = future runtime-owned callable values with explicit runtime semantics
 ```
 
-For `workflow_lisp_frontend_mvp_specification.md`:
+Current required behavior:
 
 ```text
-Status: historical MVP tranche. Some deferred features listed here have since
-been implemented or partially implemented. Use the unified design, current tests,
-and current source for feature status.
+runtime closure syntax/value -> reject
 ```
 
-For `workflow_lisp_proc_refs_partial_application.md`:
+## 54. Closure Conformance Profiles
+
+Runtime closure support has three profiles.
+
+### 54.1 Disabled Profile
+
+This is the current required behavior.
+
+The compiler/runtime must reject authored or runtime closure values with a stable diagnostic such as:
 
 ```text
-Status: accepted delta, merged into workflow_lisp_unified_frontend_design.md.
-Retain this file only for detailed historical rationale until fully removed.
+runtime_closure_not_enabled
 ```
 
-For `workflow_lisp_let_proc_local_proc_refs.md`:
+Design fixtures may describe closure syntax or metadata, but they must not execute closures or serialize closure values as ordinary data.
 
-```text
-Status: proposed delta, summarized in workflow_lisp_unified_frontend_design.md.
-Do not mark implemented until the unified let-proc gate is satisfied.
-```
+### 54.2 Design-Fixture Profile
 
-For `workflow_lisp_runtime_closures_boundary.md`:
+Allowed before execution support.
 
-```text
-Status: deferred gate, summarized in workflow_lisp_unified_frontend_design.md.
-Current behavior remains the disabled profile.
-```
+The compiler/runtime may validate rejected examples, registry shapes, diagnostics, and source-map metadata.
 
-### 24.3 Normalize path contract spelling
+It must still reject closure execution.
 
-Use `:must-exist` consistently. Treat target paths as path types with `:must-exist false`, not a separate `:must-exist-target` spelling unless a compatibility alias is required.
+### 54.3 Minimum Executable Profile
 
-### 24.4 Normalize diagnostic policy
+The first profile that may execute runtime closures.
 
-Accepted/current features must define stable diagnostic codes. Proposed features must define them before integration. Remove language that leaves diagnostic names implementation-defined for accepted features.
+Implementation must not begin until all prerequisites in Section 72 are satisfied.
 
-### 24.5 Remove unsupported precision from effort estimates
+## 55. Runtime Closure Contract
 
-Implementation effort percentages should be moved to planning docs or substantiated with task breakdowns. Design docs should specify gates, not unsupported precision.
+If added later, runtime closures are typed runtime-owned callable values.
 
-## 25. Open issues
+They are not:
 
-Open issues that require explicit follow-up:
+- `ProcRef`;
+- `bind-proc` results;
+- `let-proc` generated procedures;
+- ordinary serialized user data;
+- Python function objects;
+- procedure-name strings;
+- provider-produced executable code.
 
-1. **Exact current surface inventory.** Confirm which expression forms are parser/typechecker/lowering-current through tests, not design docs alone.
-2. **Module syntax compatibility.** Decide whether both MVP-style and `defmodule` headers remain accepted.
-3. **Core AST naming.** Decide whether the current ordinary workflow dictionary boundary should be named Core AST in code or kept distinct until a true syntax-neutral AST is introduced.
-4. **Semantic IR status.** Decide which parts of Semantic IR are implemented data structures versus design vocabulary.
-5. **Effect graph completeness.** Identify minimum effect checks required before `let-proc` V1.
-6. **WorkflowRef runtime boundary.** Clarify exactly when workflow references may cross exported workflow boundaries and what lowerable representation is allowed.
-7. **Macro scope.** Distinguish current macro support from full hygienic macro design.
-8. **Legacy adapters.** Decide whether legacy adapter syntax is a language feature or a tooling/configuration boundary.
-9. **Debug YAML renderer.** Decide whether to keep a renderer and how to prevent it from becoming semantic authority.
-10. **Provider-role authority.** Keep provider-role capture forbidden for runtime closures until a full capability-capture model exists.
+A runtime closure value must carry:
 
-## 26. Minimal examples
+- nominal sealed closure family;
+- call signature;
+- effect bound;
+- capability bound;
+- typed capture schema;
+- executable-bundle code identity;
+- source-map identity;
+- replay/resume compatibility metadata.
 
-### 26.1 Typed provider result and variant proof
+Conceptual type shape:
 
 ```lisp
-(defunion ReviewResult
-  (APPROVED
-    (review-report Path.review-report))
-  (REVISE
-    (review-report Path.review-report)
-    (revision-guidance String)))
-
-(defworkflow review-plan
-  ((ctx PhaseCtx)
-   (plan Path.plan)
-   (provider ProviderRole))
-  -> ReviewResult
-  :effects ((reads plan)
-            (uses-provider provider)
-            (writes Path.review-report)
-            (updates-state ctx))
-
-  (let* ((review (provider-result provider
-                   :prompt prompts.review-plan
-                   :inputs (record ReviewInputs :plan plan)
-                   :returns ReviewResult)))
-    (match review
-      ((APPROVED approved)
-        approved)
-      ((REVISE revise)
-        revise))))
+Closure[
+  family RunImplementation,
+  (SelectedItem) -> ImplementationResult,
+  :effects (uses_provider writes_artifact updates_ledger),
+  :capabilities (implementation_provider)
+]
 ```
 
-### 26.2 Compile-time procedure reference
+The closure family, not the structural signature alone, is the unit that makes the callable universe closed.
+
+## 56. Forbidden Runtime Closure Shortcuts
+
+Do not implement any of these as a small closure feature:
+
+- runtime `ProcRef`;
+- runtime `let-proc`;
+- provider-produced procedure values;
+- command-produced procedure values;
+- model-produced procedure values;
+- procedure-name strings interpreted as callable values;
+- opaque serialized callable payloads;
+- Python function objects or host-language closures in state;
+- dynamic imports or runtime code loading;
+- executable IR nodes that dispatch without a closed target universe;
+- closures stored in artifacts, ledgers, provider results, command results, or workflow outputs in the first tranche;
+- closures that bypass effect checking;
+- closures that bypass capability checking;
+- closures that bypass source-map checking;
+- closures that bypass deterministic write-root checking;
+- closures that silently rebind to changed source on resume.
+
+Runtime closures must not be introduced as a workaround for unresolved `ProcRef`, `let-proc`, effectful-composition, or lowering gaps.
+
+## 57. Minimum Executable Surface
+
+The first executable runtime-closure tranche, if ever accepted, must be intentionally narrow.
+
+Allowed:
+
+- closure values created only by authored frontend/workflow forms;
+- closure families declared statically in the compiled executable bundle;
+- by-value captures of immutable typed data only;
+- dynamic invocation only through a checked executable IR node;
+- closure values stored only in runtime-managed state, if storage is needed;
+- source-mapped diagnostics for creation, capture, invocation, and resume.
+
+Rejected:
+
+- provider/model/command-produced closures;
+- provider/model/command-produced closure family ids;
+- provider/model/command-produced code ids;
+- closure captures;
+- provider role captures in V1;
+- mutable state captures;
+- live context object captures;
+- artifact publication of closures;
+- workflow-output transport of closures;
+- cross-bundle resume without explicit migration metadata.
+
+## 58. Closure Family Registry
+
+A closure type must include a nominal sealed family identity.
+
+A structural signature alone is insufficient:
 
 ```lisp
-(defproc run-implementation
-  ((selected SelectedItem)
-   (design Path.design)
-   (plan Path.plan)
-   (providers ImplementationProviders))
-  -> ImplementationResult
-  :effects ((reads design plan)
-            (uses-provider providers.execute providers.review providers.fix)
-            (writes Path.execution-report Path.checks-report Path.review-report))
-  ...)
-
-(defproc run-one-selected
-  ((selected SelectedItem)
-   (execute ProcRef[SelectedItem -> ImplementationResult]))
-  -> ImplementationResult
-  (call execute :selected selected))
-
-(defworkflow run-selected
-  ((selected SelectedItem)
-   (design Path.design)
-   (plan Path.plan)
-   (providers ImplementationProviders))
-  -> ImplementationResult
-
-  (let* ((execute (bind-proc (proc-ref run-implementation)
-                    :design design
-                    :plan plan
-                    :providers providers)))
-    (call run-one-selected
-      :selected selected
-      :execute execute)))
+Closure[(SelectedItem) -> ImplementationResult :effects (uses_provider)]
 ```
 
-After specialization, no runtime artifact contains `execute` as a procedure value. The lowered artifact contains ordinary generated procedure/workflow structure.
+Unrelated closures may share the same signature and effect bound while belonging to different semantic families.
 
-### 26.3 Proposed `let-proc`
+A future executable bundle must own a closure-family registry:
+
+```yaml
+closure_families:
+  RunImplementation:
+    accepted_code_ids:
+      - closure/run-impl-a/abc123
+      - closure/run-impl-b/def456
+    signature:
+      params:
+        - SelectedItem
+      return: ImplementationResult
+    effect_bound:
+      - uses_provider
+      - writes_artifact
+    capability_bound:
+      - implementation_provider
+    capture_schema_ids:
+      - capture-schema/run-impl-a/456def
+      - capture-schema/run-impl-b/789abc
+```
+
+A runtime closure is valid only if its code identity appears in the executable bundle's registry for its declared family.
+
+## 59. Closure Value Shape
+
+Conceptual closure value:
+
+```yaml
+closure:
+  schema: workflow_lisp_runtime_closure/v1
+  family: RunImplementation
+  code_id: closure/run-impl-a/abc123
+  executable_bundle_id: bundle/2026-05-29/example/789abc
+  type:
+    params:
+      - SelectedItem
+    return: ImplementationResult
+  effects:
+    - uses_provider
+    - writes_artifact
+  capabilities:
+    - implementation_provider
+  capture_schema_id: capture-schema/run-impl-a/456def
+  captures:
+    design:
+      mode: value
+      type: DesignDoc
+      value: {}
+    plan:
+      mode: value
+      type: ImplementationPlan
+      value: {}
+  source_map_ref: source-map/closure/run-impl-a
+  effect_summary_ref: effect/run-impl-a
+```
+
+Every field affecting invocation, validation, replay, source mapping, or authority must be typed and inspectable.
+
+## 60. Capture Contract
+
+The closure design must distinguish capture modes.
+
+| Mode | Meaning | First tranche? |
+| --- | --- | --- |
+| by value | immutable serialized snapshot stored with closure | allowed for simple typed data |
+| by reference | stable runtime reference re-resolved on resume | deferred |
+| by capability | authority carried by closure | deferred/rejected in first tranche |
+
+First tranche may allow only immutable by-value captures:
+
+- typed scalar values;
+- typed records and unions with stable schemas;
+- workflow input values represented as immutable data;
+- pure path or context descriptors only if replay behavior is defined.
+
+First tranche must reject:
+
+- provider role captures;
+- closure captures;
+- mutable state references;
+- live context objects;
+- arbitrary runtime handles;
+- provider/model/command-produced closure identities.
+
+## 61. Capability Captures
+
+Provider roles and similar authority-bearing references are capability captures, not ordinary data.
+
+V1 runtime closures must reject provider-role captures categorically.
+
+A later capability-capture tranche must prove:
+
+- the closure was created with that capability;
+- the invocation site explicitly accepts that capability;
+- replay/resume preserves the same authority semantics;
+- the closure cannot smuggle authority into a context that did not declare it.
+
+Invocation requires the intersection of:
+
+```text
+captured closure capabilities
+AND invocation-site accepted capabilities
+AND executable-bundle capability policy
+```
+
+A closure must not carry provider, command, filesystem, artifact, workflow, or ledger authority into a dynamic invocation site that did not explicitly accept that authority.
+
+## 62. Invocation Contract
+
+Runtime closures require an explicit checked executable IR invocation node.
+
+Conceptual node:
+
+```text
+InvokeClosure {
+  accepted_families: [RunImplementation],
+  closure_value_ref: ...,
+  args: ...,
+  result_type: ImplementationResult,
+  accepted_effect_bound: ...,
+  accepted_capability_bound: ...,
+  write_root_policy: ...,
+  invocation_site_id: ...,
+  source_map_ref: ...
+}
+```
+
+The node is valid only if every possible target accepted at that site satisfies:
+
+- closure-family membership;
+- signature compatibility;
+- effect bound;
+- capability bound;
+- deterministic write-root rules;
+- deterministic resource-scope rules;
+- source-map obligations;
+- replay/resume compatibility rules.
+
+A call site may accept a narrower target set than the closure family globally permits.
+
+Executable IR must reject any dynamic closure call whose callable universe is not closed and validated.
+
+## 63. Effect and Write-Root Contract for Closures
+
+Constructing a closure value is pure if all captured values already exist and no state is written.
+
+Persisting a closure into workflow state is a state write.
+
+Invoking a closure has the effects of the selected closure body.
+
+Dynamic invocation must also prove deterministic write-root behavior for every possible target.
+
+The compiler/runtime must know:
+
+- what write roots may be touched;
+- whether roots are derived from invocation site, closure creation site, or explicit allocation policy;
+- how repeated invocations are disambiguated;
+- how reusable workflow boundaries receive generated write roots;
+- how resume reconstructs the same root allocation.
+
+Runtime closure invocation must not hide provider calls, command calls, state mutation, resource movement, artifact publication, or ledger updates.
+
+## 64. Provider and Model Selection
+
+Provider or model output may influence ordinary validated dataflow branches that select among statically known closures only if the resulting callable universe remains closed and validated.
+
+Allowed future shape:
 
 ```lisp
-(defworkflow run-selected-with-local-impl
-  ((selected SelectedItem)
-   (design Path.design)
-   (plan Path.plan)
-   (providers ImplementationProviders))
-  -> ImplementationResult
-
-  (let-proc
-    (local-impl
-      ((item SelectedItem)) -> ImplementationResult
-      :captures (design plan providers)
-      (call run-implementation
-        :selected item
-        :design design
-        :plan plan
-        :providers providers))
-
-    (call run-one-selected
-      :selected selected
-      :execute (proc-ref local-impl))))
+(match provider-choice
+  ((UseA) closure-a)
+  ((UseB) closure-b))
 ```
 
-This is equivalent to a private generated `defproc` plus compile-time `ProcRef` specialization. It is not a runtime closure.
+Only if:
 
-### 26.4 Runtime closure remains rejected
+- `closure-a` and `closure-b` are statically declared closure values;
+- both belong to accepted families at the invocation site;
+- branch selection is ordinary dataflow;
+- no provider/model output produces new code identity;
+- effect/capability bounds cover both branches.
 
-Invalid:
+Rejected:
 
 ```lisp
-(record SomeOutput
-  :callback (lambda (x) (call run-implementation :selected x)))
+(call-provider choose-procedure) ; returns procedure/closure/code id
 ```
 
-Invalid:
+Provider/model output must not create new callable identities.
+
+## 65. Storage and Transport
+
+First executable runtime-closure tranche may store closures only in runtime-managed state if storage is needed.
+
+First tranche must reject closure values in:
+
+- artifacts;
+- ledgers;
+- provider results;
+- command results;
+- workflow outputs;
+- exported record fields;
+- exported union fields;
+- external serialized bundles not owned by runtime state.
+
+A later transport tranche would need a separate design for schema, authority, replay, versioning, and migration.
+
+## 66. Replay and Resume
+
+Runtime closure replay/resume requires stable executable-bundle identity.
+
+A resumed closure must not silently bind to changed source.
+
+The runtime must validate:
+
+- executable bundle id;
+- closure family id;
+- code id;
+- capture schema id;
+- source-map id;
+- effect/capability policy version;
+- runtime migration metadata, if any.
+
+If any identity is incompatible, resume must fail with a stable diagnostic rather than reinterpreting the closure.
+
+## 67. Closure Diagnostics
+
+Required diagnostic codes:
+
+| Code | Meaning |
+| --- | --- |
+| `runtime_closure_not_enabled` | disabled profile rejects closure syntax/value/execution |
+| `closure_family_unknown` | closure family not in executable bundle registry |
+| `closure_code_id_invalid` | closure code id not accepted by family |
+| `closure_signature_invalid` | closure signature does not match invocation site |
+| `closure_effect_bound_invalid` | target effects exceed invocation-site bound |
+| `closure_capability_bound_invalid` | target capabilities exceed invocation-site bound |
+| `closure_capture_schema_invalid` | captures do not match typed schema |
+| `closure_capture_mode_forbidden` | unsupported capture mode |
+| `closure_provider_capture_forbidden` | provider role/capability capture rejected in V1 |
+| `closure_runtime_transport_forbidden` | closure stored/exported through forbidden channel |
+| `closure_write_root_ambiguous` | deterministic write-root policy cannot be proven |
+| `closure_resume_bundle_mismatch` | closure cannot resume under current executable bundle |
+| `closure_resume_code_mismatch` | closure code identity changed or is not accepted |
+| `closure_source_map_missing` | closure creation/invocation lacks required source map |
+| `closure_dynamic_code_forbidden` | provider/model/command-produced code/procedure rejected |
+
+## 68. Runtime Closure Source Maps
+
+Source maps must cover:
+
+- closure creation site;
+- each capture expression;
+- closure family declaration;
+- closure code body;
+- invocation site;
+- accepted family list;
+- effect/capability bound declarations;
+- generated write-root policy;
+- runtime execution events;
+- replay/resume validation.
+
+Diagnostics must identify both the closure creation site and invocation site when relevant.
+
+## 69. Runtime Closure Fixtures
+
+Before any executable runtime-closure implementation, the repo must include design-fixture tests proving forbidden shapes are rejected.
+
+Required forbidden fixtures:
+
+- runtime `ProcRef` stored in state;
+- `let-proc` compiled to runtime closure;
+- provider-produced closure;
+- command-produced closure;
+- closure stored in artifact;
+- closure exported as workflow output;
+- closure captures provider role;
+- closure captures mutable state;
+- closure captures another closure;
+- closure invoked without accepted family;
+- closure with effect bound exceeding call-site bound;
+- closure with capability bound exceeding call-site bound;
+- closure with ambiguous write root;
+- closure resume under mismatched bundle;
+- closure source map missing.
+
+## 70. Runtime Closure Minimum Executable Tests
+
+If the executable profile is ever accepted, tests must prove:
+
+Positive cases:
+
+- closure family declared in executable bundle;
+- closure value created by authored frontend form;
+- immutable by-value captures validated against schema;
+- checked invocation through `InvokeClosure`;
+- invocation effects visible in effect graph;
+- deterministic write roots for repeated invocation;
+- source maps for creation and invocation;
+- resume succeeds under identical bundle identity.
+
+Negative cases:
+
+- unknown family rejected;
+- invalid code id rejected;
+- signature mismatch rejected;
+- effect bound violation rejected;
+- capability bound violation rejected;
+- provider role capture rejected in V1;
+- mutable capture rejected;
+- workflow-output transport rejected;
+- closure hidden in artifact rejected;
+- resume bundle mismatch rejected;
+- dynamic provider/model/command-generated closure rejected.
+
+## 71. Relationship to `let-proc`
+
+`let-proc` must remain compile-time-only even if runtime closures are later added.
+
+A future runtime-closure feature may introduce separate syntax, or may define explicit closure-producing forms, but it must not reinterpret existing `let-proc` forms as runtime closures.
+
+The following must remain true:
+
+```text
+let-proc -> generated private defproc-equivalent -> ProcRef specialization -> erased before runtime
+```
+
+Any change that leaves `let-proc` procedure values in runtime artifacts is a breaking semantic change and requires a separate design.
+
+## 72. Runtime Closure Acceptance Gate
+
+Runtime closure implementation may not start until the following are complete or explicitly bounded:
+
+- `ProcRef` and `bind-proc` semantics are stable;
+- `let-proc` semantics are stable, if used as closure motivation;
+- a concrete executable IR extension point for checked dynamic invocation exists;
+- a closure-family registry design is owned by executable bundles;
+- source-map format can describe closure creation and invocation;
+- effect/capability model can reject authority smuggling;
+- deterministic write-root allocation model exists for repeated dynamic invocation;
+- replay/resume compatibility policy is accepted;
+- forbidden-shape fixtures pass in disabled/design-fixture profile;
+- provider/model/command-produced callable identities are rejected;
+- no fallback exists to dynamic Python objects, procedure-name strings, serialized code, or unchecked executable dispatch.
+
+---
+
+# Part VI — Implementation Ordering
+
+## 73. Recommended Sequence
+
+The remaining design work should be implemented in this order.
+
+### Stage 1: Document-status cleanup
+
+- Mark implemented baseline docs as historical or current as appropriate.
+- Mark this document as covering only future/unimplemented surfaces.
+- Ensure `ProcRef` / `bind-proc` docs say accepted/current rather than future-only.
+- Ensure runtime closures remain explicitly deferred.
+
+### Stage 2: `let-proc` V1, narrow body boundary
+
+Implement only simple `let-proc` forms whose generated private `defproc` body already lowers through the ordinary path.
+
+Reject effectful-composition gaps rather than solving them inside `let-proc`.
+
+### Stage 3: Effectful composition normalization
+
+Add shared normalization for effectful `let*`, effectful `match`, composable `with-phase`, same-file call bindings, and generated write-root policies.
+
+This stage benefits `let-proc`, standard-library forms, and future macro expansion.
+
+### Stage 4: Standard-library lowering completion
+
+Move high-level forms onto the shared effectful-composition and component-contract model.
+
+Each form must have fixtures, source maps, effects, and write-root policy.
+
+### Stage 5: Component-contract promotion
+
+Formalize Core AST, Semantic IR, Executable IR, Effect Graph, Proof Graph, Reference Catalog, Type Catalog, State Layout, Source Map, Legacy Adapter, and Debug YAML Renderer contracts.
+
+Do this before claiming full north-star architecture implementation.
+
+### Stage 6: Macro-system finalization
+
+Finalize full macro hygiene and effect/source-map policy.
+
+Do not let macros become the escape hatch for unresolved standard-library or effectful-composition problems.
+
+### Stage 7: Runtime closure disabled/design-fixture profile
+
+Add rejection fixtures and registry-shape experiments while closures remain non-executable.
+
+### Stage 8: Runtime closure executable profile, only if accepted
+
+Begin only after the runtime closure acceptance gate is satisfied.
+
+## 74. Dependency Graph
+
+```text
+current frontend baseline
+  |
+  +-- current ProcRef / bind-proc baseline
+        |
+        +-- let-proc V1
+        |     |
+        |     +-- richer let-proc bodies after effectful composition
+        |
+        +-- runtime-closure guardrails
+
+current lowering / validation baseline
+  |
+  +-- effectful composition normalization
+        |
+        +-- standard-library lowering completion
+        +-- macro-system safety finalization
+        +-- reusable boundary write-root policy
+
+component-contract architecture
+  |
+  +-- future executable IR extension points
+        |
+        +-- runtime closure executable profile
+```
+
+---
+
+# Part VII — Unified Test Matrix
+
+## 75. Test Categories
+
+Every future feature must add tests in these categories:
+
+- parser/syntax tests;
+- typechecking tests;
+- lowering tests;
+- shared validation tests;
+- source-map tests;
+- effect-summary tests;
+- generated-name determinism tests;
+- runtime-artifact absence/presence tests;
+- negative forbidden-shape tests;
+- explain/debug projection tests.
+
+## 76. Runtime Artifact Invariants
+
+For `let-proc` and compile-time future features:
+
+- no `ProcRef` values in runtime artifacts;
+- no `let-proc` binding objects in runtime artifacts;
+- no generated runtime closure objects;
+- no procedure-name strings used for dispatch;
+- no hidden procedure registries in runtime plans.
+
+For runtime closures, if ever accepted:
+
+- closure values appear only in the accepted typed runtime shape;
+- invocation uses only checked executable IR nodes;
+- all closure identities appear in the executable bundle registry.
+
+## 77. Source-Map Fixtures
+
+Fixtures must cover:
+
+- authored source error;
+- generated local procedure error;
+- generated specialization error;
+- lifted effectful binding error;
+- branch proof error;
+- standard-library generated statement error;
+- macro-generated error;
+- runtime closure creation error;
+- runtime closure invocation error;
+- replay/resume closure mismatch error.
+
+## 78. Effect Fixtures
+
+Fixtures must prove that generated abstractions expose effects:
+
+- `let-proc` body provider effect visible at call site;
+- `bind-proc` selected procedure effect visible after specialization;
+- effectful `let*` sequence exposes all effects;
+- effectful `match` exposes branch effects conservatively;
+- macro-generated provider call exposes provider effect;
+- runtime closure invocation exposes every possible target effect.
+
+## 79. Forbidden Transport Fixtures
+
+Compile-time-only values must be rejected in:
+
+- records;
+- unions;
+- state;
+- ledgers;
+- artifacts;
+- provider results;
+- command results;
+- workflow outputs;
+- runtime loop state;
+- external serialized bundles.
+
+This applies to:
+
+- `ProcRef`;
+- `bind-proc` result;
+- local `let-proc` reference;
+- generated procedure identity;
+- runtime closure value until and unless a specific transport channel is accepted.
+
+---
+
+# Part VIII — Open Decisions
+
+## 80. `let-proc` Direct Calls
+
+Should V2 allow direct calls to local procedures?
+
+Possible future syntax:
 
 ```lisp
-(provider-result provider
-  :prompt prompts.choose-procedure
-  :returns ProcRef[SelectedItem -> ImplementationResult])
+(call run-impl :selected selected)
 ```
 
-Both must be rejected. Runtime-provided or runtime-stored callable values are outside the accepted surface.
+Risks:
 
+- blurs procedure/value namespace;
+- may imply runtime dispatch;
+- complicates diagnostics for ordinary call vs local procedure call.
+
+Recommendation: keep deferred until V1 source maps and local procedure identity are stable.
+
+## 81. Capture Aliases
+
+Should V2 allow capture aliases?
+
+Possible syntax:
+
+```lisp
+:captures ((impl-provider providers.implementation) design plan)
+```
+
+Risks:
+
+- generated parameter naming;
+- source-map complexity;
+- capture expression evaluation order;
+- accidental effectful capture expressions.
+
+Recommendation: allow only pure capture expressions, if any, and lower aliases into explicit pre-capture bindings.
+
+## 82. Nested Local Procedures
+
+Should nested `let-proc` be allowed?
+
+Risks:
+
+- lexical procedure environments;
+- capture-of-capture behavior;
+- recursive cycles;
+- generated-name stability;
+- source-map stack depth.
+
+Recommendation: require explicit V2 design and tests before enabling.
+
+## 83. Runtime Closure Syntax
+
+If runtime closures are ever accepted, should they reuse `let-proc` syntax?
+
+Recommendation: no. Use distinct syntax so compile-time local procedures and runtime callable values remain visually and semantically separate.
+
+## 84. Executable IR Migration
+
+Should the implementation introduce explicit Core AST / Semantic IR / Executable IR layers, or continue lowering directly to workflow dictionaries with enriched validation metadata?
+
+Recommendation: decide based on implementation pressure from effectful composition and runtime closure work. Do not introduce IR layers as nominal wrappers without new validation authority.
+
+## 85. Macro Expansion Power
+
+Should macros be allowed to generate arbitrary effectful workflow forms?
+
+Recommendation: yes only after effectful composition and source-map contracts are stable. Before then, macros should be constrained to forms the compiler can already validate and source-map.
+
+---
+
+# Part IX — Document Cleanup Plan
+
+## 86. Existing Design Docs
+
+Recommended status updates:
+
+| Existing doc | Recommended status |
+| --- | --- |
+| `workflow_lisp_frontend_mvp_specification.md` | historical MVP / implementation baseline context |
+| `workflow_lisp_frontend_specification.md` | umbrella north-star / partially implemented / future sections superseded by this document |
+| `workflow_lisp_proc_refs_partial_application.md` | accepted/current baseline; not part of future-only scope except as dependency |
+| `workflow_lisp_let_proc_local_proc_refs.md` | superseded by Part I of this document |
+| `workflow_lisp_runtime_closures_boundary.md` | superseded by Part V of this document |
+| component-contract docs | future architecture appendices until implemented/reviewed |
+
+## 87. Header Template for Future Docs
+
+Every future design doc should start with:
+
+```text
+Status:
+Implementation status:
+Baseline assumptions:
+In scope:
+Out of scope:
+Depends on:
+Blocks:
+Acceptance gate:
+Supersedes:
+Superseded by:
+```
+
+## 88. Status Vocabulary
+
+Use these status labels consistently:
+
+| Label | Meaning |
+| --- | --- |
+| `implemented/current` | represented by current code and tests |
+| `accepted/current baseline` | design accepted and treated as baseline for future work |
+| `partial` | some implementation exists, but full design contract is not complete |
+| `proposed` | implementable design, not yet implemented |
+| `deferred` | intentionally not implementation-ready |
+| `design fixture only` | rejected/metadata fixtures allowed, no execution |
+| `historical` | retained for context, not current authority |
+| `superseded` | replaced by a newer contract |
+
+---
+
+# Part X — Final Unified Rule
+
+The remaining Workflow Lisp design work should be governed by one sentence:
+
+```text
+Implement only future features that either compile away into the existing validated workflow model, or pass a separate explicit runtime acceptance gate before introducing new runtime values.
+```
+
+Applied to the current future set:
+
+```text
+let-proc             -> compile away through generated private defproc + ProcRef
+Effectful composition -> normalize into explicit validated workflow statements
+Macros               -> expand into source-mapped validated forms
+Component contracts  -> formalize internal semantic authority before broader runtime claims
+Runtime closures     -> reject until the runtime acceptance gate is satisfied
+```
