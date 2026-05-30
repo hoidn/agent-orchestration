@@ -1,0 +1,8 @@
+{
+  "providers.plan": "codex",
+  "providers.plan-review": "codex",
+  "providers.plan-fix": "codex",
+  "providers.implementation": "codex",
+  "providers.implementation-review": "codex",
+  "providers.implementation-fix": "codex"
+}

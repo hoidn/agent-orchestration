@@ -8691,6 +8691,87 @@ def _procedure_private_body_valid(
     )
 
 
+def _private_workflow_binding_local_value(
+    expr: Any,
+    *,
+    binding_name: str,
+    local_values: Mapping[str, Any],
+    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
+    type_env: FrontendTypeEnvironment,
+    active_procedures: frozenset[str],
+) -> Any | None:
+    """Return the step-backed local shape one private-workflow binding exports."""
+
+    if isinstance(expr, WithPhaseExpr):
+        return _private_workflow_binding_local_value(
+            expr.body,
+            binding_name=binding_name,
+            local_values=local_values,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
+        )
+    if isinstance(expr, ProcedureCallExpr):
+        callee = typed_procedures_by_name.get(expr.callee_name)
+        if callee is None or callee.definition.name in active_procedures:
+            return None
+        child_locals = dict(local_values)
+        for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
+            child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
+        if not _private_workflow_body_exports_step_backed_outputs(
+            callee.typed_body.expr,
+            return_type_ref=callee.signature.return_type_ref,
+            local_values=child_locals,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures | {callee.definition.name},
+        ):
+            return None
+        return _private_workflow_local_value_for_type(
+            callee.signature.return_type_ref,
+            step_name=binding_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    returns_type_name = getattr(expr, "returns_type_name", None)
+    if not isinstance(returns_type_name, str):
+        return None
+    return _private_workflow_local_value_for_type(
+        type_env.resolve_type(
+            returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        ),
+        step_name=binding_name,
+        span=expr.span,
+        form_path=expr.form_path,
+    )
+
+
+def _private_workflow_local_value_for_type(
+    type_ref: TypeRef,
+    *,
+    step_name: str,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> Any | None:
+    """Build the local-value projection a structured step would expose."""
+
+    if isinstance(type_ref, (RecordTypeRef, UnionTypeRef)):
+        output_refs = {
+            field.generated_name: f"root.steps.{step_name}.artifacts.{field.generated_name}"
+            for field in derive_workflow_boundary_fields(
+                type_ref,
+                generated_name="return",
+                source_path=("return",),
+                span=span,
+                form_path=form_path,
+            )
+        }
+        return _build_output_step_local_value(output_refs)
+    return None
+
+
 def _private_workflow_body_exports_step_backed_outputs(
     expr: Any,
     *,
@@ -8731,18 +8812,17 @@ def _private_workflow_body_exports_step_backed_outputs(
     if isinstance(expr, LetStarExpr):
         child_locals = dict(local_values)
         for binding_name, binding_expr in expr.bindings:
-            if not isinstance(binding_expr, ProviderResultExpr):
-                return False
-            binding_type = type_env.resolve_type(
-                binding_expr.returns_type_name,
-                span=binding_expr.span,
-                form_path=binding_expr.form_path,
+            binding_value = _private_workflow_binding_local_value(
+                binding_expr,
+                binding_name=binding_name,
+                local_values=child_locals,
+                typed_procedures_by_name=typed_procedures_by_name,
+                type_env=type_env,
+                active_procedures=active_procedures,
             )
-            if isinstance(binding_type, RecordTypeRef):
-                child_locals[binding_name] = _build_record_step_local_value(
-                    binding_type,
-                    step_name=binding_name,
-                )
+            if binding_value is None:
+                return False
+            child_locals[binding_name] = binding_value
         return _private_workflow_body_exports_step_backed_outputs(
             expr.body,
             return_type_ref=return_type_ref,
@@ -8774,12 +8854,20 @@ def _match_outputs_are_step_backed(
 ) -> bool:
     """Return whether every match arm projects step-backed record outputs."""
 
+    binding_terminal = _binding_terminal_for_inline_match(
+        _resolve_inline_expr_value(match_expr.subject, local_values=local_values)
+    )
+    if binding_terminal is None:
+        return False
     return all(
         isinstance(arm.body, RecordExpr)
         and _record_outputs_are_step_backed(
             arm.body,
             return_type_ref=return_type_ref,
-            local_values=local_values,
+            local_values={
+                **local_values,
+                arm.binding_name: _build_output_step_local_value(binding_terminal.output_refs),
+            },
         )
         for arm in match_expr.arms
     )

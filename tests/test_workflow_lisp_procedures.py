@@ -898,6 +898,110 @@ def test_direct_provider_result_procedure_effects_do_not_require_hidden_bundle_w
     )
 
 
+def test_private_workflow_review_phase_procedure_accepts_review_loop_result_projection(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "procedure_review_phase_private_workflow.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defenum BlockerClass",
+            "    user_decision_required)",
+            "  (defenum ReviewDecision",
+            "    APPROVE",
+            "    REVISE",
+            "    BLOCKED)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord RunCtx",
+            "    (run-id RunId)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord PhaseCtx",
+            "    (run RunCtx)",
+            "    (phase-name Symbol)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord CompletedSurface",
+            "    (plan_path WorkReport))",
+            "  (defrecord ReviewInputs",
+            "    (report_path WorkReport))",
+            "  (defrecord ReviewSurfaceResult",
+            "    (report_path WorkReport))",
+            "  (defunion ReviewLoopResult",
+            "    (APPROVED",
+            "      (checks_report WorkReport)",
+            "      (review_report WorkReport)",
+            "      (review_decision ReviewDecision))",
+            "    (BLOCKED",
+            "      (progress_report WorkReport)",
+            "      (blocker_class BlockerClass))",
+            "    (EXHAUSTED",
+            "      (last_review_report WorkReport)",
+            "      (reason String)))",
+            "  (defproc review-phase-helper",
+            "    ((phase-ctx PhaseCtx)",
+            "     (completed CompletedSurface)",
+            "     (inputs ReviewInputs))",
+            "    -> ReviewSurfaceResult",
+            "    :effects ()",
+            "    :lowering private-workflow",
+            "    (with-phase phase-ctx implementation-review",
+            "      (let* ((review",
+            "               (review-revise-loop implementation-review",
+            "                 :ctx phase-ctx",
+            "                 :completed completed",
+            "                 :inputs inputs",
+            "                 :review-provider providers.review",
+            "                 :fix-provider providers.fix",
+            "                 :review-prompt prompts.review",
+            "                 :fix-prompt prompts.fix",
+            "                 :max 3",
+            "                 :returns ReviewLoopResult)))",
+            "        (match review",
+            "          ((APPROVED approved)",
+            "           (record ReviewSurfaceResult",
+            "             :report_path approved.review_report))",
+            "          ((BLOCKED blocked)",
+            "           (record ReviewSurfaceResult",
+            "             :report_path blocked.progress_report))",
+            "          ((EXHAUSTED exhausted)",
+            "           (record ReviewSurfaceResult",
+            "             :report_path exhausted.last_review_report))))))",
+            "  (defworkflow run-review",
+            "    ((phase-ctx PhaseCtx)",
+            "     (completed CompletedSurface)",
+            "     (inputs ReviewInputs))",
+            "    -> ReviewSurfaceResult",
+            "    (review-phase-helper phase-ctx completed inputs)))",
+        ],
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={
+            "providers.review": "test-review-provider",
+            "providers.fix": "test-fix-provider",
+        },
+        prompt_externs={
+            "prompts.review": "prompts/review.md",
+            "prompts.fix": "prompts/fix.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
+    private_names = [
+        name for name in lowered_names if name.endswith(".review-phase-helper.v1")
+    ]
+
+    assert private_names == ["%procedure_review_phase_private_workflow.review-phase-helper.v1"]
+    assert private_names[0] in result.validated_bundles
+
+
 def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_nested_workflow_effects.orc",
