@@ -34,7 +34,8 @@ If there are any high-severity findings, include a section header exactly `## Hi
 If there are no high-severity findings, do not emit a `## High` section.
 Include a section `## Follow-Up Work` for unfinished plan work that is real but not required for approving the delivered scope.
 Approve only if:
-- there is no `## High` section
+- there are no high- or medium-severity findings
 - no claimed or current-scope implementation tasks or explicitly blocking verification tasks remain unimplemented
 - no unfinished prerequisite makes the delivered behavior unsafe, misleading, or unusable
 - no material design requirement was silently dropped or deferred without authority
+Return `REVISE` for any concrete medium-or-higher bug, contract mismatch, missing check, fixture shortcut, or verification gap.

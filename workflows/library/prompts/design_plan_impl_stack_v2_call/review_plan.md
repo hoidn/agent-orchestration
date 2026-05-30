@@ -47,4 +47,5 @@ Also write:
 - the unresolved high count integer to the `unresolved_high_count` path specified in the Output Contract
 - the unresolved medium count integer to the `unresolved_medium_count` path specified in the Output Contract
 
-Approve only if there are no unresolved high findings and the plan is ready to execute without inventing architecture, silently dropping material design requirements, or deferring required work without authority.
+Approve only if there are no unresolved high or medium findings and the plan is ready to execute without inventing architecture, silently dropping material design requirements, or deferring required work without authority.
+Return `REVISE` for any concrete medium-or-higher scope, contract, API, fixture, or verification gap.
