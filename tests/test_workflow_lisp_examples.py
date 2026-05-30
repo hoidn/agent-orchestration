@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -117,3 +118,27 @@ def test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack(tmp_path:
         "run-with-phase-composed-binding__match_phase-result",
     ]
     assert lowered["steps"][1]["provider"] == "test-provider"
+
+
+def test_same_file_record_call_binding_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        WORKFLOWS / "same_file_record_call_binding.orc",
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = {
+        workflow.typed_workflow.definition.name: workflow.authored_mapping
+        for workflow in result.lowered_workflows
+    }
+
+    assert set(lowered) == {"build-checks", "run-same-file-record-call-binding"}
+    assert lowered["run-same-file-record-call-binding"]["steps"][0]["with"]["input__report"] == {
+        "ref": "inputs.report_path"
+    }

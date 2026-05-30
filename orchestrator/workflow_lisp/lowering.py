@@ -3668,15 +3668,14 @@ def _lower_call_expr(
     for param_name, param_type in callee_signature.params:
         value_expr = binding_by_name[param_name]
         if isinstance(param_type, RecordTypeRef):
-            for generated_name, field_path in _flatten_boundary_leaf_paths(
-                param_type,
-                generated_name=param_name,
-            ):
-                with_bindings[generated_name] = _render_call_binding_ref(
+            with_bindings.update(
+                _render_record_call_bindings(
+                    param_name,
+                    param_type,
                     value_expr,
                     local_values=local_values,
-                    field_path=field_path,
                 )
+            )
             continue
         with_bindings[param_name] = _render_call_binding_ref(value_expr, local_values=local_values)
     managed_inputs = (
@@ -3880,12 +3879,14 @@ def _lower_procedure_call_expr(
         with_bindings: dict[str, Any] = {}
         for arg_expr, (param_name, param_type) in zip(arg_exprs, procedure.signature.params, strict=True):
             if isinstance(param_type, RecordTypeRef):
-                for generated_name, field_path in _flatten_boundary_leaf_paths(param_type, generated_name=param_name):
-                    with_bindings[generated_name] = _render_call_binding_ref(
+                with_bindings.update(
+                    _render_record_call_bindings(
+                        param_name,
+                        param_type,
                         arg_expr,
                         local_values=local_values,
-                        field_path=field_path,
                     )
+                )
             else:
                 with_bindings[param_name] = _render_call_binding_ref(arg_expr, local_values=local_values)
         for managed_input in _managed_inputs_from_mapping(callee.authored_mapping):
@@ -6350,13 +6351,68 @@ def _render_call_binding_ref(
     value = _resolve_expr_local_value(expr, local_values=local_values)
     if field_path:
         value = _resolve_nested_local_value(value, field_path)
+    return _render_call_binding_leaf_ref(value, source_expr=expr)
+
+
+def _render_record_call_bindings(
+    param_name: str,
+    param_type: RecordTypeRef,
+    value_expr: Any,
+    *,
+    local_values: Mapping[str, Any],
+) -> dict[str, Any]:
+    """Lower one record-typed call argument into flattened `call.with` refs."""
+
+    bindings: dict[str, Any] = {}
+    resolved_value = _resolve_inline_expr_value(value_expr, local_values=local_values)
+    for generated_name, field_path in _flatten_boundary_leaf_paths(param_type, generated_name=param_name):
+        leaf_source_expr = value_expr
+        if isinstance(resolved_value, Mapping):
+            leaf_value = _resolve_nested_local_value(resolved_value, field_path)
+        elif isinstance(resolved_value, RecordExpr):
+            leaf_source_expr = _record_expr_value_at_path(resolved_value, field_path)
+            leaf_value = _resolve_inline_expr_value(leaf_source_expr, local_values=local_values)
+        else:
+            leaf_value = _inline_expr_field_value(
+                value_expr,
+                field_path=field_path,
+                local_values=local_values,
+            )
+        bindings[generated_name] = _render_call_binding_leaf_ref(
+            leaf_value,
+            source_expr=leaf_source_expr,
+            binding_label=_record_call_binding_label(param_name, field_path),
+        )
+    return bindings
+
+
+def _record_call_binding_label(param_name: str, field_path: tuple[str, ...]) -> str:
+    """Render an authored record leaf path for diagnostics."""
+
+    if not field_path:
+        return param_name
+    return f"{param_name}.{'.'.join(field_path)}"
+
+
+def _render_call_binding_leaf_ref(
+    value: Any,
+    *,
+    source_expr: Any,
+    binding_label: str | None = None,
+) -> dict[str, str]:
+    """Apply the shared ref-only authority rule for runtime call bindings."""
+
     if isinstance(value, str):
         return {"ref": value}
+    if binding_label is None:
+        message = "Stage 3 lowering requires same-file call bindings to resolve to workflow inputs"
+    else:
+        message = f"record call binding `{binding_label}` must lower from workflow inputs or prior outputs"
     raise _compile_error(
         code="workflow_signature_mismatch",
-        message="Stage 3 lowering requires same-file call bindings to resolve to workflow inputs",
-        span=expr.span,
-        form_path=expr.form_path,
+        message=message,
+        span=source_expr.span,
+        form_path=source_expr.form_path,
     )
 
 
@@ -6379,14 +6435,11 @@ def _build_call_bindings_from_record_value(
     bindings: dict[str, Any] = {}
     for generated_name, field_path in _flatten_boundary_leaf_paths(param_type, generated_name=param_name):
         ref = _resolve_nested_local_value(value, field_path)
-        if not isinstance(ref, str):
-            raise _compile_error(
-                code="workflow_signature_mismatch",
-                message="Stage 3 lowering requires synthesized call bindings to resolve to workflow inputs or prior outputs",
-                span=source_expr.span,
-                form_path=source_expr.form_path,
-            )
-        bindings[generated_name] = {"ref": ref}
+        bindings[generated_name] = _render_call_binding_leaf_ref(
+            ref,
+            source_expr=source_expr,
+            binding_label=_record_call_binding_label(param_name, field_path),
+        )
     return bindings
 
 

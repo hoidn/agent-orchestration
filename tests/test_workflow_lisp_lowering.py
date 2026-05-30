@@ -761,6 +761,158 @@ def test_lower_workflow_definitions_accepts_same_file_call_field_bindings(tmp_pa
     assert lowered["steps"][0]["with"]["report_path"] == {"ref": "inputs.input__report"}
 
 
+def test_compile_stage3_module_lowers_same_file_call_with_direct_record_expr(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "direct_record_call.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defworkflow build-checks",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report)',
+                "      :returns WorkflowOutput))",
+                "  (defworkflow entry",
+                "    ((report_path WorkReport))",
+                "    -> WorkflowOutput",
+                "    (call build-checks",
+                "      :input (record WorkflowInput :report report_path))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry"
+    )
+
+    assert lowered["steps"][0]["call"] == "build-checks"
+    assert lowered["steps"][0]["with"]["input__report"] == {"ref": "inputs.report_path"}
+
+
+def test_compile_stage3_module_lowers_same_file_call_with_local_record_alias(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "local_record_alias_call.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defworkflow build-checks",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report)',
+                "      :returns WorkflowOutput))",
+                "  (defworkflow entry",
+                "    ((report_path WorkReport))",
+                "    -> WorkflowOutput",
+                "    (let* ((input (record WorkflowInput :report report_path)))",
+                "      (call build-checks :input input))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = next(
+        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry"
+    )
+
+    assert lowered["steps"][0]["call"] == "build-checks"
+    assert lowered["steps"][0]["with"]["input__report"] == {"ref": "inputs.report_path"}
+
+
+def test_compile_stage3_module_rejects_same_file_call_record_leaf_without_ref(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "record_call_literal_leaf.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defworkflow build-checks",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" input.report)',
+                "      :returns WorkflowOutput))",
+                "  (defworkflow entry",
+                "    ((report_path WorkReport))",
+                "    -> WorkflowOutput",
+                "    (call build-checks",
+                '      :input (record WorkflowInput :status "pending" :report report_path))))',
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            command_boundaries={
+                "run_checks": ExternalToolBinding(
+                    name="run_checks",
+                    stable_command=("python", "scripts/run_checks.py"),
+                )
+            },
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "workflow_signature_mismatch"
+    assert "input.status" in diagnostic.message
+
+
 def test_compile_stage3_module_remaps_shared_validation_failures() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         compile_stage3_module(

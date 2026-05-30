@@ -860,6 +860,46 @@ def test_inline_procedure_lowering_accepts_literal_command_arguments(tmp_path: P
     ]
 
 
+def test_private_workflow_call_lowers_local_record_argument_into_flattened_with_bindings(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "procedure_private_workflow_local_record_argument.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc build-checks",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects",
+            "      ((uses-command run_checks))",
+            "    :lowering private-workflow",
+            "    (command-result run_checks",
+            '      :argv ("python" "scripts/run_checks.py" input.report)',
+            "      :returns WorkflowOutput))",
+            "  (defworkflow entry",
+            "    ((report_path WorkReport))",
+            "    -> WorkflowOutput",
+            "    (let* ((input (record WorkflowInput :report report_path)))",
+            "      (build-checks input))))",
+        ],
+    )
+
+    result = _compile(path, tmp_path=tmp_path)
+    lowered = next(
+        workflow.authored_mapping for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry"
+    )
+
+    assert lowered["steps"][0]["with"]["input__report"] == {"ref": "inputs.report_path"}
+
+
 def test_direct_provider_result_procedure_effects_do_not_require_hidden_bundle_writes(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_direct_provider_result.orc",
