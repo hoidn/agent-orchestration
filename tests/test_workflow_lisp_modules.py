@@ -572,6 +572,93 @@ def test_compile_stage3_entrypoint_prefers_local_macros_over_only_imports(tmp_pa
     assert [definition.name for definition in result.entry_result.module.definitions] == ["LocalOut"]
 
 
+def test_compile_stage3_entrypoint_accepts_imported_macros_via_alias_and_module_qualified_names(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "qualified_macro_imports"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import demo/helper :as helper)",
+                "  (export AliasOut ModuleOut)",
+                "  (helper.m AliasOut)",
+                "  (demo/helper/m ModuleOut))",
+            ]
+        ),
+    )
+    _write_module(
+        source_root / "demo" / "helper.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/helper)",
+                "  (export m)",
+                "  (defmacro m (name)",
+                "    (defrecord name",
+                "      (report String))))",
+            ]
+        ),
+    )
+
+    result = _compile_stage3_entrypoint(entry_path, source_root=source_root, tmp_path=tmp_path)
+
+    assert [definition.name for definition in result.entry_result.module.definitions] == [
+        "AliasOut",
+        "ModuleOut",
+    ]
+
+
+def test_compile_stage3_entrypoint_keeps_ambiguous_imported_macro_names_owned_by_module_resolution(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "ambiguous_macro_imports"
+    entry_path = _write_module(
+        source_root / "demo" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule demo/entry)",
+                "  (import demo/first :only (m))",
+                "  (import demo/second :only (m))",
+                "  (export EntryOut)",
+                "  (m EntryOut))",
+            ]
+        ),
+    )
+    for module_name in ("first", "second"):
+        _write_module(
+            source_root / "demo" / f"{module_name}.orc",
+            "\n".join(
+                [
+                    "(workflow-lisp",
+                    '  (:language "0.1")',
+                    '  (:target-dsl "2.14")',
+                    f"  (defmodule demo/{module_name})",
+                    "  (export m)",
+                    "  (defmacro m (name)",
+                    "    (defrecord name",
+                    "      (report String))))",
+                ]
+            ),
+        )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile_stage3_entrypoint(entry_path, source_root=source_root, tmp_path=tmp_path)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "module_import_ambiguous"
+    assert diagnostic.code != "macro_reserved_name"
+
+
 def test_compile_stage3_entrypoint_rejects_mixed_direct_qualified_workflow_references(
     tmp_path: Path,
 ) -> None:

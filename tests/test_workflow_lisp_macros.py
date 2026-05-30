@@ -194,6 +194,69 @@ def test_compile_stage3_module_accepts_macro_emitted_provider_and_command_result
     ]
 
 
+def test_compile_stage3_allows_caller_authored_effect_spliced_through_macro_alias(tmp_path: Path) -> None:
+    fixture = tmp_path / "macro_caller_authored_effect_alias.orc"
+    fixture.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow-alias command_checks",
+                "    ((report_path WorkReport))",
+                "    ChecksResult",
+                "    (command-result run_checks",
+                '      :argv ("python" "scripts/run_checks.py" report_path)',
+                "      :returns ChecksResult))",
+                "  (defworkflow-alias provider_attempt",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    ImplementationSummary",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (input report_path)",
+                "               :returns ImplementationSummary)))",
+                "      attempt))",
+                "  (defmacro defworkflow-alias (name params return_type &body body)",
+                "    (defworkflow name",
+                "      params",
+                "      -> return_type",
+                "      (splice body))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = compile_stage3_module(
+        fixture,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    assert [workflow.definition.name for workflow in result.typed_workflows] == [
+        "command_checks",
+        "provider_attempt",
+    ]
+
+
 def test_compile_stage3_entrypoint_rejects_imported_macros_that_introduce_hidden_effects(
     tmp_path: Path,
 ) -> None:

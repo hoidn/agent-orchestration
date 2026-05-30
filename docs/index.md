@@ -111,6 +111,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, macros, defworkflow
 **Use this when:** Reviewing the parent Workflow Lisp language contract or checking whether a scoped frontend delta preserves the baseline design.
 
+### [Workflow Lisp Macro Surface Contract](design/workflow_lisp_macro_surface_contract.md)
+**Description:** Bounded current-checkout contract for `defmacro`, covering implemented hygiene, imported lookup and precedence, validation ownership, and macro provenance obligations without promoting future macro features into current behavior.
+**Keywords:** lisp-frontend, defmacro, macros, hygiene, import-resolution, source-map
+**Use this when:** Aligning implementation, tests, and docs for the current Workflow Lisp macro surface rather than the broader future macro design.
+
 ### [Workflow Lisp Frontend MVP Specification](design/workflow_lisp_frontend_mvp_specification.md)
 **Description:** Narrow MVP tranche for proving the Lisp frontend with typed records/unions, `provider-result`, `command-result`, `match`, source-span diagnostics, and one real v2.14 phase translation before adding user macros or the full procedural library.
 **Keywords:** lisp-frontend, mvp, workflow-language, core-ast, typed-unions, match

@@ -1270,6 +1270,48 @@ def test_compile_stage3_renders_macro_expansion_notes_for_downstream_name_unknow
     assert "macro definition at" in rendered
 
 
+def test_compile_stage3_preserves_macro_provenance_without_reclassifying_downstream_validation_failures(
+    tmp_path: Path,
+) -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    path = tmp_path / "macro_record_missing_name_serialized.orc"
+    path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defrecord Out",
+                "    (value String))",
+                "  (emit-record-workflow broken)",
+                "  (defmacro emit-record-workflow (name)",
+                "    (defworkflow name",
+                "      ()",
+                "      -> Out",
+                "      (record Out :value missing_name))))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(path, validate_shared=False)
+
+    diagnostic = excinfo.value.diagnostics[0]
+    payload = serialize_diagnostic(diagnostic)
+    rendered = render_diagnostic(diagnostic)
+
+    assert diagnostic.code == "name_unknown"
+    assert payload["code"] == "name_unknown"
+    assert payload["validation_pass"] == "type"
+    assert payload["authority_layer"] == "frontend"
+    assert payload["expansion_stack"][0]["macro_name"] == "emit-record-workflow"
+    assert "expanded from macro `emit-record-workflow` call at" in rendered
+    assert "macro definition at" in rendered
+
+
 def test_compile_stage3_renders_nested_macro_notes_for_hidden_command_effect(
     tmp_path: Path,
 ) -> None:

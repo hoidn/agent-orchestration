@@ -9,6 +9,7 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.diagnostics import serialize_diagnostic
 from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
@@ -200,7 +201,7 @@ def test_source_map_records_let_proc_authored_lineage(tmp_path: Path) -> None:
     )
 
 
-def test_source_map_validator_rejects_macro_origin_executable_node_without_origin(
+def test_source_map_validator_preserves_macro_origin_ownership_for_unmapped_executable_nodes(
     tmp_path: Path,
 ) -> None:
     source_map_module, document, workflow_name = _build_source_map_document(
@@ -227,7 +228,11 @@ def test_source_map_validator_rejects_macro_origin_executable_node_without_origi
         source_map_module.validate_source_map_document(broken_document)
 
     diagnostic = excinfo.value.diagnostics[0]
+    payload = serialize_diagnostic(diagnostic)
     assert diagnostic.code == "source_map_executable_node_unmapped"
     assert diagnostic.span.start.path.endswith("tests/fixtures/workflow_lisp/valid/macro_workflow_alias.orc")
     assert diagnostic.expansion_stack
     assert diagnostic.expansion_stack[0].macro_name == "defworkflow-alias"
+    assert payload["code"] == "source_map_executable_node_unmapped"
+    assert payload["validation_pass"] == "source_map"
+    assert payload["authority_layer"] == "frontend"

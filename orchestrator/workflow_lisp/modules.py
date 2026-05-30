@@ -583,17 +583,25 @@ def build_import_scope(
                         )
                     )
             existing = target_bindings.get(member_name)
-            if existing is not None and existing.canonical_name != binding.canonical_name:
-                raise LispFrontendCompileError(
-                    (
-                        LispFrontendDiagnostic(
-                            code="module_import_ambiguous",
-                            message=f"ambiguous imported name `{member_name}`",
-                            span=import_directive.span,
-                            form_path=import_directive.form_path,
-                        ),
+            if existing is not None:
+                same_import_binding = existing.canonical_name == binding.canonical_name
+                if binding.kind == "macro":
+                    same_import_binding = (
+                        existing.kind == binding.kind
+                        and existing.module_name == binding.module_name
+                        and existing.member_name == binding.member_name
                     )
-                )
+                if not same_import_binding:
+                    raise LispFrontendCompileError(
+                        (
+                            LispFrontendDiagnostic(
+                                code="module_import_ambiguous",
+                                message=f"ambiguous imported name `{member_name}`",
+                                span=import_directive.span,
+                                form_path=import_directive.form_path,
+                            ),
+                        )
+                    )
             target_bindings[member_name] = binding
     return ModuleImportScope(
         module_name=module.module_name or "<anonymous>",
