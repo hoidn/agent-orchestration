@@ -423,6 +423,80 @@ def test_lowering_loop_recur_with_composed_with_phase_binding_exports_step_backe
     assert "loop-recur-phase-binding__body" in nested_names
 
 
+def test_loop_recur_supports_match_binding_followed_by_effectful_binding(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_match_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord AttemptReport",
+                "    (report WorkReport))",
+                "  (defrecord FinalReport",
+                "    (report WorkReport))",
+                "  (defunion ImplementationState",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow loop-recur-match-binding",
+                "    ((report_path WorkReport))",
+                "    -> FinalReport",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ImplementationState)))",
+                "      (loop/recur :max 2 :state attempt",
+                "        (fn (state)",
+                "          (let* ((alias state)",
+                "                 (attempt-report",
+                "                  (match alias",
+                "                    ((COMPLETED completed)",
+                "                     (provider-result providers.execute",
+                "                       :prompt prompts.implementation.execute",
+                "                       :inputs (completed.execution_report)",
+                "                       :returns AttemptReport))",
+                "                    ((BLOCKED blocked)",
+                "                     (provider-result providers.execute",
+                "                       :prompt prompts.implementation.execute",
+                "                       :inputs (blocked.progress_report)",
+                "                       :returns AttemptReport))))",
+                "                 (final-report",
+                "                  (provider-result providers.execute",
+                "                    :prompt prompts.implementation.execute",
+                "                    :inputs (attempt-report.report)",
+                "                    :returns FinalReport)))",
+                "            (done final-report)))))))",
+            ]
+        ),
+    )
+
+    result = _compile(workflow_path, tmp_path=tmp_path)
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+    nested_steps = repeat_step["repeat_until"]["steps"]
+
+    match_step = next(step for step in nested_steps if "match" in step)
+    final_provider_step = next(
+        step for step in nested_steps if step.get("provider") == "test-provider" and step["name"].endswith("__final-report")
+    )
+
+    assert match_step["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
+    assert match_step["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
+    assert final_provider_step["output_bundle"]["fields"][0]["name"] == "report"
+
+
 def test_invalid_loop_recur_fn_outside_loop_fixture_fails(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(INVALID_FN_OUTSIDE_FIXTURE, tmp_path=tmp_path)

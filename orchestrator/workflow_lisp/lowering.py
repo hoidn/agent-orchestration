@@ -739,6 +739,16 @@ class _TerminalResult:
     hidden_inputs: Mapping[str, LoweringOrigin]
 
 
+@dataclass(frozen=True)
+class _NormalizedBindingResult:
+    """One normalized `let*` binding shared across lowering entrypoints."""
+
+    binding_type: TypeRef | None
+    emitted_steps: list[dict[str, Any]]
+    terminal: _TerminalResult | None
+    local_value: Any | None
+
+
 @dataclass
 class _LoweringContext:
     """Mutable state threaded through expression lowering.
@@ -1162,6 +1172,14 @@ def _lower_expression(
         return _lower_procedure_call_expr(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, RecordExpr):
         return _lower_record_expr(typed_expr, context=context, local_values=local_values)
+    if isinstance(expr, MatchExpr):
+        return _lower_binding_match_expr(
+            expr,
+            result_type=typed_expr.type_ref,
+            context=context,
+            local_values=local_values,
+            step_name_prefix=context.step_name_prefix,
+        )
     if isinstance(expr, LetStarExpr):
         return _lower_let_star(typed_expr, context=context, local_values=local_values)
     if isinstance(expr, IfExpr):
@@ -2993,43 +3011,16 @@ def _lower_loop_body_expr(
                 form_path=expr.form_path,
                 expansion_stack=expr.expansion_stack,
             )
-        if isinstance(binding_expr, (NameExpr, FieldAccessExpr, LiteralExpr, RecordExpr)):
-            loop_local_values = dict(local_values)
-            loop_local_values[binding_name] = _resolve_inline_expr_value(binding_expr, local_values=local_values)
-            return _lower_loop_body_expr(
-                body_expr,
-                loop_binding_name=loop_binding_name,
-                state_projection=state_projection,
-                result_projection=result_projection,
-                result_type=result_type,
-                context=_context_with_local_type_binding(
-                    context,
-                    binding_name=binding_name,
-                    binding_type=_resolve_lowering_expr_type(binding_expr, context=context),
-                ),
-                local_values=loop_local_values,
-                binding_terminal=binding_terminal,
-                body_step_name=body_step_name,
-                active_variant_name=active_variant_name,
-            )
-
-        binding_type = _binding_type_for_expr(binding_expr, context=context)
-        binding_step_name = f"{body_step_name}__{binding_name}"
-        binding_steps, lowered_binding_terminal = _lower_effectful_binding_expr(
+        normalized_binding = _normalize_let_binding(
+            binding_name,
             binding_expr,
-            binding_type=binding_type,
             context=context,
             local_values=local_values,
-            step_name_prefix=binding_step_name,
+            step_name_prefix=f"{body_step_name}__{binding_name}",
         )
         loop_local_values = dict(local_values)
-        binding_value = _binding_local_value_from_terminal(
-            binding_expr,
-            binding_type=binding_type,
-            binding_terminal=lowered_binding_terminal,
-        )
-        if binding_value is not None:
-            loop_local_values[binding_name] = binding_value
+        if normalized_binding.local_value is not None:
+            loop_local_values[binding_name] = normalized_binding.local_value
         body_steps, body_terminal = _lower_loop_body_expr(
             body_expr,
             loop_binding_name=loop_binding_name,
@@ -3039,14 +3030,24 @@ def _lower_loop_body_expr(
             context=_context_with_local_type_binding(
                 context,
                 binding_name=binding_name,
-                binding_type=binding_type,
+                binding_type=normalized_binding.binding_type,
             ),
             local_values=loop_local_values,
             binding_terminal=binding_terminal,
             body_step_name=body_step_name,
             active_variant_name=active_variant_name,
         )
-        return [*binding_steps, *body_steps], body_terminal
+        hidden_inputs: dict[str, LoweringOrigin] = {}
+        if normalized_binding.terminal is not None:
+            hidden_inputs.update(normalized_binding.terminal.hidden_inputs)
+        hidden_inputs.update(body_terminal.hidden_inputs)
+        return [*normalized_binding.emitted_steps, *body_steps], _TerminalResult(
+            step_name=body_terminal.step_name,
+            step_id=body_terminal.step_id,
+            output_refs=body_terminal.output_refs,
+            output_kind=body_terminal.output_kind,
+            hidden_inputs=hidden_inputs,
+        )
     if isinstance(expr, MatchExpr):
         if not isinstance(expr.subject, NameExpr):
             raise _compile_error(
@@ -3999,8 +4000,141 @@ def _lower_let_star(
             form_path=expr.form_path,
             expansion_stack=expr.expansion_stack,
         )
-    if isinstance(binding_expr, (NameExpr, FieldAccessExpr, LiteralExpr, RecordExpr, ProcRefLiteralExpr, BindProcExpr)):
-        local_bindings = dict(local_values)
+    normalized_binding = _normalize_let_binding(
+        binding_name,
+        binding_expr,
+        context=context,
+        local_values=local_values,
+        step_name_prefix=f"{context.step_name_prefix}__{binding_name}",
+    )
+    local_bindings = dict(local_values)
+    if normalized_binding.local_value is not None:
+        local_bindings[binding_name] = normalized_binding.local_value
+    body_context = _context_with_local_type_binding(
+        context,
+        binding_name=binding_name,
+        binding_type=normalized_binding.binding_type,
+    )
+    output_refs = _inline_output_refs_for_expr(
+        body_expr,
+        type_ref=typed_expr.type_ref,
+        local_values=local_bindings,
+        context=body_context,
+    )
+    if output_refs is not None:
+        lowered_steps, terminal = [], _TerminalResult(
+            step_name=context.step_name_prefix,
+            step_id=_normalize_generated_step_id(context.step_name_prefix),
+            output_refs=output_refs,
+            output_kind="projection",
+            hidden_inputs={},
+        )
+    else:
+        lowered_steps, terminal = _lower_expression(
+            TypedExpr(
+                expr=body_expr,
+                type_ref=typed_expr.type_ref,
+                span=body_expr.span,
+                form_path=body_expr.form_path,
+            ),
+            context=body_context,
+            local_values=local_bindings,
+        )
+    hidden_inputs: dict[str, LoweringOrigin] = {}
+    if normalized_binding.terminal is not None:
+        hidden_inputs.update(normalized_binding.terminal.hidden_inputs)
+    hidden_inputs.update(terminal.hidden_inputs)
+    return [*normalized_binding.emitted_steps, *lowered_steps], _TerminalResult(
+        step_name=terminal.step_name,
+        step_id=terminal.step_id,
+        output_refs=terminal.output_refs,
+        output_kind=terminal.output_kind,
+        hidden_inputs=hidden_inputs,
+    )
+
+
+def _is_inline_let_binding_expr(expr: Any) -> bool:
+    """Return whether a `let*` binding stays inline during lowering."""
+
+    return isinstance(
+        expr,
+        (
+            NameExpr,
+            FieldAccessExpr,
+            LiteralExpr,
+            RecordExpr,
+            ProcRefLiteralExpr,
+            BindProcExpr,
+        ),
+    )
+
+
+def _binding_match_subject_name(subject: Any) -> str:
+    """Render the stable subject label used in generated match step ids."""
+
+    if isinstance(subject, NameExpr):
+        return subject.name
+    if isinstance(subject, FieldAccessExpr):
+        return subject.base.name
+    return "binding"
+
+
+def _binding_terminal_for_match_subject(
+    subject: Any,
+    *,
+    local_values: Mapping[str, Any],
+) -> _TerminalResult | None:
+    """Resolve a match subject from locals when the subject is already step-backed."""
+
+    resolved_subject = _resolve_inline_expr_value(subject, local_values=local_values)
+    return _binding_terminal_for_inline_match(resolved_subject)
+
+
+def _lower_binding_match_expr(
+    expr: MatchExpr,
+    *,
+    result_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    step_name_prefix: str,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower one match expression when its subject already resolves to step refs."""
+
+    binding_terminal = _binding_terminal_for_match_subject(
+        expr.subject,
+        local_values=local_values,
+    )
+    if binding_terminal is None:
+        raise _compile_error(
+            code="workflow_return_not_exportable",
+            message="Stage 3 lowering requires match subjects to come from step-backed let* bindings",
+            span=expr.subject.span,
+            form_path=expr.subject.form_path,
+        )
+    return _lower_match_expr(
+        expr,
+        result_type=result_type,
+        context=_copy_context_with_step_prefix(
+            context,
+            step_name_prefix=step_name_prefix,
+        ),
+        binding_name=_binding_match_subject_name(expr.subject),
+        binding_terminal=binding_terminal,
+        local_values=local_values,
+    )
+
+
+def _normalize_let_binding(
+    binding_name: str,
+    binding_expr: Any,
+    *,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    step_name_prefix: str,
+) -> _NormalizedBindingResult:
+    """Normalize one authored binding into a shared inline or step-backed shape."""
+
+    if _is_inline_let_binding_expr(binding_expr):
         resolved_binding = _resolve_inline_expr_value(
             binding_expr,
             local_values=local_values,
@@ -4011,126 +4145,35 @@ def _lower_let_star(
                 context=context,
                 local_values=local_values,
             )
-        local_bindings[binding_name] = resolved_binding
         binding_type = (
             resolved_binding.residual_type_ref
             if isinstance(resolved_binding, ResolvedProcRefValue)
             else _infer_inline_binding_type(binding_expr, context=context)
         )
-        body_context = _context_with_local_type_binding(
-            context,
-            binding_name=binding_name,
+        return _NormalizedBindingResult(
             binding_type=binding_type,
+            emitted_steps=[],
+            terminal=None,
+            local_value=resolved_binding,
         )
-        if isinstance(body_expr, MatchExpr):
-            binding_terminal = _binding_terminal_for_inline_match(
-                local_bindings.get(binding_name),
-            )
-            if binding_terminal is None:
-                raise _compile_error(
-                    code="workflow_return_not_exportable",
-                    message="Stage 3 lowering requires match subjects to come from step-backed let* bindings",
-                    span=body_expr.span,
-                    form_path=body_expr.form_path,
-                )
-            return _lower_match_expr(
-                body_expr,
-                result_type=typed_expr.type_ref,
-                context=body_context,
-                binding_name=binding_name,
-                binding_terminal=binding_terminal,
-                local_values=local_bindings,
-            )
-        output_refs = _inline_output_refs_for_expr(
-            body_expr,
-            type_ref=typed_expr.type_ref,
-            local_values=local_bindings,
-            context=body_context,
-        )
-        if output_refs is not None:
-            return [], _TerminalResult(
-                step_name=context.step_name_prefix,
-                step_id=_normalize_generated_step_id(context.step_name_prefix),
-                output_refs=output_refs,
-                output_kind="projection",
-                hidden_inputs={},
-            )
-        return _lower_expression(
-            TypedExpr(
-                expr=body_expr,
-                type_ref=typed_expr.type_ref,
-                span=body_expr.span,
-                form_path=body_expr.form_path,
-            ),
-            context=body_context,
-            local_values=local_bindings,
-        )
+
     binding_type = _binding_type_for_expr(binding_expr, context=context)
-    provider_step_name = f"{context.step_name_prefix}__{binding_name}"
     binding_steps, binding_terminal = _lower_effectful_binding_expr(
         binding_expr,
         binding_type=binding_type,
         context=context,
         local_values=local_values,
-        step_name_prefix=provider_step_name,
+        step_name_prefix=step_name_prefix,
     )
-    local_bindings = dict(local_values)
-    binding_value = _binding_local_value_from_terminal(
-        binding_expr,
+    return _NormalizedBindingResult(
         binding_type=binding_type,
-        binding_terminal=binding_terminal,
-    )
-    if binding_value is not None:
-        local_bindings[binding_name] = binding_value
-    body_context = _context_with_local_type_binding(
-        context,
-        binding_name=binding_name,
-        binding_type=binding_type,
-    )
-
-    if isinstance(body_expr, MatchExpr):
-        lowered_steps, terminal = _lower_match_expr(
-            body_expr,
-            result_type=typed_expr.type_ref,
-            context=body_context,
-            binding_name=binding_name,
+        emitted_steps=binding_steps,
+        terminal=binding_terminal,
+        local_value=_binding_local_value_from_terminal(
+            binding_expr,
+            binding_type=binding_type,
             binding_terminal=binding_terminal,
-            local_values=local_bindings,
-        )
-    else:
-        output_refs = _inline_output_refs_for_expr(
-            body_expr,
-            type_ref=typed_expr.type_ref,
-            local_values=local_bindings,
-            context=body_context,
-        )
-        if output_refs is not None:
-            lowered_steps, terminal = [], _TerminalResult(
-                step_name=context.step_name_prefix,
-                step_id=_normalize_generated_step_id(context.step_name_prefix),
-                output_refs=output_refs,
-                output_kind="projection",
-                hidden_inputs={},
-            )
-        else:
-            lowered_steps, terminal = _lower_expression(
-                TypedExpr(
-                    expr=body_expr,
-                    type_ref=typed_expr.type_ref,
-                    span=body_expr.span,
-                    form_path=body_expr.form_path,
-                ),
-                context=body_context,
-                local_values=local_bindings,
-            )
-    hidden_inputs = dict(binding_terminal.hidden_inputs)
-    hidden_inputs.update(terminal.hidden_inputs)
-    return [*binding_steps, *lowered_steps], _TerminalResult(
-        step_name=terminal.step_name,
-        step_id=terminal.step_id,
-        output_refs=terminal.output_refs,
-        output_kind=terminal.output_kind,
-        hidden_inputs=hidden_inputs,
+        ),
     )
 
 
@@ -4243,6 +4286,14 @@ def _lower_effectful_binding_expr(
             context=context,
             local_values=local_values,
             step_name=step_name_prefix,
+        )
+    if isinstance(expr, MatchExpr):
+        return _lower_binding_match_expr(
+            expr,
+            result_type=binding_type,
+            context=context,
+            local_values=local_values,
+            step_name_prefix=step_name_prefix,
         )
     return _lower_expression(
         TypedExpr(
@@ -6373,6 +6424,15 @@ def _procedure_signature_local_values(procedure: TypedProcedureDef) -> dict[str,
         local_values.update(dict(getattr(procedure.specialization, "proc_ref_bindings", {})))
         local_values.update(dict(getattr(procedure.specialization, "value_bindings", {})))
     return local_values
+
+
+def _procedure_signature_local_type_bindings(procedure: TypedProcedureDef) -> dict[str, TypeRef]:
+    """Seed local type bindings from a private workflow procedure signature."""
+
+    return {
+        param_name: param_type
+        for param_name, param_type in procedure.signature.params
+    }
 
 
 def _render_argv_tail(argv: list[Any], *, local_values: Mapping[str, Any]) -> list[str]:
@@ -8601,98 +8661,18 @@ def _binding_type_for_expr(expr: Any, *, context: _LoweringContext) -> TypeRef:
     """Infer the type of an effectful `let*` binding for later lowering."""
 
     if isinstance(expr, WithPhaseExpr):
-        try:
-            return _binding_type_for_expr(expr.body, context=context)
-        except LispFrontendCompileError as exc:
-            diagnostic = exc.diagnostics[0]
-            if diagnostic.code != "workflow_return_not_exportable":
-                raise
-            raise _compile_error(
-                code="workflow_return_not_exportable",
-                message=f"composed `with-phase` body is not exportable in this Stage 3 slice: {diagnostic.message}",
-                span=diagnostic.span,
-                form_path=diagnostic.form_path,
-            ) from exc
-    if isinstance(
-        expr,
-        (
-            ProviderResultExpr,
-            CommandResultExpr,
-            RunProviderPhaseExpr,
-            ProduceOneOfExpr,
-            ReviewReviseLoopExpr,
-            ResumeOrStartExpr,
-        ),
-    ):
-        return context.type_env.resolve_type(
-            expr.returns_type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, ResourceTransitionExpr):
-        return context.type_env.resolve_type(
-            "ResourceTransitionResult",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, FinalizeSelectedItemExpr):
-        return context.type_env.resolve_type(
-            "SelectedItemResult",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, BacklogDrainExpr):
-        return context.type_env.resolve_type(
-            "DrainResult",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, LoopRecurExpr):
-        loop_result_type = _resolve_lowering_expr_type(expr, context=context)
-        if loop_result_type is not None:
-            return loop_result_type
+        binding_type = _resolve_lowering_expr_type(expr, context=context)
+        if binding_type is not None:
+            return binding_type
         raise _compile_error(
             code="workflow_return_not_exportable",
-            message="unable to resolve `loop/recur` result type during lowering",
-            span=expr.span,
-            form_path=expr.form_path,
+            message="composed `with-phase` body is not exportable in this Stage 3 slice",
+            span=expr.body.span,
+            form_path=expr.body.form_path,
         )
-    if isinstance(expr, IfExpr):
-        result_type = _resolve_lowering_expr_type(expr, context=context)
-        if result_type is not None:
-            return result_type
-        raise _compile_error(
-            code="workflow_return_not_exportable",
-            message="unable to resolve `if` result type during lowering",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, CallExpr):
-        callee = context.lowered_callees.get(expr.callee_name)
-        if callee is not None:
-            return callee.typed_workflow.signature.return_type_ref
-        signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
-        if signature is not None:
-            return signature.return_type_ref
-        raise _compile_error(
-            code="workflow_call_unknown",
-            message=f"unknown workflow callee `{expr.callee_name}` during lowering",
-            span=expr.span,
-            form_path=expr.form_path,
-        )
-    if isinstance(expr, ProcedureCallExpr):
-        proc_ref_type = context.local_type_bindings.get(expr.callee_name)
-        if isinstance(proc_ref_type, ProcRefTypeRef):
-            return proc_ref_type.return_type_ref
-        procedure = context.typed_procedures.get(expr.callee_name)
-        if procedure is None:
-            raise _compile_error(
-                code="procedure_call_unknown",
-                message=f"unknown procedure callee `{expr.callee_name}` during lowering",
-                span=expr.span,
-                form_path=expr.form_path,
-            )
-        return procedure.signature.return_type_ref
+    binding_type = _resolve_lowering_expr_type(expr, context=context)
+    if binding_type is not None:
+        return binding_type
     raise _compile_error(
         code="workflow_return_not_exportable",
         message=f"Stage 3 lowering does not support let* binding `{type(expr).__name__}`",
@@ -8733,8 +8713,68 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
             span=expr.span,
             form_path=expr.form_path,
         )
+    if isinstance(
+        expr,
+        (
+            ProviderResultExpr,
+            CommandResultExpr,
+            RunProviderPhaseExpr,
+            ProduceOneOfExpr,
+            ReviewReviseLoopExpr,
+            ResumeOrStartExpr,
+        ),
+    ):
+        return context.type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, ResourceTransitionExpr):
+        return context.type_env.resolve_type(
+            "ResourceTransitionResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, FinalizeSelectedItemExpr):
+        return context.type_env.resolve_type(
+            "SelectedItemResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, BacklogDrainExpr):
+        return context.type_env.resolve_type(
+            "DrainResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
     if isinstance(expr, DoneExpr):
         return _resolve_lowering_expr_type(expr.result_expr, context=context)
+    if isinstance(expr, CallExpr):
+        callee = context.lowered_callees.get(expr.callee_name)
+        if callee is not None:
+            return callee.typed_workflow.signature.return_type_ref
+        signature = context.workflow_catalog.signatures_by_name.get(expr.callee_name)
+        if signature is not None:
+            return signature.return_type_ref
+        raise _compile_error(
+            code="workflow_call_unknown",
+            message=f"unknown workflow callee `{expr.callee_name}` during lowering",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, ProcedureCallExpr):
+        proc_ref_type = context.local_type_bindings.get(expr.callee_name)
+        if isinstance(proc_ref_type, ProcRefTypeRef):
+            return proc_ref_type.return_type_ref
+        procedure = context.typed_procedures.get(expr.callee_name)
+        if procedure is None:
+            raise _compile_error(
+                code="procedure_call_unknown",
+                message=f"unknown procedure callee `{expr.callee_name}` during lowering",
+                span=expr.span,
+                form_path=expr.form_path,
+            )
+        return procedure.signature.return_type_ref
     if isinstance(expr, MatchExpr):
         arm_types = [
             _resolve_lowering_expr_type(
@@ -9044,10 +9084,163 @@ def _procedure_private_body_valid(
         procedure.typed_body.expr,
         return_type_ref=procedure.signature.return_type_ref,
         local_values=_procedure_signature_local_values(procedure),
+        local_type_bindings=_procedure_signature_local_type_bindings(procedure),
         typed_procedures_by_name=typed_procedures_by_name,
         type_env=type_env,
         active_procedures=frozenset({procedure.definition.name}),
     )
+
+
+def _private_workflow_result_type_for_expr(
+    expr: Any,
+    *,
+    local_type_bindings: Mapping[str, TypeRef],
+    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
+    type_env: FrontendTypeEnvironment,
+) -> TypeRef | None:
+    """Resolve one private-workflow expression type for binding export checks."""
+
+    if isinstance(expr, NameExpr):
+        return local_type_bindings.get(expr.name)
+    if isinstance(expr, FieldAccessExpr):
+        current_type = local_type_bindings.get(expr.base.name)
+        for field_name in expr.fields:
+            if not isinstance(current_type, RecordTypeRef):
+                return None
+            current_type = type_env.record_field(
+                current_type,
+                field_name,
+                span=expr.span,
+                form_path=expr.form_path,
+                expansion_stack=expr.expansion_stack,
+            )
+        return current_type
+    if isinstance(expr, LiteralExpr):
+        if expr.literal_kind == "string":
+            return PrimitiveTypeRef(name="String")
+        if expr.literal_kind == "int":
+            return PrimitiveTypeRef(name="Int")
+        if expr.literal_kind == "bool":
+            return PrimitiveTypeRef(name="Bool")
+        return None
+    if isinstance(expr, RecordExpr):
+        return type_env.resolve_type(
+            expr.type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(
+        expr,
+        (
+            ProviderResultExpr,
+            CommandResultExpr,
+            RunProviderPhaseExpr,
+            ProduceOneOfExpr,
+            ReviewReviseLoopExpr,
+            ResumeOrStartExpr,
+        ),
+    ):
+        return type_env.resolve_type(
+            expr.returns_type_name,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, ResourceTransitionExpr):
+        return type_env.resolve_type(
+            "ResourceTransitionResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, FinalizeSelectedItemExpr):
+        return type_env.resolve_type(
+            "SelectedItemResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, BacklogDrainExpr):
+        return type_env.resolve_type(
+            "DrainResult",
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+    if isinstance(expr, ProcedureCallExpr):
+        proc_ref_type = local_type_bindings.get(expr.callee_name)
+        if isinstance(proc_ref_type, ProcRefTypeRef):
+            return proc_ref_type.return_type_ref
+        procedure = typed_procedures_by_name.get(expr.callee_name)
+        if procedure is None:
+            return None
+        return procedure.signature.return_type_ref
+    if isinstance(expr, WithPhaseExpr):
+        return _private_workflow_result_type_for_expr(
+            expr.body,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+        )
+    if isinstance(expr, MatchExpr):
+        subject_type = _private_workflow_result_type_for_expr(
+            expr.subject,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+        )
+        arm_types: list[TypeRef | None] = []
+        for arm in expr.arms:
+            arm_local_types = dict(local_type_bindings)
+            if isinstance(subject_type, UnionTypeRef):
+                arm_local_types[arm.binding_name] = type_env.union_variant(
+                    subject_type,
+                    arm.variant_name,
+                    span=expr.subject.span,
+                    form_path=expr.subject.form_path,
+                )
+            arm_types.append(
+                _private_workflow_result_type_for_expr(
+                    arm.body,
+                    local_type_bindings=arm_local_types,
+                    typed_procedures_by_name=typed_procedures_by_name,
+                    type_env=type_env,
+                )
+            )
+        if arm_types and all(arm_type == arm_types[0] for arm_type in arm_types):
+            return arm_types[0]
+        return None
+    if isinstance(expr, LetStarExpr):
+        child_local_types = dict(local_type_bindings)
+        for binding_name, binding_expr in expr.bindings:
+            binding_type = _private_workflow_result_type_for_expr(
+                binding_expr,
+                local_type_bindings=child_local_types,
+                typed_procedures_by_name=typed_procedures_by_name,
+                type_env=type_env,
+            )
+            if binding_type is None:
+                return None
+            child_local_types[binding_name] = binding_type
+        return _private_workflow_result_type_for_expr(
+            expr.body,
+            local_type_bindings=child_local_types,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+        )
+    if isinstance(expr, IfExpr):
+        then_type = _private_workflow_result_type_for_expr(
+            expr.then_expr,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+        )
+        else_type = _private_workflow_result_type_for_expr(
+            expr.else_expr,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+        )
+        if then_type is not None and then_type == else_type:
+            return then_type
+        return None
+    return None
 
 
 def _private_workflow_binding_local_value(
@@ -9055,17 +9248,21 @@ def _private_workflow_binding_local_value(
     *,
     binding_name: str,
     local_values: Mapping[str, Any],
+    local_type_bindings: Mapping[str, TypeRef],
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
     active_procedures: frozenset[str],
 ) -> Any | None:
     """Return the step-backed local shape one private-workflow binding exports."""
 
+    if _is_inline_let_binding_expr(expr):
+        return _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(expr, WithPhaseExpr):
         return _private_workflow_binding_local_value(
             expr.body,
             binding_name=binding_name,
             local_values=local_values,
+            local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
             active_procedures=active_procedures,
@@ -9075,12 +9272,14 @@ def _private_workflow_binding_local_value(
         if callee is None or callee.definition.name in active_procedures:
             return None
         child_locals = dict(local_values)
+        child_local_types = _procedure_signature_local_type_bindings(callee)
         for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
             child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
         if not _private_workflow_body_exports_step_backed_outputs(
             callee.typed_body.expr,
             return_type_ref=callee.signature.return_type_ref,
             local_values=child_locals,
+            local_type_bindings=child_local_types,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
             active_procedures=active_procedures | {callee.definition.name},
@@ -9092,15 +9291,42 @@ def _private_workflow_binding_local_value(
             span=expr.span,
             form_path=expr.form_path,
         )
-    returns_type_name = getattr(expr, "returns_type_name", None)
-    if not isinstance(returns_type_name, str):
+    binding_type = _private_workflow_result_type_for_expr(
+        expr,
+        local_type_bindings=local_type_bindings,
+        typed_procedures_by_name=typed_procedures_by_name,
+        type_env=type_env,
+    )
+    if binding_type is None:
+        return None
+    if isinstance(expr, MatchExpr):
+        if _binding_terminal_for_match_subject(expr.subject, local_values=local_values) is None:
+            return None
+        if not _private_workflow_body_exports_step_backed_outputs(
+            expr,
+            return_type_ref=binding_type,
+            local_values=local_values,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
+        ):
+            return None
+    elif isinstance(expr, LetStarExpr):
+        if not _private_workflow_body_exports_step_backed_outputs(
+            expr,
+            return_type_ref=binding_type,
+            local_values=local_values,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
+        ):
+            return None
+    elif not isinstance(expr, (CallExpr, CommandResultExpr, ProviderResultExpr, RunProviderPhaseExpr, ProduceOneOfExpr, ReviewReviseLoopExpr, ResumeOrStartExpr, ResourceTransitionExpr, FinalizeSelectedItemExpr, BacklogDrainExpr)):
         return None
     return _private_workflow_local_value_for_type(
-        type_env.resolve_type(
-            returns_type_name,
-            span=expr.span,
-            form_path=expr.form_path,
-        ),
+        binding_type,
         step_name=binding_name,
         span=expr.span,
         form_path=expr.form_path,
@@ -9128,6 +9354,8 @@ def _private_workflow_local_value_for_type(
             )
         }
         return _build_output_step_local_value(output_refs)
+    if isinstance(type_ref, (PathTypeRef, PrimitiveTypeRef)):
+        return f"root.steps.{step_name}.artifacts.return"
     return None
 
 
@@ -9136,19 +9364,35 @@ def _private_workflow_body_exports_step_backed_outputs(
     *,
     return_type_ref: TypeRef,
     local_values: Mapping[str, Any],
+    local_type_bindings: Mapping[str, TypeRef],
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
     active_procedures: frozenset[str],
 ) -> bool:
     """Check that a private workflow body returns step-backed outputs."""
 
-    if isinstance(expr, (CommandResultExpr, ProviderResultExpr, CallExpr)):
+    if isinstance(
+        expr,
+        (
+            CommandResultExpr,
+            ProviderResultExpr,
+            CallExpr,
+            RunProviderPhaseExpr,
+            ProduceOneOfExpr,
+            ReviewReviseLoopExpr,
+            ResumeOrStartExpr,
+            ResourceTransitionExpr,
+            FinalizeSelectedItemExpr,
+            BacklogDrainExpr,
+        ),
+    ):
         return True
     if isinstance(expr, WithPhaseExpr):
         return _private_workflow_body_exports_step_backed_outputs(
             expr.body,
             return_type_ref=return_type_ref,
             local_values=local_values,
+            local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
             active_procedures=active_procedures,
@@ -9158,23 +9402,27 @@ def _private_workflow_body_exports_step_backed_outputs(
         if callee is None or callee.definition.name in active_procedures:
             return False
         child_locals = dict(local_values)
+        child_local_types = _procedure_signature_local_type_bindings(callee)
         for arg_expr, (param_name, _) in zip(expr.args, callee.signature.params, strict=True):
             child_locals[param_name] = _resolve_inline_expr_value(arg_expr, local_values=local_values)
         return _private_workflow_body_exports_step_backed_outputs(
             callee.typed_body.expr,
             return_type_ref=callee.signature.return_type_ref,
             local_values=child_locals,
+            local_type_bindings=child_local_types,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
             active_procedures=active_procedures | {callee.definition.name},
         )
     if isinstance(expr, LetStarExpr):
         child_locals = dict(local_values)
+        child_local_types = dict(local_type_bindings)
         for binding_name, binding_expr in expr.bindings:
             binding_value = _private_workflow_binding_local_value(
                 binding_expr,
                 binding_name=binding_name,
                 local_values=child_locals,
+                local_type_bindings=child_local_types,
                 typed_procedures_by_name=typed_procedures_by_name,
                 type_env=type_env,
                 active_procedures=active_procedures,
@@ -9182,10 +9430,19 @@ def _private_workflow_body_exports_step_backed_outputs(
             if binding_value is None:
                 return False
             child_locals[binding_name] = binding_value
+            binding_type = _private_workflow_result_type_for_expr(
+                binding_expr,
+                local_type_bindings=child_local_types,
+                typed_procedures_by_name=typed_procedures_by_name,
+                type_env=type_env,
+            )
+            if binding_type is not None:
+                child_local_types[binding_name] = binding_type
         return _private_workflow_body_exports_step_backed_outputs(
             expr.body,
             return_type_ref=return_type_ref,
             local_values=child_locals,
+            local_type_bindings=child_local_types,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
             active_procedures=active_procedures,
@@ -9195,9 +9452,16 @@ def _private_workflow_body_exports_step_backed_outputs(
             expr,
             return_type_ref=return_type_ref,
             local_values=local_values,
+            local_type_bindings=local_type_bindings,
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
             active_procedures=active_procedures,
+        )
+    if isinstance(expr, (NameExpr, FieldAccessExpr)):
+        return _inline_outputs_are_step_backed(
+            expr,
+            return_type_ref=return_type_ref,
+            local_values=local_values,
         )
     if isinstance(expr, RecordExpr):
         return _record_outputs_are_step_backed(
@@ -9213,6 +9477,7 @@ def _match_outputs_are_step_backed(
     *,
     return_type_ref: TypeRef,
     local_values: Mapping[str, Any],
+    local_type_bindings: Mapping[str, TypeRef],
     typed_procedures_by_name: Mapping[str, TypedProcedureDef],
     type_env: FrontendTypeEnvironment,
     active_procedures: frozenset[str],
@@ -9224,6 +9489,12 @@ def _match_outputs_are_step_backed(
     )
     if binding_terminal is None:
         return False
+    subject_type = _private_workflow_result_type_for_expr(
+        match_expr.subject,
+        local_type_bindings=local_type_bindings,
+        typed_procedures_by_name=typed_procedures_by_name,
+        type_env=type_env,
+    )
     return all(
         _private_workflow_body_exports_step_backed_outputs(
             arm.body,
@@ -9232,6 +9503,19 @@ def _match_outputs_are_step_backed(
                 local_values=local_values,
                 binding_name=arm.binding_name,
                 binding_terminal=binding_terminal,
+            ),
+            local_type_bindings=(
+                {
+                    **dict(local_type_bindings),
+                    arm.binding_name: type_env.union_variant(
+                        subject_type,
+                        arm.variant_name,
+                        span=match_expr.subject.span,
+                        form_path=match_expr.subject.form_path,
+                    ),
+                }
+                if isinstance(subject_type, UnionTypeRef)
+                else local_type_bindings
             ),
             typed_procedures_by_name=typed_procedures_by_name,
             type_env=type_env,
@@ -9254,6 +9538,26 @@ def _record_outputs_are_step_backed(
     for _, field_path in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
         value = _record_expr_value_at_path(record_expr, field_path)
         source_ref = _render_existing_output_ref(value, local_values=local_values)
+        if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.")):
+            return False
+    return True
+
+
+def _inline_outputs_are_step_backed(
+    expr: Any,
+    *,
+    return_type_ref: TypeRef,
+    local_values: Mapping[str, Any],
+) -> bool:
+    """Return whether one inline alias resolves to existing step-backed refs."""
+
+    output_refs = _flatten_inline_output_refs(
+        _resolve_inline_expr_value(expr, local_values=local_values)
+    )
+    if not output_refs:
+        return False
+    for output_name, _ in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
+        source_ref = output_refs.get(output_name)
         if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.")):
             return False
     return True

@@ -147,6 +147,33 @@ def test_effectful_match_arm_normalization_orc_compiles_with_shared_validation(t
     assert lowered["steps"][1]["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
 
 
+def test_effectful_let_star_normalization_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        WORKFLOWS / "effectful_let_star_normalization.orc",
+        provider_externs={
+            "providers.execute": "test-provider",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": (
+                "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+
+    assert result.lowered_workflows[0].typed_workflow.definition.name == "run-effectful-let-star-normalization"
+    assert [step.get("provider") if "provider" in step else "match" for step in lowered["steps"]] == [
+        "test-provider",
+        "match",
+        "test-provider",
+    ]
+    assert lowered["steps"][1]["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
+    assert lowered["steps"][1]["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
+
+
 def test_same_file_record_call_binding_orc_compiles_with_shared_validation(tmp_path: Path) -> None:
     result = compile_stage3_module(
         WORKFLOWS / "same_file_record_call_binding.orc",
