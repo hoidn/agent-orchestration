@@ -111,6 +111,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** lisp-frontend, workflow-language, core-ast, semantic-ir, macros, defworkflow
 **Use this when:** Reviewing the parent Workflow Lisp language contract or checking whether a scoped frontend delta preserves the baseline design.
 
+### [Workflow Lisp Semantic Workflow IR](design/workflow_lisp_semantic_workflow_ir.md)
+**Description:** Durable current-checkout contract for the shared Semantic IR layer, documenting `SemanticWorkflowIR` and `LoadedWorkflowBundle.semantic_ir` as the typed semantic authority surface while executable IR, runtime-plan, and debug/report projections remain distinct.
+**Keywords:** lisp-frontend, semantic-ir, loadedworkflowbundle, contracts, source-map, authority
+**Use this when:** Aligning docs, implementation, and tests around the current Semantic IR contract surface without reopening executable or runtime ownership.
+
 ### [Workflow Lisp Executable IR](design/workflow_lisp_executable_ir.md)
 **Description:** Durable current-checkout contract for the shared executable Workflow Lisp layer, documenting `LoadedWorkflowBundle.ir` and `ExecutableWorkflow` as the validated executable authority while runtime-plan, semantic-IR, source-map, and debug-YAML surfaces remain derived views.
 **Keywords:** lisp-frontend, executable-ir, loadedworkflowbundle, runtime-plan, semantic-ir, authority
