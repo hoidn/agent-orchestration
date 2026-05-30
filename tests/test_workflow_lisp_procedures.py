@@ -1004,6 +1004,110 @@ def test_private_workflow_review_phase_procedure_accepts_review_loop_result_proj
     assert private_names[0] in result.validated_bundles
 
 
+def test_private_workflow_with_phase_binding_exports_step_backed_outputs(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "procedure_with_phase_binding_private_workflow.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defenum BlockerClass",
+            "    missing_resource",
+            "    unavailable_hardware",
+            "    roadmap_conflict",
+            "    external_dependency_outside_authority",
+            "    user_decision_required",
+            "    unrecoverable_after_fix_attempt)",
+            "  (defenum ImplementationStateTag",
+            "    COMPLETED",
+            "    BLOCKED)",
+            "  (defpath DesignDocPath",
+            "    :kind relpath",
+            '    :under "docs/design"',
+            "    :must-exist true)",
+            "  (defpath PlanDocPath",
+            "    :kind relpath",
+            '    :under "docs/plans"',
+            "    :must-exist true)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defpath WorkReportTarget",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist false)",
+            "  (defpath ImplementationStateBundlePath",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist false)",
+            "  (defrecord ImplementationAttemptInputs",
+            "    (design DesignDocPath)",
+            "    (plan PlanDocPath))",
+            "  (defrecord ImplementationAttemptPhaseCtx",
+            "    (implementation_state_bundle_path ImplementationStateBundlePath)",
+            "    (execution_report_target WorkReportTarget)",
+            "    (progress_report_target WorkReportTarget))",
+            "  (defunion ImplementationAttempt",
+            "    (COMPLETED",
+            "      (implementation_state ImplementationStateTag)",
+            "      (execution_report_path WorkReport))",
+            "    (BLOCKED",
+            "      (implementation_state ImplementationStateTag)",
+            "      (progress_report_path WorkReport)",
+            "      (blocker_class BlockerClass)))",
+            "  (defrecord ImplementationAttemptReport",
+            "    (report_path WorkReport))",
+            "  (defproc private-run",
+            "    ((phase-ctx ImplementationAttemptPhaseCtx)",
+            "     (inputs ImplementationAttemptInputs))",
+            "    -> ImplementationAttemptReport",
+            "    :effects ((uses-provider providers.execute))",
+            "    :lowering private-workflow",
+            "    (let* ((phase-result",
+            "             (with-phase phase-ctx implementation",
+                "               (provider-result providers.execute",
+            "                 :prompt prompts.implementation.execute",
+            "                 :inputs (inputs.design",
+            "                          inputs.plan",
+            "                          (phase-target execution-report)",
+            "                          (phase-target progress-report))",
+            "                 :returns ImplementationAttempt))))",
+            "      (match phase-result",
+            "        ((COMPLETED completed)",
+            "         (record ImplementationAttemptReport",
+            "           :report_path completed.execution_report_path))",
+            "        ((BLOCKED blocked)",
+            "         (record ImplementationAttemptReport",
+            "           :report_path blocked.progress_report_path)))))",
+            "  (defworkflow run-private",
+            "    ((phase-ctx ImplementationAttemptPhaseCtx)",
+            "     (inputs ImplementationAttemptInputs))",
+            "    -> ImplementationAttemptReport",
+            "    (private-run phase-ctx inputs)))",
+        ],
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered_names = [workflow.typed_workflow.definition.name for workflow in result.lowered_workflows]
+    private_names = [name for name in lowered_names if name.endswith(".private-run.v1")]
+
+    assert private_names == ["%procedure_with_phase_binding_private_workflow.private-run.v1"]
+    outer_workflow = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "run-private"
+    )
+    assert any(step.get("call") == private_names[0] for step in outer_workflow["steps"])
+
+
 def test_procedure_effect_validation_includes_nested_workflow_effects(tmp_path: Path) -> None:
     path = _write_module(
         tmp_path / "procedure_nested_workflow_effects.orc",

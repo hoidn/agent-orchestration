@@ -91,3 +91,29 @@ def test_kiss_backlog_item_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> 
         for name, value in review_plan_call["with"].items()
         if name.startswith("__write_root__")
     )
+
+
+def test_with_phase_composed_binding_orc_compiles_to_typed_phase_stack(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        WORKFLOWS / "with_phase_composed_binding.orc",
+        provider_externs={
+            "providers.execute": "test-provider",
+        },
+        prompt_externs={
+            "prompts.implementation.execute": (
+                "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md"
+            ),
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+
+    assert result.lowered_workflows[0].typed_workflow.definition.name == "run-with-phase-composed-binding"
+    assert [step["name"] for step in lowered["steps"]] == [
+        "MaterializeImplementationAttemptPromptInputs",
+        "run-with-phase-composed-binding__phase-result",
+        "run-with-phase-composed-binding__match_phase-result",
+    ]
+    assert lowered["steps"][1]["provider"] == "test-provider"

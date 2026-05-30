@@ -1240,6 +1240,217 @@ def test_compile_stage3_module_lowers_phase_translation_fixture_with_phase_scope
     }
 
 
+def test_compile_stage3_module_lowers_with_phase_let_binding_to_step_backed_outputs(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "with_phase_let_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware",
+                "    roadmap_conflict",
+                "    external_dependency_outside_authority",
+                "    user_decision_required",
+                "    unrecoverable_after_fix_attempt)",
+                "  (defenum ImplementationStateTag",
+                "    COMPLETED",
+                "    BLOCKED)",
+                "  (defpath DesignDocPath",
+                "    :kind relpath",
+                '    :under "docs/design"',
+                "    :must-exist true)",
+                "  (defpath PlanDocPath",
+                "    :kind relpath",
+                '    :under "docs/plans"',
+                "    :must-exist true)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defpath WorkReportTarget",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defpath ImplementationStateBundlePath",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord ImplementationAttemptInputs",
+                "    (design DesignDocPath)",
+                "    (plan PlanDocPath))",
+                "  (defrecord ImplementationAttemptPhaseCtx",
+                "    (implementation_state_bundle_path ImplementationStateBundlePath)",
+                "    (execution_report_target WorkReportTarget)",
+                "    (progress_report_target WorkReportTarget))",
+                "  (defunion ImplementationAttempt",
+                "    (COMPLETED",
+                "      (implementation_state ImplementationStateTag)",
+                "      (execution_report_path WorkReport))",
+                "    (BLOCKED",
+                "      (implementation_state ImplementationStateTag)",
+                "      (progress_report_path WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defrecord ImplementationAttemptSurfaceResult",
+                "    (implementation_state ImplementationStateTag)",
+                "    (implementation_state_bundle_path ImplementationStateBundlePath))",
+                "  (defworkflow entry",
+                "    ((phase-ctx ImplementationAttemptPhaseCtx)",
+                "     (inputs ImplementationAttemptInputs))",
+                "    -> ImplementationAttemptSurfaceResult",
+                "    (let* ((phase-result",
+                "             (with-phase phase-ctx implementation",
+                "               (provider-result providers.execute",
+                "                 :prompt prompts.implementation.execute",
+                "                 :inputs (inputs.design",
+                "                          inputs.plan",
+                "                          (phase-target execution-report)",
+                "                          (phase-target progress-report))",
+                "                 :returns ImplementationAttempt))))",
+                "      (match phase-result",
+                "        ((COMPLETED completed)",
+                "         (record ImplementationAttemptSurfaceResult",
+                "           :implementation_state completed.implementation_state",
+                "           :implementation_state_bundle_path phase-ctx.implementation_state_bundle_path))",
+                "        ((BLOCKED blocked)",
+                "         (record ImplementationAttemptSurfaceResult",
+                "           :implementation_state blocked.implementation_state",
+                "           :implementation_state_bundle_path phase-ctx.implementation_state_bundle_path))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "fake"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    step_names = [step["name"] for step in lowered["steps"]]
+
+    assert step_names == [
+        "MaterializeImplementationAttemptPromptInputs",
+        "entry__phase-result",
+        "entry__match_phase-result",
+    ]
+    assert lowered["steps"][1]["provider"] == "fake"
+    assert lowered["steps"][2]["match"]["ref"] == "root.steps.entry__phase-result.artifacts.variant"
+    assert lowered["outputs"]["return__implementation_state"]["from"]["ref"].endswith(
+        ".artifacts.return__implementation_state"
+    )
+    assert lowered["outputs"]["return__implementation_state_bundle_path"]["from"]["ref"].endswith(
+        ".artifacts.return__implementation_state_bundle_path"
+    )
+
+
+def test_compile_stage3_module_rejects_non_exportable_composed_with_phase_binding(
+    tmp_path: Path,
+) -> None:
+    workflow_source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReportTarget",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist false)",
+            "  (defrecord RunCtx",
+            "    (run-id RunId)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord PhaseCtx",
+            "    (run RunCtx)",
+            "    (phase-name Symbol)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord ReportTargetOnly",
+            "    (report_path WorkReportTarget))",
+            "  (defworkflow entry",
+            "    ((phase-ctx PhaseCtx))",
+            "    -> ReportTargetOnly",
+            "    (let* ((report-path",
+            "             (with-phase phase-ctx implementation",
+            "               (phase-target execution-report))))",
+            "      (record ReportTargetOnly :report_path report-path))))",
+        ]
+    )
+    workflow_path = _write_module(tmp_path / "with_phase_non_exportable.orc", workflow_source)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "workflow_return_not_exportable"
+    assert "`with-phase`" in diagnostic.message
+    assert "WithPhaseExpr" not in diagnostic.message
+
+
+def test_compile_stage3_module_remaps_composed_with_phase_diagnostic_to_authored_binding_site(
+    tmp_path: Path,
+) -> None:
+    workflow_source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReportTarget",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist false)",
+            "  (defrecord RunCtx",
+            "    (run-id RunId)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord PhaseCtx",
+            "    (run RunCtx)",
+            "    (phase-name Symbol)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord ReportTargetOnly",
+            "    (report_path WorkReportTarget))",
+            "  (defworkflow entry",
+            "    ((phase-ctx PhaseCtx))",
+            "    -> ReportTargetOnly",
+            "    (let* ((report-path",
+            "             (with-phase phase-ctx implementation",
+            "               (phase-target execution-report))))",
+            "      (record ReportTargetOnly :report_path report-path))))",
+        ]
+    )
+    expected_line = workflow_source.splitlines().index(
+        "               (phase-target execution-report))))"
+    ) + 1
+    workflow_path = _write_module(tmp_path / "with_phase_diagnostic_remap.orc", workflow_source)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            validate_shared=False,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "workflow_return_not_exportable"
+    assert diagnostic.span.start.path.endswith("with_phase_diagnostic_remap.orc")
+    assert diagnostic.span.start.line == expected_line
+    assert diagnostic.span.end.line == expected_line
+    assert diagnostic.form_path == ("workflow-lisp", "defworkflow", "entry")
+
+
 def test_compile_stage3_module_maps_phase_targets_by_name_not_position(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "phase_targets_swapped.orc",

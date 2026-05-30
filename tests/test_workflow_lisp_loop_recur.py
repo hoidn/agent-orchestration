@@ -325,6 +325,104 @@ def test_lowering_loop_recur_allows_letstar_inside_body(tmp_path: Path) -> None:
     ]
 
 
+def test_lowering_loop_recur_with_composed_with_phase_binding_exports_step_backed_outputs(
+    tmp_path: Path,
+) -> None:
+    workflow_path = _write_module(
+        tmp_path / "loop_recur_with_phase_binding.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware",
+                "    roadmap_conflict",
+                "    external_dependency_outside_authority",
+                "    user_decision_required",
+                "    unrecoverable_after_fix_attempt)",
+                "  (defenum ImplementationStateTag",
+                "    COMPLETED",
+                "    BLOCKED)",
+                "  (defpath DesignDocPath",
+                "    :kind relpath",
+                '    :under "docs/design"',
+                "    :must-exist true)",
+                "  (defpath PlanDocPath",
+                "    :kind relpath",
+                '    :under "docs/plans"',
+                "    :must-exist true)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defpath WorkReportTarget",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defpath ImplementationStateBundlePath",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist false)",
+                "  (defrecord ImplementationAttemptInputs",
+                "    (design DesignDocPath)",
+                "    (plan PlanDocPath))",
+                "  (defrecord ImplementationAttemptPhaseCtx",
+                "    (implementation_state_bundle_path ImplementationStateBundlePath)",
+                "    (execution_report_target WorkReportTarget)",
+                "    (progress_report_target WorkReportTarget))",
+                "  (defunion ImplementationAttempt",
+                "    (COMPLETED",
+                "      (implementation_state ImplementationStateTag)",
+                "      (execution_report_path WorkReport))",
+                "    (BLOCKED",
+                "      (implementation_state ImplementationStateTag)",
+                "      (progress_report_path WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defrecord AttemptLoopResult",
+                "    (report_path WorkReport))",
+                "  (defworkflow loop-recur-phase-binding",
+                "    ((phase-ctx ImplementationAttemptPhaseCtx)",
+                "     (inputs ImplementationAttemptInputs))",
+                "    -> AttemptLoopResult",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (inputs.design inputs.plan)",
+                "               :returns ImplementationAttempt)))",
+                "      (loop/recur :max 2 :state attempt",
+                "        (fn (state)",
+                "          (let* ((phase-result",
+                "                   (with-phase phase-ctx implementation",
+                "                     (provider-result providers.execute",
+                "                       :prompt prompts.implementation.execute",
+                "                       :inputs (inputs.design",
+                "                                inputs.plan",
+                "                                (phase-target execution-report)",
+                "                                (phase-target progress-report))",
+                "                       :returns ImplementationAttempt))))",
+                "            (match phase-result",
+                "              ((COMPLETED completed)",
+                "               (done",
+                "                 (record AttemptLoopResult",
+                "                   :report_path completed.execution_report_path)))",
+                "              ((BLOCKED blocked)",
+                "               (continue state)))))))))",
+            ]
+        ),
+    )
+
+    result = _compile(workflow_path, tmp_path=tmp_path)
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    repeat_step = next(step for step in lowered["steps"] if "repeat_until" in step)
+    nested_names = [step["name"] for step in repeat_step["repeat_until"]["steps"]]
+
+    assert "loop-recur-phase-binding__body__phase-result" in nested_names
+    assert "loop-recur-phase-binding__body" in nested_names
+
+
 def test_invalid_loop_recur_fn_outside_loop_fixture_fails(tmp_path: Path) -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(INVALID_FN_OUTSIDE_FIXTURE, tmp_path=tmp_path)

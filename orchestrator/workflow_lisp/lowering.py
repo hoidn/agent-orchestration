@@ -3013,37 +3013,21 @@ def _lower_loop_body_expr(
 
         binding_type = _binding_type_for_expr(binding_expr, context=context)
         binding_step_name = f"{body_step_name}__{binding_name}"
-        if isinstance(binding_expr, ProviderResultExpr):
-            binding_steps, lowered_binding_terminal = _lower_provider_result(
-                binding_expr,
-                result_type=binding_type,
-                context=context,
-                local_values=local_values,
-                step_name=binding_step_name,
-            )
-        else:
-            binding_steps, lowered_binding_terminal = _lower_expression(
-                TypedExpr(
-                    expr=binding_expr,
-                    type_ref=binding_type,
-                    span=binding_expr.span,
-                    form_path=binding_expr.form_path,
-                ),
-                context=_copy_context_with_step_prefix(
-                    context,
-                    step_name_prefix=binding_step_name,
-                ),
-                local_values=local_values,
-            )
+        binding_steps, lowered_binding_terminal = _lower_effectful_binding_expr(
+            binding_expr,
+            binding_type=binding_type,
+            context=context,
+            local_values=local_values,
+            step_name_prefix=binding_step_name,
+        )
         loop_local_values = dict(local_values)
-        if isinstance(binding_type, (RecordTypeRef, UnionTypeRef)):
-            loop_local_values[binding_name] = _build_output_step_local_value(
-                lowered_binding_terminal.output_refs
-            )
-        elif isinstance(binding_type, (PathTypeRef, PrimitiveTypeRef)) and "return" in lowered_binding_terminal.output_refs:
-            loop_local_values[binding_name] = lowered_binding_terminal.output_refs["return"]
-        elif isinstance(binding_expr, LiteralExpr):
-            loop_local_values[binding_name] = binding_expr
+        binding_value = _binding_local_value_from_terminal(
+            binding_expr,
+            binding_type=binding_type,
+            binding_terminal=lowered_binding_terminal,
+        )
+        if binding_value is not None:
+            loop_local_values[binding_name] = binding_value
         body_steps, body_terminal = _lower_loop_body_expr(
             body_expr,
             loop_binding_name=loop_binding_name,
@@ -3053,7 +3037,7 @@ def _lower_loop_body_expr(
             context=_context_with_local_type_binding(
                 context,
                 binding_name=binding_name,
-                binding_type=_resolve_lowering_expr_type(binding_expr, context=context),
+                binding_type=binding_type,
             ),
             local_values=loop_local_values,
             binding_terminal=binding_terminal,
@@ -4043,32 +4027,21 @@ def _lower_let_star(
         )
     binding_type = _binding_type_for_expr(binding_expr, context=context)
     provider_step_name = f"{context.step_name_prefix}__{binding_name}"
-    if isinstance(binding_expr, ProviderResultExpr):
-        binding_steps, binding_terminal = _lower_provider_result(
-            binding_expr,
-            result_type=binding_type,
-            context=context,
-            local_values=local_values,
-            step_name=provider_step_name,
-        )
-    else:
-        binding_steps, binding_terminal = _lower_expression(
-            TypedExpr(
-                expr=binding_expr,
-                type_ref=binding_type,
-                span=binding_expr.span,
-                form_path=binding_expr.form_path,
-            ),
-            context=_copy_context_with_step_prefix(context, step_name_prefix=provider_step_name),
-            local_values=local_values,
-        )
+    binding_steps, binding_terminal = _lower_effectful_binding_expr(
+        binding_expr,
+        binding_type=binding_type,
+        context=context,
+        local_values=local_values,
+        step_name_prefix=provider_step_name,
+    )
     local_bindings = dict(local_values)
-    if isinstance(binding_type, (RecordTypeRef, UnionTypeRef)):
-        local_bindings[binding_name] = _build_output_step_local_value(binding_terminal.output_refs)
-    elif isinstance(binding_type, (PathTypeRef, PrimitiveTypeRef)) and "return" in binding_terminal.output_refs:
-        local_bindings[binding_name] = binding_terminal.output_refs["return"]
-    elif isinstance(binding_expr, LiteralExpr):
-        local_bindings[binding_name] = binding_expr
+    binding_value = _binding_local_value_from_terminal(
+        binding_expr,
+        binding_type=binding_type,
+        binding_terminal=binding_terminal,
+    )
+    if binding_value is not None:
+        local_bindings[binding_name] = binding_value
     body_context = _context_with_local_type_binding(
         context,
         binding_name=binding_name,
@@ -4186,6 +4159,64 @@ def _lower_match_expr(
         output_kind="match",
         hidden_inputs={},
     )
+
+
+def _lower_effectful_binding_expr(
+    expr: Any,
+    *,
+    binding_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    step_name_prefix: str,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower one effectful binding through the standard binding-export seam."""
+
+    if isinstance(expr, WithPhaseExpr):
+        return _lower_composed_with_phase(
+            expr,
+            result_type=binding_type,
+            context=context,
+            local_values=local_values,
+            step_name_prefix=step_name_prefix,
+        )
+    if isinstance(expr, ProviderResultExpr):
+        return _lower_provider_result(
+            expr,
+            result_type=binding_type,
+            context=context,
+            local_values=local_values,
+            step_name=step_name_prefix,
+        )
+    return _lower_expression(
+        TypedExpr(
+            expr=expr,
+            type_ref=binding_type,
+            span=expr.span,
+            form_path=expr.form_path,
+        ),
+        context=_copy_context_with_step_prefix(
+            context,
+            step_name_prefix=step_name_prefix,
+        ),
+        local_values=local_values,
+    )
+
+
+def _binding_local_value_from_terminal(
+    expr: Any,
+    *,
+    binding_type: TypeRef,
+    binding_terminal: _TerminalResult,
+) -> Any | None:
+    """Project the local binding value exposed by a step-backed terminal result."""
+
+    if isinstance(binding_type, (RecordTypeRef, UnionTypeRef)):
+        return _build_output_step_local_value(binding_terminal.output_refs)
+    if isinstance(binding_type, (PathTypeRef, PrimitiveTypeRef)) and "return" in binding_terminal.output_refs:
+        return binding_terminal.output_refs["return"]
+    if isinstance(expr, LiteralExpr):
+        return expr
+    return None
 
 
 def _lower_if_expr(
@@ -6097,12 +6128,43 @@ def _lower_with_phase(
 
     expr = typed_expr.expr
     assert isinstance(expr, WithPhaseExpr)
+    return _lower_composed_with_phase(
+        expr,
+        result_type=typed_expr.type_ref,
+        context=context,
+        local_values=local_values,
+    )
+
+
+def _lower_composed_with_phase(
+    expr: WithPhaseExpr,
+    *,
+    result_type: TypeRef,
+    context: _LoweringContext,
+    local_values: Mapping[str, Any],
+    step_name_prefix: str | None = None,
+) -> tuple[list[dict[str, Any]], _TerminalResult]:
+    """Lower a `with-phase` wrapper by lowering only its body under phase scope."""
+
     lowering_phase_scope = _resolve_active_phase_scope(expr, local_values=local_values)
     scoped_context = _copy_context_with_phase_scope(context, lowering_phase_scope)
+    if step_name_prefix is not None:
+        if isinstance(expr.body, ProviderResultExpr):
+            return _lower_provider_result(
+                expr.body,
+                result_type=result_type,
+                context=scoped_context,
+                local_values=local_values,
+                step_name=step_name_prefix,
+            )
+        scoped_context = _copy_context_with_step_prefix(
+            scoped_context,
+            step_name_prefix=step_name_prefix,
+        )
     return _lower_expression(
         TypedExpr(
             expr=expr.body,
-            type_ref=typed_expr.type_ref,
+            type_ref=result_type,
             span=expr.body.span,
             form_path=expr.body.form_path,
         ),
@@ -8256,6 +8318,19 @@ def _record_field_value(record_expr: RecordExpr, field_name: str) -> Any:
 def _binding_type_for_expr(expr: Any, *, context: _LoweringContext) -> TypeRef:
     """Infer the type of an effectful `let*` binding for later lowering."""
 
+    if isinstance(expr, WithPhaseExpr):
+        try:
+            return _binding_type_for_expr(expr.body, context=context)
+        except LispFrontendCompileError as exc:
+            diagnostic = exc.diagnostics[0]
+            if diagnostic.code != "workflow_return_not_exportable":
+                raise
+            raise _compile_error(
+                code="workflow_return_not_exportable",
+                message=f"composed `with-phase` body is not exportable in this Stage 3 slice: {diagnostic.message}",
+                span=diagnostic.span,
+                form_path=diagnostic.form_path,
+            ) from exc
     if isinstance(
         expr,
         (
@@ -8435,6 +8510,8 @@ def _resolve_lowering_expr_type(expr: Any, *, context: _LoweringContext) -> Type
                 binding_type=state_type,
             ),
         )
+    if isinstance(expr, WithPhaseExpr):
+        return _resolve_lowering_expr_type(expr.body, context=context)
     return None
 
 
