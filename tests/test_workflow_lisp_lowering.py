@@ -654,6 +654,148 @@ def test_lower_workflow_definitions_supports_generic_match_outputs(tmp_path: Pat
     )
 
 
+def test_compile_stage3_module_lowers_effectful_match_arm_provider_branches(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "effectful_match_arm_provider_branches.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord AttemptReport",
+                "    (report WorkReport))",
+                "  (defunion ImplementationState",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow provider_attempt",
+                "    ((report_path WorkReport))",
+                "    -> AttemptReport",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ImplementationState)))",
+                "      (match attempt",
+                "        ((COMPLETED completed)",
+                "         (provider-result providers.execute",
+                "           :prompt prompts.implementation.execute",
+                "           :inputs (completed.execution_report)",
+                "           :returns AttemptReport))",
+                "        ((BLOCKED blocked)",
+                "         (provider-result providers.execute",
+                "           :prompt prompts.implementation.execute",
+                "           :inputs (blocked.progress_report)",
+                "           :returns AttemptReport))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    match_step = lowered["steps"][1]
+
+    assert [step["name"] for step in lowered["steps"]] == [
+        "provider_attempt__attempt",
+        "provider_attempt__match_attempt",
+    ]
+    assert match_step["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
+    assert match_step["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
+    assert match_step["match"]["cases"]["COMPLETED"]["outputs"]["return__report"]["from"]["ref"].endswith(
+        ".artifacts.report"
+    )
+    assert match_step["match"]["cases"]["BLOCKED"]["outputs"]["return__report"]["from"]["ref"].endswith(
+        ".artifacts.report"
+    )
+
+
+def test_compile_stage3_module_lowers_effectful_match_arm_let_star_branches(tmp_path: Path) -> None:
+    workflow_path = _write_module(
+        tmp_path / "effectful_match_arm_let_star_branches.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware)",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord AttemptReport",
+                "    (report WorkReport))",
+                "  (defunion ImplementationState",
+                "    (COMPLETED",
+                "      (execution_report WorkReport))",
+                "    (BLOCKED",
+                "      (progress_report WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defworkflow provider_attempt",
+                "    ((report_path WorkReport))",
+                "    -> AttemptReport",
+                "    (let* ((attempt",
+                "             (provider-result providers.execute",
+                "               :prompt prompts.implementation.execute",
+                "               :inputs (report_path)",
+                "               :returns ImplementationState)))",
+                "      (match attempt",
+                "        ((COMPLETED completed)",
+                "         (let* ((summary",
+                "                  (provider-result providers.execute",
+                "                    :prompt prompts.implementation.execute",
+                "                    :inputs (completed.execution_report)",
+                "                    :returns AttemptReport)))",
+                "           summary))",
+                "        ((BLOCKED blocked)",
+                "         (let* ((summary",
+                "                  (provider-result providers.execute",
+                "                    :prompt prompts.implementation.execute",
+                "                    :inputs (blocked.progress_report)",
+                "                    :returns AttemptReport)))",
+                "           summary))))))",
+            ]
+        ),
+    )
+
+    result = compile_stage3_module(
+        workflow_path,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    lowered = result.lowered_workflows[0].authored_mapping
+    match_step = lowered["steps"][1]
+
+    assert [step["name"] for step in lowered["steps"]] == [
+        "provider_attempt__attempt",
+        "provider_attempt__match_attempt",
+    ]
+    assert match_step["match"]["cases"]["COMPLETED"]["steps"][0]["name"].endswith("__summary")
+    assert match_step["match"]["cases"]["BLOCKED"]["steps"][0]["name"].endswith("__summary")
+    assert match_step["match"]["cases"]["COMPLETED"]["steps"][0]["provider"] == "test-provider"
+    assert match_step["match"]["cases"]["BLOCKED"]["steps"][0]["provider"] == "test-provider"
+
+
 def test_compile_stage3_module_rejects_literal_only_match_exports(tmp_path: Path) -> None:
     workflow_path = _write_module(
         tmp_path / "literal_match_exports.orc",
@@ -711,6 +853,148 @@ def test_compile_stage3_module_rejects_literal_only_match_exports(tmp_path: Path
     diagnostic = excinfo.value.diagnostics[0]
     assert diagnostic.code == "workflow_return_not_exportable"
     assert "status" in diagnostic.message
+
+
+def test_compile_stage3_module_rejects_non_exportable_effectful_match_arm(tmp_path: Path) -> None:
+    workflow_source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defenum BlockerClass",
+            "    missing_resource",
+            "    unavailable_hardware)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord AttemptReport",
+            "    (status String)",
+            "    (report WorkReport))",
+            "  (defunion ImplementationState",
+            "    (COMPLETED",
+            "      (execution_report WorkReport))",
+            "    (BLOCKED",
+            "      (progress_report WorkReport)",
+            "      (blocker_class BlockerClass)))",
+            "  (defworkflow provider_attempt",
+            "    ((report_path WorkReport))",
+            "    -> AttemptReport",
+            "    (let* ((attempt",
+            "             (provider-result providers.execute",
+            "               :prompt prompts.implementation.execute",
+            "               :inputs (report_path)",
+            "               :returns ImplementationState)))",
+            "      (match attempt",
+            "        ((COMPLETED completed)",
+            "         (let* ((summary",
+            "                  (provider-result providers.execute",
+            "                    :prompt prompts.implementation.execute",
+            "                    :inputs (completed.execution_report)",
+            "                    :returns AttemptReport)))",
+            "           (record AttemptReport",
+            '             :status "completed"',
+            "             :report summary.report)))",
+            "        ((BLOCKED blocked)",
+            "         (let* ((summary",
+            "                  (provider-result providers.execute",
+            "                    :prompt prompts.implementation.execute",
+            "                    :inputs (blocked.progress_report)",
+            "                    :returns AttemptReport)))",
+            "           (record AttemptReport",
+            '             :status "blocked"',
+            "             :report summary.report)))))))",
+        ]
+    )
+    workflow_path = _write_module(tmp_path / "non_exportable_effectful_match_arm.orc", workflow_source)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "workflow_return_not_exportable"
+    assert "status" in diagnostic.message
+
+
+def test_compile_stage3_module_remaps_effectful_match_arm_diagnostic_to_authored_site(
+    tmp_path: Path,
+) -> None:
+    workflow_source = "\n".join(
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defenum BlockerClass",
+            "    missing_resource",
+            "    unavailable_hardware)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord AttemptReport",
+            "    (status String)",
+            "    (report WorkReport))",
+            "  (defunion ImplementationState",
+            "    (COMPLETED",
+            "      (execution_report WorkReport))",
+            "    (BLOCKED",
+            "      (progress_report WorkReport)",
+            "      (blocker_class BlockerClass)))",
+            "  (defworkflow provider_attempt",
+            "    ((report_path WorkReport))",
+            "    -> AttemptReport",
+            "    (let* ((attempt",
+            "             (provider-result providers.execute",
+            "               :prompt prompts.implementation.execute",
+            "               :inputs (report_path)",
+            "               :returns ImplementationState)))",
+            "      (match attempt",
+            "        ((COMPLETED completed)",
+            "         (let* ((summary",
+            "                  (provider-result providers.execute",
+            "                    :prompt prompts.implementation.execute",
+            "                    :inputs (completed.execution_report)",
+            "                    :returns AttemptReport)))",
+            "           (record AttemptReport",
+            '             :status "completed"',
+            "             :report summary.report)))",
+            "        ((BLOCKED blocked)",
+            "         (let* ((summary",
+            "                  (provider-result providers.execute",
+            "                    :prompt prompts.implementation.execute",
+            "                    :inputs (blocked.progress_report)",
+            "                    :returns AttemptReport)))",
+            "           (record AttemptReport",
+            '             :status "blocked"',
+            "             :report summary.report)))))))",
+        ]
+    )
+    expected_line = workflow_source.splitlines().index("           (record AttemptReport") + 1
+    workflow_path = _write_module(tmp_path / "effectful_match_arm_diagnostic_remap.orc", workflow_source)
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_module(
+            workflow_path,
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+
+    assert diagnostic.code == "workflow_return_not_exportable"
+    assert diagnostic.span.start.path.endswith("effectful_match_arm_diagnostic_remap.orc")
+    assert diagnostic.span.start.line == expected_line
+    assert diagnostic.span.end.line >= expected_line
+    assert diagnostic.form_path == ("workflow-lisp", "defworkflow", "provider_attempt")
 
 
 def test_lower_workflow_definitions_accepts_same_file_call_field_bindings(tmp_path: Path) -> None:

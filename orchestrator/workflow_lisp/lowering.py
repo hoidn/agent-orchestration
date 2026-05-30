@@ -3520,6 +3520,14 @@ def _loop_case_ref(ref: str) -> str:
     return ref
 
 
+def _conditional_case_ref(ref: str, *, terminal_step_name: str) -> str:
+    """Localize refs only when they target steps emitted inside one branch."""
+
+    if terminal_step_name and ref.startswith(f"root.steps.{terminal_step_name}"):
+        return "self.steps." + ref.removeprefix("root.steps.")
+    return ref
+
+
 def _loop_seed_anchor_ref(value: Any) -> str | None:
     """Choose one proof-safe ref for the generated loop seed anchor step."""
 
@@ -4011,10 +4019,25 @@ def _lower_let_star(
                 )
             return _lower_match_expr(
                 body_expr,
+                result_type=typed_expr.type_ref,
                 context=body_context,
                 binding_name=binding_name,
                 binding_terminal=binding_terminal,
                 local_values=local_bindings,
+            )
+        output_refs = _inline_output_refs_for_expr(
+            body_expr,
+            type_ref=typed_expr.type_ref,
+            local_values=local_bindings,
+            context=body_context,
+        )
+        if output_refs is not None:
+            return [], _TerminalResult(
+                step_name=context.step_name_prefix,
+                step_id=_normalize_generated_step_id(context.step_name_prefix),
+                output_refs=output_refs,
+                output_kind="projection",
+                hidden_inputs={},
             )
         return _lower_expression(
             TypedExpr(
@@ -4052,22 +4075,38 @@ def _lower_let_star(
     if isinstance(body_expr, MatchExpr):
         lowered_steps, terminal = _lower_match_expr(
             body_expr,
+            result_type=typed_expr.type_ref,
             context=body_context,
             binding_name=binding_name,
             binding_terminal=binding_terminal,
             local_values=local_bindings,
         )
     else:
-        lowered_steps, terminal = _lower_expression(
-            TypedExpr(
-                expr=body_expr,
-                type_ref=typed_expr.type_ref,
-                span=body_expr.span,
-                form_path=body_expr.form_path,
-            ),
-            context=body_context,
+        output_refs = _inline_output_refs_for_expr(
+            body_expr,
+            type_ref=typed_expr.type_ref,
             local_values=local_bindings,
+            context=body_context,
         )
+        if output_refs is not None:
+            lowered_steps, terminal = [], _TerminalResult(
+                step_name=context.step_name_prefix,
+                step_id=_normalize_generated_step_id(context.step_name_prefix),
+                output_refs=output_refs,
+                output_kind="projection",
+                hidden_inputs={},
+            )
+        else:
+            lowered_steps, terminal = _lower_expression(
+                TypedExpr(
+                    expr=body_expr,
+                    type_ref=typed_expr.type_ref,
+                    span=body_expr.span,
+                    form_path=body_expr.form_path,
+                ),
+                context=body_context,
+                local_values=local_bindings,
+            )
     hidden_inputs = dict(binding_terminal.hidden_inputs)
     hidden_inputs.update(terminal.hidden_inputs)
     return [*binding_steps, *lowered_steps], _TerminalResult(
@@ -4082,6 +4121,7 @@ def _lower_let_star(
 def _lower_match_expr(
     match_expr: MatchExpr,
     *,
+    result_type: TypeRef,
     context: _LoweringContext,
     binding_name: str,
     binding_terminal: _TerminalResult,
@@ -4097,34 +4137,33 @@ def _lower_match_expr(
 
     match_step_name = f"{context.step_name_prefix}__match_{binding_name}"
     match_step_id = _normalize_generated_step_id(match_step_name)
+    output_contracts = _output_contracts_for_type(
+        result_type,
+        context=context,
+        span=match_expr.span,
+        form_path=match_expr.form_path,
+    )
     cases: dict[str, Any] = {}
+    hidden_inputs: dict[str, LoweringOrigin] = {}
     for arm in match_expr.arms:
-        case_steps: list[dict[str, Any]] = []
-        if not isinstance(arm.body, RecordExpr):
-            raise _compile_error(
-                code="workflow_return_not_exportable",
-                message="Stage 3 lowering requires match arms to return record expressions",
-                span=arm.body.span,
-                form_path=arm.body.form_path,
-            )
-        case_outputs: dict[str, Any] = {}
-        for field_name, contract_definition in context.return_output_contracts.items():
-            generated_output_name = f"return__{field_name}"
-            lowered_output = _lower_match_output_field(
-                record_expr=arm.body,
-                field_name=field_name,
-                generated_output_name=generated_output_name,
-                contract_definition=contract_definition,
-                match_step_id=match_step_id,
-                variant_name=arm.variant_name,
+        case_name = f"{match_step_name}__{arm.variant_name.lower()}"
+        case_steps, case_terminal = _lower_conditional_branch_expr(
+            arm.body,
+            result_type=result_type,
+            step_name=case_name,
+            context=context,
+            local_values=_match_arm_local_values(
+                local_values=local_values,
                 binding_name=arm.binding_name,
                 binding_terminal=binding_terminal,
-                context=context,
-                local_values=local_values,
-            )
-            case_steps.extend(lowered_output["steps"])
-            case_outputs[generated_output_name] = lowered_output["output"]
-        case_name = f"{match_step_name}__{arm.variant_name.lower()}"
+            ),
+        )
+        case_outputs = _conditional_case_outputs(
+            case_terminal,
+            output_contracts=output_contracts,
+            span=arm.body.span,
+            form_path=arm.body.form_path,
+        )
         if not case_steps:
             case_steps.append(
                 _build_match_projection_anchor_step(
@@ -4135,6 +4174,7 @@ def _lower_match_expr(
                     span=arm.body.span,
                 )
             )
+        hidden_inputs.update(case_terminal.hidden_inputs)
         cases[arm.variant_name] = {
             "id": _normalize_generated_step_id(case_name),
             "outputs": case_outputs,
@@ -4154,11 +4194,11 @@ def _lower_match_expr(
         step_name=match_step_name,
         step_id=match_step_id,
         output_refs={
-            f"return__{field_name}": f"root.steps.{match_step_name}.artifacts.return__{field_name}"
-            for field_name in context.return_output_contracts
+            output_name: f"root.steps.{match_step_name}.artifacts.{output_name}"
+            for output_name in output_contracts
         },
         output_kind="match",
-        hidden_inputs={},
+        hidden_inputs=hidden_inputs,
     )
 
 
@@ -7282,6 +7322,20 @@ def _build_output_step_local_value(output_refs: Mapping[str, str]) -> dict[str, 
     return local_value
 
 
+def _match_arm_local_values(
+    *,
+    local_values: Mapping[str, Any],
+    binding_name: str,
+    binding_terminal: _TerminalResult,
+) -> dict[str, Any]:
+    """Expose one matched structured value inside a match arm."""
+
+    return {
+        **local_values,
+        binding_name: _build_output_step_local_value(binding_terminal.output_refs),
+    }
+
+
 def _build_union_step_local_value(output_refs: Mapping[str, str]) -> dict[str, Any]:
     """Represent union outputs with the same nested mapping as records."""
 
@@ -7644,7 +7698,7 @@ def _conditional_case_outputs(
             )
         outputs[output_name] = {
             **dict(contract_definition),
-            "from": {"ref": output_ref},
+            "from": {"ref": _conditional_case_ref(output_ref, terminal_step_name=terminal.step_name)},
         }
     return outputs
 
@@ -8023,52 +8077,6 @@ def _procedure_provenance_notes(call_expr: ProcedureCallExpr, procedure: TypedPr
     return (
         f"procedure call site at {call_start.path}:{call_start.line}:{call_start.column}",
         f"procedure definition at {definition_start.path}:{definition_start.line}:{definition_start.column}",
-    )
-
-
-def _lower_match_output_field(
-    *,
-    record_expr: RecordExpr,
-    field_name: str,
-    generated_output_name: str,
-    contract_definition: Mapping[str, Any],
-    match_step_id: str,
-    variant_name: str,
-    binding_name: str,
-    binding_terminal: _TerminalResult,
-    context: _LoweringContext,
-    local_values: Mapping[str, Any],
-) -> dict[str, Any]:
-    """Lower one matched record field into a branch-local output projection."""
-
-    value = _record_expr_value_at_path(record_expr, _return_field_path(field_name))
-    if isinstance(value, FieldAccessExpr) and value.base.name == binding_name:
-        bound_ref = binding_terminal.output_refs.get(f"return__{'__'.join(value.fields)}")
-        if bound_ref is not None:
-            return {
-                "steps": [],
-                "output": {
-                    **contract_definition,
-                    "from": {"ref": bound_ref},
-                },
-            }
-    source_ref = _render_existing_output_ref(value, local_values=local_values)
-    if source_ref is not None:
-        return {
-            "steps": [],
-            "output": {
-                **contract_definition,
-                "from": {"ref": source_ref},
-            },
-        }
-    raise _compile_error(
-        code="workflow_return_not_exportable",
-        message=(
-            f"record return field `{field_name}` must lower from the matched structured result "
-            "in this Stage 3 slice"
-        ),
-        span=record_expr.span,
-        form_path=record_expr.form_path,
     )
 
 
@@ -8966,6 +8974,9 @@ def _private_workflow_body_exports_step_backed_outputs(
             expr,
             return_type_ref=return_type_ref,
             local_values=local_values,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
         )
     if isinstance(expr, RecordExpr):
         return _record_outputs_are_step_backed(
@@ -8981,8 +8992,11 @@ def _match_outputs_are_step_backed(
     *,
     return_type_ref: TypeRef,
     local_values: Mapping[str, Any],
+    typed_procedures_by_name: Mapping[str, TypedProcedureDef],
+    type_env: FrontendTypeEnvironment,
+    active_procedures: frozenset[str],
 ) -> bool:
-    """Return whether every match arm projects step-backed record outputs."""
+    """Return whether every match arm exports step-backed outputs."""
 
     binding_terminal = _binding_terminal_for_inline_match(
         _resolve_inline_expr_value(match_expr.subject, local_values=local_values)
@@ -8990,14 +9004,17 @@ def _match_outputs_are_step_backed(
     if binding_terminal is None:
         return False
     return all(
-        isinstance(arm.body, RecordExpr)
-        and _record_outputs_are_step_backed(
+        _private_workflow_body_exports_step_backed_outputs(
             arm.body,
             return_type_ref=return_type_ref,
-            local_values={
-                **local_values,
-                arm.binding_name: _build_output_step_local_value(binding_terminal.output_refs),
-            },
+            local_values=_match_arm_local_values(
+                local_values=local_values,
+                binding_name=arm.binding_name,
+                binding_terminal=binding_terminal,
+            ),
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+            active_procedures=active_procedures,
         )
         for arm in match_expr.arms
     )
