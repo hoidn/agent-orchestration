@@ -574,7 +574,7 @@ def _run_stage3_entrypoint_validation_pipeline(
         assert compile_result is not None
         assert selected_workflow_name is not None
         _revalidate_stage3_executable_bundles(
-            compile_result.entry_result.validated_bundles,
+            compile_result.validated_bundles_by_name,
             lowered_workflows_by_name=_linked_stage3_lowered_workflows_by_name(compile_result),
         )
         _validate_stage3_linked_source_map_lineage(

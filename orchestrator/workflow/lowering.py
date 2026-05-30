@@ -442,6 +442,11 @@ class _IRBuilder:
                 **common,
                 routed_transfers=MappingProxyType(call_transfers),
                 call_alias=step.call_alias or "",
+                available_outputs=(
+                    self.surface.imports[step.call_alias].output_names
+                    if isinstance(step.call_alias, str) and step.call_alias in self.surface.imports
+                    else ()
+                ),
                 bound_inputs=MappingProxyType(
                     {
                         name: _bind_literal_or_ref(value, context)

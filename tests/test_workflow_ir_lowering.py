@@ -492,6 +492,22 @@ def test_validate_executable_workflow_accepts_loaded_bundle(tmp_path: Path) -> N
             "unknown_contract_address",
             "unknown node id",
         ),
+        (
+            "call_output_wrong_kind",
+            "must reference call boundary node",
+        ),
+        (
+            "call_output_missing_output",
+            "references unknown call output",
+        ),
+        (
+            "loop_output_wrong_kind",
+            "must reference repeat-until frame node",
+        ),
+        (
+            "loop_output_missing_output",
+            "references unknown repeat-until output",
+        ),
     ],
 )
 def test_validate_executable_workflow_rejects_invalid_topology_and_addresses(
@@ -519,7 +535,7 @@ def test_validate_executable_workflow_rejects_invalid_topology_and_addresses(
                 }
             ),
         )
-    else:
+    elif mutation == "unknown_contract_address":
         review_loop = bundle.ir.nodes["root.review_loop"]
         assert isinstance(review_loop, RepeatUntilFrameNode)
         broken_contract = replace(
@@ -538,6 +554,102 @@ def test_validate_executable_workflow_rejects_invalid_topology_and_addresses(
                 }
             ),
         )
+        broken_ir = replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **dict(bundle.ir.nodes),
+                    broken_node.node_id: broken_node,
+                }
+            ),
+        )
+    elif mutation == "call_output_wrong_kind":
+        review_loop = bundle.ir.nodes["root.review_loop"]
+        assert isinstance(review_loop, RepeatUntilFrameNode)
+        broken_contract = replace(
+            review_loop.output_contracts["review_decision"],
+            source_address=CallOutputAddress(
+                node_id="root.set_ready",
+                output_name="review_decision",
+            ),
+        )
+        broken_node = replace(
+            review_loop,
+            output_contracts=MappingProxyType(
+                {
+                    **dict(review_loop.output_contracts),
+                    "review_decision": broken_contract,
+                }
+            ),
+        )
+        broken_ir = replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **dict(bundle.ir.nodes),
+                    broken_node.node_id: broken_node,
+                }
+            ),
+        )
+    elif mutation == "call_output_missing_output":
+        review_loop = bundle.ir.nodes["root.review_loop"]
+        assert isinstance(review_loop, RepeatUntilFrameNode)
+        broken_contract = replace(
+            review_loop.output_contracts["review_decision"],
+            source_address=CallOutputAddress(
+                node_id="root.review_loop.iteration_body.run_review_loop",
+                output_name="missing_output",
+            ),
+        )
+        broken_node = replace(
+            review_loop,
+            output_contracts=MappingProxyType(
+                {
+                    **dict(review_loop.output_contracts),
+                    "review_decision": broken_contract,
+                }
+            ),
+        )
+        broken_ir = replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **dict(bundle.ir.nodes),
+                    broken_node.node_id: broken_node,
+                }
+            ),
+        )
+    elif mutation == "loop_output_wrong_kind":
+        review_loop = bundle.ir.nodes["root.review_loop"]
+        assert isinstance(review_loop, RepeatUntilFrameNode)
+        broken_condition = replace(
+            review_loop.condition,
+            left=LoopOutputAddress(
+                node_id="root.review_loop.iteration_body.run_review_loop",
+                output_name="review_decision",
+            ),
+        )
+        broken_node = replace(review_loop, condition=broken_condition)
+        broken_ir = replace(
+            bundle.ir,
+            nodes=MappingProxyType(
+                {
+                    **dict(bundle.ir.nodes),
+                    broken_node.node_id: broken_node,
+                }
+            ),
+        )
+    else:
+        review_loop = bundle.ir.nodes["root.review_loop"]
+        assert isinstance(review_loop, RepeatUntilFrameNode)
+        broken_condition = replace(
+            review_loop.condition,
+            left=LoopOutputAddress(
+                node_id="root.review_loop",
+                output_name="missing_output",
+            ),
+        )
+        broken_node = replace(review_loop, condition=broken_condition)
         broken_ir = replace(
             bundle.ir,
             nodes=MappingProxyType(

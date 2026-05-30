@@ -175,6 +175,7 @@ def elaborate_surface_workflow(
                 source_root=bundle.provenance.source_root,
                 managed_write_root_inputs=bundle.provenance.managed_write_root_inputs,
                 workflow_name=bundle.surface.name,
+                output_names=tuple(bundle.surface.outputs),
             )
             for alias, bundle in imported_bundles.items()
         }

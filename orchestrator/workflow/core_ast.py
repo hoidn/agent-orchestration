@@ -35,6 +35,7 @@ class CoreWorkflowImport:
     source_root: Path
     managed_write_root_inputs: tuple[str, ...] = ()
     workflow_name: str | None = None
+    output_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -376,14 +377,18 @@ def _import_from_surface(
     imported_bundle: Any,
 ) -> CoreWorkflowImport:
     workflow_name = metadata.workflow_name
+    output_names = metadata.output_names
     if workflow_name is None and imported_bundle is not None:
         workflow_name = imported_bundle.surface.name
+    if not output_names and imported_bundle is not None:
+        output_names = tuple(imported_bundle.surface.outputs)
     return CoreWorkflowImport(
         alias=alias,
         workflow_path=metadata.workflow_path,
         source_root=metadata.source_root,
         managed_write_root_inputs=metadata.managed_write_root_inputs,
         workflow_name=workflow_name,
+        output_names=output_names,
     )
 
 
@@ -728,6 +733,7 @@ def _surface_workflow_from_core_ast(core_workflow_ast: CoreWorkflowAST) -> Surfa
                     source_root=metadata.source_root,
                     managed_write_root_inputs=metadata.managed_write_root_inputs,
                     workflow_name=metadata.workflow_name,
+                    output_names=metadata.output_names,
                 )
                 for alias, metadata in core_workflow_ast.imports.items()
             }
@@ -928,6 +934,7 @@ def _import_to_json(metadata: CoreWorkflowImport) -> dict[str, Any]:
         "source_root": str(metadata.source_root),
         "managed_write_root_inputs": list(metadata.managed_write_root_inputs),
         "workflow_name": metadata.workflow_name,
+        "output_names": list(metadata.output_names),
     }
 
 

@@ -138,6 +138,7 @@ class ImportedWorkflowMetadata:
     source_root: Path
     managed_write_root_inputs: tuple[str, ...] = ()
     workflow_name: Optional[str] = None
+    output_names: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)

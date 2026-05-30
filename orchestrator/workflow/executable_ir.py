@@ -330,6 +330,7 @@ class CallBoundaryNode(ExecutableNodeBase):
     """Typed reusable-workflow call boundary."""
 
     call_alias: str = ""
+    available_outputs: tuple[str, ...] = ()
     bound_inputs: Mapping[str, Any] = field(default_factory=empty_frozen_mapping)
     bound_when_predicate: Any = None
     bound_assert_predicate: Any = None
@@ -588,6 +589,7 @@ def validate_executable_workflow(ir: ExecutableWorkflow) -> None:
             node,
             workflow_name=ir.name,
             known_node_ids=known_node_ids,
+            known_nodes=ir.nodes,
             current_node=node,
         )
 
@@ -596,6 +598,7 @@ def validate_executable_workflow(ir: ExecutableWorkflow) -> None:
             contract,
             workflow_name=ir.name,
             known_node_ids=known_node_ids,
+            known_nodes=ir.nodes,
             current_node=None,
         )
 
@@ -691,12 +694,14 @@ def _validate_contract(
     *,
     workflow_name: str | None,
     known_node_ids: set[str],
+    known_nodes: Mapping[str, ExecutableNode],
     current_node: ExecutableNode | None,
 ) -> None:
     _validate_ir_payload(
         contract,
         workflow_name=workflow_name,
         known_node_ids=known_node_ids,
+        known_nodes=known_nodes,
         current_node=current_node,
     )
 
@@ -724,6 +729,7 @@ def _validate_ir_payload(
     *,
     workflow_name: str | None,
     known_node_ids: set[str],
+    known_nodes: Mapping[str, ExecutableNode],
     current_node: ExecutableNode | None,
 ) -> None:
     if value is None or isinstance(value, (str, int, float, bool, Enum, Path)):
@@ -734,6 +740,7 @@ def _validate_ir_payload(
                 entry,
                 workflow_name=workflow_name,
                 known_node_ids=known_node_ids,
+                known_nodes=known_nodes,
                 current_node=current_node,
             )
         return
@@ -743,6 +750,7 @@ def _validate_ir_payload(
                 entry,
                 workflow_name=workflow_name,
                 known_node_ids=known_node_ids,
+                known_nodes=known_nodes,
                 current_node=current_node,
             )
         return
@@ -751,6 +759,7 @@ def _validate_ir_payload(
             value,
             workflow_name=workflow_name,
             known_node_ids=known_node_ids,
+            known_nodes=known_nodes,
             current_node=current_node,
         )
         return
@@ -774,6 +783,7 @@ def _validate_ir_payload(
                 getattr(value, field_def.name),
                 workflow_name=workflow_name,
                 known_node_ids=known_node_ids,
+                known_nodes=known_nodes,
                 current_node=current_node,
             )
         return
@@ -789,6 +799,7 @@ def _validate_bound_address(
     *,
     workflow_name: str | None,
     known_node_ids: set[str],
+    known_nodes: Mapping[str, ExecutableNode],
     current_node: ExecutableNode | None,
 ) -> None:
     if isinstance(address, WorkflowInputAddress):
@@ -805,6 +816,34 @@ def _validate_bound_address(
             workflow_name=workflow_name,
             node=current_node,
         )
+    node = known_nodes[node_id]
+    if isinstance(address, CallOutputAddress):
+        if not isinstance(node, CallBoundaryNode):
+            _raise_executable_ir_invalid(
+                f"executable_ir_invalid: call output address `{node_id}.{address.output_name}` must reference call boundary node",
+                workflow_name=workflow_name,
+                node=current_node or node,
+            )
+        if address.output_name not in node.available_outputs:
+            _raise_executable_ir_invalid(
+                f"executable_ir_invalid: call output address `{node_id}.{address.output_name}` references unknown call output",
+                workflow_name=workflow_name,
+                node=current_node or node,
+            )
+        return
+    if isinstance(address, LoopOutputAddress):
+        if not isinstance(node, RepeatUntilFrameNode):
+            _raise_executable_ir_invalid(
+                f"executable_ir_invalid: repeat-until output address `{node_id}.{address.output_name}` must reference repeat-until frame node",
+                workflow_name=workflow_name,
+                node=current_node or node,
+            )
+        if address.output_name not in node.output_contracts:
+            _raise_executable_ir_invalid(
+                f"executable_ir_invalid: repeat-until output address `{node_id}.{address.output_name}` references unknown repeat-until output",
+                workflow_name=workflow_name,
+                node=current_node or node,
+            )
 
 
 def _raise_executable_ir_invalid(

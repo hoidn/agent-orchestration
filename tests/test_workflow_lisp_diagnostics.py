@@ -755,11 +755,14 @@ def test_compile_stage3_entrypoint_revalidates_executable_ir_before_linked_sourc
         workspace_root=tmp_path,
     )
 
-    assert call_log == [
-        ("source_map", False),
-        ("validate", "neurips/entry::orchestrate"),
-        ("source_map", True),
-    ]
+    assert call_log[0] == ("source_map", False)
+    assert call_log[-1] == ("source_map", True)
+    assert all(kind == "validate" for kind, _ in call_log[1:-1])
+    assert {name for _, name in call_log[1:-1]} == {
+        "neurips/helper::provider-attempt",
+        "neurips/helper::secondary",
+        "neurips/entry::orchestrate",
+    }
 
 
 def test_compile_stage3_module_reports_post_shared_validation_executable_ir_failures(
@@ -837,6 +840,95 @@ def test_compile_stage3_module_reports_post_shared_validation_executable_ir_fail
     assert diagnostic.phase == "executable"
     assert diagnostic.validation_pass == "executable"
     assert diagnostic.span.start.path.endswith("structured_results.orc")
+
+
+def test_compile_stage3_entrypoint_reports_post_shared_validation_executable_ir_failures_for_linked_bundle(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    compiler_module = _compiler_module()
+    imported_bundle_source = tmp_path / "selector_run.orc"
+    imported_bundle_source.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord ChecksResult",
+                "    (status String)",
+                "    (report WorkReport))",
+                "  (defrecord ImplementationSummary",
+                "    (report WorkReport))",
+                "  (defworkflow selector-run",
+                "    ((input ChecksResult)",
+                "     (report_path WorkReport))",
+                "    -> ImplementationSummary",
+                "    (provider-result providers.execute",
+                "      :prompt prompts.implementation.execute",
+                "      :inputs (input report_path)",
+                "      :returns ImplementationSummary)))",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    imported_bundle = compile_stage3_module(
+        imported_bundle_source,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        validate_shared=True,
+        workspace_root=tmp_path,
+    ).validated_bundles["selector-run"]
+
+    def fail_linked_helper_executable_revalidation(ir):
+        if ir.name != "neurips/helper::provider-attempt":
+            return
+        raise WorkflowValidationError(
+            [
+                ValidationError(
+                    message=(
+                        "executable_ir_invalid: "
+                        f"workflow `{ir.name}` contains invalid executable bridge state"
+                    ),
+                    subject_refs=(
+                        ValidationSubjectRef(
+                            subject_kind="workflow",
+                            subject_name=ir.name,
+                            workflow_name=ir.name,
+                        ),
+                    ),
+                )
+            ]
+        )
+
+    monkeypatch.setattr(
+        compiler_module,
+        "validate_executable_workflow",
+        fail_linked_helper_executable_revalidation,
+        raising=False,
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        compile_stage3_entrypoint(
+            MODULE_FIXTURES / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc",
+            source_roots=(MODULE_FIXTURES / "valid" / "imported_bundle_mix",),
+            provider_externs={"providers.execute": "test-provider"},
+            prompt_externs={
+                "prompts.implementation.execute": "prompts/implementation/execute.md"
+            },
+            imported_workflow_bundles={"selector-run": imported_bundle},
+            validate_shared=True,
+            workspace_root=tmp_path,
+        )
+
+    diagnostic = excinfo.value.diagnostics[0]
+    assert diagnostic.code == "executable_ir_invalid"
+    assert diagnostic.phase == "executable"
+    assert diagnostic.validation_pass == "executable"
+    assert diagnostic.span.start.path.endswith("helper.orc")
 
 
 def test_serialize_diagnostic_preserves_typecheck_phase_for_missing_imported_workflow_bundle() -> None:
