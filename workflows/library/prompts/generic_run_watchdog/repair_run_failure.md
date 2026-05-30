@@ -20,9 +20,18 @@ Work carefully:
 7. As one of the final actions, either:
    - resume the target run with `python -m orchestrator resume <target_run_id>`;
    - relaunch or restart using a command justified by the evidence or policy;
-   - decline recovery and explain why it is unsafe.
+   - decline recovery only when concrete evidence shows recovery is unsafe.
 
 Do not invent workflow-specific assumptions. Prefer resume over fresh relaunch when the persisted state is usable.
+A one-run workspace patch is not a fix when the same generated workflow surface
+would recreate the failure. Before reporting success, repair the durable generator
+and verify a regenerated surface; report `BLOCKED` only with concrete evidence.
+
+Do not report `FIXED_AND_RESUMED` just because the run state says `running`.
+After resume, re-read the target `state.json` and verify that the resumed pid is
+alive, the heartbeat advanced, no top-level step is failed, and no
+`call_frames[*].state.steps` entry is failed. If any check fails, report
+`BLOCKED` with `recovery_action: "DECLINED"` instead.
 
 Write `${inputs.repair_result_target_path}` as JSON with this shape:
 
