@@ -8,6 +8,7 @@ from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import (
     ContinueExpr,
     FieldAccessExpr,
+    LetProcExpr,
     LetStarExpr,
     LiteralExpr,
     LoopRecurExpr,
@@ -224,6 +225,100 @@ def test_elaborate_expression_supports_if_conditional() -> None:
     assert getattr(expr, "condition_expr").name == "ready"
     assert isinstance(getattr(expr, "then_expr"), RecordExpr)
     assert isinstance(getattr(expr, "else_expr"), RecordExpr)
+
+
+def test_elaborate_expression_supports_let_proc() -> None:
+    expr = elaborate_expression(
+        _expression_syntax(
+            "(let-proc (run-local ((input WorkflowInput)) -> WorkflowOutput "
+            "           :captures (fixed) "
+            "           (command-result run_checks "
+            '             :argv ("python" "scripts/run_checks.py" input.report fixed) '
+            "             :returns WorkflowOutput)) "
+            "  (proc-ref run-local))"
+        ),
+        bound_names=frozenset({"fixed"}),
+    )
+
+    assert isinstance(expr, LetProcExpr)
+    assert expr.binding.local_name == "run-local"
+    assert expr.binding.capture_names == ("fixed",)
+
+
+@pytest.mark.parametrize(
+    ("bound_names", "procedure_names"),
+    [
+        (frozenset({"input", "run-local"}), frozenset()),
+        (frozenset({"input"}), frozenset({"run-local"})),
+    ],
+)
+def test_elaborate_expression_rejects_let_proc_name_collisions(
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(
+            _expression_syntax(
+                "(let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput "
+                "           :captures () "
+                "           item) "
+                "  input)"
+            ),
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+
+    assert excinfo.value.diagnostics[0].code == "let_proc_name_collision"
+
+
+@pytest.mark.parametrize(
+    ("source", "code", "bound_names"),
+    [
+        (
+            "(let-proc ((a ((input WorkflowInput)) -> WorkflowOutput :captures () input) "
+            "           (b ((input WorkflowInput)) -> WorkflowOutput :captures () input)) "
+            "  input)",
+            "let_proc_multiple_bindings_unsupported",
+            frozenset({"input"}),
+        ),
+        (
+            "(let-proc (local ((input WorkflowInput)) -> WorkflowOutput "
+            "           :captures (ctx.field) "
+            "           input) "
+            "  input)",
+            "let_proc_capture_not_identifier",
+            frozenset({"ctx", "input"}),
+        ),
+        (
+            "(let-proc (local ((input WorkflowInput)) -> WorkflowOutput "
+            "           :captures () "
+            "           input) "
+            "  (local input))",
+            "let_proc_bare_name_invalid",
+            frozenset({"input"}),
+        ),
+        (
+            "(let-proc (outer ((input WorkflowInput)) -> WorkflowOutput "
+            "           :captures () "
+            "           input) "
+            "  (let-proc (inner ((input WorkflowInput)) -> WorkflowOutput "
+            "              :captures () "
+            "              input) "
+            "    input))",
+            "let_proc_nested_unsupported",
+            frozenset({"input"}),
+        ),
+    ],
+)
+def test_elaborate_expression_rejects_invalid_let_proc_forms(
+    source: str,
+    code: str,
+    bound_names: frozenset[str],
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        elaborate_expression(_expression_syntax(source), bound_names=bound_names)
+
+    assert excinfo.value.diagnostics[0].code == code
 
 
 def test_elaborate_expression_rejects_if_wrong_arity() -> None:

@@ -204,6 +204,18 @@ def resolve_proc_ref_name(
     expected_type: ProcRefTypeRef | None = None,
     resolution_context: ProcRefResolutionContext | None = None,
 ) -> ResolvedProcRef:
+    if (authored_name or target_name).startswith("%let-proc."):
+        raise LispFrontendCompileError(
+            (
+                LispFrontendDiagnostic(
+                    code="let_proc_generated_name_private",
+                    message="authored references to generated `let-proc` names are not allowed",
+                    span=span,
+                    form_path=form_path,
+                    expansion_stack=expansion_stack,
+                ),
+            )
+        )
     signature = procedure_catalog.signatures_by_name.get(target_name)
     if signature is None:
         _raise_unknown_or_private(

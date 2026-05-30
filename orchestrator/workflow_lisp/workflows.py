@@ -797,19 +797,22 @@ def typecheck_workflow_definitions(
                 value_env[extern_name] = PrimitiveTypeRef(name="Prompt")
 
         procedure_names = frozenset() if procedure_catalog is None else frozenset(procedure_catalog.signatures_by_name)
-        body_expr = elaborate_expression(
-            workflow_def.body,
-            bound_names=frozenset(value_env),
-            procedure_names=procedure_names,
-            function_names=(
-                frozenset()
-                if function_catalog is None
-                else frozenset(function_catalog.signatures_by_name)
-            ),
-            function_name_resolver=function_name_resolver,
-            procedure_name_resolver=procedure_name_resolver,
-            workflow_name_resolver=workflow_name_resolver,
-        )
+        if isinstance(workflow_def.body, SyntaxNode):
+            body_expr = elaborate_expression(
+                workflow_def.body,
+                bound_names=frozenset(value_env),
+                procedure_names=procedure_names,
+                function_names=(
+                    frozenset()
+                    if function_catalog is None
+                    else frozenset(function_catalog.signatures_by_name)
+                ),
+                function_name_resolver=function_name_resolver,
+                procedure_name_resolver=procedure_name_resolver,
+                workflow_name_resolver=workflow_name_resolver,
+            )
+        else:
+            body_expr = workflow_def.body
         typed_body = typecheck_expression(
             body_expr,
             type_env=type_env,

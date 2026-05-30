@@ -56,6 +56,7 @@ class ProcedureDef:
     span: SourceSpan
     form_path: tuple[str, ...]
     expansion_stack: ExpansionStack = ()
+    generated_local_procedure: "GeneratedLocalProcedure | None" = None
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,20 @@ class ProcedureCallableSpecialization:
     bound_param_types: Mapping[str, TypeRef]
     origin_span: SourceSpan
     origin_form_path: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class GeneratedLocalProcedure:
+    """Compiler-private metadata for a `let-proc` generated hidden procedure."""
+
+    authored_local_name: str
+    generated_name: str
+    owner_callable_name: str
+    residual_params: tuple[tuple[str, str], ...]
+    return_type_name: str
+    capture_names: tuple[str, ...]
+    origin_span: SourceSpan
+    consumer_proc_ref_spans: tuple[SourceSpan, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -125,6 +140,39 @@ def proc_ref_specialization_name(
     ).hexdigest()[:12]
     normalized_base = base_name.replace("/", ".").replace("::", ".").replace("-", "_")
     return f"%proc-ref-call.{normalized_base}.{digest}"
+
+
+def let_proc_generated_name(
+    *,
+    owner_callable_name: str,
+    local_name: str,
+    origin_span: SourceSpan,
+    param_type_names: tuple[str, ...],
+    return_type_name: str,
+    capture_names: tuple[str, ...],
+    semantic_body_identity: str,
+) -> str:
+    """Return a deterministic hidden procedure name for one `let-proc` binding."""
+
+    digest = hashlib.sha1(
+        "|".join(
+            [
+                owner_callable_name,
+                local_name,
+                str(origin_span.start.line),
+                str(origin_span.start.column),
+                str(origin_span.end.line),
+                str(origin_span.end.column),
+                ",".join(param_type_names),
+                return_type_name,
+                ",".join(capture_names),
+                semantic_body_identity,
+            ]
+        ).encode("utf-8")
+    ).hexdigest()[:12]
+    normalized_owner = owner_callable_name.replace("/", ".").replace("::", ".").replace("-", "_")
+    normalized_local = local_name.replace("-", "_")
+    return f"%let-proc.{normalized_owner}.{normalized_local}.{digest}"
 
 
 def elaborate_procedure_definitions(module_syntax: WorkflowLispSyntaxModule) -> tuple[ProcedureDef, ...]:

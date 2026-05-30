@@ -105,7 +105,7 @@ from .type_expressions import (
     WorkflowRefTypeExpr,
     parse_type_expression,
 )
-from .typecheck import typecheck_expression
+from .typecheck import consume_generated_local_procedures, reset_generated_local_procedure_state, typecheck_expression
 from .validation import (
     VALIDATION_PASS_CATALOG,
     ValidationPipelinePass,
@@ -2251,19 +2251,22 @@ def _typecheck_procedure_definitions(
                     span=procedure_def.span,
                     form_path=procedure_def.form_path,
                 )
-        body_expr = elaborate_expression(
-            procedure_def.body,
-            bound_names=frozenset(value_env),
-            procedure_names=frozenset(procedure_catalog.signatures_by_name),
-            function_names=(
-                frozenset()
-                if function_catalog is None
-                else frozenset(function_catalog.signatures_by_name)
-            ),
-            function_name_resolver=function_name_resolver,
-            procedure_name_resolver=procedure_name_resolver,
-            workflow_name_resolver=workflow_name_resolver,
-        )
+        if isinstance(procedure_def.body, SyntaxNode):
+            body_expr = elaborate_expression(
+                procedure_def.body,
+                bound_names=frozenset(value_env),
+                procedure_names=frozenset(procedure_catalog.signatures_by_name),
+                function_names=(
+                    frozenset()
+                    if function_catalog is None
+                    else frozenset(function_catalog.signatures_by_name)
+                ),
+                function_name_resolver=function_name_resolver,
+                procedure_name_resolver=procedure_name_resolver,
+                workflow_name_resolver=workflow_name_resolver,
+            )
+        else:
+            body_expr = procedure_def.body
         typed_body = typecheck_expression(
             body_expr,
             type_env=type_env,
@@ -2614,18 +2617,129 @@ def _infer_stage3_effect_summaries(
 ) -> tuple[tuple[TypedProcedureDef, ...], tuple[object, ...], ProcedureCatalog]:
     """Compute procedure/workflow effect summaries to a fixpoint."""
 
-    procedure_effects_by_name = dict(procedure_effects_by_name or {})
-    workflow_effects_by_name = dict(workflow_effects_by_name or {})
-    procedure_targets: dict[str, ProcedureDef | TypedProcedureDef] = {
-        procedure_def.name: procedure_def for procedure_def in procedure_defs
-    }
-    typed_procedures: tuple[TypedProcedureDef, ...] = ()
-    typed_workflows: tuple[object, ...] = ()
+    reset_generated_local_procedure_state()
+    try:
+        procedure_effects_by_name = dict(procedure_effects_by_name or {})
+        workflow_effects_by_name = dict(workflow_effects_by_name or {})
+        procedure_targets: dict[str, ProcedureDef | TypedProcedureDef] = {
+            procedure_def.name: procedure_def for procedure_def in procedure_defs
+        }
+        typed_procedures: tuple[TypedProcedureDef, ...] = ()
+        typed_workflows: tuple[object, ...] = ()
 
-    max_iterations = max(1, len(procedure_defs) + len(workflow_defs)) * 8
-    for _ in range(max_iterations):
-        typed_procedures = _typecheck_procedure_definitions(
-            tuple(procedure_targets.values()),
+        max_iterations = max(1, len(procedure_defs) + len(workflow_defs)) * 8
+        for _ in range(max_iterations):
+            typed_procedures = _typecheck_procedure_definitions(
+                tuple(procedure_targets.values()),
+                type_env=type_env,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                function_catalog=function_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                procedure_effects_by_name=procedure_effects_by_name,
+                workflow_effects_by_name=workflow_effects_by_name,
+                function_name_resolver=function_name_resolver,
+                procedure_name_resolver=procedure_name_resolver,
+                workflow_name_resolver=workflow_name_resolver,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+            generated_from_procedures = {
+                procedure.definition.name: procedure
+                for procedure in consume_generated_local_procedures()
+            }
+            if generated_from_procedures:
+                typed_procedures = typed_procedures + tuple(
+                    procedure
+                    for name, procedure in generated_from_procedures.items()
+                    if name not in {typed.definition.name for typed in typed_procedures}
+                )
+            procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
+            discovered_from_procedures = _discover_proc_ref_specializations(
+                typed_procedures=typed_procedures,
+                typed_workflows=(),
+                procedure_catalog=procedure_catalog,
+                type_env=type_env,
+            )
+            added_specialization = False
+            for specialized in discovered_from_procedures:
+                if specialized.definition.name in procedure_targets:
+                    continue
+                procedure_targets[specialized.definition.name] = specialized
+                added_specialization = True
+            if added_specialization:
+                continue
+            typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
+                typed_procedures,
+                procedure_catalog=procedure_catalog,
+                validate_declared=False,
+            )
+            next_procedure_effects = {
+                procedure.definition.name: procedure.transitive_effect_summary for procedure in typed_procedures
+            }
+            typed_workflows = typecheck_workflow_definitions(
+                workflow_defs,
+                type_env=type_env,
+                workflow_catalog=workflow_catalog,
+                procedure_catalog=procedure_catalog,
+                function_catalog=function_catalog,
+                extern_environment=extern_environment,
+                command_boundary_environment=command_boundary_environment,
+                procedure_effects_by_name=next_procedure_effects,
+                workflow_effects_by_name=workflow_effects_by_name,
+                function_name_resolver=function_name_resolver,
+                procedure_name_resolver=procedure_name_resolver,
+                workflow_name_resolver=workflow_name_resolver,
+                proc_ref_resolution_context=proc_ref_resolution_context,
+            )
+            generated_from_workflows = {
+                procedure.definition.name: procedure
+                for procedure in consume_generated_local_procedures()
+            }
+            if generated_from_workflows:
+                typed_procedures_by_name = {procedure.definition.name: procedure for procedure in typed_procedures}
+                typed_procedures = typed_procedures + tuple(
+                    procedure
+                    for name, procedure in generated_from_workflows.items()
+                    if name not in typed_procedures_by_name
+                )
+                procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
+            discovered_from_workflows = _discover_proc_ref_specializations(
+                typed_procedures=typed_procedures,
+                typed_workflows=typed_workflows,
+                procedure_catalog=procedure_catalog,
+                type_env=type_env,
+            )
+            added_specialization = False
+            for specialized in discovered_from_workflows:
+                if specialized.definition.name in procedure_targets:
+                    continue
+                procedure_targets[specialized.definition.name] = specialized
+                added_specialization = True
+            if added_specialization:
+                continue
+            next_workflow_effects = {
+                workflow.definition.name: workflow.effect_summary for workflow in typed_workflows
+            }
+            if (
+                next_procedure_effects == dict(procedure_effects_by_name)
+                and next_workflow_effects == dict(workflow_effects_by_name)
+            ):
+                procedure_effects_by_name = next_procedure_effects
+                workflow_effects_by_name = next_workflow_effects
+                break
+            procedure_effects_by_name = next_procedure_effects
+            workflow_effects_by_name = next_workflow_effects
+        else:
+            raise RuntimeError("workflow Lisp effect summary fixpoint did not converge")
+
+        typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
+            typed_procedures,
+            procedure_catalog=procedure_catalog,
+            validate_declared=True,
+        )
+        typed_workflows = typecheck_workflow_definitions(
+            workflow_defs,
             type_env=type_env,
             workflow_catalog=workflow_catalog,
             procedure_catalog=procedure_catalog,
@@ -2639,94 +2753,23 @@ def _infer_stage3_effect_summaries(
             workflow_name_resolver=workflow_name_resolver,
             proc_ref_resolution_context=proc_ref_resolution_context,
         )
-        procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
-        discovered_from_procedures = _discover_proc_ref_specializations(
-            typed_procedures=typed_procedures,
-            typed_workflows=(),
-            procedure_catalog=procedure_catalog,
-            type_env=type_env,
-        )
-        added_specialization = False
-        for specialized in discovered_from_procedures:
-            if specialized.definition.name in procedure_targets:
-                continue
-            procedure_targets[specialized.definition.name] = specialized
-            added_specialization = True
-        if added_specialization:
-            continue
-        typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
-            typed_procedures,
-            procedure_catalog=procedure_catalog,
-            validate_declared=False,
-        )
-        next_procedure_effects = {
-            procedure.definition.name: procedure.transitive_effect_summary for procedure in typed_procedures
+        generated_from_workflows = {
+            procedure.definition.name: procedure
+            for procedure in consume_generated_local_procedures()
         }
-        typed_workflows = typecheck_workflow_definitions(
-            workflow_defs,
-            type_env=type_env,
-            workflow_catalog=workflow_catalog,
-            procedure_catalog=procedure_catalog,
-            function_catalog=function_catalog,
-            extern_environment=extern_environment,
-            command_boundary_environment=command_boundary_environment,
-            procedure_effects_by_name=next_procedure_effects,
-            workflow_effects_by_name=workflow_effects_by_name,
-            function_name_resolver=function_name_resolver,
-            procedure_name_resolver=procedure_name_resolver,
-            workflow_name_resolver=workflow_name_resolver,
-            proc_ref_resolution_context=proc_ref_resolution_context,
-        )
-        discovered_from_workflows = _discover_proc_ref_specializations(
-            typed_procedures=typed_procedures,
-            typed_workflows=typed_workflows,
-            procedure_catalog=procedure_catalog,
-            type_env=type_env,
-        )
-        added_specialization = False
-        for specialized in discovered_from_workflows:
-            if specialized.definition.name in procedure_targets:
-                continue
-            procedure_targets[specialized.definition.name] = specialized
-            added_specialization = True
-        if added_specialization:
-            continue
-        next_workflow_effects = {
-            workflow.definition.name: workflow.effect_summary for workflow in typed_workflows
-        }
-        if (
-            next_procedure_effects == dict(procedure_effects_by_name)
-            and next_workflow_effects == dict(workflow_effects_by_name)
-        ):
-            procedure_effects_by_name = next_procedure_effects
-            workflow_effects_by_name = next_workflow_effects
-            break
-        procedure_effects_by_name = next_procedure_effects
-        workflow_effects_by_name = next_workflow_effects
-    else:
-        raise RuntimeError("workflow Lisp effect summary fixpoint did not converge")
-
-    typed_procedures, procedure_catalog = _validate_procedure_effects_and_cycles(
-        typed_procedures,
-        procedure_catalog=procedure_catalog,
-        validate_declared=True,
-    )
-    typed_workflows = typecheck_workflow_definitions(
-        workflow_defs,
-        type_env=type_env,
-        workflow_catalog=workflow_catalog,
-        procedure_catalog=procedure_catalog,
-        function_catalog=function_catalog,
-        extern_environment=extern_environment,
-        command_boundary_environment=command_boundary_environment,
-        procedure_effects_by_name=procedure_effects_by_name,
-        workflow_effects_by_name=workflow_effects_by_name,
-        function_name_resolver=function_name_resolver,
-        procedure_name_resolver=procedure_name_resolver,
-        workflow_name_resolver=workflow_name_resolver,
-        proc_ref_resolution_context=proc_ref_resolution_context,
-    )
-    return typed_procedures, typed_workflows, procedure_catalog
+        if generated_from_workflows:
+            typed_procedures = tuple(
+                generated_from_workflows.get(procedure.definition.name, procedure)
+                for procedure in typed_procedures
+            ) + tuple(
+                procedure
+                for name, procedure in generated_from_workflows.items()
+                if name not in {typed.definition.name for typed in typed_procedures}
+            )
+            procedure_catalog = _procedure_catalog_with_specializations(procedure_catalog, typed_procedures)
+        return typed_procedures, typed_workflows, procedure_catalog
+    finally:
+        reset_generated_local_procedure_state()
 
 
 def _validate_procedure_effects_and_cycles(

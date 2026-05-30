@@ -16,6 +16,7 @@ from .phase_stdlib import (
     ProduceOneOfCandidateSpec,
     ProduceOneOfProducerSpec,
 )
+from .procedures import ProcedureParam
 from .resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from .spans import SourceSpan
 from .syntax import (
@@ -221,6 +222,31 @@ class BindProcExpr:
 
 
 @dataclass(frozen=True)
+class LetProcBinding:
+    """One authored V1 `let-proc` local procedure binding."""
+
+    local_name: str
+    params: tuple[ProcedureParam, ...]
+    return_type_name: str
+    capture_names: tuple[str, ...]
+    local_body: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
+class LetProcExpr:
+    """One lexical local procedure plus the body that can reference it."""
+
+    binding: LetProcBinding
+    body: "ExprNode"
+    span: SourceSpan
+    form_path: tuple[str, ...]
+    expansion_stack: ExpansionStack = ()
+
+
+@dataclass(frozen=True)
 class ProviderResultExpr:
     """One provider result with a typed structured return contract."""
 
@@ -398,6 +424,7 @@ ExprNode = (
     | WorkflowRefLiteralExpr
     | ProcRefLiteralExpr
     | BindProcExpr
+    | LetProcExpr
     | ProviderResultExpr
     | CommandResultExpr
     | ContinueExpr
@@ -417,7 +444,9 @@ _ACTIVE_PROCEDURE_NAME_RESOLVER = None
 _ACTIVE_FUNCTION_NAME_RESOLVER = None
 _ACTIVE_WORKFLOW_NAME_RESOLVER = None
 _ACTIVE_FUNCTION_NAMES = frozenset()
+_ACTIVE_LOCAL_PROC_NAMES = frozenset()
 _ACTIVE_LOOP_BODY_DEPTH = 0
+_ACTIVE_LET_PROC_DEPTH = 0
 
 
 def elaborate_expression(
@@ -433,15 +462,20 @@ def elaborate_expression(
     """Elaborate one syntax node into a supported Workflow Lisp expression."""
 
     global _ACTIVE_FUNCTION_NAME_RESOLVER, _ACTIVE_FUNCTION_NAMES, _ACTIVE_PROCEDURE_NAME_RESOLVER, _ACTIVE_WORKFLOW_NAME_RESOLVER
+    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH
 
     previous_function_resolver = _ACTIVE_FUNCTION_NAME_RESOLVER
     previous_function_names = _ACTIVE_FUNCTION_NAMES
     previous_procedure_resolver = _ACTIVE_PROCEDURE_NAME_RESOLVER
     previous_workflow_resolver = _ACTIVE_WORKFLOW_NAME_RESOLVER
+    previous_local_proc_names = _ACTIVE_LOCAL_PROC_NAMES
+    previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
     _ACTIVE_FUNCTION_NAME_RESOLVER = function_name_resolver
     _ACTIVE_FUNCTION_NAMES = function_names
     _ACTIVE_PROCEDURE_NAME_RESOLVER = procedure_name_resolver
     _ACTIVE_WORKFLOW_NAME_RESOLVER = workflow_name_resolver
+    _ACTIVE_LOCAL_PROC_NAMES = frozenset()
+    _ACTIVE_LET_PROC_DEPTH = 0
     try:
         return _elaborate(
             syntax_node_datum(node),
@@ -454,6 +488,8 @@ def elaborate_expression(
         _ACTIVE_FUNCTION_NAMES = previous_function_names
         _ACTIVE_PROCEDURE_NAME_RESOLVER = previous_procedure_resolver
         _ACTIVE_WORKFLOW_NAME_RESOLVER = previous_workflow_resolver
+        _ACTIVE_LOCAL_PROC_NAMES = previous_local_proc_names
+        _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
 
 
 def _elaborate(
@@ -656,6 +692,21 @@ def _elaborate_list(
             bound_names=bound_names,
             procedure_names=procedure_names,
         )
+    if head.resolved_name == "let-proc":
+        if _ACTIVE_LET_PROC_DEPTH > 0:
+            _raise_error(
+                "`let-proc` cannot be nested in V1",
+                code="let_proc_nested_unsupported",
+                span=datum.span,
+                form_path=form_path,
+                expansion_stack=datum.expansion_stack,
+            )
+        return _elaborate_let_proc(
+            datum,
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
     if head.resolved_name == "provider-result":
         return _elaborate_provider_result(
             datum,
@@ -732,6 +783,14 @@ def _elaborate_list(
             form_path=form_path,
             bound_names=bound_names,
             procedure_names=procedure_names,
+        )
+    if head.resolved_name in _ACTIVE_LOCAL_PROC_NAMES:
+        _raise_error(
+            f"`{head.display_name}` is a local `let-proc` binding and must be referenced with `proc-ref`",
+            code="let_proc_bare_name_invalid",
+            span=head.span,
+            form_path=form_path,
+            expansion_stack=head.expansion_stack,
         )
     if head.resolved_name in bound_names:
         return _elaborate_procedure_call(
@@ -1385,15 +1444,18 @@ def _elaborate_proc_ref_literal(
             expansion_stack=datum.items[1].expansion_stack,
         )
     authored_name = target_identifier.resolved_name
-    target_name = (
-        _ACTIVE_PROCEDURE_NAME_RESOLVER(
-            authored_name,
-            target_identifier.span,
-            form_path,
+    if authored_name in _ACTIVE_LOCAL_PROC_NAMES:
+        target_name = authored_name
+    else:
+        target_name = (
+            _ACTIVE_PROCEDURE_NAME_RESOLVER(
+                authored_name,
+                target_identifier.span,
+                form_path,
+            )
+            if _ACTIVE_PROCEDURE_NAME_RESOLVER is not None
+            else authored_name
         )
-        if _ACTIVE_PROCEDURE_NAME_RESOLVER is not None
-        else authored_name
-    )
     return ProcRefLiteralExpr(
         target_name=target_name,
         authored_name=authored_name,
@@ -1455,6 +1517,225 @@ def _elaborate_bind_proc(
         span=datum.span,
         form_path=form_path,
         expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_let_proc(
+    datum: SyntaxList,
+    *,
+    form_path: tuple[str, ...],
+    bound_names: frozenset[str],
+    procedure_names: frozenset[str],
+) -> LetProcExpr:
+    global _ACTIVE_LOCAL_PROC_NAMES, _ACTIVE_LET_PROC_DEPTH
+
+    if len(datum.items) != 3:
+        _raise_error(
+            "`let-proc` requires exactly one binding and one body",
+            code="let_proc_syntax_invalid",
+            span=datum.span,
+            form_path=form_path,
+            expansion_stack=datum.expansion_stack,
+        )
+    binding_node = datum.items[1]
+    if not isinstance(binding_node, SyntaxList):
+        _raise_error(
+            "`let-proc` binding must be a list",
+            code="let_proc_syntax_invalid",
+            span=binding_node.span,
+            form_path=form_path,
+            expansion_stack=binding_node.expansion_stack,
+        )
+    if binding_node.items and isinstance(binding_node.items[0], SyntaxList):
+        _raise_error(
+            "`let-proc` supports exactly one local binding in V1",
+            code="let_proc_multiple_bindings_unsupported",
+            span=binding_node.span,
+            form_path=form_path,
+            expansion_stack=binding_node.expansion_stack,
+        )
+    if len(binding_node.items) != 7:
+        _raise_error(
+            "`let-proc` binding must provide name, params, `->`, return type, `:captures`, and one body",
+            code="let_proc_syntax_invalid",
+            span=binding_node.span,
+            form_path=form_path,
+            expansion_stack=binding_node.expansion_stack,
+        )
+    name_identifier = syntax_identifier(binding_node.items[0])
+    if name_identifier is None:
+        _raise_error(
+            "`let-proc` local name must be a symbol",
+            code="let_proc_syntax_invalid",
+            span=binding_node.items[0].span,
+            form_path=form_path,
+            expansion_stack=binding_node.items[0].expansion_stack,
+        )
+    if (
+        name_identifier.resolved_name in bound_names
+        or name_identifier.resolved_name in procedure_names
+    ):
+        _raise_error(
+            (
+                f"`let-proc` local procedure `{name_identifier.resolved_name}` collides "
+                "with an existing value or procedure binding"
+            ),
+            code="let_proc_name_collision",
+            span=binding_node.items[0].span,
+            form_path=form_path,
+            expansion_stack=binding_node.items[0].expansion_stack,
+        )
+    params_node = binding_node.items[1]
+    if not isinstance(params_node, SyntaxList):
+        _raise_error(
+            "`let-proc` params must be a list",
+            code="let_proc_syntax_invalid",
+            span=params_node.span,
+            form_path=form_path,
+            expansion_stack=params_node.expansion_stack,
+        )
+    arrow_identifier = syntax_identifier(binding_node.items[2])
+    if arrow_identifier is None or arrow_identifier.resolved_name != "->":
+        _raise_error(
+            "`let-proc` requires `->` before the return type",
+            code="let_proc_syntax_invalid",
+            span=binding_node.items[2].span,
+            form_path=form_path,
+            expansion_stack=binding_node.items[2].expansion_stack,
+        )
+    return_type_identifier = syntax_identifier(binding_node.items[3])
+    if return_type_identifier is None:
+        _raise_error(
+            "`let-proc` return type must be a symbol",
+            code="let_proc_syntax_invalid",
+            span=binding_node.items[3].span,
+            form_path=form_path,
+            expansion_stack=binding_node.items[3].expansion_stack,
+        )
+    captures_keyword = binding_node.items[4]
+    if not isinstance(captures_keyword, SyntaxKeyword) or captures_keyword.value != ":captures":
+        _raise_error(
+            "`let-proc` requires a `:captures` clause",
+            code="let_proc_syntax_invalid",
+            span=getattr(captures_keyword, "span", binding_node.span),
+            form_path=form_path,
+            expansion_stack=getattr(captures_keyword, "expansion_stack", datum.expansion_stack),
+        )
+    captures_node = binding_node.items[5]
+    if not isinstance(captures_node, SyntaxList):
+        _raise_error(
+            "`let-proc` captures must be a list of identifiers",
+            code="let_proc_syntax_invalid",
+            span=captures_node.span,
+            form_path=form_path,
+            expansion_stack=captures_node.expansion_stack,
+        )
+
+    params = tuple(_elaborate_let_proc_param(param, form_path) for param in params_node.items)
+    capture_names: list[str] = []
+    seen_captures: set[str] = set()
+    for capture_node in captures_node.items:
+        capture_identifier = syntax_identifier(capture_node)
+        if capture_identifier is None or "." in capture_identifier.resolved_name:
+            _raise_error(
+                "`let-proc` captures must be plain identifiers",
+                code="let_proc_capture_not_identifier",
+                span=capture_node.span,
+                form_path=form_path,
+                expansion_stack=capture_node.expansion_stack,
+            )
+        capture_name = capture_identifier.resolved_name
+        if capture_name not in bound_names:
+            _raise_error(
+                f"unknown `let-proc` capture `{capture_name}`",
+                code="let_proc_capture_unknown",
+                span=capture_node.span,
+                form_path=form_path,
+                expansion_stack=capture_node.expansion_stack,
+            )
+        if capture_name in seen_captures:
+            _raise_error(
+                f"duplicate `let-proc` capture `{capture_name}`",
+                code="let_proc_capture_duplicate",
+                span=capture_node.span,
+                form_path=form_path,
+                expansion_stack=capture_node.expansion_stack,
+            )
+        seen_captures.add(capture_name)
+        capture_names.append(capture_name)
+
+    previous_local_proc_names = _ACTIVE_LOCAL_PROC_NAMES
+    previous_let_proc_depth = _ACTIVE_LET_PROC_DEPTH
+    _ACTIVE_LOCAL_PROC_NAMES = _ACTIVE_LOCAL_PROC_NAMES | frozenset({name_identifier.resolved_name})
+    _ACTIVE_LET_PROC_DEPTH += 1
+    try:
+        local_body = _elaborate(
+            binding_node.items[6],
+            form_path=form_path,
+            bound_names=frozenset(capture_names) | frozenset(param.name for param in params),
+            procedure_names=procedure_names,
+        )
+        body = _elaborate(
+            datum.items[2],
+            form_path=form_path,
+            bound_names=bound_names,
+            procedure_names=procedure_names,
+        )
+    finally:
+        _ACTIVE_LOCAL_PROC_NAMES = previous_local_proc_names
+        _ACTIVE_LET_PROC_DEPTH = previous_let_proc_depth
+
+    return LetProcExpr(
+        binding=LetProcBinding(
+            local_name=name_identifier.resolved_name,
+            params=params,
+            return_type_name=return_type_identifier.resolved_name,
+            capture_names=tuple(capture_names),
+            local_body=local_body,
+            span=binding_node.span,
+            form_path=form_path,
+            expansion_stack=binding_node.expansion_stack,
+        ),
+        body=body,
+        span=datum.span,
+        form_path=form_path,
+        expansion_stack=datum.expansion_stack,
+    )
+
+
+def _elaborate_let_proc_param(raw_param: object, form_path: tuple[str, ...]) -> ProcedureParam:
+    if not isinstance(raw_param, SyntaxList) or len(raw_param.items) != 2:
+        _raise_error(
+            "`let-proc` params must be two-item lists of `(name Type)`",
+            code="let_proc_syntax_invalid",
+            span=getattr(raw_param, "span"),
+            form_path=form_path,
+            expansion_stack=getattr(raw_param, "expansion_stack", ()),
+        )
+    name_identifier = syntax_identifier(raw_param.items[0])
+    type_identifier = syntax_identifier(raw_param.items[1])
+    if name_identifier is None:
+        _raise_error(
+            "`let-proc` param names must be symbols",
+            code="let_proc_syntax_invalid",
+            span=raw_param.items[0].span,
+            form_path=form_path,
+            expansion_stack=raw_param.items[0].expansion_stack,
+        )
+    if type_identifier is None:
+        _raise_error(
+            "`let-proc` param types must be symbols",
+            code="let_proc_syntax_invalid",
+            span=raw_param.items[1].span,
+            form_path=form_path,
+            expansion_stack=raw_param.items[1].expansion_stack,
+        )
+    return ProcedureParam(
+        name=name_identifier.resolved_name,
+        type_name=type_identifier.resolved_name,
+        span=raw_param.span,
+        form_path=form_path,
+        expansion_stack=raw_param.expansion_stack,
     )
 
 

@@ -43,6 +43,7 @@ REMAP_FIXTURE = FIXTURES / "invalid" / "shared_validation_remap.orc"
 PHASE_STDLIB_FIXTURE = FIXTURES / "valid" / "phase_stdlib_run_provider_phase.orc"
 WORKFLOW_REF_FIXTURE = FIXTURES / "valid" / "workflow_refs_same_file.orc"
 PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
+LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 LOOP_RECUR_MINIMAL_FIXTURE = FIXTURES / "valid" / "loop_recur_minimal.orc"
 IF_MINIMAL_FIXTURE = FIXTURES / "valid" / "if_conditionals_minimal.orc"
 
@@ -1944,6 +1945,31 @@ def test_lower_workflow_definitions_eliminate_unresolved_proc_ref_targets(tmp_pa
     assert "runner" not in entry.authored_mapping["inputs"]
 
 
+def test_lowering_let_proc_reuses_generated_hidden_procedure_path(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        LET_PROC_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+    generated = next(
+        procedure for procedure in result.typed_procedures if procedure.definition.name.startswith("%let-proc.")
+    )
+
+    assert all(
+        generated.definition.name != step.get("call")
+        for workflow in result.lowered_workflows
+        for step in workflow.authored_mapping.get("steps", [])
+    )
+
+
 def test_lower_workflow_definitions_reuse_proc_ref_specialized_private_workflows(
     tmp_path: Path,
 ) -> None:
@@ -2182,6 +2208,29 @@ def test_lower_workflow_definitions_preserve_proc_ref_provenance_notes(tmp_path:
 
     assert any("proc-ref" in note for note in notes)
     assert any("bind-proc" in note for note in notes)
+
+
+def test_lower_workflow_definitions_preserve_let_proc_provenance_notes(tmp_path: Path) -> None:
+    result = compile_stage3_module(
+        LET_PROC_FIXTURE,
+        provider_externs={"providers.execute": "test-provider"},
+        prompt_externs={"prompts.implementation.execute": "prompts/implementation/execute.md"},
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
+        },
+        validate_shared=False,
+        workspace_root=tmp_path,
+    )
+
+    entry = next(workflow for workflow in result.lowered_workflows if workflow.typed_workflow.definition.name == "entry")
+    notes = tuple(note for origin in entry.origin_map.step_spans.values() for note in origin.notes)
+
+    assert any("let-proc" in note for note in notes)
+    assert any("signature" in note and "WorkflowInput" in note and "WorkflowOutput" in note for note in notes)
+    assert any("(proc-ref run-local)" in note for note in notes)
 
 
 def test_compile_stage3_module_renders_helper_provenance_notes_for_shared_validation_errors(

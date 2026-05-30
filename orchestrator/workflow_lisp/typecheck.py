@@ -7,7 +7,7 @@ See `../../docs/design/workflow_lisp_type_catalog.md` for the type model and
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, is_dataclass, replace
 from typing import TYPE_CHECKING
 
 from .conditionals import classify_condition_expr
@@ -26,6 +26,7 @@ from .effects import (
 )
 from .expressions import (
     BacklogDrainExpr,
+    BindProcBinding,
     BindProcExpr,
     CallExpr,
     CommandResultExpr,
@@ -36,6 +37,7 @@ from .expressions import (
     FieldAccessExpr,
     FunctionCallExpr,
     IfExpr,
+    LetProcExpr,
     LetStarExpr,
     LiteralExpr,
     LoopRecurExpr,
@@ -52,10 +54,13 @@ from .expressions import (
     ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
     WorkflowRefLiteralExpr,
+    elaborate_expression,
     WithPhaseExpr,
 )
 from .loops import LoopControlTypeRef, ensure_loop_projectable_type
 from .procedure_refs import (
+    BoundProcArg,
+    ProcRefAuthoritySource,
     ProcRefResolutionContext,
     ResolvedProcRefValue,
     proc_ref_type_from_signature,
@@ -80,6 +85,7 @@ from .resource import (
 )
 from .lints import required_lint_diagnostic
 from .spans import SourceSpan
+from .syntax import SyntaxNode
 from .type_env import (
     FrontendTypeEnvironment,
     PathTypeRef,
@@ -107,7 +113,18 @@ if TYPE_CHECKING:
         ExternalToolBinding,
         WorkflowCatalog,
     )
-from .procedures import proc_ref_specialization_name as proc_ref_call_specialization_name
+from .procedures import (
+    GeneratedLocalProcedure,
+    ProcedureCatalog,
+    ProcedureCallableSpecialization,
+    ProcedureDef,
+    ProcedureLoweringMode,
+    ProcedureParam,
+    ProcedureSignature,
+    TypedProcedureDef,
+    let_proc_generated_name,
+    proc_ref_specialization_name as proc_ref_call_specialization_name,
+)
 
 
 @dataclass(frozen=True)
@@ -124,7 +141,29 @@ class TypedExpr:
 ValueEnvironment = Mapping[str, TypeRef]
 _ACTIVE_FUNCTION_CATALOG = None
 _ACTIVE_PROC_REF_VALUE_ENV: Mapping[str, ResolvedProcRefValue] = {}
+_ACTIVE_VALUE_EXPR_ENV: Mapping[str, ExprNode] = {}
 _ACTIVE_LOOP_CONTEXT: list["LoopTypecheckContext"] = []
+_ACTIVE_GENERATED_LOCAL_PROCEDURES: dict[str, TypedProcedureDef] = {}
+_ACTIVE_LET_PROC_REWRITE_RESULTS: dict[int, ExprNode] = {}
+
+
+def consume_generated_local_procedures() -> tuple[TypedProcedureDef, ...]:
+    """Return and clear generated `let-proc` procedures from the active pass."""
+
+    global _ACTIVE_GENERATED_LOCAL_PROCEDURES
+
+    procedures = tuple(_ACTIVE_GENERATED_LOCAL_PROCEDURES.values())
+    _ACTIVE_GENERATED_LOCAL_PROCEDURES = {}
+    return procedures
+
+
+def reset_generated_local_procedure_state() -> None:
+    """Clear compiler-pass-local `let-proc` generated state."""
+
+    global _ACTIVE_GENERATED_LOCAL_PROCEDURES, _ACTIVE_LET_PROC_REWRITE_RESULTS
+
+    _ACTIVE_GENERATED_LOCAL_PROCEDURES = {}
+    _ACTIVE_LET_PROC_REWRITE_RESULTS = {}
 
 
 def _effect_subject(value: str) -> tuple[str, ...]:
@@ -146,6 +185,15 @@ class ProofFact:
     subject_name: str
     variant_name: str
     variant_type: VariantCaseTypeRef
+
+
+@dataclass(frozen=True)
+class LocalProcRewriteBinding:
+    """How one lexical `let-proc` name rewrites during typechecking."""
+
+    generated_name: str
+    capture_bindings: tuple[tuple[str, ExprNode], ...]
+    allow_reference: bool
 
 
 def _typecheck_workflow_ref_argument(
@@ -259,15 +307,19 @@ def typecheck_expression(
 ) -> TypedExpr:
     """Typecheck one supported Workflow Lisp expression."""
 
-    global _ACTIVE_FUNCTION_CATALOG, _ACTIVE_PROC_REF_VALUE_ENV
+    global _ACTIVE_FUNCTION_CATALOG, _ACTIVE_PROC_REF_VALUE_ENV, _ACTIVE_VALUE_EXPR_ENV, _ACTIVE_LET_PROC_REWRITE_RESULTS
 
     active_proof = proof_scope or ProofScope(facts={})
     previous_function_catalog = _ACTIVE_FUNCTION_CATALOG
     previous_proc_ref_env = _ACTIVE_PROC_REF_VALUE_ENV
+    previous_value_expr_env = _ACTIVE_VALUE_EXPR_ENV
+    previous_let_proc_rewrites = _ACTIVE_LET_PROC_REWRITE_RESULTS
     _ACTIVE_FUNCTION_CATALOG = function_catalog
     _ACTIVE_PROC_REF_VALUE_ENV = proc_ref_value_env or {}
+    _ACTIVE_VALUE_EXPR_ENV = {}
+    _ACTIVE_LET_PROC_REWRITE_RESULTS = {}
     try:
-        return _typecheck(
+        typed = _typecheck(
             expr,
             type_env=type_env,
             value_env=dict(value_env),
@@ -281,9 +333,12 @@ def typecheck_expression(
             workflow_effects_by_name=workflow_effects_by_name or {},
             proc_ref_resolution_context=proc_ref_resolution_context,
         )
+        return replace(typed, expr=_replace_eliminated_let_procs(typed.expr))
     finally:
         _ACTIVE_FUNCTION_CATALOG = previous_function_catalog
         _ACTIVE_PROC_REF_VALUE_ENV = previous_proc_ref_env
+        _ACTIVE_VALUE_EXPR_ENV = previous_value_expr_env
+        _ACTIVE_LET_PROC_REWRITE_RESULTS = previous_let_proc_rewrites
 
 
 def _typecheck(
@@ -641,8 +696,10 @@ def _typecheck(
             effect=typed_result.effect_summary,
         )
     if isinstance(expr, LetStarExpr):
+        global _ACTIVE_VALUE_EXPR_ENV
         local_env = dict(value_env)
         local_proc_ref_env = dict(_ACTIVE_PROC_REF_VALUE_ENV)
+        local_value_expr_env = dict(_ACTIVE_VALUE_EXPR_ENV)
         seen_names: set[str] = set()
         binding_summaries: list[EffectSummary] = []
         for name, binding_expr in expr.bindings:
@@ -673,6 +730,7 @@ def _typecheck(
             binding_summaries.append(typed_binding.effect_summary)
             seen_names.add(name)
             local_env[name] = typed_binding.type_ref
+            local_value_expr_env[name] = typed_binding.expr
             if isinstance(typed_binding.type_ref, ProcRefTypeRef):
                 resolved_binding = resolve_proc_ref_value(
                     binding_expr,
@@ -683,7 +741,9 @@ def _typecheck(
                 if resolved_binding is not None:
                     local_proc_ref_env[name] = resolved_binding
         previous_proc_ref_env = _ACTIVE_PROC_REF_VALUE_ENV
+        previous_value_expr_env = _ACTIVE_VALUE_EXPR_ENV
         _ACTIVE_PROC_REF_VALUE_ENV = local_proc_ref_env
+        _ACTIVE_VALUE_EXPR_ENV = local_value_expr_env
         typed_body = _typecheck(
             expr.body,
             type_env=type_env,
@@ -699,10 +759,26 @@ def _typecheck(
             proc_ref_resolution_context=proc_ref_resolution_context,
         )
         _ACTIVE_PROC_REF_VALUE_ENV = previous_proc_ref_env
+        _ACTIVE_VALUE_EXPR_ENV = previous_value_expr_env
         return _typed(
             expr=expr,
             type_ref=typed_body.type_ref,
             effect=merge_effect_summaries(*binding_summaries, typed_body.effect_summary),
+        )
+    if isinstance(expr, LetProcExpr):
+        return _typecheck_let_proc(
+            expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=procedure_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
         )
     if isinstance(expr, IfExpr):
         typed_condition = _typecheck(
@@ -3422,8 +3498,783 @@ def _require_union_variant_record_field(
             code="workflow_call_signature_erased",
             span=span,
             form_path=form_path,
-        )
+    )
     return field_type
+
+
+def _typecheck_let_proc(
+    expr: LetProcExpr,
+    *,
+    type_env: FrontendTypeEnvironment,
+    value_env: dict[str, TypeRef],
+    proof_scope: ProofScope,
+    workflow_catalog: "WorkflowCatalog | None",
+    procedure_catalog: ProcedureCatalog | None,
+    extern_environment: "ExternEnvironment | None",
+    command_boundary_environment: "CommandBoundaryEnvironment | None",
+    active_phase_scope: PhaseScope | None,
+    procedure_effects_by_name: Mapping[str, EffectSummary],
+    workflow_effects_by_name: Mapping[str, EffectSummary],
+    proc_ref_resolution_context: ProcRefResolutionContext | None,
+) -> TypedExpr:
+    global _ACTIVE_GENERATED_LOCAL_PROCEDURES, _ACTIVE_PROC_REF_VALUE_ENV, _ACTIVE_VALUE_EXPR_ENV, _ACTIVE_LET_PROC_REWRITE_RESULTS
+
+    if procedure_catalog is None:
+        raise TypeError("procedure_catalog is required for let-proc expressions")
+
+    if (
+        expr.binding.local_name in value_env
+        or expr.binding.local_name in procedure_catalog.signatures_by_name
+    ):
+        _raise_error(
+            (
+                f"`let-proc` local procedure `{expr.binding.local_name}` collides "
+                "with an existing value or procedure binding"
+            ),
+            code="let_proc_name_collision",
+            span=expr.binding.span,
+            form_path=expr.binding.form_path,
+            expansion_stack=expr.binding.expansion_stack,
+        )
+
+    capture_params: list[ProcedureParam] = []
+    capture_signature_params: list[tuple[str, TypeRef]] = []
+    bound_capture_args: list[BoundProcArg] = []
+    capture_bindings: list[tuple[str, ExprNode]] = []
+    local_proc_ref_env: dict[str, ResolvedProcRefValue] = {}
+    seen_capture_names: set[str] = set()
+    for capture_name in expr.binding.capture_names:
+        capture_type = value_env.get(capture_name)
+        if capture_type is None:
+            _raise_error(
+                f"unknown `let-proc` capture `{capture_name}`",
+                code="let_proc_capture_unknown",
+                span=expr.binding.span,
+                form_path=expr.binding.form_path,
+                expansion_stack=expr.binding.expansion_stack,
+            )
+        if capture_name in seen_capture_names:
+            _raise_error(
+                f"duplicate `let-proc` capture `{capture_name}`",
+                code="let_proc_capture_duplicate",
+                span=expr.binding.span,
+                form_path=expr.binding.form_path,
+                expansion_stack=expr.binding.expansion_stack,
+            )
+        seen_capture_names.add(capture_name)
+        if any(param.name == capture_name for param in expr.binding.params):
+            _raise_error(
+                f"`let-proc` capture `{capture_name}` collides with a local parameter",
+                code="let_proc_capture_duplicate",
+                span=expr.binding.span,
+                form_path=expr.binding.form_path,
+                expansion_stack=expr.binding.expansion_stack,
+            )
+        capture_params.append(
+            ProcedureParam(
+                name=capture_name,
+                type_name=capture_type.name,
+                span=expr.binding.span,
+                form_path=expr.binding.form_path,
+                expansion_stack=expr.binding.expansion_stack,
+            )
+        )
+        capture_signature_params.append((capture_name, capture_type))
+        if isinstance(capture_type, ProcRefTypeRef):
+            capture_value = _ACTIVE_PROC_REF_VALUE_ENV.get(capture_name)
+            if capture_value is not None:
+                local_proc_ref_env[capture_name] = capture_value
+        capture_value_expr = _ACTIVE_VALUE_EXPR_ENV.get(capture_name)
+        if capture_value_expr is None:
+            capture_value_expr = NameExpr(
+                name=capture_name,
+                span=expr.binding.span,
+                form_path=expr.binding.form_path,
+                expansion_stack=expr.binding.expansion_stack,
+            )
+        capture_bindings.append((capture_name, capture_value_expr))
+        bound_capture_args.append(
+            BoundProcArg(
+                name=capture_name,
+                value_expr=capture_value_expr,
+                type_ref=capture_type,
+                source_identity=_expr_source_identity(capture_value_expr),
+                keyword_span=expr.binding.span,
+                keyword_form_path=expr.binding.form_path,
+                keyword_expansion_stack=expr.binding.expansion_stack,
+            )
+        )
+
+    local_body_expr = _rewrite_local_proc_references(
+        expr.binding.local_body,
+        local_bindings={
+            expr.binding.local_name: LocalProcRewriteBinding(
+                generated_name="",
+                capture_bindings=tuple(capture_bindings),
+                allow_reference=False,
+            ),
+        },
+    )
+    generated_name = let_proc_generated_name(
+        owner_callable_name=expr.form_path[-1],
+        local_name=expr.binding.local_name,
+        origin_span=expr.binding.span,
+        param_type_names=tuple(
+            [capture_type.name for _, capture_type in capture_signature_params]
+            + [param.type_name for param in expr.binding.params]
+        ),
+        return_type_name=expr.binding.return_type_name,
+        capture_names=expr.binding.capture_names,
+        semantic_body_identity=_semantic_identity(local_body_expr),
+    )
+    generated_metadata = GeneratedLocalProcedure(
+        authored_local_name=expr.binding.local_name,
+        generated_name=generated_name,
+        owner_callable_name=expr.form_path[-1],
+        residual_params=tuple((param.name, param.type_name) for param in expr.binding.params),
+        return_type_name=expr.binding.return_type_name,
+        capture_names=expr.binding.capture_names,
+        origin_span=expr.binding.span,
+        consumer_proc_ref_spans=_collect_proc_ref_use_spans(
+            expr.body,
+            authored_name=expr.binding.local_name,
+        ),
+    )
+    return_type_ref = type_env.resolve_type(
+        expr.binding.return_type_name,
+        span=expr.binding.span,
+        form_path=expr.binding.form_path,
+        expansion_stack=expr.binding.expansion_stack,
+    )
+    residual_signature_params = tuple(
+        (
+            param.name,
+            type_env.resolve_type(
+                param.type_name,
+                span=param.span,
+                form_path=param.form_path,
+                expansion_stack=param.expansion_stack,
+            ),
+        )
+        for param in expr.binding.params
+    )
+    generated_signature = ProcedureSignature(
+        name=generated_name,
+        params=tuple(capture_signature_params) + residual_signature_params,
+        return_type_ref=return_type_ref,
+        declared_effects=frozenset(),
+        requested_lowering_mode=ProcedureLoweringMode.AUTO,
+        span=expr.binding.span,
+        form_path=expr.binding.form_path,
+    )
+    generated_definition = ProcedureDef(
+        name=generated_name,
+        params=tuple(capture_params) + expr.binding.params,
+        return_type_name=expr.binding.return_type_name,
+        declared_effects=frozenset(),
+        requested_lowering_mode=generated_signature.requested_lowering_mode,
+        body=expr.binding.local_body,
+        span=expr.binding.span,
+        form_path=expr.binding.form_path,
+        expansion_stack=expr.binding.expansion_stack,
+        generated_local_procedure=generated_metadata,
+    )
+    rewrite_binding = LocalProcRewriteBinding(
+        generated_name=generated_name,
+        capture_bindings=tuple(capture_bindings),
+        allow_reference=True,
+    )
+    local_body_expr = _rewrite_local_proc_references(
+        expr.binding.local_body,
+        local_bindings={expr.binding.local_name: replace(rewrite_binding, allow_reference=False)},
+    )
+    outer_body_expr = _rewrite_local_proc_references(
+        expr.body,
+        local_bindings={expr.binding.local_name: rewrite_binding},
+    )
+    _ACTIVE_LET_PROC_REWRITE_RESULTS[id(expr)] = outer_body_expr
+    generated_catalog = _temporary_procedure_catalog(
+        procedure_catalog,
+        definition=generated_definition,
+        signature=generated_signature,
+    )
+    if _expr_returns_local_proc_value(
+        outer_body_expr,
+        generated_name,
+        procedure_catalog=generated_catalog,
+    ):
+        _raise_error(
+            f"`let-proc` local procedure `{expr.binding.local_name}` escaped its lexical scope",
+            code="let_proc_scope_escape",
+            span=expr.body.span,
+            form_path=expr.body.form_path,
+            expansion_stack=expr.body.expansion_stack,
+        )
+
+    local_value_env = {name: type_ref for name, type_ref in capture_signature_params}
+    local_value_env.update(dict(residual_signature_params))
+    previous_proc_ref_env = _ACTIVE_PROC_REF_VALUE_ENV
+    _ACTIVE_PROC_REF_VALUE_ENV = local_proc_ref_env
+    try:
+        typed_local_body = _typecheck(
+            local_body_expr,
+            type_env=type_env,
+            value_env=local_value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=generated_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
+        )
+    finally:
+        _ACTIVE_PROC_REF_VALUE_ENV = previous_proc_ref_env
+    if typed_local_body.type_ref != return_type_ref:
+        _raise_error(
+            (
+                f"`let-proc` local procedure `{expr.binding.local_name}` declared "
+                f"`{expr.binding.return_type_name}` but returned `{getattr(typed_local_body.type_ref, 'name', type(typed_local_body.type_ref).__name__)}`"
+            ),
+            code="let_proc_return_type_invalid",
+            span=expr.binding.local_body.span,
+            form_path=expr.binding.local_body.form_path,
+            expansion_stack=expr.binding.local_body.expansion_stack,
+        )
+    _ACTIVE_GENERATED_LOCAL_PROCEDURES[generated_name] = TypedProcedureDef(
+        definition=generated_definition,
+        signature=generated_signature,
+        typed_body=typed_local_body,
+        direct_effect_summary=typed_local_body.effect_summary,
+        transitive_effect_summary=typed_local_body.effect_summary,
+    )
+
+    bound_local_proc = ResolvedProcRefValue(
+        procedure_name=generated_name,
+        signature_params=generated_signature.params,
+        return_type_ref=generated_signature.return_type_ref,
+        authority_source=ProcRefAuthoritySource(
+            kind="lexical_local_procedure",
+            procedure_name=generated_name,
+        ),
+        bound_args=tuple(bound_capture_args),
+    )
+    outer_proc_ref_env = dict(_ACTIVE_PROC_REF_VALUE_ENV)
+    outer_proc_ref_env[expr.binding.local_name] = bound_local_proc
+    previous_proc_ref_env = _ACTIVE_PROC_REF_VALUE_ENV
+    _ACTIVE_PROC_REF_VALUE_ENV = outer_proc_ref_env
+    try:
+        typed_outer_body = _typecheck(
+            outer_body_expr,
+            type_env=type_env,
+            value_env=value_env,
+            proof_scope=proof_scope,
+            workflow_catalog=workflow_catalog,
+            procedure_catalog=generated_catalog,
+            extern_environment=extern_environment,
+            command_boundary_environment=command_boundary_environment,
+            active_phase_scope=active_phase_scope,
+            procedure_effects_by_name=procedure_effects_by_name,
+            workflow_effects_by_name=workflow_effects_by_name,
+            proc_ref_resolution_context=proc_ref_resolution_context,
+        )
+    finally:
+        _ACTIVE_PROC_REF_VALUE_ENV = previous_proc_ref_env
+    return replace(typed_outer_body, expr=outer_body_expr)
+
+
+def _temporary_procedure_catalog(
+    procedure_catalog: ProcedureCatalog,
+    *,
+    definition: ProcedureDef,
+    signature: ProcedureSignature,
+) -> ProcedureCatalog:
+    signatures_by_name = dict(procedure_catalog.signatures_by_name)
+    definitions_by_name = dict(procedure_catalog.definitions_by_name)
+    signatures_by_name[signature.name] = signature
+    definitions_by_name[definition.name] = definition
+    return ProcedureCatalog(
+        signatures_by_name=signatures_by_name,
+        definitions_by_name=definitions_by_name,
+        call_graph=procedure_catalog.call_graph,
+    )
+
+
+def _rewrite_local_proc_references(
+    node: object,
+    *,
+    local_bindings: Mapping[str, LocalProcRewriteBinding],
+):
+    if isinstance(node, ProcRefLiteralExpr):
+        binding = local_bindings.get(node.authored_name)
+        if binding is None:
+            return node
+        if not binding.allow_reference:
+            _raise_error(
+                f"`let-proc` local procedure `{node.authored_name}` cannot reference itself",
+                code="let_proc_recursive_unsupported",
+                span=node.span,
+                form_path=node.form_path,
+                expansion_stack=node.expansion_stack,
+            )
+        return _bind_local_proc_reference(node, binding)
+    if isinstance(node, LetProcExpr):
+        return node
+    if isinstance(node, tuple):
+        return tuple(_rewrite_local_proc_references(item, local_bindings=local_bindings) for item in node)
+    if isinstance(node, list):
+        return [_rewrite_local_proc_references(item, local_bindings=local_bindings) for item in node]
+    if is_dataclass(node):
+        updates = {}
+        for field in fields(node):
+            current = getattr(node, field.name)
+            rewritten = _rewrite_local_proc_references(current, local_bindings=local_bindings)
+            if rewritten is not current:
+                updates[field.name] = rewritten
+        if updates:
+            return replace(node, **updates)
+    return node
+
+
+def _bind_local_proc_reference(
+    expr: ProcRefLiteralExpr,
+    binding: LocalProcRewriteBinding,
+) -> ExprNode:
+    base_expr = ProcRefLiteralExpr(
+        target_name=binding.generated_name,
+        authored_name=expr.authored_name,
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    if not binding.capture_bindings:
+        return base_expr
+    return BindProcExpr(
+        base_expr=base_expr,
+        bindings=tuple(
+            BindProcBinding(
+                name=capture_name,
+                value_expr=capture_expr,
+                keyword_span=expr.span,
+                keyword_form_path=expr.form_path,
+                keyword_expansion_stack=expr.expansion_stack,
+            )
+            for capture_name, capture_expr in binding.capture_bindings
+        ),
+        span=expr.span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+
+
+def _expr_returns_local_proc_value(
+    expr: ExprNode,
+    generated_name: str,
+    *,
+    value_bindings: Mapping[str, bool] | None = None,
+    procedure_catalog: ProcedureCatalog | None = None,
+    proc_ref_env: Mapping[str, ResolvedProcRefValue] | None = None,
+    visited_calls: frozenset[tuple[str, frozenset[str]]] = frozenset(),
+) -> bool:
+    bindings = dict(value_bindings or {})
+    active_proc_ref_env = dict(proc_ref_env or {})
+    if isinstance(expr, ProcRefLiteralExpr):
+        return expr.target_name == generated_name
+    if isinstance(expr, BindProcExpr):
+        if _expr_returns_local_proc_value(
+            expr.base_expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        ):
+            return True
+        return any(
+            _expr_returns_local_proc_value(
+                binding.value_expr,
+                generated_name,
+                value_bindings=bindings,
+                procedure_catalog=procedure_catalog,
+                proc_ref_env=active_proc_ref_env,
+                visited_calls=visited_calls,
+            )
+            for binding in expr.bindings
+        )
+    if isinstance(expr, NameExpr):
+        return bindings.get(expr.name, False)
+    if isinstance(expr, ProcedureCallExpr):
+        return _procedure_call_returns_local_proc_value(
+            expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, FunctionCallExpr):
+        return _function_call_returns_local_proc_value(
+            expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, RecordExpr):
+        return any(
+            _expr_returns_local_proc_value(
+                field_expr,
+                generated_name,
+                value_bindings=bindings,
+                procedure_catalog=procedure_catalog,
+                proc_ref_env=active_proc_ref_env,
+                visited_calls=visited_calls,
+            )
+            for _field_name, field_expr in expr.fields
+        )
+    if isinstance(expr, LetStarExpr):
+        local_bindings = dict(bindings)
+        for binding_name, binding_expr in expr.bindings:
+            local_bindings[binding_name] = _expr_returns_local_proc_value(
+                binding_expr,
+                generated_name,
+                value_bindings=local_bindings,
+                procedure_catalog=procedure_catalog,
+                proc_ref_env=active_proc_ref_env,
+                visited_calls=visited_calls,
+            )
+        return _expr_returns_local_proc_value(
+            expr.body,
+            generated_name,
+            value_bindings=local_bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, IfExpr):
+        return _expr_returns_local_proc_value(
+            expr.then_expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        ) or _expr_returns_local_proc_value(
+            expr.else_expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, MatchExpr):
+        for arm in expr.arms:
+            arm_bindings = dict(bindings)
+            arm_bindings[arm.binding_name] = False
+            if _expr_returns_local_proc_value(
+                arm.body,
+                generated_name,
+                value_bindings=arm_bindings,
+                procedure_catalog=procedure_catalog,
+                proc_ref_env=active_proc_ref_env,
+                visited_calls=visited_calls,
+            ):
+                return True
+        return False
+    if isinstance(expr, WithPhaseExpr):
+        return _expr_returns_local_proc_value(
+            expr.body,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, ContinueExpr):
+        return _expr_returns_local_proc_value(
+            expr.state_expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, DoneExpr):
+        return _expr_returns_local_proc_value(
+            expr.result_expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, LoopRecurExpr):
+        loop_bindings = dict(bindings)
+        loop_bindings[expr.binding_name] = False
+        return _expr_returns_local_proc_value(
+            expr.initial_state_expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        ) or _expr_returns_local_proc_value(
+            expr.body_expr,
+            generated_name,
+            value_bindings=loop_bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    if isinstance(expr, ResumeOrStartExpr):
+        return _expr_returns_local_proc_value(
+            expr.resume_from_expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        ) or _expr_returns_local_proc_value(
+            expr.start_expr,
+            generated_name,
+            value_bindings=bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=active_proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    return False
+
+
+def _procedure_call_returns_local_proc_value(
+    expr: ProcedureCallExpr,
+    generated_name: str,
+    *,
+    value_bindings: Mapping[str, bool],
+    procedure_catalog: ProcedureCatalog | None,
+    proc_ref_env: Mapping[str, ResolvedProcRefValue],
+    visited_calls: frozenset[tuple[str, frozenset[str]]],
+) -> bool:
+    if procedure_catalog is None:
+        return False
+    callee_value = proc_ref_env.get(expr.callee_name)
+    if callee_value is not None:
+        definition = procedure_catalog.definitions_by_name.get(callee_value.procedure_name)
+        signature_params = callee_value.signature_params
+        bound_args = callee_value.bound_args
+    else:
+        definition = procedure_catalog.definitions_by_name.get(expr.callee_name)
+        signature = procedure_catalog.signatures_by_name.get(expr.callee_name)
+        if definition is None or signature is None:
+            return False
+        signature_params = signature.params
+        bound_args = ()
+    local_bindings = dict(value_bindings)
+    local_proc_ref_env: dict[str, ResolvedProcRefValue] = {}
+    for bound_arg in bound_args:
+        local_bindings[bound_arg.name] = _expr_returns_local_proc_value(
+            bound_arg.value_expr,
+            generated_name,
+            value_bindings=value_bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=proc_ref_env,
+            visited_calls=visited_calls,
+        )
+        if isinstance(bound_arg.type_ref, ProcRefTypeRef):
+            resolved_bound_arg = resolve_proc_ref_value(
+                bound_arg.value_expr,
+                procedure_catalog=procedure_catalog,
+                proc_ref_env=proc_ref_env,
+            )
+            if resolved_bound_arg is not None:
+                local_proc_ref_env[bound_arg.name] = resolved_bound_arg
+    residual_params = [
+        (param_name, param_type)
+        for param_name, param_type in signature_params
+        if param_name not in {bound_arg.name for bound_arg in bound_args}
+    ]
+    if len(expr.args) != len(residual_params):
+        return False
+    for arg_expr, (param_name, param_type) in zip(expr.args, residual_params, strict=True):
+        local_bindings[param_name] = _expr_returns_local_proc_value(
+            arg_expr,
+            generated_name,
+            value_bindings=value_bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=proc_ref_env,
+            visited_calls=visited_calls,
+        )
+        if isinstance(param_type, ProcRefTypeRef):
+            resolved_arg = resolve_proc_ref_value(
+                arg_expr,
+                procedure_catalog=procedure_catalog,
+                proc_ref_env=proc_ref_env,
+            )
+            if resolved_arg is not None:
+                local_proc_ref_env[param_name] = resolved_arg
+    call_key = (definition.name, frozenset(name for name, escapes in local_bindings.items() if escapes))
+    if call_key in visited_calls:
+        return False
+    body_expr = definition.body
+    if isinstance(body_expr, SyntaxNode):
+        body_expr = elaborate_expression(
+            body_expr,
+            bound_names=frozenset(name for name, _ in signature_params),
+            procedure_names=frozenset(procedure_catalog.signatures_by_name),
+        )
+    return _expr_returns_local_proc_value(
+        body_expr,
+        generated_name,
+        value_bindings=local_bindings,
+        procedure_catalog=procedure_catalog,
+        proc_ref_env=local_proc_ref_env,
+        visited_calls=visited_calls | {call_key},
+    )
+
+
+def _function_call_returns_local_proc_value(
+    expr: FunctionCallExpr,
+    generated_name: str,
+    *,
+    value_bindings: Mapping[str, bool],
+    procedure_catalog: ProcedureCatalog | None,
+    proc_ref_env: Mapping[str, ResolvedProcRefValue],
+    visited_calls: frozenset[tuple[str, frozenset[str]]],
+) -> bool:
+    if _ACTIVE_FUNCTION_CATALOG is None:
+        return False
+    definition = _ACTIVE_FUNCTION_CATALOG.definitions_by_name.get(expr.callee_name)
+    signature = _ACTIVE_FUNCTION_CATALOG.signatures_by_name.get(expr.callee_name)
+    if definition is None or signature is None or len(expr.args) != len(signature.params):
+        return False
+    local_bindings = dict(value_bindings)
+    for arg_expr, (param_name, _param_type) in zip(expr.args, signature.params, strict=True):
+        local_bindings[param_name] = _expr_returns_local_proc_value(
+            arg_expr,
+            generated_name,
+            value_bindings=value_bindings,
+            procedure_catalog=procedure_catalog,
+            proc_ref_env=proc_ref_env,
+            visited_calls=visited_calls,
+        )
+    call_key = (
+        f"function:{definition.name}",
+        frozenset(name for name, escapes in local_bindings.items() if escapes),
+    )
+    if call_key in visited_calls:
+        return False
+    body_expr = definition.body
+    if isinstance(body_expr, SyntaxNode):
+        body_expr = elaborate_expression(
+            body_expr,
+            bound_names=frozenset(name for name, _ in signature.params),
+            procedure_names=(
+                frozenset()
+                if procedure_catalog is None
+                else frozenset(procedure_catalog.signatures_by_name)
+            ),
+            function_names=frozenset(_ACTIVE_FUNCTION_CATALOG.signatures_by_name),
+        )
+    return _expr_returns_local_proc_value(
+        body_expr,
+        generated_name,
+        value_bindings=local_bindings,
+        procedure_catalog=procedure_catalog,
+        proc_ref_env=proc_ref_env,
+        visited_calls=visited_calls | {call_key},
+    )
+
+
+def _expr_source_identity(expr: ExprNode) -> str:
+    if isinstance(expr, LiteralExpr):
+        return f"literal:{expr.literal_kind}:{expr.value!r}"
+    if isinstance(expr, FieldAccessExpr):
+        return f"field:{expr.base.name}:{'.'.join(expr.fields)}"
+    if isinstance(expr, NameExpr):
+        return f"name:{expr.name}"
+    start = expr.span.start
+    return f"{start.path}:{start.line}:{start.column}"
+
+
+def _collect_proc_ref_use_spans(
+    node: object,
+    *,
+    authored_name: str,
+) -> tuple[SourceSpan, ...]:
+    if isinstance(node, ProcRefLiteralExpr):
+        return (node.span,) if node.authored_name == authored_name else ()
+    if isinstance(node, LetProcExpr):
+        return ()
+    if isinstance(node, tuple):
+        return tuple(
+            span
+            for item in node
+            for span in _collect_proc_ref_use_spans(item, authored_name=authored_name)
+        )
+    if isinstance(node, list):
+        return tuple(
+            span
+            for item in node
+            for span in _collect_proc_ref_use_spans(item, authored_name=authored_name)
+        )
+    if is_dataclass(node):
+        return tuple(
+            span
+            for field in fields(node)
+            for span in _collect_proc_ref_use_spans(getattr(node, field.name), authored_name=authored_name)
+        )
+    return ()
+
+
+def _semantic_identity(value: object) -> str:
+    if is_dataclass(value):
+        return (
+            f"{type(value).__name__}("
+            + ",".join(
+                f"{field.name}={_semantic_identity(getattr(value, field.name))}"
+                for field in fields(value)
+                if field.name not in {"span", "form_path", "expansion_stack"}
+            )
+            + ")"
+        )
+    if isinstance(value, tuple):
+        return "(" + ",".join(_semantic_identity(item) for item in value) + ")"
+    if isinstance(value, list):
+        return "[" + ",".join(_semantic_identity(item) for item in value) + "]"
+    if isinstance(value, Mapping):
+        return (
+            "{"
+            + ",".join(
+                f"{_semantic_identity(key)}:{_semantic_identity(value[key])}"
+                for key in sorted(value, key=repr)
+            )
+            + "}"
+        )
+    if isinstance(value, frozenset):
+        return "frozenset(" + ",".join(sorted(_semantic_identity(item) for item in value)) + ")"
+    return repr(value)
+
+
+def _replace_eliminated_let_procs(node: object):
+    replacement = _ACTIVE_LET_PROC_REWRITE_RESULTS.get(id(node))
+    if replacement is not None:
+        return _replace_eliminated_let_procs(replacement)
+    if isinstance(node, tuple):
+        return tuple(_replace_eliminated_let_procs(item) for item in node)
+    if isinstance(node, list):
+        return [_replace_eliminated_let_procs(item) for item in node]
+    if is_dataclass(node):
+        updates = {}
+        for field in fields(node):
+            current = getattr(node, field.name)
+            rewritten = _replace_eliminated_let_procs(current)
+            if rewritten is not current:
+                updates[field.name] = rewritten
+        if updates:
+            return replace(node, **updates)
+    return node
 
 
 def _is_macro_introduced_effect(

@@ -38,7 +38,7 @@ from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.resource_stdlib import FinalizeSelectedItemSpec, ResourceTransitionSpec
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
-from orchestrator.workflow_lisp.typecheck import TypedExpr
+from orchestrator.workflow_lisp.typecheck import TypedExpr, consume_generated_local_procedures
 from orchestrator.workflow_lisp.workflows import (
     ExternalToolBinding,
     TypedWorkflowDef,
@@ -63,6 +63,7 @@ ARITY_FIXTURE = FIXTURES / "invalid" / "procedure_arity_mismatch.orc"
 WORKFLOW_REF_FORWARDING_FIXTURE = FIXTURES / "valid" / "workflow_refs_forwarding.orc"
 PROC_REF_FIXTURE = FIXTURES / "valid" / "proc_ref_static_surface.orc"
 PROC_REF_BIND_PROC_FIXTURE = FIXTURES / "valid" / "proc_ref_bind_proc_forwarding.orc"
+LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 PROC_REF_LITERAL_REQUIRED_FIXTURE = FIXTURES / "invalid" / "proc_ref_literal_required.orc"
 PROC_REF_SIGNATURE_INVALID_FIXTURE = FIXTURES / "invalid" / "proc_ref_signature_invalid.orc"
 PROC_REF_SPECIALIZATION_CYCLE_FIXTURE = FIXTURES / "invalid" / "proc_ref_specialization_cycle.orc"
@@ -101,6 +102,7 @@ def _compile_validated(path: Path, *, tmp_path: Path):
 
 
 def _write_module(path: Path, lines: list[str]) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
     return path
 
@@ -1195,6 +1197,162 @@ def test_compile_stage3_supports_bind_proc_forwarding_and_lexical_proc_ref_calls
     assert "entry" in result.validated_bundles
 
 
+def test_let_proc_resolves_to_hidden_generated_proc_ref(tmp_path: Path) -> None:
+    result = _compile(LET_PROC_FIXTURE, tmp_path=tmp_path)
+    generated = [p for p in result.typed_procedures if p.definition.name.startswith("%let-proc.")]
+
+    assert len(generated) == 1
+    assert generated[0].definition.name == generated[0].signature.name
+    assert generated[0].specialization is None
+
+
+def test_compile_rejects_let_proc_generated_name_authored_reference(tmp_path: Path) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(FIXTURES / "invalid" / "let_proc_generated_name_private.orc", tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "let_proc_generated_name_private")
+
+
+def test_let_proc_generated_names_change_when_local_body_changes(tmp_path: Path) -> None:
+    def write_case(path: Path, helper_name: str) -> Path:
+        return _write_module(
+            path,
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord WorkflowInput",
+                "    (report WorkReport))",
+                "  (defrecord WorkflowOutput",
+                "    (report WorkReport))",
+                "  (defproc invoke-runner",
+                "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
+                "     (input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (runner input))",
+                f"  (defproc {helper_name}",
+                "    ((item WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    :effects ()",
+                "    :lowering inline",
+                "    (record WorkflowOutput :report item.report))",
+                "  (defworkflow entry",
+                "    ((input WorkflowInput))",
+                "    -> WorkflowOutput",
+                "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
+                "                :captures ()",
+                f"                ({helper_name} item))",
+                "      (invoke-runner (proc-ref run-local) input)))",
+                ")",
+            ],
+        )
+
+    first = _compile(write_case(tmp_path / "let_proc_name_case.orc", "helper-a"), tmp_path=tmp_path)
+    first_name = next(
+        procedure.definition.name
+        for procedure in first.typed_procedures
+        if procedure.definition.name.startswith("%let-proc.")
+    )
+    second = _compile(write_case(tmp_path / "let_proc_name_case.orc", "helper-b"), tmp_path=tmp_path)
+    second_name = next(
+        procedure.definition.name
+        for procedure in second.typed_procedures
+        if procedure.definition.name.startswith("%let-proc.")
+    )
+
+    assert first_name != second_name
+
+
+def test_let_proc_generated_names_are_stable_across_workspace_roots(tmp_path: Path) -> None:
+    lines = [
+        "(workflow-lisp",
+        '  (:language "0.1")',
+        '  (:target-dsl "2.14")',
+        "  (defpath WorkReport",
+        "    :kind relpath",
+        '    :under "artifacts/work"',
+        "    :must-exist true)",
+        "  (defrecord WorkflowInput",
+        "    (report WorkReport))",
+        "  (defrecord WorkflowOutput",
+        "    (report WorkReport))",
+        "  (defproc invoke-runner",
+        "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
+        "     (input WorkflowInput))",
+        "    -> WorkflowOutput",
+        "    :effects ()",
+        "    :lowering inline",
+        "    (runner input))",
+        "  (defworkflow entry",
+        "    ((input WorkflowInput))",
+        "    -> WorkflowOutput",
+        "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
+        "                :captures ()",
+        "                (record WorkflowOutput :report item.report))",
+        "      (invoke-runner (proc-ref run-local) input)))",
+        ")",
+    ]
+    first_path = _write_module(tmp_path / "root-a" / "stable.orc", lines)
+    second_path = _write_module(tmp_path / "root-b" / "stable.orc", lines)
+
+    first = _compile(first_path, tmp_path=tmp_path / "workspace-a")
+    second = _compile(second_path, tmp_path=tmp_path / "workspace-b")
+
+    first_name = next(
+        procedure.definition.name
+        for procedure in first.typed_procedures
+        if procedure.definition.name.startswith("%let-proc.")
+    )
+    second_name = next(
+        procedure.definition.name
+        for procedure in second.typed_procedures
+        if procedure.definition.name.startswith("%let-proc.")
+    )
+
+    assert first_name == second_name
+
+
+def test_compile_clears_generated_local_procedure_state_after_failure(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "let_proc_state_cleanup.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc build-runner",
+            "    ()",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
+            "                :captures ()",
+            "                (record WorkflowOutput :report item.report))",
+            "      true))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "procedure_return_type_invalid")
+    assert consume_generated_local_procedures() == ()
+
+
 def test_stage3_materializes_proc_ref_specializations_before_lowering_and_preserves_effects() -> None:
     typed_procedures, typed_workflows, _ = _infer_stage3_proc_ref_effects(PROC_REF_BIND_PROC_FIXTURE)
 
@@ -1354,6 +1512,263 @@ def test_stage3_preserves_nested_proc_ref_effects_inside_run_provider_phase(tmp_
         for procedure in typed_procedures
     )
     assert UsesCommandEffect(subject=("run_checks",)) in entry.effect_summary.transitive_effects
+
+
+def test_compile_stage3_supports_let_proc_proc_ref_forwarding_and_shared_validation(
+    tmp_path: Path,
+) -> None:
+    result = _compile_validated(LET_PROC_FIXTURE, tmp_path=tmp_path)
+    generated = next(
+        procedure for procedure in result.typed_procedures if procedure.definition.name.startswith("%let-proc.")
+    )
+
+    assert generated.definition.name in result.procedure_catalog.signatures_by_name
+    assert generated.transitive_effect_summary.transitive_effects == frozenset(
+        {
+            UsesCommandEffect(subject=("run_checks",)),
+        }
+    )
+
+
+def test_compile_rejects_let_proc_name_collision_in_same_scope(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "let_proc_name_collision.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (let* ((run-local input))",
+            "      (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
+            "                  :captures ()",
+            "                  (record WorkflowOutput :report item.report))",
+            "        (record WorkflowOutput :report input.report))))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "let_proc_name_collision")
+
+
+def test_compile_rejects_let_proc_return_type_mismatch_with_v1_code(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "let_proc_return_type_invalid.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defworkflow entry",
+            "    ((input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowInput",
+            "                :captures ()",
+            "                (record WorkflowOutput :report item.report))",
+            "      (record WorkflowOutput :report input.report)))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "let_proc_return_type_invalid")
+
+
+@pytest.mark.parametrize(
+    ("fixture_name", "code"),
+    [
+        ("let_proc_unknown_capture.orc", "let_proc_capture_unknown"),
+        ("let_proc_duplicate_capture.orc", "let_proc_capture_duplicate"),
+        ("let_proc_recursive.orc", "let_proc_recursive_unsupported"),
+        ("let_proc_scope_escape.orc", "let_proc_scope_escape"),
+    ],
+)
+def test_compile_rejects_invalid_let_proc_scopes(
+    tmp_path: Path,
+    fixture_name: str,
+    code: str,
+) -> None:
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(FIXTURES / "invalid" / fixture_name, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, code)
+
+
+def test_compile_rejects_let_proc_scope_escape_wrapped_in_if(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "let_proc_scope_escape_if.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc build-runner",
+            "    ()",
+            "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
+            "                :captures ()",
+            "                (record WorkflowOutput :report item.report))",
+            "      (if true",
+            "        (proc-ref run-local)",
+            "        (proc-ref run-local)))))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "let_proc_scope_escape")
+
+
+def test_compile_rejects_let_proc_scope_escape_nested_in_bind_proc_binding(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "let_proc_scope_escape_bind_proc.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc invoke-runner",
+            "    ((runner ProcRef[WorkflowInput -> WorkflowOutput])",
+            "     (input WorkflowInput))",
+            "    -> WorkflowOutput",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (runner input))",
+            "  (defproc build-runner",
+            "    ()",
+            "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
+            "                :captures ()",
+            "                (record WorkflowOutput :report item.report))",
+            "      (bind-proc (proc-ref invoke-runner)",
+            "        :runner (proc-ref run-local)))))",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "let_proc_scope_escape")
+
+
+def test_compile_rejects_let_proc_scope_escape_forwarded_through_proc_return(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "let_proc_scope_escape_proc_forwarding.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defproc id-runner",
+            "    ((runner ProcRef[WorkflowInput -> WorkflowOutput]))",
+            "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
+            "    :effects ()",
+            "    :lowering inline",
+            "    runner)",
+            "  (defproc build-runner",
+            "    ()",
+            "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
+            "                :captures ()",
+            "                (record WorkflowOutput :report item.report))",
+            "      (id-runner (proc-ref run-local))))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "let_proc_scope_escape")
+
+
+def test_compile_rejects_let_proc_scope_escape_forwarded_through_helper_return(
+    tmp_path: Path,
+) -> None:
+    path = _write_module(
+        tmp_path / "let_proc_scope_escape_helper_forwarding.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord WorkflowInput",
+            "    (report WorkReport))",
+            "  (defrecord WorkflowOutput",
+            "    (report WorkReport))",
+            "  (defun id-runner",
+            "    ((runner ProcRef[WorkflowInput -> WorkflowOutput]))",
+            "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
+            "    runner)",
+            "  (defproc build-runner",
+            "    ()",
+            "    -> ProcRef[WorkflowInput -> WorkflowOutput]",
+            "    :effects ()",
+            "    :lowering inline",
+            "    (let-proc (run-local ((item WorkflowInput)) -> WorkflowOutput",
+            "                :captures ()",
+            "                (record WorkflowOutput :report item.report))",
+            "      (id-runner (proc-ref run-local))))",
+            ")",
+        ],
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _compile(path, tmp_path=tmp_path)
+
+    _assert_diagnostic_code(excinfo, "let_proc_scope_escape")
 
 
 def test_compile_stage3_rejects_non_literal_proc_ref_arguments(tmp_path: Path) -> None:

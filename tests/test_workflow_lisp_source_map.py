@@ -9,12 +9,14 @@ import pytest
 
 from orchestrator.workflow_lisp.compiler import compile_stage3_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.workflows import ExternalToolBinding
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "workflow_lisp"
 VALID_RESOURCE_TRANSITION_EFFECTS_FIXTURE = FIXTURES / "valid" / "resource_transition_effects.orc"
 VALID_PHASE_SNAPSHOT_EFFECTS_FIXTURE = FIXTURES / "valid" / "phase_snapshot_effects.orc"
 VALID_POINTER_MATERIALIZATION_EFFECTS_FIXTURE = FIXTURES / "valid" / "pointer_materialization_effects.orc"
+VALID_LET_PROC_FIXTURE = FIXTURES / "valid" / "let_proc_proc_ref_forwarding.orc"
 
 
 def _compile(path: Path, *, tmp_path: Path):
@@ -23,6 +25,12 @@ def _compile(path: Path, *, tmp_path: Path):
         provider_externs={"providers.execute": "test-provider"},
         prompt_externs={
             "prompts.implementation.execute": "tests/fixtures/workflow_lisp/valid/prompts/implementation/execute.md",
+        },
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            )
         },
         validate_shared=False,
         workspace_root=tmp_path,
@@ -168,3 +176,18 @@ def test_source_map_validator_rejects_invalid_generated_semantic_effect_lineage(
         source_map_module.validate_source_map_document(broken_document)
 
     assert excinfo.value.diagnostics[0].code == "source_map_generated_effect_invalid"
+
+
+def test_source_map_records_let_proc_authored_lineage(tmp_path: Path) -> None:
+    _, document, workflow_name = _build_source_map_document(
+        VALID_LET_PROC_FIXTURE,
+        tmp_path=tmp_path,
+        selected_name="entry",
+    )
+    workflow = document.workflows[workflow_name]
+
+    assert any(
+        "let-proc" in note
+        for entry in workflow.step_ids.values()
+        for note in entry.notes
+    )

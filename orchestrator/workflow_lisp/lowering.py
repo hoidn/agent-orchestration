@@ -9045,6 +9045,28 @@ def _procedure_provenance_notes(expr: ProcedureCallExpr, procedure: TypedProcedu
             notes.append("bind-proc keyword bindings were applied before lowering")
         if getattr(specialization, "proc_ref_bindings", {}):
             notes.append("proc-ref call bindings were specialized before lowering")
+    generated_local = getattr(procedure.definition, "generated_local_procedure", None)
+    if generated_local is not None:
+        origin = generated_local.origin_span.start
+        notes.append(
+            f"let-proc `{generated_local.authored_local_name}` originated at {origin.path}:{origin.line}:{origin.column}"
+        )
+        params = ", ".join(
+            f"{name}: {type_name}" for name, type_name in generated_local.residual_params
+        ) or "()"
+        notes.append(
+            f"let-proc local signature: ({params}) -> {generated_local.return_type_name}"
+        )
+        if generated_local.capture_names:
+            notes.append(
+                "let-proc captures lowered through bind-proc: "
+                + ", ".join(generated_local.capture_names)
+            )
+        for span in generated_local.consumer_proc_ref_spans:
+            start = span.start
+            notes.append(
+                f"consuming (proc-ref {generated_local.authored_local_name}) site at {start.path}:{start.line}:{start.column}"
+            )
     return tuple(notes)
 
 
