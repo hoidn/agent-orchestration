@@ -1,0 +1,522 @@
+cases:
+  - fixture_id: baseline-proc-ref-state
+    profile: disabled
+    validation_surface: baseline_stage3_selector
+    case_kind: runtime_value
+    expected_code: proc_ref_runtime_transport_forbidden
+    expected_stage3_selector: tests/test_workflow_lisp_loop_recur.py::test_typecheck_loop_recur_rejects_proc_ref_state
+    payload:
+      carrier: loop_state
+      value_kind: ProcRef
+    primary_location:
+      label: loop state payload
+      path: tests/fixtures/workflow_lisp/invalid/runtime_closure_disabled.orc
+      line: 18
+      column: 17
+      form_path:
+        - workflow-lisp
+        - defworkflow
+        - loop-recur-proc-ref-state
+        - loop/recur
+
+  - fixture_id: disabled-authored-closure-value
+    profile: disabled
+    validation_surface: fixture_validator
+    case_kind: runtime_value
+    expected_code: runtime_closure_not_enabled
+    expected_message_contains:
+      - disabled profile
+      - closure value
+    payload:
+      authored_surface: closure-literal
+      value_kind: runtime_closure
+    primary_location:
+      label: closure literal
+      path: tests/fixtures/workflow_lisp/invalid/runtime_closure_disabled.orc
+      line: 9
+      column: 7
+      form_path:
+        - workflow-lisp
+        - defworkflow
+        - disabled-authored-closure
+
+  - fixture_id: disabled-let-proc-runtime-closure
+    profile: disabled
+    validation_surface: fixture_validator
+    case_kind: runtime_value
+    expected_code: runtime_closure_not_enabled
+    expected_message_contains:
+      - let-proc
+      - runtime closure
+    payload:
+      authored_surface: let-proc
+      value_kind: generated_runtime_closure
+    primary_location:
+      label: let-proc binding
+      path: tests/fixtures/workflow_lisp/invalid/runtime_closure_disabled.orc
+      line: 17
+      column: 5
+      form_path:
+        - workflow-lisp
+        - defworkflow
+        - disabled-let-proc-runtime-closure
+        - let-proc
+    creation_location:
+      label: local procedure creation
+      path: tests/fixtures/workflow_lisp/invalid/runtime_closure_disabled.orc
+      line: 18
+      column: 9
+
+  - fixture_id: disabled-direct-closure-invoke
+    profile: disabled
+    validation_surface: fixture_validator
+    case_kind: invocation
+    expected_code: runtime_closure_not_enabled
+    expected_message_contains:
+      - disabled profile
+      - invoke closure
+    payload:
+      invocation_kind: direct
+      accepted_families:
+        - RunImplementation
+    primary_location:
+      label: closure invocation
+      path: tests/fixtures/workflow_lisp/invalid/runtime_closure_disabled.orc
+      line: 28
+      column: 7
+      form_path:
+        - workflow-lisp
+        - defworkflow
+        - disabled-direct-closure-invoke
+        - invoke-closure
+    creation_location:
+      label: closure creation site
+      path: tests/fixtures/workflow_lisp/invalid/runtime_closure_disabled.orc
+      line: 24
+      column: 11
+    invocation_location:
+      label: closure invocation site
+      path: tests/fixtures/workflow_lisp/invalid/runtime_closure_disabled.orc
+      line: 28
+      column: 7
+
+  - fixture_id: design-invoke-without-accepted-family
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: invocation
+    expected_code: closure_family_unknown
+    expected_message_contains:
+      - accepted family
+      - RunImplementation
+    payload:
+      closure_family: RunImplementation
+      accepted_families:
+        - AuditImplementation
+    primary_location:
+      label: closure invocation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 31
+      column: 9
+      form_path:
+        - workflow-lisp
+        - defworkflow
+        - invoke-without-accepted-family
+        - invoke-closure
+    creation_location:
+      label: closure creation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 24
+      column: 13
+    invocation_location:
+      label: closure invocation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 31
+      column: 9
+    accepted_family_location:
+      label: accepted family list
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 30
+      column: 11
+
+  - fixture_id: design-invalid-accepted-code-id
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: invocation
+    expected_code: closure_code_id_invalid
+    expected_message_contains:
+      - code id
+      - accepted family
+    payload:
+      closure_family: RunImplementation
+      code_id: closure/run-impl-z/999999
+      accepted_code_ids:
+        - closure/run-impl-a/abc123
+    primary_location:
+      label: closure invocation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 42
+      column: 9
+    creation_location:
+      label: closure creation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 35
+      column: 13
+    invocation_location:
+      label: closure invocation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 42
+      column: 9
+    family_declaration_location:
+      label: closure family declaration
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 7
+      column: 3
+    code_body_location:
+      label: closure code body
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 36
+      column: 15
+
+  - fixture_id: design-signature-mismatch
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: invocation
+    expected_code: closure_signature_invalid
+    expected_message_contains:
+      - signature
+      - invocation site
+    payload:
+      closure_signature: "(SelectedItem) -> ImplementationResult"
+      invocation_signature: "(PlanBundle) -> ImplementationResult"
+    primary_location:
+      label: closure invocation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 55
+      column: 9
+    creation_location:
+      label: closure creation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 49
+      column: 13
+    invocation_location:
+      label: closure invocation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 55
+      column: 9
+
+  - fixture_id: design-provider-produced-code
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: dynamic_code
+    expected_code: closure_dynamic_code_forbidden
+    expected_message_contains:
+      - provider
+      - produced code
+    payload:
+      producer: provider
+      value_source: providers.execute
+    primary_location:
+      label: provider-produced closure code
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 66
+      column: 11
+
+  - fixture_id: design-command-produced-code
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: dynamic_code
+    expected_code: closure_dynamic_code_forbidden
+    expected_message_contains:
+      - command
+      - produced code
+    payload:
+      producer: command
+      value_source: run_checks
+    primary_location:
+      label: command-produced closure code
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 74
+      column: 11
+
+  - fixture_id: design-artifact-transport
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: transport
+    expected_code: closure_runtime_transport_forbidden
+    expected_message_contains:
+      - artifact
+      - transport
+    payload:
+      channel: artifact
+      carrier: result_bundle
+    primary_location:
+      label: artifact transport site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 86
+      column: 9
+
+  - fixture_id: design-workflow-output-transport
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: transport
+    expected_code: closure_runtime_transport_forbidden
+    expected_message_contains:
+      - workflow output
+      - transport
+    payload:
+      channel: workflow_output
+      carrier: ImplementationOutput
+    primary_location:
+      label: workflow output transport
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 95
+      column: 7
+
+  - fixture_id: design-provider-role-capture
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: capture
+    expected_code: closure_provider_capture_forbidden
+    expected_message_contains:
+      - provider role
+      - capture
+    payload:
+      capture_mode: capability
+      captured_value: implementation_provider
+    primary_location:
+      label: provider capture
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 107
+      column: 15
+    capture_locations:
+      - label: provider capture
+        path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+        line: 107
+        column: 15
+
+  - fixture_id: design-mutable-state-capture
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: capture
+    expected_code: closure_capture_mode_forbidden
+    expected_message_contains:
+      - mutable state
+      - capture mode
+    payload:
+      capture_mode: by_reference
+      captured_value: loop_state
+    primary_location:
+      label: mutable state capture
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 116
+      column: 15
+    capture_locations:
+      - label: mutable state capture
+        path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+        line: 116
+        column: 15
+
+  - fixture_id: design-capture-closure-value
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: capture
+    expected_code: closure_capture_schema_invalid
+    expected_message_contains:
+      - closure value
+      - capture schema
+    payload:
+      capture_mode: by_value
+      captured_value: nested_closure
+    primary_location:
+      label: nested closure capture
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 125
+      column: 15
+    capture_locations:
+      - label: nested closure capture
+        path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+        line: 125
+        column: 15
+      - label: captured closure source
+        path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+        line: 121
+        column: 13
+
+  - fixture_id: design-effect-bound-violation
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: effect_bound
+    expected_code: closure_effect_bound_invalid
+    expected_message_contains:
+      - effect bound
+      - invocation site
+    payload:
+      closure_effects:
+        - uses_provider
+        - writes_artifact
+      accepted_effects:
+        - writes_artifact
+    primary_location:
+      label: effect bound declaration
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 137
+      column: 11
+    creation_location:
+      label: closure creation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 132
+      column: 13
+    invocation_location:
+      label: closure invocation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 140
+      column: 9
+    effect_bound_location:
+      label: accepted effect bound
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 137
+      column: 11
+
+  - fixture_id: design-capability-bound-violation
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: capability_bound
+    expected_code: closure_capability_bound_invalid
+    expected_message_contains:
+      - capability bound
+      - invocation site
+    payload:
+      closure_capabilities:
+        - implementation_provider
+      accepted_capabilities:
+        - audit_provider
+    primary_location:
+      label: capability bound declaration
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 152
+      column: 11
+    creation_location:
+      label: closure creation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 147
+      column: 13
+    invocation_location:
+      label: closure invocation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 155
+      column: 9
+    capability_bound_location:
+      label: accepted capability bound
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 152
+      column: 11
+
+  - fixture_id: design-write-root-ambiguity
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: write_root_policy
+    expected_code: closure_write_root_ambiguous
+    expected_message_contains:
+      - write root
+      - ambiguous
+    payload:
+      policy: invocation_or_creation_site
+      roots:
+        - state/reuse
+        - state/generated
+    primary_location:
+      label: write root policy
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 166
+      column: 13
+    write_root_policy_location:
+      label: write root policy
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 166
+      column: 13
+
+  - fixture_id: design-resume-bundle-mismatch
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: resume
+    expected_code: closure_resume_bundle_mismatch
+    expected_message_contains:
+      - bundle id
+      - resume
+    payload:
+      expected_bundle_id: bundle/2026-05-29/example/789abc
+      actual_bundle_id: bundle/2026-05-30/example/123456
+    primary_location:
+      label: resume validation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 178
+      column: 9
+    resume_validation_location:
+      label: resume validation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 178
+      column: 9
+    family_declaration_location:
+      label: closure family declaration
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 7
+      column: 3
+
+  - fixture_id: design-resume-code-mismatch
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: resume
+    expected_code: closure_resume_code_mismatch
+    expected_message_contains:
+      - code identity
+      - resume
+    payload:
+      expected_code_id: closure/run-impl-a/abc123
+      actual_code_id: closure/run-impl-a/ffff00
+    primary_location:
+      label: resume validation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 189
+      column: 9
+    resume_validation_location:
+      label: resume validation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 189
+      column: 9
+    code_body_location:
+      label: closure code body
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 185
+      column: 13
+
+  - fixture_id: design-source-map-missing
+    profile: design_fixture
+    validation_surface: fixture_validator
+    case_kind: source_map
+    expected_code: closure_source_map_missing
+    expected_message_contains:
+      - source map
+      - invocation
+    payload:
+      missing_surface: invocation_site
+      source_map_ref: source-map/closure/run-impl-a
+    primary_location:
+      label: resume validation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 201
+      column: 9
+    creation_location:
+      label: closure creation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 195
+      column: 13
+    invocation_location:
+      label: closure invocation site
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 201
+      column: 9
+    resume_validation_location:
+      label: source-map validation
+      path: tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc
+      line: 201
+      column: 9

@@ -88,3 +88,9 @@ Some of those docs describe intended future architecture more broadly than the
 current code implements. When code and docs differ, current source and tests
 determine implemented behavior. Use the unified design for future-target gaps
 and the parent specification for baseline design constraints.
+
+Runtime closures remain deferred. `runtime_closure_design_fixtures.py` is a
+test-only rejection harness for disabled/design-fixture closure cases; it must
+not participate in ordinary compilation, and normal Workflow Lisp artifacts
+must not emit runtime-closure payloads, registries, or invocation nodes.
+`let-proc` remains compile-time-only.

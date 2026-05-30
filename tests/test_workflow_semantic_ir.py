@@ -312,6 +312,14 @@ def test_executable_ir_artifact_omits_compile_time_and_frontend_internal_payload
     assert "validation_subjects" not in serialized
     assert "ProcRef" not in serialized
     assert "WorkflowRef" not in serialized
+    for marker in (
+        "workflow_lisp_runtime_closure",
+        "closure_families",
+        "InvokeClosure",
+        "Closure[",
+        "runtime_closure",
+    ):
+        assert marker not in serialized
 
 
 def test_semantic_ir_helper_returns_shared_surface_from_loaded_bundle(tmp_path: Path) -> None:

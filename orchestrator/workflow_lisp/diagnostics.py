@@ -95,8 +95,35 @@ _AUTHORITY_CODES = frozenset(
         "legacy_adapter_not_deprecated",
     }
 )
-_SOURCE_MAP_CODES = frozenset({"source_map_missing"})
-_EXECUTABLE_CODES = frozenset({"executable_ir_invalid"})
+_SOURCE_MAP_CODES = frozenset(
+    {
+        "source_map_missing",
+        "closure_source_map_missing",
+    }
+)
+_EXECUTABLE_CODES = frozenset(
+    {
+        "executable_ir_invalid",
+        "closure_resume_bundle_mismatch",
+        "closure_resume_code_mismatch",
+    }
+)
+_RUNTIME_CLOSURE_TYPE_CODES = frozenset(
+    {
+        "runtime_closure_not_enabled",
+        "closure_family_unknown",
+        "closure_code_id_invalid",
+        "closure_signature_invalid",
+        "closure_dynamic_code_forbidden",
+        "closure_provider_capture_forbidden",
+        "closure_capture_mode_forbidden",
+        "closure_capture_schema_invalid",
+        "closure_runtime_transport_forbidden",
+        "closure_effect_bound_invalid",
+        "closure_capability_bound_invalid",
+        "closure_write_root_ambiguous",
+    }
+)
 _TYPE_CODES = frozenset(
     {
         "name_unknown",
@@ -420,6 +447,7 @@ def _infer_validation_pass(code: str, phase: str | None) -> str:
         return "effect"
     if (
         code in _TYPE_CODES
+        or code in _RUNTIME_CLOSURE_TYPE_CODES
         or code.startswith("type_")
         or code.startswith("provider_result_")
         or code.startswith("command_result_")

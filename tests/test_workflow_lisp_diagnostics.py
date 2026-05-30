@@ -317,6 +317,51 @@ def test_serialize_diagnostic_infers_validation_metadata_from_code(
     assert payload["authority_layer"] == expected_authority_layer
 
 
+@pytest.mark.parametrize(
+    ("code", "expected_phase", "expected_validation_pass"),
+    [
+        ("runtime_closure_not_enabled", "typecheck", "type"),
+        ("closure_family_unknown", "typecheck", "type"),
+        ("closure_resume_bundle_mismatch", "executable", "executable"),
+        ("closure_resume_code_mismatch", "executable", "executable"),
+        ("closure_source_map_missing", "source_map", "source_map"),
+    ],
+)
+def test_serialize_diagnostic_infers_runtime_closure_metadata(
+    code: str,
+    expected_phase: str,
+    expected_validation_pass: str,
+) -> None:
+    diagnostics_module = importlib.import_module("orchestrator.workflow_lisp.diagnostics")
+    serialize_diagnostic = getattr(diagnostics_module, "serialize_diagnostic")
+
+    span = SourceSpan(
+        start=SourcePosition(
+            path="tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc",
+            line=21,
+            column=9,
+            offset=120,
+        ),
+        end=SourcePosition(
+            path="tests/fixtures/workflow_lisp/design/runtime_closure_fixtures.orc",
+            line=21,
+            column=21,
+            offset=132,
+        ),
+    )
+    payload = serialize_diagnostic(
+        LispFrontendDiagnostic(
+            code=code,
+            message="runtime closure metadata test",
+            span=span,
+        )
+    )
+
+    assert payload["phase"] == expected_phase
+    assert payload["validation_pass"] == expected_validation_pass
+    assert payload["authority_layer"] == "frontend"
+
+
 def test_run_validation_pipeline_continues_after_warning_required_lint_default_profile() -> None:
     validation_module = importlib.import_module("orchestrator.workflow_lisp.validation")
     pipeline_state_cls = getattr(validation_module, "ValidationPipelineState")

@@ -17,6 +17,13 @@ FIXTURES = REPO_ROOT / "tests" / "fixtures" / "workflow_lisp"
 CLI_FIXTURES = FIXTURES / "cli"
 ENTRYPOINT = FIXTURES / "modules" / "valid" / "imported_bundle_mix" / "neurips" / "entry.orc"
 SOURCE_ROOT = FIXTURES / "modules" / "valid" / "imported_bundle_mix"
+RUNTIME_CLOSURE_MARKERS = (
+    "workflow_lisp_runtime_closure",
+    "closure_families",
+    "InvokeClosure",
+    "Closure[",
+    "runtime_closure",
+)
 
 
 def _build_module():
@@ -153,6 +160,11 @@ def _pointer_effects_request(tmp_path: Path):
         emit_debug_yaml=False,
         workspace_root=tmp_path,
     )
+
+
+def _assert_no_runtime_closure_markers(serialized: str) -> None:
+    for marker in RUNTIME_CLOSURE_MARKERS:
+        assert marker not in serialized
 
 
 def test_build_fingerprint_is_stable_for_identical_inputs(tmp_path: Path) -> None:
@@ -392,6 +404,8 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
     build_frontend_bundle = getattr(build, "build_frontend_bundle")
 
     result = build_frontend_bundle(_build_request(tmp_path))
+    core_workflow_ast = json.loads(result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8"))
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
     executable_ir = json.loads(result.artifact_paths["executable_ir"].read_text(encoding="utf-8"))
     runtime_plan = json.loads(result.artifact_paths["runtime_plan"].read_text(encoding="utf-8"))
 
@@ -421,6 +435,10 @@ def test_build_emits_required_artifacts_and_deferred_status_entries(tmp_path: Pa
     assert result.manifest.artifact_status["runtime_plan"] == "emitted"
     assert result.manifest.artifact_status["core_workflow_ast"] == "emitted"
     assert result.manifest.artifact_status["semantic_ir"] == "emitted"
+    _assert_no_runtime_closure_markers(json.dumps(core_workflow_ast, sort_keys=True))
+    _assert_no_runtime_closure_markers(json.dumps(semantic_ir, sort_keys=True))
+    _assert_no_runtime_closure_markers(json.dumps(executable_ir, sort_keys=True))
+    _assert_no_runtime_closure_markers(json.dumps(runtime_plan, sort_keys=True))
 
 
 def test_build_artifacts_persist_diagnostic_validation_metadata(tmp_path: Path) -> None:
