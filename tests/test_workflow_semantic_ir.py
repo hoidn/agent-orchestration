@@ -263,6 +263,122 @@ def test_derive_semantic_ir_from_yaml_bundle_records_contracts_refs_effects_and_
     )
 
 
+def test_semantic_ir_projects_statement_taxonomy_facets(tmp_path: Path) -> None:
+    yaml_bundle = WorkflowLoader(tmp_path).load_bundle(_write_semantic_ir_workflow(tmp_path))
+    yaml_workflow = yaml_bundle.semantic_ir.workflows[yaml_bundle.surface.name]
+
+    yaml_command_effect = next(
+        effect
+        for effect in yaml_bundle.semantic_ir.effects.values()
+        if effect.effect_kind == "command_call"
+    )
+    yaml_call_edge = yaml_bundle.semantic_ir.call_edges[yaml_workflow.call_edge_ids[0]]
+    yaml_prompt_surface = yaml_bundle.semantic_ir.prompt_surfaces[yaml_workflow.prompt_surface_ids[0]]
+
+    assert yaml_command_effect.boundary_kind == "external_tool"
+    assert yaml_command_effect.boundary_name == "RunChecks"
+    assert yaml_call_edge.call_alias == "review_loop"
+    assert yaml_prompt_surface.provider_name == "audit_provider"
+    assert any(
+        layout.layout_kind == "presentation_key"
+        for layout in yaml_bundle.semantic_ir.state_layout.values()
+    )
+    assert any(
+        layout.layout_kind == "resume_checkpoint"
+        for layout in yaml_bundle.semantic_ir.state_layout.values()
+    )
+
+    pointer_result = _build_frontend_bundle_from_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/pointer_materialization_effects.orc"),
+        module_name="pointer_effects",
+        entry_workflow="orchestrate",
+    )
+    pointer_bundle = pointer_result.validated_bundle
+    pointer_source_map = json.loads(pointer_result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    pointer_workflow_name = next(iter(pointer_source_map["workflows"]))
+
+    assert any(
+        effect.effect_kind == "pointer_materialization"
+        for effect in pointer_bundle.semantic_ir.effects.values()
+    )
+    assert any(
+        proof.proof_kind == "variant_surface"
+        for proof in pointer_bundle.semantic_ir.proofs.values()
+    )
+    assert any(
+        effect["effect_kind"] == "pointer_materialization"
+        for effect in pointer_source_map["workflows"][pointer_workflow_name]["generated_semantic_effects"]
+    )
+
+    snapshot_result = _build_frontend_bundle_from_fixture(
+        tmp_path,
+        fixture_path=Path("tests/fixtures/workflow_lisp/valid/phase_snapshot_effects.orc"),
+        module_name="phase_snapshot",
+        entry_workflow="orchestrate",
+    )
+    snapshot_bundle = snapshot_result.validated_bundle
+    snapshot_source_map = json.loads(snapshot_result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    snapshot_workflow_name = next(iter(snapshot_source_map["workflows"]))
+
+    assert any(
+        effect.effect_kind == "snapshot_capture"
+        for effect in snapshot_bundle.semantic_ir.effects.values()
+    )
+    assert {(plan.operation_kind, plan.selection_relevant) for plan in snapshot_bundle.runtime_plan.snapshots} >= {
+        ("pre_snapshot", True),
+        ("select_variant_output", True),
+    }
+    assert any(
+        effect["effect_kind"] == "snapshot_capture"
+        for effect in snapshot_source_map["workflows"][snapshot_workflow_name]["generated_semantic_effects"]
+    )
+
+    build_module = importlib.import_module("orchestrator.workflow_lisp.build")
+    request_cls = getattr(build_module, "FrontendBuildRequest")
+    resource_source = Path("tests/fixtures/workflow_lisp/valid/resource_stdlib_transition.orc").read_text(
+        encoding="utf-8"
+    )
+    resource_module_path = tmp_path / "resource" / "module.orc"
+    resource_module_path.parent.mkdir(parents=True, exist_ok=True)
+    resource_module_path.write_text(
+        resource_source.replace(
+            '  (:target-dsl "2.14")\n',
+            '  (:target-dsl "2.14")\n  (defmodule resource/module)\n  (export move-selected-item)\n',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    resource_result = build_module.build_frontend_bundle(
+        request_cls(
+            source_path=resource_module_path,
+            source_roots=(tmp_path,),
+            entry_workflow="move-selected-item",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    resource_bundle = resource_result.validated_bundle
+
+    assert any(
+        effect.effect_kind == "resource_transition"
+        for effect in resource_bundle.semantic_ir.effects.values()
+    )
+    assert any(
+        effect.effect_kind == "ledger_update"
+        for effect in resource_bundle.semantic_ir.effects.values()
+    )
+    assert any(
+        boundary.boundary_kind == "certified_adapter"
+        and boundary.boundary_name == "apply_resource_transition"
+        for boundary in resource_bundle.semantic_ir.command_boundaries.values()
+    )
+
+
 def test_compiled_bundle_bridge_node_sets_match_executable_runtime_semantic_and_source_map_surfaces(
     tmp_path: Path,
 ) -> None:

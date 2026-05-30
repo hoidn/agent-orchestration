@@ -571,6 +571,108 @@ def test_build_manifest_records_source_map_schema_and_coverage_for_emitted_artif
     }
 
 
+def test_build_artifacts_preserve_statement_taxonomy_facet_lineage(tmp_path: Path) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    structured_result = build_frontend_bundle(_structured_results_request(tmp_path))
+    structured_core = json.loads(structured_result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8"))
+    structured_semantic = json.loads(structured_result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    structured_source_map = json.loads(structured_result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    structured_workflow = structured_result.entry_selection.canonical_name
+    command_checks_workflow = "lineage_pkg/entry::command_checks"
+
+    assert [statement["kind"] for statement in structured_core["body"]] == ["call"]
+    assert structured_semantic["workflows"][structured_workflow]["call_edge_ids"]
+    assert structured_source_map["workflows"][command_checks_workflow]["generated_internal_inputs"]
+
+    snapshot_source = (FIXTURES / "valid" / "phase_snapshot_effects.orc").read_text(encoding="utf-8")
+    snapshot_module_path = tmp_path / "phase" / "snapshot.orc"
+    snapshot_module_path.parent.mkdir(parents=True, exist_ok=True)
+    snapshot_module_path.write_text(
+        snapshot_source.replace(
+            '  (:target-dsl "2.14")\n',
+            '  (:target-dsl "2.14")\n  (defmodule phase/snapshot)\n  (export orchestrate)\n',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    snapshot_result = build_frontend_bundle(
+        request_cls(
+            source_path=snapshot_module_path,
+            source_roots=(tmp_path,),
+            entry_workflow="orchestrate",
+            provider_externs_path=CLI_FIXTURES / "providers.json",
+            prompt_externs_path=CLI_FIXTURES / "prompts.json",
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=CLI_FIXTURES / "commands.json",
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    snapshot_core = json.loads(snapshot_result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8"))
+    snapshot_semantic = json.loads(snapshot_result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    snapshot_source_map = json.loads(snapshot_result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    snapshot_workflow = snapshot_result.entry_selection.canonical_name
+    snapshot_effect_kinds = {
+        effect["effect_kind"]
+        for effect in snapshot_semantic["effects"].values()
+    }
+
+    assert "select_variant_output" in [statement["kind"] for statement in snapshot_core["body"]]
+    assert {"pointer_materialization", "snapshot_capture"}.issubset(snapshot_effect_kinds)
+    assert any(
+        effect["effect_kind"] == "snapshot_capture"
+        for effect in snapshot_source_map["workflows"][snapshot_workflow]["generated_semantic_effects"]
+    )
+    assert any(
+        node["step_kind"] == "select_variant_output"
+        for node in snapshot_source_map["workflows"][snapshot_workflow]["core_nodes"]
+    )
+
+    resource_source = (FIXTURES / "valid" / "resource_stdlib_transition.orc").read_text(encoding="utf-8")
+    resource_module_path = tmp_path / "resource" / "module.orc"
+    resource_module_path.parent.mkdir(parents=True, exist_ok=True)
+    resource_module_path.write_text(
+        resource_source.replace(
+            '  (:target-dsl "2.14")\n',
+            '  (:target-dsl "2.14")\n  (defmodule resource/module)\n  (export move-selected-item)\n',
+            1,
+        ),
+        encoding="utf-8",
+    )
+    resource_result = build_frontend_bundle(
+        request_cls(
+            source_path=resource_module_path,
+            source_roots=(tmp_path,),
+            entry_workflow="move-selected-item",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=None,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    resource_core = json.loads(resource_result.artifact_paths["core_workflow_ast"].read_text(encoding="utf-8"))
+    resource_semantic = json.loads(resource_result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    resource_source_map = json.loads(resource_result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    resource_workflow = resource_result.entry_selection.canonical_name
+
+    assert [statement["kind"] for statement in resource_core["body"]] == ["command"]
+    assert any(
+        boundary["boundary_kind"] == "certified_adapter"
+        and boundary["boundary_name"] == "apply_resource_transition"
+        for boundary in resource_semantic["command_boundaries"].values()
+    )
+    assert {
+        effect["effect_kind"]
+        for effect in resource_semantic["effects"].values()
+    } >= {"command_call", "resource_transition", "ledger_update"}
+    assert resource_source_map["workflows"][resource_workflow]["command_boundaries"]
+
+
 def test_build_semantic_ir_uses_current_source_map_validation_subject_bridges(tmp_path: Path) -> None:
     build = _build_module()
     build_frontend_bundle = getattr(build, "build_frontend_bundle")

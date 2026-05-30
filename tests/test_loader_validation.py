@@ -962,6 +962,178 @@ class TestLoaderValidation:
             for err in exc_info.value.errors
         )
 
+    def test_variant_selection_facets_load_through_shared_validation(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ):
+        """Attached facet surfaces should survive shared loader validation together."""
+        _enable_v214_loader(monkeypatch)
+        workflow = {
+            "version": "2.14",
+            "name": "facet-combo-valid",
+            "artifacts": {
+                "selected_report_target": {
+                    "kind": "relpath",
+                    "type": "relpath",
+                    "pointer": "state/selected_report_target.txt",
+                    "under": "artifacts/work",
+                    "must_exist_target": False,
+                }
+            },
+            "steps": [
+                {
+                    "name": "MaterializeTargets",
+                    "id": "materialize_targets",
+                    "materialize_artifacts": {
+                        "values": [
+                            {
+                                "name": "execution_report_target_path",
+                                "source": {
+                                    "literal": "artifacts/work/execution_report.md",
+                                },
+                                "contract": {
+                                    "type": "relpath",
+                                    "under": "artifacts/work",
+                                    "must_exist_target": False,
+                                },
+                                "pointer": {
+                                    "path": "state/selected_report_target.txt",
+                                },
+                            }
+                        ]
+                    },
+                    "publishes": [
+                        {
+                            "artifact": "selected_report_target",
+                            "from": "execution_report_target_path",
+                        }
+                    ],
+                },
+                {
+                    "name": "CaptureBefore",
+                    "id": "capture_before",
+                    "pre_snapshot": {
+                        "name": "before",
+                        "digest": "sha256",
+                        "candidates": {
+                            "COMPLETED": {
+                                "ref": "root.steps.MaterializeTargets.artifacts.execution_report_target_path",
+                            }
+                        },
+                    },
+                    "command": ["echo", "ok"],
+                },
+                {
+                    "name": "EmitOutcome",
+                    "id": "emit_outcome",
+                    "command": ["echo", "ok"],
+                    "variant_output": {
+                        "path": "state/implementation_state.json",
+                        "discriminant": {
+                            "name": "implementation_state",
+                            "json_pointer": "/implementation_state",
+                            "type": "enum",
+                            "allowed": ["COMPLETED", "BLOCKED"],
+                        },
+                        "variants": {
+                            "COMPLETED": {
+                                "fields": [
+                                    {
+                                        "name": "execution_report_path",
+                                        "json_pointer": "/execution_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    }
+                                ]
+                            },
+                            "BLOCKED": {
+                                "fields": [
+                                    {
+                                        "name": "progress_report_path",
+                                        "json_pointer": "/progress_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    },
+                                    {
+                                        "name": "blocker_class",
+                                        "json_pointer": "/blocker_class",
+                                        "type": "enum",
+                                        "allowed": [
+                                            "missing_resource",
+                                            "unavailable_hardware",
+                                        ],
+                                    },
+                                ]
+                            },
+                        },
+                    },
+                },
+                {
+                    "name": "SelectOutcome",
+                    "id": "select_outcome",
+                    "select_variant_output": {
+                        "path": "state/implementation_state.json",
+                        "discriminant": {
+                            "name": "implementation_state",
+                            "json_pointer": "/implementation_state",
+                            "type": "enum",
+                            "allowed": ["COMPLETED", "BLOCKED"],
+                        },
+                        "variants": {
+                            "COMPLETED": {
+                                "fields": [
+                                    {
+                                        "name": "execution_report_path",
+                                        "json_pointer": "/execution_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    }
+                                ]
+                            },
+                            "BLOCKED": {
+                                "fields": [
+                                    {
+                                        "name": "progress_report_path",
+                                        "json_pointer": "/progress_report_path",
+                                        "type": "relpath",
+                                        "under": "artifacts/work",
+                                        "must_exist_target": True,
+                                    },
+                                    {
+                                        "name": "blocker_class",
+                                        "json_pointer": "/blocker_class",
+                                        "type": "enum",
+                                        "allowed": [
+                                            "missing_resource",
+                                            "unavailable_hardware",
+                                        ],
+                                    },
+                                ]
+                            },
+                        },
+                        "evidence": {
+                            "mode": "snapshot_diff",
+                            "snapshot": {
+                                "ref": "root.steps.CaptureBefore.snapshots.before",
+                            },
+                        },
+                    },
+                },
+            ],
+        }
+
+        path = self.write_workflow(workflow)
+        loaded = self.loader.load(path)
+        surface = thaw_surface_workflow(loaded)
+
+        assert surface["steps"][0]["publishes"][0]["artifact"] == "selected_report_target"
+        assert surface["steps"][1]["pre_snapshot"]["name"] == "before"
+        assert surface["steps"][2]["variant_output"]["discriminant"]["name"] == "implementation_state"
+        assert surface["steps"][3]["select_variant_output"]["evidence"]["mode"] == "snapshot_diff"
+
     def test_materialize_artifacts_input_values_expand_to_values(
         self,
     ):

@@ -214,6 +214,8 @@ def test_record_compiled_frontend_provenance_persists_bridge_fields():
             "semantic_ir": "covered",
         },
     }
+    assert "command_boundaries" not in state["runtime_observability"]["compiled_frontend"]
+    assert "core_nodes" not in state["runtime_observability"]["compiled_frontend"]
 
 
 def test_compiled_frontend_source_context_prefers_executable_node_lineage_over_step_ids(tmp_path: Path):

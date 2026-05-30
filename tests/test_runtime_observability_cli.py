@@ -213,6 +213,8 @@ def test_run_workflow_persists_compiled_frontend_provenance_for_orc_runs(tmp_pat
         "core_workflow_ast": "covered",
         "semantic_ir": "covered",
     }
+    assert "command_boundaries" not in frontend
+    assert "core_nodes" not in frontend
 
 
 def test_run_workflow_logs_compiled_frontend_source_context(
