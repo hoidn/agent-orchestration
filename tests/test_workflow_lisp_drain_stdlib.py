@@ -10,6 +10,7 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import elaborate_expression
+from orchestrator.workflow_lisp.lowering import _managed_write_root_bindings
 from orchestrator.workflow_lisp.reader import read_sexpr_file, read_sexpr_text
 from orchestrator.workflow_lisp.syntax import SyntaxNode, build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
@@ -292,6 +293,27 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
     selector_call = next(step for step in body_steps if step.get("call", "").endswith("selector-run"))
     run_item_call = next(step for step in body_steps if step.get("call", "").endswith("run-selected-item"))
     gap_drafter_call = next(step for step in body_steps if step.get("call", "").endswith("gap-draft"))
+    selector_bindings = _managed_write_root_bindings(
+        caller_workflow_name="drain",
+        call_step_name=selector_call["name"],
+        callee_name="selector-run",
+        managed_inputs=("__write_root__selector_run__select_next_item__result_bundle",),
+        iteration_scope="${loop.index}",
+    )
+    run_item_bindings = _managed_write_root_bindings(
+        caller_workflow_name="drain",
+        call_step_name=run_item_call["name"],
+        callee_name="run-selected-item",
+        managed_inputs=("__write_root__run_selected_item__execute_selected_item__result_bundle",),
+        iteration_scope="${loop.index}",
+    )
+    gap_drafter_bindings = _managed_write_root_bindings(
+        caller_workflow_name="drain",
+        call_step_name=gap_drafter_call["name"],
+        callee_name="gap-draft",
+        managed_inputs=("__write_root__gap_draft__draft_gap_item__result_bundle",),
+        iteration_scope="${loop.index}",
+    )
 
     assert selector_call["with"] == {
         "ctx__run__run-id": {"ref": "inputs.ctx__run__run-id"},
@@ -300,10 +322,9 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
         "ctx__state-root": {"ref": "inputs.ctx__state-root"},
         "ctx__manifest": {"ref": "inputs.ctx__manifest"},
         "ctx__ledger": {"ref": "inputs.ctx__ledger"},
-        "__write_root__selector_run__select_next_item__result_bundle": (
-            ".orchestrate/workflow_lisp/calls/drain/drain__selector/${loop.index}/selector-run/"
-            "__write_root__selector_run__select_next_item__result_bundle.json"
-        ),
+        "__write_root__selector_run__select_next_item__result_bundle": selector_bindings[
+            "__write_root__selector_run__select_next_item__result_bundle"
+        ],
     }
     assert run_item_call["with"] == {
         "item-ctx__run__run-id": {"ref": "inputs.ctx__run__run-id"},
@@ -315,10 +336,9 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
         "item-ctx__ledger": {"ref": "inputs.ctx__ledger"},
         "selection__item-id": {"ref": "self.steps.drain__selector.artifacts.return__selection__item-id"},
         "selection__item-state-root": {"ref": "self.steps.drain__selector.artifacts.return__selection__item-state-root"},
-        "__write_root__run_selected_item__execute_selected_item__result_bundle": (
-            ".orchestrate/workflow_lisp/calls/drain/drain__run_item/${loop.index}/run-selected-item/"
-            "__write_root__run_selected_item__execute_selected_item__result_bundle.json"
-        ),
+        "__write_root__run_selected_item__execute_selected_item__result_bundle": run_item_bindings[
+            "__write_root__run_selected_item__execute_selected_item__result_bundle"
+        ],
     }
     assert gap_drafter_call["with"] == {
         "ctx__run__run-id": {"ref": "inputs.ctx__run__run-id"},
@@ -328,10 +348,9 @@ def test_lowering_backlog_drain_uses_repeat_until_with_typed_accumulator(tmp_pat
         "ctx__manifest": {"ref": "inputs.ctx__manifest"},
         "ctx__ledger": {"ref": "inputs.ctx__ledger"},
         "gap__gap-id": {"ref": "self.steps.drain__selector.artifacts.return__gap__gap-id"},
-        "__write_root__gap_draft__draft_gap_item__result_bundle": (
-            ".orchestrate/workflow_lisp/calls/drain/drain__gap_drafter/${loop.index}/gap-draft/"
-            "__write_root__gap_draft__draft_gap_item__result_bundle.json"
-        ),
+        "__write_root__gap_draft__draft_gap_item__result_bundle": gap_drafter_bindings[
+            "__write_root__gap_draft__draft_gap_item__result_bundle"
+        ],
     }
     assert repeat_step["repeat_until"]["condition"] == {
         "compare": {

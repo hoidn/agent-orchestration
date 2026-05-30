@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from orchestrator.workflow.loaded_bundle import workflow_managed_write_root_inputs
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, LispFrontendDiagnostic
 from orchestrator.workflow_lisp.spans import SourcePosition, SourceSpan
 
@@ -303,6 +304,9 @@ def test_build_accepts_compiled_imported_bundle_manifests(tmp_path: Path) -> Non
 
     assert result.imported_workflow_bundles[0].bundle_kind == "compiled"
     assert result.imported_workflow_bundles[0].workflow_name == "compiled/selector::selector-run"
+    assert workflow_managed_write_root_inputs(result.imported_workflow_bundles[0].bundle) == (
+        "__write_root__compiled_selector_selector_run__result__result_bundle",
+    )
 
 
 @pytest.mark.parametrize(

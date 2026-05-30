@@ -137,7 +137,13 @@ def workflow_import_bundle(workflow_or_bundle: Any, alias: str) -> Optional[Load
 
 def workflow_managed_write_root_inputs(workflow_or_bundle: Any) -> tuple[str, ...]:
     """Return typed managed write-root inputs for one loaded workflow."""
-    provenance = workflow_provenance(workflow_or_bundle)
-    if provenance is None:
+    bundle = workflow_bundle(workflow_or_bundle)
+    if bundle is None:
         return ()
-    return provenance.managed_write_root_inputs
+    if bundle.provenance.managed_write_root_inputs:
+        return bundle.provenance.managed_write_root_inputs
+    return tuple(
+        name
+        for name in bundle.surface.inputs
+        if isinstance(name, str) and name.startswith("__write_root__")
+    )

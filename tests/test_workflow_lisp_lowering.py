@@ -15,6 +15,8 @@ from orchestrator.workflow_lisp.compiler import (
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError, render_diagnostic
 from orchestrator.workflow_lisp.lowering import (
+    _managed_write_root_bindings,
+    _managed_write_root_requirements_for_callable,
     _workflow_extern_requirements,
     lower_workflow_definitions,
     validate_lowered_workflows,
@@ -105,7 +107,7 @@ def _typed_fixture_workflows():
     return typed_workflows, workflow_catalog
 
 
-def test_lower_workflow_definitions_emits_authored_mappings_with_hidden_write_roots() -> None:
+def test_lowering_same_file_workflow_call_uses_managed_write_root_boundary_projection() -> None:
     typed_workflows, workflow_catalog = _typed_fixture_workflows()
     lowered = lower_workflow_definitions(
         typed_workflows,
@@ -165,10 +167,22 @@ def test_lower_workflow_definitions_emits_authored_mappings_with_hidden_write_ro
 
     call_step = orchestrate.authored_mapping["steps"][0]
     assert call_step["call"] == "provider_attempt"
-    assert (
-        call_step["with"]["__write_root__provider_attempt__attempt__result_bundle"]
-        == ".orchestrate/workflow_lisp/calls/orchestrate/orchestrate__call_provider_attempt/provider_attempt/__write_root__provider_attempt__attempt__result_bundle.json"
+    managed_inputs = _managed_write_root_requirements_for_callable(
+        lowered_callee=provider_attempt,
+        imported_bundle=None,
+        span=provider_attempt.typed_workflow.definition.body.span,
+        form_path=provider_attempt.typed_workflow.definition.body.form_path,
     )
+    expected_bindings = _managed_write_root_bindings(
+        caller_workflow_name="orchestrate",
+        call_step_name=call_step["name"],
+        callee_name="provider_attempt",
+        managed_inputs=managed_inputs,
+    )
+    assert managed_inputs == ("__write_root__provider_attempt__attempt__result_bundle",)
+    assert call_step["with"]["__write_root__provider_attempt__attempt__result_bundle"] == expected_bindings[
+        "__write_root__provider_attempt__attempt__result_bundle"
+    ]
 
 
 def test_validate_lowered_workflows_reuses_in_memory_imported_bundles(tmp_path: Path) -> None:

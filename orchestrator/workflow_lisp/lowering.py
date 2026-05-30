@@ -42,7 +42,8 @@ from orchestrator.workflow.executable_ir import ProviderStepConfig
 from orchestrator.workflow.elaboration import elaborate_surface_workflow
 from orchestrator.workflow.loaded_bundle import LoadedWorkflowBundle, workflow_managed_write_root_inputs
 from orchestrator.workflow.lowering import build_loaded_workflow_bundle
-from orchestrator.workflow.surface_ast import SurfaceStepKind
+from orchestrator.workflow.references import StructuredStepReference
+from orchestrator.workflow.surface_ast import SurfaceStep, SurfaceStepKind
 
 from .conditionals import classify_condition_expr, render_condition_predicate
 from .definitions import elaborate_definition_module
@@ -3686,15 +3687,20 @@ def _lower_call_expr(
             )
             continue
         with_bindings[param_name] = _render_call_binding_ref(value_expr, local_values=local_values)
-    managed_inputs = (
-        _managed_inputs_from_mapping(callee.authored_mapping)
-        if callee is not None
-        else _managed_inputs_from_bundle(imported_bundle)
+    managed_inputs = _managed_write_root_requirements_for_callable(
+        lowered_callee=callee,
+        imported_bundle=imported_bundle,
+        span=expr.span,
+        form_path=expr.form_path,
     )
-    for managed_input in managed_inputs:
-        with_bindings[managed_input] = (
-            f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{step_name}/{canonical_name}/{managed_input}.json"
+    with_bindings.update(
+        _managed_write_root_bindings(
+            caller_workflow_name=context.workflow_name,
+            call_step_name=step_name,
+            callee_name=canonical_name,
+            managed_inputs=managed_inputs,
         )
+    )
     _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
     step = {
         "name": step_name,
@@ -3897,10 +3903,19 @@ def _lower_procedure_call_expr(
                 )
             else:
                 with_bindings[param_name] = _render_call_binding_ref(arg_expr, local_values=local_values)
-        for managed_input in _managed_inputs_from_mapping(callee.authored_mapping):
-            with_bindings[managed_input] = (
-                f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{step_name}/{canonical_name}/{managed_input}.json"
+        with_bindings.update(
+            _managed_write_root_bindings(
+                caller_workflow_name=context.workflow_name,
+                call_step_name=step_name,
+                callee_name=canonical_name,
+                managed_inputs=_managed_write_root_requirements_for_callable(
+                    lowered_callee=callee,
+                    imported_bundle=None,
+                    span=expr.span,
+                    form_path=expr.form_path,
+                ),
             )
+        )
         _record_step_origin(context, step_name=step_name, step_id=step_id, source=expr)
         return [{"name": step_name, "id": step_id, "call": procedure.generated_workflow_name, "with": with_bindings}], _TerminalResult(
             step_name=step_name,
@@ -4991,14 +5006,22 @@ def _lower_backlog_drain(
             "call": call_target,
             "with": dict(with_bindings),
         }
-        if lowered_callee is not None:
-            managed_inputs = _managed_inputs_from_mapping(lowered_callee.authored_mapping)
-        else:
-            managed_inputs = workflow_managed_write_root_inputs(imported_bundle)
-        for managed_input in managed_inputs:
-            step["with"][managed_input] = (
-                f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{generated_name}/${{loop.index}}/{call_target}/{managed_input}.json"
+        managed_inputs = _managed_write_root_requirements_for_callable(
+            lowered_callee=lowered_callee,
+            imported_bundle=imported_bundle,
+            span=expr.span,
+            form_path=expr.form_path,
+        )
+        step["with"].update(
+            _managed_write_root_bindings(
+                caller_workflow_name=context.workflow_name,
+                call_step_name=generated_name,
+                callee_name=call_target,
+                managed_inputs=managed_inputs,
+                iteration_scope="${loop.index}",
             )
+        )
+        for managed_input in managed_inputs:
             hidden_inputs[managed_input] = _origin_from_context_source(context, expr)
         _record_step_origin(context, step_name=generated_name, step_id=step["id"], source=expr)
         return step
@@ -6255,12 +6278,60 @@ def _managed_inputs_from_bundle(bundle: LoadedWorkflowBundle | None) -> tuple[st
 
     if bundle is None:
         return ()
-    inputs = getattr(bundle.surface, "inputs", {})
-    if not isinstance(inputs, Mapping):
-        return ()
-    return tuple(
-        name for name in inputs if isinstance(name, str) and name.startswith("__write_root__")
+    return workflow_managed_write_root_inputs(bundle)
+
+
+def _managed_write_root_requirements_for_callable(
+    *,
+    lowered_callee: LoweredWorkflow | None,
+    imported_bundle: LoadedWorkflowBundle | None,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> tuple[str, ...]:
+    """Return deterministic managed write-root inputs for one callable boundary."""
+
+    if lowered_callee is not None:
+        managed_projection_inputs = tuple(
+            field.generated_name
+            for field in lowered_callee.boundary_projection.generated_internal_inputs
+            if field.reason == "managed_write_root" and isinstance(field.generated_name, str)
+        )
+        if managed_projection_inputs:
+            return tuple(sorted(managed_projection_inputs))
+        return tuple(sorted(_managed_inputs_from_mapping(lowered_callee.authored_mapping)))
+    if imported_bundle is not None:
+        return tuple(sorted(_managed_inputs_from_bundle(imported_bundle)))
+    raise _compile_error(
+        code="workflow_call_unknown",
+        message="managed write-root discovery requires a lowered callee or imported bundle",
+        span=span,
+        form_path=form_path,
     )
+
+
+def _managed_write_root_bindings(
+    *,
+    caller_workflow_name: str,
+    call_step_name: str,
+    callee_name: str,
+    managed_inputs: tuple[str, ...],
+    iteration_scope: str | None = None,
+) -> dict[str, str]:
+    """Allocate deterministic caller-owned write-root bindings for one call site."""
+
+    base_segments = [
+        ".orchestrate/workflow_lisp/calls",
+        caller_workflow_name,
+        call_step_name,
+    ]
+    if iteration_scope is not None:
+        base_segments.append(iteration_scope)
+    base_segments.append(callee_name)
+    base_path = "/".join(base_segments)
+    return {
+        managed_input: f"{base_path}/{managed_input}.json"
+        for managed_input in sorted(managed_inputs)
+    }
 
 
 def _signature_local_values(typed_workflow: TypedWorkflowDef | _LoweringContext) -> dict[str, Any]:
@@ -7847,16 +7918,35 @@ def _resume_start_bundle_ref(
     if isinstance(start_expr, CommandResultExpr):
         return f"inputs.__write_root__{start_terminal.step_id}__result_bundle"
     if isinstance(start_expr, CallExpr):
+        lowered_callee = context.lowered_callees.get(start_expr.callee_name)
+        imported_bundle = context.imported_workflow_bundles.get(start_expr.callee_name)
+        if lowered_callee is None and imported_bundle is None and start_expr.callee_name in context.workflows_by_name:
+            lowered_callee = context.ensure_workflow_lowered(start_expr.callee_name)
         bundle_input_name = _call_result_bundle_input_name(
             start_expr.callee_name,
             context=context,
             span=start_expr.span,
             form_path=start_expr.form_path,
         )
-        return (
-            f".orchestrate/workflow_lisp/calls/{context.workflow_name}/{start_terminal.step_name}/"
-            f"{start_expr.callee_name}/{bundle_input_name}.json"
+        managed_inputs = _managed_write_root_requirements_for_callable(
+            lowered_callee=lowered_callee,
+            imported_bundle=imported_bundle,
+            span=start_expr.span,
+            form_path=start_expr.form_path,
         )
+        if bundle_input_name not in set(managed_inputs):
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` workflow call canonical bundle input must be a managed write root",
+                span=start_expr.span,
+                form_path=start_expr.form_path,
+            )
+        return _managed_write_root_bindings(
+            caller_workflow_name=context.workflow_name,
+            call_step_name=start_terminal.step_name,
+            callee_name=start_expr.callee_name,
+            managed_inputs=(bundle_input_name,),
+        )[bundle_input_name]
     if isinstance(start_expr, (RunProviderPhaseExpr, ProduceOneOfExpr)):
         if context.phase_scope is None:
             raise _compile_error(
@@ -7893,7 +7983,10 @@ def _call_result_bundle_input_name(
     """Find the generated bundle input name for a structured workflow call."""
 
     lowered_callee = context.lowered_callees.get(callee_name)
-    if lowered_callee is None:
+    imported_bundle = context.imported_workflow_bundles.get(callee_name)
+    if lowered_callee is None and imported_bundle is None and callee_name in context.workflows_by_name:
+        lowered_callee = context.ensure_workflow_lowered(callee_name)
+    if lowered_callee is None and imported_bundle is None:
         raise _compile_error(
             code="resume_or_start_contract_invalid",
             message="`resume-or-start :start` workflow call must lower through an available structured-result callee",
@@ -7901,21 +7994,84 @@ def _call_result_bundle_input_name(
             form_path=form_path,
         )
     return _workflow_result_bundle_input_name(
-        lowered_callee.authored_mapping,
+        lowered_callee=lowered_callee,
+        imported_bundle=imported_bundle,
         span=span,
         form_path=form_path,
     )
 
 
 def _workflow_result_bundle_input_name(
-    authored_mapping: Mapping[str, object],
     *,
+    lowered_callee: LoweredWorkflow | None,
+    imported_bundle: LoadedWorkflowBundle | None,
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> str:
     """Inspect a lowered callee and recover its terminal result-bundle input."""
 
-    outputs = authored_mapping.get("outputs")
+    if lowered_callee is not None:
+        terminal_step_name = _authored_terminal_step_name(
+            lowered_callee.authored_mapping.get("outputs"),
+            span=span,
+            form_path=form_path,
+        )
+        terminal_step = _find_authored_step_by_name(lowered_callee.authored_mapping.get("steps"), terminal_step_name)
+        if terminal_step is None:
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` workflow call terminal step is not available for bundle recovery",
+                span=span,
+                form_path=form_path,
+            )
+        bundle_input = _structured_result_bundle_input_name(terminal_step)
+        if bundle_input is None:
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` workflow call must expose one canonical structured-result bundle path",
+                span=span,
+                form_path=form_path,
+            )
+        return bundle_input
+    if imported_bundle is not None:
+        terminal_step_name = _surface_terminal_step_name(
+            imported_bundle.surface.outputs,
+            span=span,
+            form_path=form_path,
+        )
+        terminal_step = _find_surface_step_by_name(imported_bundle.surface.steps, terminal_step_name)
+        if terminal_step is None:
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` imported workflow call terminal step is not available for bundle recovery",
+                span=span,
+                form_path=form_path,
+            )
+        bundle_input = _structured_result_bundle_input_name(terminal_step)
+        if bundle_input is None:
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` workflow call must expose one canonical structured-result bundle path",
+                span=span,
+                form_path=form_path,
+            )
+        return bundle_input
+    raise _compile_error(
+        code="resume_or_start_contract_invalid",
+        message="`resume-or-start :start` workflow call must lower through an available structured-result callee",
+        span=span,
+        form_path=form_path,
+    )
+
+
+def _authored_terminal_step_name(
+    outputs: Any,
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> str:
+    """Return the one terminal authored step referenced by workflow outputs."""
+
     if not isinstance(outputs, Mapping):
         raise _compile_error(
             code="resume_or_start_contract_invalid",
@@ -7954,27 +8110,57 @@ def _workflow_result_bundle_input_name(
             span=span,
             form_path=form_path,
         )
-    terminal_step = _find_authored_step_by_name(authored_mapping.get("steps"), terminal_step_name)
-    if terminal_step is None:
+    return terminal_step_name
+
+
+def _surface_terminal_step_name(
+    outputs: Mapping[str, Any],
+    *,
+    span: SourceSpan,
+    form_path: tuple[str, ...],
+) -> str:
+    """Return the one typed surface step referenced by workflow outputs."""
+
+    terminal_step_name: str | None = None
+    for contract in outputs.values():
+        source = getattr(contract, "from_ref", None)
+        if not isinstance(source, StructuredStepReference) or source.field != "artifacts":
+            continue
+        candidate = source.step_name
+        if terminal_step_name is None:
+            terminal_step_name = candidate
+            continue
+        if terminal_step_name != candidate:
+            raise _compile_error(
+                code="resume_or_start_contract_invalid",
+                message="`resume-or-start :start` workflow call must normalize through one terminal structured-result step",
+                span=span,
+                form_path=form_path,
+            )
+    if terminal_step_name is None:
         raise _compile_error(
             code="resume_or_start_contract_invalid",
-            message="`resume-or-start :start` workflow call terminal step is not available for bundle recovery",
+            message="`resume-or-start :start` workflow call must expose return outputs backed by one terminal step",
             span=span,
             form_path=form_path,
         )
-    for contract_key in ("output_bundle", "variant_output"):
-        contract = terminal_step.get(contract_key)
+    return terminal_step_name
+
+
+def _structured_result_bundle_input_name(step: Mapping[str, object] | SurfaceStep) -> str | None:
+    """Return the generated input name used for one structured-result bundle path."""
+
+    if isinstance(step, Mapping):
+        contracts = (step.get("output_bundle"), step.get("variant_output"))
+    else:
+        contracts = (step.common.output_bundle, step.common.variant_output)
+    for contract in contracts:
         if not isinstance(contract, Mapping):
             continue
         path = contract.get("path")
         if isinstance(path, str) and path.startswith("${inputs.") and path.endswith("}"):
             return path.removeprefix("${inputs.").removesuffix("}")
-    raise _compile_error(
-        code="resume_or_start_contract_invalid",
-        message="`resume-or-start :start` workflow call must expose one canonical structured-result bundle path",
-        span=span,
-        form_path=form_path,
-    )
+    return None
 
 
 def _find_authored_step_by_name(steps: Any, step_name: str) -> Mapping[str, object] | None:
@@ -8000,6 +8186,40 @@ def _find_authored_step_by_name(steps: Any, step_name: str) -> Mapping[str, obje
                 found = _find_authored_step_by_name(case.get("steps"), step_name)
                 if found is not None:
                     return found
+    return None
+
+
+def _find_surface_step_by_name(steps: Any, step_name: str) -> SurfaceStep | None:
+    """Find one typed surface step by name, recursing through nested bodies."""
+
+    if not isinstance(steps, tuple):
+        return None
+    for step in steps:
+        if not isinstance(step, SurfaceStep):
+            continue
+        if step.name == step_name:
+            return step
+        if step.repeat_until is not None:
+            found = _find_surface_step_by_name(step.repeat_until.steps, step_name)
+            if found is not None:
+                return found
+        if step.match_cases:
+            for case in step.match_cases.values():
+                found = _find_surface_step_by_name(case.steps, step_name)
+                if found is not None:
+                    return found
+        if step.then_branch is not None:
+            found = _find_surface_step_by_name(step.then_branch.steps, step_name)
+            if found is not None:
+                return found
+        if step.else_branch is not None:
+            found = _find_surface_step_by_name(step.else_branch.steps, step_name)
+            if found is not None:
+                return found
+        if step.for_each_steps:
+            found = _find_surface_step_by_name(step.for_each_steps, step_name)
+            if found is not None:
+                return found
     return None
 
 

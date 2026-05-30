@@ -14,10 +14,15 @@ from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
     _augment_resume_command_boundaries,
     _validate_definition_module,
+    compile_stage3_entrypoint,
     compile_stage3_module,
 )
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
+from orchestrator.workflow_lisp.lowering import (
+    _managed_write_root_bindings,
+    _managed_write_root_requirements_for_callable,
+)
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
@@ -62,6 +67,7 @@ def _compile_definition_module(path: Path):
 
 
 def _write_module(path: Path, body: str) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(body, encoding="utf-8")
     return path
 
@@ -165,7 +171,13 @@ def _typecheck_fixture(path: Path):
     )
 
 
-def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
+def _compile(
+    path: Path,
+    *,
+    tmp_path: Path,
+    validate_shared: bool = False,
+    imported_workflow_bundles=None,
+):
     return compile_stage3_module(
         path,
         provider_externs={
@@ -196,6 +208,7 @@ def _compile(path: Path, *, tmp_path: Path, validate_shared: bool = False):
                 ),
             ),
         },
+        imported_workflow_bundles=imported_workflow_bundles,
         validate_shared=validate_shared,
         workspace_root=tmp_path,
     )
@@ -1068,6 +1081,228 @@ def test_shared_validation_accepts_resume_or_start(tmp_path: Path) -> None:
     assert {
         workflow.typed_workflow.definition.name for workflow in result.lowered_workflows
     } >= {"resume-record-phase", "resume-plan-gate"}
+
+
+def test_resume_or_start_workflow_call_uses_shared_managed_write_root_bundle_path(tmp_path: Path) -> None:
+    result = _compile(VALID_RESUME_FIXTURE, tmp_path=tmp_path, validate_shared=True)
+    lowered_workflow = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "resume-plan-gate"
+    )
+    authored = lowered_workflow.authored_mapping
+    lowered_plan_run = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "plan-run"
+    )
+    validator_step = authored["steps"][0]
+    branch_step = next(
+        step
+        for step in authored["steps"]
+        if step.get("match", {}).get("ref")
+        == f"root.steps.{validator_step['name']}.artifacts.variant"
+    )
+    start_steps = branch_step["match"]["cases"]["START"]["steps"]
+    call_step = next(step for step in _iter_nested_steps(start_steps) if step.get("call") == "plan-run")
+    managed_inputs = _managed_write_root_requirements_for_callable(
+        lowered_callee=lowered_plan_run,
+        imported_bundle=None,
+        span=lowered_plan_run.typed_workflow.definition.body.span,
+        form_path=lowered_plan_run.typed_workflow.definition.body.form_path,
+    )
+    expected_bindings = _managed_write_root_bindings(
+        caller_workflow_name="resume-plan-gate",
+        call_step_name=call_step["name"],
+        callee_name="plan-run",
+        managed_inputs=managed_inputs,
+    )
+
+    assert managed_inputs == ("__write_root__plan_run__resolve_plan_gate__result_bundle",)
+    assert call_step["with"]["__write_root__plan_run__resolve_plan_gate__result_bundle"] == expected_bindings[
+        "__write_root__plan_run__resolve_plan_gate__result_bundle"
+    ]
+
+
+def test_resume_or_start_imported_workflow_call_uses_shared_managed_write_root_bundle_path(
+    tmp_path: Path,
+) -> None:
+    source_root = tmp_path / "resume_imports"
+    _write_module(
+        source_root / "resume" / "types.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule resume/types)",
+                "  (export BlockerClass DesignDocPath PlanDocPath WorkReport PhaseStateBundle RunCtx PhaseCtx ResumeInputs PlanGateResult PlanGateSurfaceResult)",
+                "  (defenum BlockerClass",
+                "    missing_resource",
+                "    unavailable_hardware",
+                "    roadmap_conflict",
+                "    external_dependency_outside_authority",
+                "    user_decision_required",
+                "    unrecoverable_after_fix_attempt)",
+                "  (defpath DesignDocPath",
+                '    :kind relpath',
+                '    :under "docs/design"',
+                "    :must-exist true)",
+                "  (defpath PlanDocPath",
+                '    :kind relpath',
+                '    :under "docs/plans"',
+                "    :must-exist true)",
+                "  (defpath WorkReport",
+                '    :kind relpath',
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defpath PhaseStateBundle",
+                '    :kind relpath',
+                '    :under "state"',
+                "    :must-exist false)",
+                "  (defrecord RunCtx",
+                "    (run-id RunId)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord PhaseCtx",
+                "    (run RunCtx)",
+                "    (phase-name Symbol)",
+                "    (state-root Path.state-root)",
+                "    (artifact-root Path.artifact-root))",
+                "  (defrecord ResumeInputs",
+                "    (resume_from PhaseStateBundle)",
+                "    (design DesignDocPath)",
+                "    (plan PlanDocPath)",
+                "    (report_path WorkReport))",
+                "  (defunion PlanGateResult",
+                "    (APPROVED",
+                "      (shared_report_path WorkReport)",
+                "      (execution_report_path WorkReport))",
+                "    (BLOCKED",
+                "      (shared_report_path WorkReport)",
+                "      (progress_report_path WorkReport)",
+                "      (blocker_class BlockerClass)))",
+                "  (defrecord PlanGateSurfaceResult",
+                "    (report_path WorkReport))",
+                ")",
+            ]
+        )
+        + "\n",
+    )
+    _write_module(
+        source_root / "resume" / "helper.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule resume/helper)",
+                "  (import resume/types :only (BlockerClass DesignDocPath PlanDocPath WorkReport PhaseStateBundle RunCtx PhaseCtx ResumeInputs PlanGateResult))",
+                "  (export plan-run)",
+                "  (defworkflow plan-run",
+                "    ((phase-ctx PhaseCtx)",
+                "     (inputs ResumeInputs))",
+                "    -> PlanGateResult",
+                "    (command-result resolve_plan_gate",
+                '      :argv ("python" "scripts/resolve_plan_gate.py" inputs.report_path)',
+                "      :returns PlanGateResult))",
+                ")",
+            ]
+        )
+        + "\n",
+    )
+    caller_source = _write_module(
+        source_root / "resume" / "entry.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule resume/entry)",
+                "  (import resume/types :only (BlockerClass DesignDocPath PlanDocPath WorkReport PhaseStateBundle RunCtx PhaseCtx ResumeInputs PlanGateResult PlanGateSurfaceResult))",
+                "  (import resume/helper :only (plan-run))",
+                "  (export resume-plan-gate)",
+                "  (defworkflow resume-plan-gate",
+                "    ((phase-ctx PhaseCtx)",
+                "     (inputs ResumeInputs))",
+                "    -> PlanGateSurfaceResult",
+                "    (with-phase phase-ctx plan-gate",
+                "      (let* ((result",
+                "               (resume-or-start plan-gate",
+                "                 :ctx phase-ctx",
+                "                 :resume-from inputs.resume_from",
+                "                 :valid-when (APPROVED)",
+                "                 :start",
+                "                   (call plan-run",
+                "                     :phase-ctx phase-ctx",
+                "                     :inputs inputs)",
+                "                 :returns PlanGateResult)))",
+                "        (match result",
+                "          ((APPROVED approved)",
+                "           (record PlanGateSurfaceResult",
+                "             :report_path approved.execution_report_path))",
+                "          ((BLOCKED blocked)",
+                "           (record PlanGateSurfaceResult",
+                "             :report_path blocked.progress_report_path))))))",
+                ")",
+            ]
+        )
+        + "\n",
+    )
+    result = compile_stage3_entrypoint(
+        caller_source,
+        source_roots=(source_root,),
+        validate_shared=True,
+        command_boundaries={
+            "run_checks": ExternalToolBinding(
+                name="run_checks",
+                stable_command=("python", "scripts/run_checks.py"),
+            ),
+            "resolve_plan_gate": ExternalToolBinding(
+                name="resolve_plan_gate",
+                stable_command=("python", "scripts/resolve_plan_gate.py"),
+            ),
+            "load_canonical_phase_result__ChecksResult": ExternalToolBinding(
+                name="load_canonical_phase_result__ChecksResult",
+                stable_command=(
+                    "python",
+                    "-m",
+                    "orchestrator.workflow_lisp.adapters.load_canonical_phase_result",
+                ),
+            ),
+        },
+        workspace_root=tmp_path,
+    )
+    lowered_workflow = next(
+        workflow
+        for workflow in result.entry_result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "resume/entry::resume-plan-gate"
+    )
+    authored = lowered_workflow.authored_mapping
+    validator_step = authored["steps"][0]
+    branch_step = next(
+        step
+        for step in authored["steps"]
+        if step.get("match", {}).get("ref")
+        == f"root.steps.{validator_step['name']}.artifacts.variant"
+    )
+    start_steps = branch_step["match"]["cases"]["START"]["steps"]
+    call_step = next(
+        step
+        for step in _iter_nested_steps(start_steps)
+        if step.get("call") == "resume/helper::plan-run"
+    )
+    managed_input_name = "__write_root__resume_helper_plan_run__resolve_plan_gate__result_bundle"
+
+    assert "resume/helper::plan-run" in result.validated_bundles_by_name
+    assert "resume/entry::resume-plan-gate" in result.validated_bundles_by_name
+    assert "resume/helper::plan-run" in result.entry_result.workflow_catalog.signatures_by_name
+    assert call_step["call"] == "resume/helper::plan-run"
+    assert call_step["with"][managed_input_name] == (
+        ".orchestrate/workflow_lisp/calls/resume/entry::resume-plan-gate/"
+        "resume/entry::resume-plan-gate__result__start__call_resume/helper::plan-run/"
+        "resume/helper::plan-run/__write_root__resume_helper_plan_run__resolve_plan_gate__result_bundle.json"
+    )
 
 
 def test_resume_or_start_supports_union_start_workflow_call(tmp_path: Path) -> None:

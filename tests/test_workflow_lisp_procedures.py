@@ -31,7 +31,7 @@ from orchestrator.workflow_lisp.expressions import (
     ReviewReviseLoopExpr,
     RunProviderPhaseExpr,
 )
-from orchestrator.workflow_lisp.lowering import _resolve_procedure_lowering
+from orchestrator.workflow_lisp.lowering import _managed_write_root_bindings, _resolve_procedure_lowering
 from orchestrator.workflow_lisp.phase_stdlib import ProduceOneOfProducerSpec
 from orchestrator.workflow_lisp.procedures import build_procedure_catalog, elaborate_procedure_definitions
 from orchestrator.workflow_lisp.reader import read_sexpr_file
@@ -1042,6 +1042,130 @@ def test_private_workflow_review_phase_procedure_accepts_review_loop_result_proj
 
     assert private_names == ["%procedure_review_phase_private_workflow.review-phase-helper.v1"]
     assert private_names[0] in result.validated_bundles
+
+
+def test_private_workflow_call_reuses_managed_write_root_allocator(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "procedure_review_phase_private_workflow_allocator.orc",
+        [
+            "(workflow-lisp",
+            '  (:language "0.1")',
+            '  (:target-dsl "2.14")',
+            "  (defenum BlockerClass",
+            "    user_decision_required)",
+            "  (defenum ReviewDecision",
+            "    APPROVE",
+            "    REVISE",
+            "    BLOCKED)",
+            "  (defpath WorkReport",
+            "    :kind relpath",
+            '    :under "artifacts/work"',
+            "    :must-exist true)",
+            "  (defrecord RunCtx",
+            "    (run-id RunId)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord PhaseCtx",
+            "    (run RunCtx)",
+            "    (phase-name Symbol)",
+            "    (state-root Path.state-root)",
+            "    (artifact-root Path.artifact-root))",
+            "  (defrecord CompletedSurface",
+            "    (plan_path WorkReport))",
+            "  (defrecord ReviewInputs",
+            "    (report_path WorkReport))",
+            "  (defrecord ReviewSurfaceResult",
+            "    (report_path WorkReport))",
+            "  (defunion ReviewLoopResult",
+            "    (APPROVED",
+            "      (checks_report WorkReport)",
+            "      (review_report WorkReport)",
+            "      (review_decision ReviewDecision))",
+            "    (BLOCKED",
+            "      (progress_report WorkReport)",
+            "      (blocker_class BlockerClass))",
+            "    (EXHAUSTED",
+            "      (last_review_report WorkReport)",
+            "      (reason String)))",
+            "  (defproc review-phase-helper",
+            "    ((phase-ctx PhaseCtx)",
+            "     (completed CompletedSurface)",
+            "     (inputs ReviewInputs))",
+            "    -> ReviewSurfaceResult",
+            "    :effects ()",
+            "    :lowering private-workflow",
+            "    (with-phase phase-ctx implementation-review",
+            "      (let* ((review",
+            "               (review-revise-loop implementation-review",
+            "                 :ctx phase-ctx",
+            "                 :completed completed",
+            "                 :inputs inputs",
+            "                 :review-provider providers.review",
+            "                 :fix-provider providers.fix",
+            "                 :review-prompt prompts.review",
+            "                 :fix-prompt prompts.fix",
+            "                 :max 3",
+            "                 :returns ReviewLoopResult)))",
+            "        (match review",
+            "          ((APPROVED approved)",
+            "           (record ReviewSurfaceResult",
+            "             :report_path approved.review_report))",
+            "          ((BLOCKED blocked)",
+            "           (record ReviewSurfaceResult",
+            "             :report_path blocked.progress_report))",
+            "          ((EXHAUSTED exhausted)",
+            "           (record ReviewSurfaceResult",
+            "             :report_path exhausted.last_review_report))))))",
+            "  (defworkflow run-review",
+            "    ((phase-ctx PhaseCtx)",
+            "     (completed CompletedSurface)",
+            "     (inputs ReviewInputs))",
+            "    -> ReviewSurfaceResult",
+            "    (review-phase-helper phase-ctx completed inputs)))",
+        ],
+    )
+
+    result = compile_stage3_module(
+        path,
+        provider_externs={
+            "providers.review": "test-review-provider",
+            "providers.fix": "test-fix-provider",
+        },
+        prompt_externs={
+            "prompts.review": "prompts/review.md",
+            "prompts.fix": "prompts/fix.md",
+        },
+        validate_shared=True,
+        workspace_root=tmp_path,
+    )
+
+    private_workflow = next(
+        workflow
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "%procedure_review_phase_private_workflow_allocator.review-phase-helper.v1"
+    )
+    outer_workflow = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name == "run-review"
+    )
+    call_step = next(
+        step
+        for step in outer_workflow["steps"]
+        if step.get("call") == private_workflow.typed_workflow.definition.name
+    )
+    managed_input = next(
+        name for name in private_workflow.authored_mapping["inputs"] if name.startswith("__write_root__")
+    )
+    expected_bindings = _managed_write_root_bindings(
+        caller_workflow_name="run-review",
+        call_step_name=call_step["name"],
+        callee_name="review-phase-helper",
+        managed_inputs=(managed_input,),
+    )
+
+    assert call_step["call"] == private_workflow.typed_workflow.definition.name
+    assert call_step["with"][managed_input] == expected_bindings[managed_input]
 
 
 def test_private_workflow_with_phase_binding_exports_step_backed_outputs(tmp_path: Path) -> None:
