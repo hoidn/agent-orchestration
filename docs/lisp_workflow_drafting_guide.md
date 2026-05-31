@@ -17,8 +17,18 @@ Design references:
 
 - [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md)
 - [Workflow Lisp Frontend MVP Specification](design/workflow_lisp_frontend_mvp_specification.md)
+- [Workflow Lisp Core Statement Taxonomy](design/workflow_lisp_core_stmt_taxonomy.md)
+- [Workflow Lisp Semantic Workflow IR](design/workflow_lisp_semantic_workflow_ir.md)
+- [Workflow Lisp Executable IR](design/workflow_lisp_executable_ir.md)
+- [Workflow Lisp Macro Surface Contract](design/workflow_lisp_macro_surface_contract.md)
+- [Workflow Lisp Frontend Standard Library Lowering](design/workflow_lisp_stdlib_lowering.md)
+- [Workflow Lisp Runtime Closures Boundary](design/workflow_lisp_runtime_closures_boundary.md)
 - [Workflow Language Design Principles](design/workflow_language_design_principles.md)
 - [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md)
+
+Use this guide for authoring judgment. Use the component-contract docs for
+current-checkout behavior. Use the unified design for future or deferred
+surfaces. Use `specs/` for normative runtime and DSL behavior.
 
 During the coexistence period, use [Workflow Drafting Guide](workflow_drafting_guide.md)
 for YAML-specific authoring guidance. When the YAML guide is deprecated, preserve
@@ -44,9 +54,9 @@ If you want the smallest concrete Workflow Lisp starting point, read
 examples. It shows a single backlog item flowing through typed plan and
 implementation provider results plus bounded review/fix loops. Treat it as a
 single-item shared-validation example, not as a production queue drain: it can
-compile and dry-run through the `.orc` runtime bridge, but it still lacks the
-selector, queue movement, recovery, and parity evidence required to replace the
-mature YAML backlog drains.
+compile and dry-run through the `.orc` runtime bridge, but it does not include
+the selector, queue movement, recovery, and parity evidence required to replace
+the mature YAML backlog drains.
 
 ## Core Rule
 
@@ -120,12 +130,13 @@ The authoring pipeline is:
   -> macro/procedure elaboration
   -> Core Workflow AST
   -> shared validation
-  -> semantic IR
-  -> executable IR
+  -> validated executable IR
+  -> derived runtime plan and semantic IR
   -> existing runtime
 ```
 
-Generated YAML, if emitted, is a debug projection. It is not semantic authority.
+Generated YAML, if emitted, is a debug projection. It is not semantic or
+executable authority.
 
 The first question is not "which YAML field do I need?"
 
@@ -145,9 +156,9 @@ adapter.
 
 ## 2. Availability Model
 
-The Lisp frontend now supports substantially more than the original MVP, but the
-full design is not complete. Treat the implemented compiler surface, standard
-library lowering, and production workflow migration as separate questions.
+The Lisp frontend now supports substantially more than the original MVP, but
+current compiler behavior, current component contracts, future design targets,
+and production workflow migration are separate questions.
 
 Use these labels in docs and examples when needed:
 
@@ -198,7 +209,20 @@ through `ProcRef[...]` parameters, and lexical invocation through ProcRef-bound
 call heads. ProcRef values are still compile-time-only: they cannot cross
 runtime transport seams or survive into executable runtime state.
 
-Still deferred or future:
+Current component-contract boundaries:
+
+- current macro support is implemented, deterministic, and bounded by
+  [Workflow Lisp Macro Surface Contract](design/workflow_lisp_macro_surface_contract.md);
+- standard-library forms are ordinary authoring guidance only when their
+  lowering contract is supported and their generated effects/source maps remain
+  visible; see [Workflow Lisp Frontend Standard Library Lowering](design/workflow_lisp_stdlib_lowering.md);
+- Semantic IR and Executable IR are formalized current-checkout component
+  contracts, but they have different authority lanes: Semantic IR is semantic
+  authority, and Executable IR is executable authority;
+- Core statement-family identity comes from the current shared Core AST
+  taxonomy, not from ad hoc frontend-only statement names.
+
+Deferred or future:
 
 - runtime first-class procedures or closures
 - provider-selected or command-produced procedure values
@@ -207,7 +231,15 @@ Still deferred or future:
   state
 - dynamic runtime procedure dispatch
 - runtime-native atomic resource transitions beyond current certified adapters
-- migration of key production workflows to `.orc` with A/B or parity evidence
+
+Runtime closures remain future runtime-owned callable values. Current work only
+proves disabled-profile rejection and source-map diagnostics. Do not author
+runtime closure values, dynamic procedure dispatch, or procedure-valued runtime
+state.
+
+Some migration slices now have evidence, but YAML remains authoritative for a
+workflow until that specific `.orc` version has compile, shared-validation,
+dry-run or smoke, and parity evidence.
 
 Do not present a form as ordinary authoring guidance unless the guide labels
 whether it is implemented, library-backed, designed, future, or legacy.
@@ -216,6 +248,11 @@ whether it is implemented, library-backed, designed, future, or legacy.
 
 These rules are frontend-independent. They apply to `.orc`, generated Core AST,
 generated/debug YAML, and runtime IR.
+
+Semantic IR is the typed semantic authority surface for validated workflows.
+Executable IR is the validated executable authority surface. Runtime plans,
+source maps, debug YAML, summaries, and reports are derived views unless a
+specific contract says otherwise.
 
 ### 3.1 Structured State Is Authority
 
@@ -618,6 +655,18 @@ A macro may not perform filesystem I/O, perform network I/O, depend on
 wall-clock time, call providers, run commands, weaken contracts, emit executable
 IR directly, or hide effects.
 
+The current `defmacro` surface is a deterministic frontend-only syntax
+expander. It supports top-level template macros, hygienic introduced names,
+imported macro visibility, source-map provenance, and validation through the
+ordinary frontend pipeline. It does not support compile-time I/O, runtime macro
+values, intentional capture syntax, alternate validators, or direct Semantic IR
+or Executable IR generation.
+
+Macro-origin failures are owned by the same layer that would own the expanded
+form without a macro. Macro provenance is additive; it does not create a second
+validation stack. See the macro surface contract for the current diagnostic
+ownership matrix.
+
 Ordinary workflow authors should rarely need user-defined macros. Prefer
 standard-library procedures and compiler-owned forms until there is evidence
 that custom macros are needed.
@@ -933,8 +982,16 @@ Prefer:
 
 ## 13. Standard High-Level Forms
 
-This section describes intended high-level forms. Availability depends on the
-frontend stage.
+This section describes high-level forms. Availability depends on current
+frontend support and on the form having a reviewed lowering contract. A
+standard-library form is safe authoring guidance only when it lowers through
+visible generated statements, effects, state layout, proof behavior, and source
+maps.
+
+Do not replace a missing or unsupported standard-library lowering with ad hoc
+inline command text, report parsing, pointer choreography, or macro-generated
+hidden effects. Either use the supported form, add a reviewed lowering
+contract, or stay in lower-level YAML/Core fixtures.
 
 ### 13.1 `run-provider-phase`
 
@@ -1623,7 +1680,7 @@ Before running a new `.orc` workflow, confirm:
 | Reuse | Repeated behavior is a `defworkflow`, `defproc`, or standard-library form. |
 | Gates | Gates have been replaced by typed outcomes or transitions where possible. |
 | Prompts | Prompts describe domain work, not runtime mechanics. |
-| Lowering | Generated Core AST validates through the shared validator. |
+| Lowering | Generated Core AST uses real shared statement families; Semantic IR derives from validated shared bundle data; Executable IR validates before runtime-facing use; source maps preserve authored/generated provenance. |
 | Diagnostics | Errors map back to useful `.orc` source forms. |
 | Metrics | Authored size and brittle-pattern count improve over the YAML baseline. |
 
@@ -1719,7 +1776,7 @@ writing a compatibility fixture, runtime test, or standard-library lowering.
 | "I need a custom review loop." | "Can this be `review-revise-loop`?" |
 | "I need to select/run/gap/repeat." | "This is `backlog-drain`." |
 | "I need to write a lot of target paths." | "These should derive from context or typed target schemas." |
-| "The generated YAML is weird." | "Inspect the Core AST, semantic IR, and source map; YAML is only a projection." |
+| "The generated YAML is weird." | "Inspect the Core AST, executable IR, Semantic IR, and source map; YAML is only a projection." |
 
 ## 32. Minimal Safe Subset
 

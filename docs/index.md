@@ -52,8 +52,8 @@ These are the highest-impact terminology and contract confusions.
 **Use this when:** You are writing or refactoring workflow YAML and prompt patterns.
 
 ### [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md)
-**Description:** Lisp-first authoring guidance for `.orc` workflows, focused on typed procedures, structured results, semantic authority, and avoiding YAML-shaped Lisp.
-**Keywords:** lisp-frontend, orc, workflow-authoring, typed-results, structured-state
+**Description:** Lisp-first authoring guidance for `.orc` workflows, focused on typed procedures, structured results, semantic/executable authority boundaries, current contract navigation, and avoiding YAML-shaped Lisp.
+**Keywords:** lisp-frontend, orc, workflow-authoring, typed-results, structured-state, contracts
 **Use this when:** Drafting or reviewing high-level Workflow Lisp workflows, or migrating YAML workflows toward `.orc`.
 
 ### [Work Definition Model](work_definition_model.md)
