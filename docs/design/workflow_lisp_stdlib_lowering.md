@@ -33,6 +33,14 @@ actually produces that artifact. Route and final projection steps carry evidence
 refs from loop inputs/state, and negative validation should catch a lowering
 where provider output can replace consumed evidence identity.
 
+Current feasibility status: `review-revise-loop` is conditionally feasible as
+ordinary stdlib code, but not with the current checkout alone. See
+`docs/plans/2026-06-01-review-revise-loop-stdlib-feasibility-proof.md`. The
+proof route is a stdlib `defproc` over compile-time `ProcRef` review/fix hooks,
+plus generic `loop/recur` exhaustion projection. The existing
+`ReviewReviseLoopExpr` lowerer remains a shape reference, not acceptance
+evidence for ordinary stdlib composition.
+
 ## Required Forms
 
 Initial forms:
@@ -153,6 +161,5 @@ specified before the form can claim runtime-integrated semantics.
 
 - Whether `resource-transition` starts as a certified command adapter or waits
   for runtime-native support.
-- Whether stdlib `review-revise-loop` can be expressed through current
-  `repeat_until` without needing new terminal-result semantics.
+- The exact authoring syntax for generic `loop/recur` exhaustion projection.
 - Whether `resume-or-start` needs a new canonical-state validation primitive.

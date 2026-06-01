@@ -26,6 +26,7 @@ Related docs:
 - `docs/design/workflow_lisp_state_layout.md`
 - `docs/design/workflow_command_adapter_contract.md`
 - `docs/plans/2026-05-29-lisp-migrate-key-workflows-execution-summary.md`
+- `docs/plans/2026-06-01-review-revise-loop-stdlib-feasibility-proof.md`
 - Generated run evidence:
   `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/index.json`
 
@@ -117,10 +118,11 @@ leave important behavior implicit:
   is not fully documented as a promotion requirement.
 - `review-revise-loop` exists as a high-level authoring concept, but it cannot
   yet be defined as ordinary `.orc` library code. The blocker is not the
-  absence of procedures, references, or loops; it is that provider/prompt refs,
-  compiler-owned result paths, typed review findings, and source-map-preserving
-  stdlib expansion are not yet general enough for a review loop to live outside
-  a compiler-specific branch.
+  absence of procedures, references, or loops; it is that `ProcRef` review/fix
+  hooks inside generic loop bodies, compiler-owned result paths, typed
+  exhaustion projection, carried evidence identities, typed review findings, and
+  source-map-preserving stdlib expansion are not yet proven outside a
+  compiler-specific branch.
 - Review findings are still entangled with report/pointer extraction in legacy
   YAML patterns instead of being typed state that revise/fix steps consume.
 - Generated state paths and reusable phase state are not yet stable enough for
@@ -200,15 +202,34 @@ composition feature before migration can continue. A key workflow may attempt
    compiler-owned paths and runtime bundle-path injection.
 2. Imported `.orc` stdlib definitions can generate provider steps, command
    steps, `match`, and one resume-safe typed loop form with stable source maps.
-3. Provider, prompt, workflow, and procedure refs are compile-time-only and
+3. `review-revise-loop` is a stdlib `defproc` over compile-time `ProcRef`
+   review/fix hooks. Caller-owned review/fix procedures may use provider and
+   prompt externs, but the loop does not carry provider or prompt refs as
+   runtime state.
+4. Generic `loop/recur` supports typed exhaustion projection through current
+   `repeat_until.on_exhausted` scalar overrides plus final projection from the
+   last loop-frame state.
+5. Provider, prompt, workflow, and procedure refs are compile-time-only and
    fully specialized before executable runtime state is produced.
-4. `review-revise-loop` is implemented in `.orc` stdlib using only that subset.
-5. Parity evidence proves the generated executable shape matches the YAML
+6. Parity evidence proves the generated executable shape matches the YAML
    baseline.
 
 Generic macros, broader stdlib packaging, and arbitrary nested effectful
 composition remain follow-on work unless this review-loop implementation
 requires them.
+
+Feasibility proof status:
+
+- `docs/plans/2026-06-01-review-revise-loop-stdlib-feasibility-proof.md`
+  records the current proof. The architecture is conditionally feasible, but
+  not proven by the current checkout.
+- The viable route is a stdlib `defproc` over compile-time `ProcRef` review and
+  fix hooks, plus generic `loop/recur` exhaustion projection. The current
+  compiler-special `ReviewReviseLoopExpr` path is useful evidence for the
+  generated shape, but it does not satisfy this architecture.
+- Promotion work must first add fixtures proving imported stdlib usage lowers
+  without recognizing the literal `review-revise-loop` name in typecheck or
+  lowering.
 
 Alternatives considered:
 
@@ -355,12 +376,13 @@ a restart. Current support already includes pure `defun`, effectful `defproc`,
    across nested provider calls, command calls, `match`, typed loops, and calls
    to other workflows/procedures.
 
-2. **Compile-time references for providers, prompts, workflows, and
-   procedures.** Workflow and procedure refs already have a static authoring
-   model. Provider and prompt refs need equivalent compile-time parameter
-   support so stdlib code can accept review/fix providers and prompts without
-   runtime-transported values or hard-coded extern names. All refs must
-   specialize before executable runtime state is produced.
+2. **Compile-time procedure hooks for review and fix behavior.** Workflow and
+   procedure refs already have a static authoring model. The review-loop proof
+   uses `ProcRef` review/fix hooks: caller-owned procedures bind or directly use
+   provider and prompt externs, then the stdlib loop receives only specialized
+   procedure refs. Provider and prompt refs may still need better compile-time
+   parameter support for broader stdlib ergonomics, but the migration proof must
+   not depend on carrying provider or prompt refs through loop state.
 
 3. **Composable typed loops.** `loop/recur` already provides typed iterative
    control. The remaining requirement is to prove and, where needed, complete
@@ -405,10 +427,12 @@ Readiness before acceptance:
 | Capability | Required for review loop? | Acceptance fixture | Acceptance status |
 | --- | --- | --- | --- |
 | Imported effectful stdlib `defproc` or workflow | Yes | Import stdlib loop and emit DSL-visible provider, command, loop, and match nodes | Must be proven by implementation audit |
-| ProviderRef specialization | Yes | Pass review/fix providers into stdlib with no runtime provider value | Must be proven by implementation audit |
-| PromptRef specialization | Yes | Pass prompts into stdlib with no hard-coded extern or runtime prompt value | Must be proven by implementation audit |
+| `ProcRef` review/fix hook specialization | Yes | Pass caller-owned review/fix procedures into stdlib and emit no runtime proc value | Must be proven by implementation audit |
+| Provider/prompt extern use inside selected procedures | Yes | Review/fix procedures produce provider steps after specialization without loop-carried provider or prompt refs | Must be proven by implementation audit |
 | `loop/recur` to resume-safe DSL loop | Yes | `REVISE -> fix -> APPROVE` with a persisted loop checkpoint | Must be proven by implementation audit |
+| Generic `loop/recur` exhaustion projection | Yes | Exhaustion returns `ReviewLoopResult.EXHAUSTED` using scalar overrides plus last loop-frame outputs | Must be proven by implementation audit |
 | Generated bundle/path allocation | Yes | Compile stdlib loop without public hidden write-root inputs | Must be proven by implementation audit |
+| No compiler-special review-loop recognition | Yes | Imported stdlib usage still compiles when `ReviewReviseLoopExpr` lowering is disabled | Must be proven by implementation audit |
 | Effect graph and source maps across stdlib expansion | Yes | Generated nodes record call site, stdlib definition, and generated-node provenance | Must be proven by implementation audit |
 | Negative validation for abstraction leaks | Yes | Reject stdlib definitions that route on report prose, leak hidden roots, or hide effects | Must be proven by implementation audit |
 
@@ -544,8 +568,9 @@ own workflow-specific control idioms such as `review-revise-loop`.
 
 Generic effectful composition must:
 
-- extend the existing static ref model so provider and prompt refs specialize
-  like workflow and procedure refs before runtime artifacts are produced;
+- specialize caller-owned review/fix `ProcRef` hooks before runtime artifacts
+  are produced, with provider and prompt externs resolved inside those selected
+  procedures rather than carried by the loop;
 - allow imported reusable library definitions to generate provider steps,
   command steps, `match`, typed loops, and materialization through ordinary
   composition;
@@ -573,8 +598,9 @@ Canonical generated executable shape for this migration slice:
 caller workflow
   call generated/private workflow stdlib__review_revise_loop__<call_site_id>
     inputs:
-      draft artifact refs, review provider ref, revise/fix provider ref,
-      prompt refs, loop budget, generated bundle roots
+      draft/check artifact refs, loop budget, generated bundle roots
+    compile-time specialization:
+      selected review/fix behavior from ProcRef hooks
     outputs:
       ReviewLoopResult bundle, terminal status, review report, findings
 
@@ -884,9 +910,9 @@ Recommended sequencing:
    shape, and path safety.
 2. Document and test the command structured-output runtime contract.
 3. Complete generic `.orc` effectful composition support for reusable library
-   definitions: provider/prompt refs, stdlib-owned use of existing
-   workflow/procedure refs and `loop/recur`, generated path allocation, and
-   source-map-preserving expansion.
+   definitions: stdlib-owned use of `ProcRef` hooks, workflow refs and
+   `loop/recur`, provider/prompt extern use inside selected procedures,
+   generated path allocation, and source-map-preserving expansion.
 4. Finalize `command-result` lowering so hidden bundle paths are compiler-owned
    and not public entrypoint inputs.
 5. Implement `review-revise-loop` as ordinary `.orc` stdlib code, including
@@ -1100,11 +1126,19 @@ Workflow Lisp integration tests:
 
 - stdlib `review-revise-loop` imports and compiles through generic effectful
   composition.
+- imported stdlib `review-revise-loop` still compiles when the compiler-special
+  `ReviewReviseLoopExpr` typecheck/lowering path is disabled for the fixture.
+- caller-owned review/fix procedures pass through `ProcRef` specialization and
+  no runtime `ProcRef`, provider ref, or prompt ref value appears in executable
+  state.
 - stdlib `review-revise-loop` approves first pass.
 - stdlib `review-revise-loop` revises once then approves.
 - stdlib `review-revise-loop` exhausts and returns `EXHAUSTED`.
 - exhaustion projection fails as an ordinary contract failure if the final
   completed iteration did not materialize required review outputs.
+- review provider output cannot replace carried evidence identities such as
+  `checks_report`; terminal projection copies those identities from loop
+  state/inputs.
 - revise/fix receives findings from the previous review.
 - `resume-or-start` reuses approved state and rejects stale/failed state.
 
