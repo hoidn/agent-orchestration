@@ -156,6 +156,11 @@ These are the highest-impact terminology and contract confusions.
 **Keywords:** lisp-frontend, refactoring, compiler, typecheck, lowering, diagnostics
 **Use this when:** Planning cleanup of the Workflow Lisp frontend implementation without mixing it with missing full-design feature work.
 
+### [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md)
+**Description:** Draft architecture for closing the DSL/compiler/runtime parity gaps that block promoting key `.orc` workflow migrations over YAML primaries, including command-result bundles, review/revise loops, carried findings, reusable state, defaults, and promotion evidence.
+**Keywords:** lisp-frontend, migration, parity, command-result, review-revise-loop, resume-or-start
+**Use this when:** Planning or reviewing the system changes required before key YAML workflows can be replaced by `.orc` equivalents.
+
 ### [Lisp Migrate Key Workflows Execution Plan](plans/2026-05-29-lisp-migrate-key-workflows-execution-plan.md)
 **Description:** Approved execution-ready plan for the first migration tranche converting `cycle_guard_demo` and the `design_plan_impl_review_stack_v2_call` family to additive Workflow Lisp `.orc` surfaces with compile/dry-run/parity evidence.
 **Keywords:** lisp-frontend, migration, workflow-lisp, parity, execution-plan
