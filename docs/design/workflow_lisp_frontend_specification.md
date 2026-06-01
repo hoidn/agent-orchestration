@@ -1705,6 +1705,12 @@ It should not require manual state paths.
 
 ## 27. `review-revise-loop`
 
+`review-revise-loop` is a standard-library review/fix abstraction, not a
+compiler-owned primitive. Its concrete review-result, findings, blocker, and
+exhaustion schemas are owned by the stdlib definition; the language/compiler
+must provide the generic structured dataflow, effect visibility, source maps,
+and generated path handling needed to compile it like other `.orc` library code.
+
 ```lisp
 (review-revise-loop implementation-review
   :ctx ctx
@@ -1735,7 +1741,7 @@ Return type:
     (reason String)))
 ```
 
-Lowering:
+Required generated shape:
 
 - `repeat_until`
 - provider review step
@@ -2477,7 +2483,7 @@ atomicity is adapter-certified and fixture-tested
 
 not pretend it is a core runtime transaction.
 
-## 57. `review-revise-loop` Lowering
+## 57. `review-revise-loop` Lowering Contract
 
 Source:
 
@@ -2485,7 +2491,8 @@ Source:
 (review-revise-loop implementation-review ...)
 ```
 
-Core AST:
+The stdlib definition must compile through the shared effectful composition
+model to generated Core AST equivalent to:
 
 ```text
 CoreRepeatUntil
@@ -2496,7 +2503,7 @@ CoreRepeatUntil
   terminal typed output
 ```
 
-Semantic IR:
+Semantic IR must expose:
 
 - `BoundedLoop`
 - `ReviewDecision` enum

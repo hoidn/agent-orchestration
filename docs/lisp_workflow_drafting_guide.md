@@ -988,6 +988,11 @@ standard-library form is safe authoring guidance only when it lowers through
 visible generated statements, effects, state layout, proof behavior, and source
 maps.
 
+Treat these forms as stdlib authoring conveniences backed by generic `.orc`
+composition, not opaque language builtins. The stdlib owns concrete helper
+schemas and loop policy; the language/compiler owns generic typed dataflow,
+effect visibility, source maps, and generated path handling.
+
 Do not replace a missing or unsupported standard-library lowering with ad hoc
 inline command text, report parsing, pointer choreography, or macro-generated
 hidden effects. Either use the supported form, add a reviewed lowering

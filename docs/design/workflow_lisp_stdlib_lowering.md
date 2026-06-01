@@ -7,11 +7,16 @@ Depends on: `docs/design/workflow_lisp_core_stmt_taxonomy.md`,
 
 ## Purpose
 
-`FrontendStdlibLowering` defines how high-level Lisp library forms lower to
-Core AST and Semantic IR without hiding unresolved semantics.
+This document defines the contract for high-level Lisp library forms to compile
+to Core AST and Semantic IR without hiding unresolved semantics.
 
-Each standard-library form needs an exact lowering contract before it can be
-implemented.
+The default implementation path is ordinary `.orc` stdlib code compiled through
+the shared effectful composition model. A form should receive bespoke compiler
+lowering only when it is explicitly accepted as a primitive rather than as a
+library abstraction.
+
+Each standard-library form needs an exact generated-shape contract before it can
+be implemented or promoted.
 
 ## Required Forms
 
@@ -133,6 +138,6 @@ specified before the form can claim runtime-integrated semantics.
 
 - Whether `resource-transition` starts as a certified command adapter or waits
   for runtime-native support.
-- Whether `review-revise-loop` can lower to current `repeat_until` without
-  needing new terminal-result semantics.
+- Whether stdlib `review-revise-loop` can be expressed through current
+  `repeat_until` without needing new terminal-result semantics.
 - Whether `resume-or-start` needs a new canonical-state validation primitive.

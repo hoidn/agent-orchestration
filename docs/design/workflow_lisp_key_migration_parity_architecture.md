@@ -4,6 +4,20 @@ Status: draft
 Kind: architecture decision / migration design
 Created: 2026-06-01
 Last material update: 2026-06-01
+Scope:
+
+- Workflow Lisp lowering requirements for key-workflow parity.
+- Runtime/spec deltas required before `.orc` promotion.
+- Migration evidence and promotion policy.
+
+Authority:
+
+- Normative DSL/runtime behavior remains in `specs/`.
+- This document is authoritative as a migration architecture, not as a runtime
+  spec, until the required spec deltas and promotion-report schema are accepted.
+- A `.orc` workflow must not replace a YAML primary solely because this document
+  describes a target behavior.
+
 Related docs:
 
 - `docs/lisp_workflow_drafting_guide.md`
@@ -36,12 +50,31 @@ important composition substrate: pure `defun`, effectful `defproc`,
 work is to complete and generalize that substrate enough that recurring
 patterns such as `review-revise-loop` can be defined as ordinary library
 workflows/procedures, not compiler-special forms. After that, the remaining
-work is to clarify the few runtime behaviors that are currently implementation
-details and add a promotion checklist that prevents `.orc` workflows from
-replacing YAML while still regressive.
+work is to specify the few runtime behaviors that are currently implementation
+details and add a machine-checked promotion gate that prevents `.orc` workflows
+from replacing YAML while parity remains regressive. The main runtime/spec
+exceptions are command bundle-path injection, command-produced union bundle
+handling, generated write-root policy, review-loop exhaustion projection, and
+machine-checked promotion evidence.
 
-No runtime closures or first-class runtime functions are required for this
-migration tranche.
+No runtime closures or runtime-transported procedure values are required for
+this migration tranche.
+
+## Intention And Goal
+
+The intention is to make `.orc` a credible primary authoring surface for key
+workflow families, not merely an alternate syntax that can compile toy or
+single-pass examples. A promoted `.orc` workflow must preserve the operational
+behavior authors rely on in YAML: structured outputs, review/revise loops,
+carried review context, resume safety, input defaults, and observable migration
+evidence.
+
+The goal of this design is to identify the smallest principled set of
+DSL/compiler/runtime and stdlib changes needed to reach that parity without
+recreating YAML-era glue. In particular, recurring orchestration patterns should
+be expressible as ordinary `.orc` stdlib workflows/procedures over generic
+effectful composition, while the runtime continues to enforce validated
+artifacts and state rather than learning workflow-specific concepts.
 
 ## Context And Authority
 
@@ -119,7 +152,7 @@ Lisp is intended to remove.
 
 ## Non-Goals
 
-- Do not add runtime closures or first-class runtime procedure values.
+- Do not add runtime closures or runtime-transported procedure values.
 - Do not recreate YAML pointer choreography in high-level `.orc`.
 - Do not make generated/debug YAML semantic authority.
 - Do not promote the low-level cycle-guard demo itself as a high-level key
@@ -133,8 +166,8 @@ Lisp is intended to remove.
 
 ## Decision
 
-Use a language-foundation-first architecture with narrow runtime contract
-clarifications.
+Use a language-foundation-first architecture with narrow runtime/spec contract
+deltas.
 
 The recommended approach is:
 
@@ -147,13 +180,33 @@ The recommended approach is:
    generic capabilities.
 4. Finalize Workflow Lisp contracts for `command-result`, `resume-or-start`,
    state layout, and workflow input defaults.
-5. Clarify runtime command structured-output behavior as a contract:
+5. Specify and implement normative command structured-output behavior:
    `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` is the command's authoritative bundle
-   target when a command step has `output_bundle` or `variant_output`.
+   target for command steps with deterministic structured bundle contracts.
 6. Introduce generic structured dataflow guidance for stdlib review-result and
    finding records.
-7. Add a migration promotion gate that keeps YAML primary until parity evidence
-   is non-regressive.
+7. Add a machine-validated migration promotion gate that keeps YAML primary
+   until parity evidence is non-regressive.
+
+### Minimum Migration Slice
+
+This design deliberately does not require completing every future `.orc`
+composition feature before migration can continue. A key workflow may attempt
+`.orc` promotion after this narrower slice is implemented and tested:
+
+1. `command-result` lowers to authoritative generated bundle contracts with
+   compiler-owned paths and runtime bundle-path injection.
+2. Imported `.orc` stdlib definitions can generate provider steps, command
+   steps, `match`, and one resume-safe typed loop form with stable source maps.
+3. Provider, prompt, workflow, and procedure refs are compile-time-only and
+   fully specialized before executable runtime state is produced.
+4. `review-revise-loop` is implemented in `.orc` stdlib using only that subset.
+5. Parity evidence proves the generated executable shape matches the YAML
+   baseline.
+
+Generic macros, broader stdlib packaging, and arbitrary nested effectful
+composition remain follow-on work unless this review-loop implementation
+requires them.
 
 Alternatives considered:
 
@@ -175,14 +228,14 @@ Alternatives considered:
 
 ## Required Changes By Gap
 
-| Gap | Required extension | Primary owner | DSL/spec impact |
-| --- | --- | --- | --- |
-| Command-result structured return materialization | Final `command-result` lowering contract and runtime bundle-path contract | Workflow Lisp lowering + runtime executor | Clarify existing `output_bundle` command behavior; no new DSL construct |
-| Review/revise loop parity | Complete generic effectful `.orc` library composition, then implement `review-revise-loop` in stdlib `.orc` | Workflow Lisp language/compiler + stdlib | No new YAML DSL construct if v2.7/v2.12 semantics suffice |
-| Carried findings/review state | Generic structured output/dataflow support, with concrete review-result and findings schemas owned by the `.orc` stdlib loop | `.orc` stdlib + Workflow Lisp generic validation | No new YAML DSL construct; may use `output_bundle` or `variant_output` |
-| Resume/state semantics | State layout and `resume-or-start` reusable-state validation contract | Workflow Lisp state layout + runtime/adapters | Likely no schema bump; clarify accepted reusable state shape |
-| Default input parity | `.orc` boundary syntax and lowering for workflow input defaults | Workflow Lisp parser/typecheck/lowering | Existing DSL input default support |
-| Real smoke coverage | Migration promotion checklist and parity report schema | Migration policy/tests | No DSL change |
+| Gap | Required extension | Primary owner | DSL/spec impact | Promotion evidence |
+| --- | --- | --- | --- | --- |
+| Command-result structured return materialization | Final `command-result` lowering contract and runtime bundle-path contract | Workflow Lisp lowering + runtime executor | Normative command bundle-path behavior in `specs/dsl.md` and `specs/io.md` | Real command smoke proves env injection, bundle validation, and missing-bundle failure |
+| Review/revise loop parity | Complete generic effectful `.orc` library composition, then implement `review-revise-loop` in stdlib `.orc` | Workflow Lisp language/compiler + stdlib | No new YAML DSL construct if v2.7/v2.12 semantics plus final projection suffice | REVISE/fix/APPROVE and exhaustion tests |
+| Carried findings/review state | Generic structured output/dataflow support, with concrete review-result and findings schemas owned by the `.orc` stdlib loop | `.orc` stdlib + Workflow Lisp generic validation | No new YAML DSL construct; use declared structured bundles | Findings schema validation and revise/fix consumption |
+| Resume/state semantics | State layout and `resume-or-start` reusable-state validation contract | Workflow Lisp state layout + runtime/adapters | Clarify reusable state shape and failure taxonomy | Reusable, stale, missing artifact, failed, and schema-mismatch cases |
+| Default input parity | `.orc` boundary syntax and lowering for workflow input defaults | Workflow Lisp parser/typecheck/lowering | Existing DSL input default support | Compile/lower/default override tests |
+| Real smoke coverage | Migration promotion checklist and parity report schema | Migration policy/tests | New machine-readable migration report schema | Computed `non_regressive`, not manually asserted |
 
 ## Architecture
 
@@ -196,6 +249,44 @@ The architecture has four layers.
   -> existing DSL runtime primitives
   -> migration parity evidence
 ```
+
+## Required Normative Spec Updates
+
+Before any `.orc` candidate can replace a YAML primary, the following target
+behaviors must move out of this architecture doc and into normative specs or a
+machine-readable schema:
+
+- `specs/dsl.md`: command steps with deterministic structured bundle contracts
+  receive a runtime-resolved bundle target.
+- `specs/io.md`: define `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, parent-directory
+  creation, stdout-vs-bundle authority, and missing/invalid bundle behavior.
+- `specs/state.md`: define the output-contract failure shape for missing or
+  invalid command bundles after process exit `0`.
+- Path-safety spec surface: define workspace-relative normalization, rejection
+  of absolute paths and `..` escapes, and symlink policy for generated bundle
+  and state paths.
+- Migration evidence schema: define the parity report fields and require
+  `non_regressive` to be computed from evidence, not manually asserted.
+
+Command-produced union results should not depend on an implicit
+`variant_output` path. For this tranche, Workflow Lisp `command-result` unions
+must lower through one authoritative generated `output_bundle.path` containing
+the discriminant and variant payload, then apply variant validation/proof to
+that bundle. A future DSL extension may add explicit `variant_output.path`, but
+primary migration should not wait for that schema change.
+
+## Related Doc Updates Required
+
+Before this design is accepted rather than draft, align the dependent authoring
+and lowering docs:
+
+- `docs/lisp_workflow_drafting_guide.md`: label `review-revise-loop` as
+  stdlib-pending for primary migrations unless the ordinary stdlib
+  implementation exists.
+- `docs/design/workflow_lisp_stdlib_lowering.md`: record that
+  review-loop-specific compiler lowering is rejected for this tranche.
+- `docs/design/lisp_frontend_review_fix_loops.md`: map YAML terminal statuses
+  to `ReviewDecision` and `ReviewLoopResult`.
 
 ### 1. Workflow Lisp Authoring Layer
 
@@ -243,7 +334,7 @@ a restart. Current support already includes pure `defun`, effectful `defproc`,
    procedures.** Workflow and procedure refs already have a static authoring
    model. Provider and prompt refs need equivalent compile-time parameter
    support so stdlib code can accept review/fix providers and prompts without
-   runtime first-class values or hard-coded extern names. All refs must
+   runtime-transported values or hard-coded extern names. All refs must
    specialize before executable runtime state is produced.
 
 3. **Composable typed loops.** `loop/recur` already provides typed iterative
@@ -271,9 +362,9 @@ a restart. Current support already includes pure `defun`, effectful `defproc`,
    structured provider outputs, typed procedure parameters, and loop-carried
    values sufficient for the `.orc` stdlib `review-revise-loop` to define
    review decisions, findings, reports, blocker classes, and exhaustion reasons.
-   A JSON-backed findings payload is acceptable as an initial portable
-   representation, but the semantic value must be carried as declared structured
-   state rather than extracted from markdown.
+   Until list types are available, findings may be carried as a schema-validated
+   JSON artifact path, but the semantic value must be validated before
+   publication and revise/fix consumption rather than extracted from markdown.
 
 7. **Module visibility and stdlib packaging.** Stdlib workflows/procedures must
    import, export, specialize, and source-map like project modules. A consumer
@@ -293,8 +384,26 @@ New or completed authoring syntax:
   (summary String)
   (evidence String))
 
+(defpath ReviewFindingsJsonPath
+  :kind relpath
+  :under "artifacts/work"
+  :must-exist true)
+
 (defrecord ReviewFindings
-  (items Json)) ; initial portable representation; stricter list types can follow
+  (schema_version String) ; must equal "ReviewFindings.v1"
+  (items_path ReviewFindingsJsonPath))
+
+(defunion ReviewDecision
+  (APPROVE
+    (review_report ReviewReportPath)
+    (findings ReviewFindings))
+  (REVISE
+    (review_report ReviewReportPath)
+    (findings ReviewFindings))
+  (BLOCKED
+    (review_report ReviewReportPath)
+    (blocker_class BlockerClass)
+    (findings ReviewFindings)))
 
 (defunion ReviewLoopResult
   (APPROVED
@@ -310,6 +419,14 @@ New or completed authoring syntax:
     (reason String)))
 ```
 
+`ReviewDecision` is the per-iteration review result. `ReviewLoopResult` is the
+terminal loop result. `APPROVE` maps to terminal `APPROVED`; `REVISE` invokes
+revise/fix and repeats; `BLOCKED` maps to terminal `BLOCKED`; max-iteration
+exhaustion maps to terminal `EXHAUSTED`. Raw unconstrained `Json` findings do
+not satisfy primary-promotion parity. Until first-class list types exist,
+`items_path` must point to JSON that validates against `ReviewFindings.v1`
+before publication and before revise/fix receives it.
+
 Workflow input defaults should be expressible at the boundary:
 
 ```lisp
@@ -320,27 +437,38 @@ Workflow input defaults should be expressible at the boundary:
   ...)
 ```
 
-The exact syntax can change during implementation, but the contract is fixed:
-defaults belong to the workflow boundary, obey the same path/type validation as
-explicit inputs, and are overridden by CLI/caller-provided inputs.
+Syntax status: proposed. Semantic contract: accepted target after spec and test
+gates. Defaults belong to the workflow boundary, obey the same path/type
+validation as explicit inputs, and are overridden by CLI/caller-provided inputs.
 
 ### 2. Compiler And Lowering Layer
 
 The compiler owns all generated paths and hidden wiring. Generated write-root
 inputs are not public workflow API.
 
+Generated write roots may be hidden from the user-facing `.orc` API only if the
+compiler lowers them to deterministic DSL-visible bindings that satisfy the
+reusable-call write-root contract. Each generated root needs a stable semantic
+identity derived from workflow id, call-site id, phase id, loop iteration where
+applicable, and compiler/language version; source-map provenance; collision
+checks across repeated calls and branch/loop expansions; resume reconstruction
+rules; and a debug/explain projection.
+
 The compiler owns generic primitives and generic library expansion. It must not
 own workflow-specific control idioms such as `review-revise-loop`.
 
 `command-result` lowering must:
 
-- derive `output_bundle` or `variant_output` from the declared return type;
+- map record return types to deterministic JSON-bundle contracts;
+- map union return types to an authoritative generated `output_bundle.path`
+  with explicit discriminant handling and variant validation/proof;
 - generate a deterministic result-bundle path;
 - record source-map origins for the high-level form, generated step, and
   generated path;
 - ensure the command receives the resolved bundle path through the runtime
   command environment;
 - expose only validated bundle fields as typed refs;
+- ignore stdout JSON for semantic success;
 - reject command boundaries without certified command metadata when the command
   carries workflow semantics.
 
@@ -357,10 +485,30 @@ Generic effectful composition must:
 - keep generated effects visible in Semantic IR and the effect graph;
 - reject runtime transport of procedure/provider/prompt refs.
 
+Stdlib control forms lower by specializing imported stdlib definitions before
+Core DSL lowering. For this migration slice, `review-revise-loop` should compile
+as an imported stdlib workflow/procedure boundary or equivalent specialized
+private workflow, producing DSL-visible steps, call-frame state, loop state,
+source maps, and outputs. It must not rely on macro-generated hidden effects or
+a review-loop-specific compiler branch.
+
 The stdlib `review-revise-loop` definition must compile through those generic
 capabilities to the same executable families a hand-authored workflow would use:
 `repeat_until`, provider steps, structured output bundles, `match`, and
 materialization.
+
+Exhaustion lowering must respect current `repeat_until` behavior:
+
+- The loop body materializes scalar review status and structured review result
+  outputs on each completed iteration.
+- `on_exhausted.outputs` overrides only scalar terminal markers, such as
+  `review_status = "EXHAUSTED"`.
+- The last review report and findings are loop-frame outputs from the final
+  completed iteration, not values invented by exhaustion handling.
+- A generated final projection step constructs `ReviewLoopResult.EXHAUSTED`
+  from the scalar exhausted marker plus the last materialized review outputs.
+- If the final iteration fails before those outputs exist, the loop fails as an
+  ordinary execution or contract failure, not as `EXHAUSTED`.
 
 `resume-or-start` lowering must:
 
@@ -384,11 +532,17 @@ Default lowering must:
 The runtime should not learn Lisp-specific behavior. It should execute the
 generated Core DSL and enforce contracts.
 
-Runtime clarifications required:
+Runtime/spec deltas required:
 
-- For command steps with `output_bundle` or `variant_output`, the runtime
-  resolves the bundle path before command launch and exposes it as
-  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
+- For every command step declaring `output_bundle.path` or a future
+  `variant_output.path`, the runtime resolves the workspace-relative contract
+  path before command launch and exposes it as
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`. This environment variable is only the
+  command's discoverable handle for the declared output target.
+- If the command declares or receives a conflicting
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`, the runtime-owned value wins.
+- The runtime creates or validates the bundle parent directory according to the
+  output contract before launch, then validates the bundle after exit `0`.
 - The bundle file is authoritative for structured command results. Stdout may
   be captured for logs/debug, but stdout JSON is not semantic authority for
   promoted `.orc` workflows.
@@ -401,7 +555,7 @@ Runtime clarifications required:
   continuation; generated Lisp source maps are observability and debugging
   evidence, not runtime routing input.
 
-These are clarifications of existing runtime surfaces, not a new Lisp runtime.
+These are general command-step contracts, not Lisp-specific runtime behavior.
 
 ### 4. Migration Evidence Layer
 
@@ -410,8 +564,12 @@ non-regressive.
 
 Required evidence per promoted workflow family:
 
-- compile emits Core AST, Semantic IR, Executable IR when available, source map,
-  and debug projection;
+- compile always emits source `.orc`, a lowered workflow dictionary accepted by
+  shared validation, source map, debug projection, compiler version, target DSL
+  version, and generated-name manifest;
+- optional compiler artifacts such as Core AST, Semantic IR, Executable IR,
+  effect graph, proof graph, and reference catalog are emitted when implemented
+  and accepted; otherwise the parity report records them as `not_implemented`;
 - shared validation passes;
 - dry-run passes;
 - at least one real smoke or targeted integration run passes when safe;
@@ -419,6 +577,12 @@ Required evidence per promoted workflow family:
 - `.orc` output contracts, terminal states, artifacts, and resume behavior match
   the intended YAML primary behavior;
 - deprecated YAML-era mechanics are explicitly listed and justified.
+
+Real smoke is unsafe only when it would mutate external systems, spend
+unbounded provider budget, require unavailable credentials, or alter user data
+outside the workspace. In that case, the parity report must record
+`smoke_or_integration.waived = true` with an owner, expiry, and justification,
+and include targeted integration evidence for the skipped runtime behavior.
 
 `cycle_guard_demo` should not block key high-level migration unless the project
 chooses to support native `.orc` cycle-guard conformance. Its current fake
@@ -438,12 +602,15 @@ Old behavior:
 
 New behavior:
 
-- For command steps generated from `.orc command-result`, the resolved bundle
-  path is provided to the process as `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
+- For command steps with declared structured bundle paths, the resolved bundle
+  path is provided to the process as
+  `ORCHESTRATOR_OUTPUT_BUNDLE_PATH`.
 - The command must write the structured bundle to that path.
 - The runtime validates the bundle before exposing typed artifacts.
 - The compiler must not require callers to pass compiler-owned hidden bundle
   inputs for promoted entrypoints.
+- Command-produced union results use a generated `output_bundle.path` with a
+  discriminant and variant payload until `variant_output.path` is normative.
 
 Compatibility:
 
@@ -466,10 +633,24 @@ New behavior:
 
 - `review-revise-loop` is a standard `.orc` stdlib workflow/procedure for
   bounded review/fix loops, not a compiler-special language form.
-- Its result is a typed union.
-- `REVISE` deterministically invokes revise/fix and repeats.
-- Exhaustion is explicit non-completion.
-- Reports are views; typed review results and findings are authority.
+- It has two typed layers: `ReviewDecision` for one review iteration and
+  `ReviewLoopResult` for the terminal loop result.
+- `APPROVE` exits with `APPROVED`; `REVISE` deterministically invokes
+  revise/fix and repeats; `BLOCKED` exits with `BLOCKED`.
+- Exhaustion exits with `EXHAUSTED` only after the last completed iteration has
+  produced the outputs required by the final projection.
+- Reports are views; typed review decisions, terminal results, and validated
+  findings are authority.
+
+Transition table:
+
+| Event | Loop action | `ReviewLoopResult` | YAML-compatible projection |
+| --- | --- | --- | --- |
+| `ReviewDecision.APPROVE` | Exit | `APPROVED` | Phase approved |
+| `ReviewDecision.REVISE` with budget remaining | Run revise/fix and recur | None yet | Not completion |
+| `ReviewDecision.REVISE` with budget exhausted | Exit through final projection | `EXHAUSTED` | Blocked / revise-exhausted |
+| `ReviewDecision.BLOCKED` | Exit | `BLOCKED` | Blocked with blocker class |
+| Invalid provider output | Fail contract | No semantic result | Provider output contract failure |
 
 Compatibility:
 
@@ -493,6 +674,39 @@ New behavior:
 - Invalid prior state routes to fresh execution or a typed non-reusable result,
   depending on the authored form.
 
+Minimum reusable-state shape:
+
+```json
+{
+  "schema": "ReusablePhaseState.v1",
+  "phase_id": "implementation",
+  "producer_workflow": "",
+  "producer_compiler": "",
+  "terminal": "APPROVED",
+  "source_inputs_hash": "sha256:...",
+  "producer_fingerprint": "sha256:...",
+  "result_type": "ImplementationResult",
+  "artifact_refs": {
+    "plan_path": {
+      "type": "relpath",
+      "value": "docs/plans/example.md",
+      "sha256": "..."
+    }
+  },
+  "created_at": "",
+  "compatibility": {
+    "dsl_version": "2.14",
+    "state_schema_version": ""
+  }
+}
+```
+
+Validation outcomes are `REUSABLE`, `STALE`, `MISSING_ARTIFACT`,
+`FAILED_PRIOR_STATE`, `SCHEMA_MISMATCH`, and `UNSUPPORTED_VERSION`.
+`STALE` means the prior state has a supported schema and terminal, but its input
+hash, producer fingerprint, dependency hash, or artifact checksum no longer
+matches the current reusable-state policy.
+
 Compatibility:
 
 - Adapter-backed validators are acceptable initially.
@@ -510,27 +724,32 @@ New behavior:
 
 - Workflow Lisp supports input defaults at the `defworkflow` boundary and
   lowers them to Core workflow input defaults.
-- Defaults are type-checked and path-checked at compile/validation time where
-  possible.
+- Literal defaults are type-checked at compile time, workspace/path constraints
+  are checked during shared validation, and runtime checks are reserved for
+  dynamic inputs whose existence cannot be proven earlier.
 
 ## Dependencies And Sequencing
 
 Recommended sequencing:
 
-1. Document and test the command structured-output runtime contract.
-2. Complete generic `.orc` effectful composition support for reusable library
+1. Accept normative spec deltas for command structured-output bundle path
+   injection, command-produced union bundle handling, output-contract failure
+   shape, and path safety.
+2. Document and test the command structured-output runtime contract.
+3. Complete generic `.orc` effectful composition support for reusable library
    definitions: provider/prompt refs, stdlib-owned use of existing
    workflow/procedure refs and `loop/recur`, generated path allocation, and
    source-map-preserving expansion.
-3. Finalize `command-result` lowering so hidden bundle paths are compiler-owned
+4. Finalize `command-result` lowering so hidden bundle paths are compiler-owned
    and not public entrypoint inputs.
-4. Implement `review-revise-loop` as ordinary `.orc` stdlib code, including
+5. Implement `review-revise-loop` as ordinary `.orc` stdlib code, including
    stdlib-owned findings propagation over generic structured dataflow.
-5. Implement or complete `.orc` input defaults.
-6. Finalize `StateLayout` and `resume-or-start` reusable-state validation for
+6. Implement or complete `.orc` input defaults.
+7. Finalize `StateLayout` and `resume-or-start` reusable-state validation for
    phase outputs.
-7. Re-run the existing migrated workflow family and update parity reports.
-8. Only then migrate additional key workflow families.
+8. Define and enforce the machine-readable parity report schema.
+9. Re-run the existing migrated workflow family and update parity reports.
+10. Only then migrate additional key workflow families.
 
 Independent work:
 
@@ -624,8 +843,50 @@ For `resume-or-start`:
 
 For migration promotion:
 
-- parity reports must record `non_regressive=true` only after compile,
-  validation, dry-run, and safe smoke/integration evidence all pass.
+- the promotion command computes `non_regressive`; authors do not set it by
+  hand.
+- parity reports must contain the computed `non_regressive` value and the
+  evidence used to derive it.
+
+Minimum parity-report shape:
+
+```json
+{
+  "workflow_family": "design_plan_impl_stack",
+  "candidate": "workflows/example.orc",
+  "yaml_primary": "workflows/example.yaml",
+  "compiler_version": "",
+  "dsl_version": "2.14",
+  "evidence": {
+    "compile": {"status": "pass", "artifacts": []},
+    "shared_validation": {"status": "pass"},
+    "dry_run": {"status": "pass"},
+    "smoke_or_integration": {
+      "required": true,
+      "passed": true,
+      "waived": false,
+      "waiver_reason": "",
+      "owner": "",
+      "expires": ""
+    },
+    "baseline_characterization": {
+      "inputs": "",
+      "outputs": "",
+      "terminal_states": "",
+      "artifacts": "",
+      "resume_behavior": ""
+    },
+    "output_contract_parity": "pass",
+    "terminal_state_parity": "pass",
+    "artifact_parity": "pass",
+    "resume_parity": "pass"
+  },
+  "deprecated_yaml_mechanics": [
+    {"mechanic": "pointer-file gate", "replacement": "typed state"}
+  ],
+  "non_regressive": false
+}
+```
 
 ## Compatibility And Migration
 
@@ -635,9 +896,10 @@ Migration is additive:
 
 1. Add or update `.orc` replacement.
 2. Compile and validate.
-3. Run dry-run and safe smoke.
+3. Run dry-run and required smoke/integration, or record an explicit waiver with
+   targeted integration evidence.
 4. Generate parity report.
-5. Mark non-regressive only if behavior matches the intended primary contract.
+5. Let the promotion command compute `non_regressive` from required evidence.
 6. Update docs/catalog to identify `.orc` as primary.
 7. Keep YAML as compatibility or fixture until an explicit deprecation decision.
 
@@ -653,8 +915,9 @@ Deprecated behavior:
 
 Unit tests:
 
-- `command-result` lowering emits `output_bundle`/`variant_output`, source maps,
-  and no public hidden input requirement for promoted entrypoints.
+- `command-result` lowering emits authoritative bundle contracts, discriminant
+  handling for unions, source maps, and no public hidden input requirement for
+  promoted entrypoints.
 - input defaults parse, type-check, lower, and reject invalid defaults.
 - stdlib review-result and findings records validate through generic
   structured type checks and reject malformed findings.
@@ -673,6 +936,8 @@ Workflow Lisp integration tests:
 - stdlib `review-revise-loop` approves first pass.
 - stdlib `review-revise-loop` revises once then approves.
 - stdlib `review-revise-loop` exhausts and returns `EXHAUSTED`.
+- exhaustion projection fails as an ordinary contract failure if the final
+  completed iteration did not materialize required review outputs.
 - revise/fix receives findings from the previous review.
 - `resume-or-start` reuses approved state and rejects stale/failed state.
 
@@ -682,6 +947,8 @@ Migration tests:
 - promoted stack workflow has a real smoke or targeted integration run.
 - parity report generation rejects `non_regressive=true` when any required
   evidence is missing.
+- parity report records optional IR artifacts as `not_implemented` rather than
+  silently omitting them.
 
 ## Declarative Acceptance Scenarios
 
@@ -732,9 +999,9 @@ Initial state: a YAML primary and `.orc` candidate both exist.
 
 Entrypoint: migration parity command or workflow.
 
-Expected result: `non_regressive=true` is emitted only when compile,
-shared-validation, dry-run, safe smoke/integration, and behavioral parity checks
-all pass.
+Expected result: the promotion command computes `non_regressive=true` only when
+compile, shared-validation, dry-run, required smoke/integration or explicit
+waiver, and behavioral parity checks all pass.
 
 Forbidden behavior: a candidate that only parses or dry-runs must remain
 non-primary.
@@ -742,21 +1009,26 @@ non-primary.
 ## Success Criteria
 
 - Runtime command structured-output behavior is documented and tested.
+- Required command bundle-path, output failure, and path-safety spec deltas are
+  accepted in the relevant normative surfaces.
 - `command-result` no longer requires users to pass compiler-owned hidden
   bundle inputs for promoted workflows.
 - Generic effectful library composition supports provider calls, command calls,
   typed loops, matches, generated result paths, and compile-time
-  provider/prompt/workflow/procedure refs without runtime first-class functions,
-  reusing the existing `defproc`, `WorkflowRef`, `ProcRef`, `bind-proc`,
+  provider/prompt/workflow/procedure refs without runtime-transported procedure
+  values, reusing the existing `defproc`, `WorkflowRef`, `ProcRef`, `bind-proc`,
   `let-proc`, and `loop/recur` substrate where it already satisfies the
   contract.
 - `review-revise-loop` is implemented as ordinary `.orc` stdlib code and is
   accepted as the canonical high-level replacement for YAML review/fix
   `repeat_until` loops.
-- Review findings are typed state and can be consumed by revise/fix steps.
+- Review findings are validated structured state and can be consumed by
+  revise/fix steps.
 - Workflow Lisp input defaults lower to existing DSL input defaults.
 - `resume-or-start` has a reusable-state validation contract with negative
   tests.
+- Parity reports are machine-validatable and compute `non_regressive` from
+  required evidence.
 - The existing design/plan/impl `.orc` migration can be rerun with
   non-regressive parity, or the report explicitly names any remaining blocker.
 
@@ -770,6 +1042,8 @@ Revise this design if:
   than generic `.orc` composition;
 - runtime command bundle injection cannot be made reliable without exposing
   hidden inputs as public API;
+- command-produced union results require implicit `variant_output` paths instead
+  of an explicit generated bundle contract;
 - the stdlib findings schema requires unsupported collection types that would
   broaden the type-system work beyond this migration tranche;
 - `repeat_until` cannot express the required review/fix behavior without
