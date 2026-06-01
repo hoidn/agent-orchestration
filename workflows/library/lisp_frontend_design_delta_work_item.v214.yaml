@@ -1,6 +1,10 @@
 version: "2.14"
 name: "lisp-frontend-design-delta-work-item-v214"
 
+context:
+  workflow_model: "gpt-5.4"
+  workflow_effort: "high"
+
 imports:
   plan_phase: ./lisp_frontend_design_delta_plan_phase.v214.yaml
   implementation_phase: ./lisp_frontend_design_delta_implementation_phase.v214.yaml
@@ -64,6 +68,20 @@ inputs:
     allowed: ["codex", "claude_opus"]
     default: "codex"
 
+providers:
+  codex:
+    command: ["codex", "exec", "--dangerously-bypass-approvals-and-sandbox", "--skip-git-repo-check", "--model", "${model}", "--config", "reasoning_effort=${effort}"]
+    input_mode: "stdin"
+    defaults:
+      model: "${context.workflow_model}"
+      effort: "${context.workflow_effort}"
+  claude_opus:
+    command: ["claude", "-p", "${PROMPT}", "--model", "${model}", "--effort", "${effort}", "--permission-mode", "bypassPermissions"]
+    input_mode: "argv"
+    defaults:
+      model: "opus"
+      effort: "high"
+
 outputs:
   drain_status:
     kind: scalar
@@ -77,6 +95,12 @@ outputs:
     must_exist_target: true
     from:
       ref: root.steps.RouteWorkItemTerminal.artifacts.item_summary_path
+
+artifacts:
+  design_revision_review_decision:
+    kind: scalar
+    type: enum
+    allowed: ["APPROVE", "REVISE", "BLOCKED"]
 
 steps:
   - name: ResolveWorkItemInputs
@@ -222,6 +246,10 @@ steps:
       - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_state.txt
       - --implementation-review-decision-path
       - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/final_implementation_review_decision.txt
+      - --implementation-bundle-path
+      - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json
+      - --work-item-source
+      - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
       - --output
       - ${inputs.state_root}/terminal-route.json
     output_bundle:
@@ -230,11 +258,170 @@ steps:
         - name: terminal_route
           json_pointer: /terminal_route
           type: enum
-          allowed: ["COMPLETE", "PLAN_REVIEW_EXHAUSTED", "IMPLEMENTATION_BLOCKED", "IMPLEMENTATION_REVIEW_EXHAUSTED"]
+          allowed: ["COMPLETE", "PLAN_REVIEW_EXHAUSTED", "DESIGN_REVISION_ALLOWED", "IMPLEMENTATION_BLOCKED", "IMPLEMENTATION_REVIEW_EXHAUSTED"]
         - name: block_reason
           json_pointer: /block_reason
           type: enum
-          allowed: ["none", "plan_review_exhausted", "implementation_blocked", "implementation_review_exhausted"]
+          allowed: ["none", "plan_review_exhausted", "implementation_design_revision_required", "implementation_blocked", "implementation_review_exhausted"]
+
+  - name: ReviewTargetDesignRevisionLoop
+    id: review_target_design_revision_loop
+    repeat_until:
+      id: design_revision_review_iteration
+      max_iterations: 3
+      outputs:
+        design_revision_review_decision:
+          kind: scalar
+          type: enum
+          allowed: ["APPROVE", "REVISE", "BLOCKED"]
+          from:
+            ref: self.steps.RouteDesignRevisionWork.artifacts.design_revision_review_decision
+      condition:
+        any_of:
+          - compare:
+              left:
+                ref: self.outputs.design_revision_review_decision
+              op: eq
+              right: APPROVE
+          - compare:
+              left:
+                ref: self.outputs.design_revision_review_decision
+              op: eq
+              right: BLOCKED
+      on_exhausted:
+        outputs:
+          design_revision_review_decision: REVISE
+      steps:
+        - name: RouteDesignRevisionWork
+          id: route_design_revision_work
+          match:
+            ref: parent.steps.ClassifyWorkItemTerminal.artifacts.terminal_route
+            cases:
+              DESIGN_REVISION_ALLOWED:
+                id: run_design_revision_path
+                outputs:
+                  design_revision_review_decision:
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
+                    from:
+                      ref: self.steps.WriteDesignRevisionIterationDecision.artifacts.design_revision_review_decision
+                steps:
+                  - name: ReviseTargetDesignForBlocker
+                    id: revise_target_design_for_blocker
+                    provider: ${inputs.implementation_execute_provider}
+                    asset_file: prompts/lisp_frontend_design_delta_work_item/revise_target_design_for_blocker.md
+                    timeout_sec: 3600
+                    depends_on:
+                      required:
+                        - ${inputs.target_design_path}
+                        - ${inputs.baseline_design_path}
+                        - ${inputs.state_root}/implementation-phase/plan_path.txt
+                        - ${inputs.state_root}/implementation-phase/progress_report_path.txt
+                      optional:
+                        - ${inputs.state_root}/design-revision-review-report.md
+                      inject:
+                        mode: content
+                    output_bundle:
+                      path: ${inputs.state_root}/design-revision-report.json
+                      fields:
+                        - name: design_revision_decision
+                          json_pointer: /design_revision_decision
+                          type: enum
+                          allowed: ["REVISED", "BLOCKED"]
+
+                  - name: ReviewTargetDesignRevision
+                    id: review_target_design_revision
+                    when:
+                      compare:
+                        left:
+                          ref: self.steps.ReviseTargetDesignForBlocker.artifacts.design_revision_decision
+                        op: eq
+                        right: REVISED
+                    provider: ${inputs.implementation_review_provider}
+                    asset_file: prompts/lisp_frontend_design_delta_work_item/review_target_design_revision.md
+                    timeout_sec: 1800
+                    depends_on:
+                      required:
+                        - ${inputs.target_design_path}
+                        - ${inputs.baseline_design_path}
+                        - ${inputs.state_root}/implementation-phase/plan_path.txt
+                        - ${inputs.state_root}/implementation-phase/progress_report_path.txt
+                        - ${inputs.state_root}/design-revision-report.json
+                      inject:
+                        mode: content
+                    expected_outputs:
+                      - name: design_revision_review_report_path
+                        path: ${inputs.state_root}/design-revision-review-report-path.txt
+                        type: relpath
+                        under: artifacts/review
+                        must_exist_target: true
+                      - name: design_revision_review_decision
+                        path: ${inputs.state_root}/design-revision-review-decision.txt
+                        type: enum
+                        allowed: ["APPROVE", "REVISE"]
+
+                  - name: WriteDesignRevisionIterationDecision
+                    id: write_design_revision_iteration_decision
+                    command:
+                      - python
+                      - workflows/library/scripts/write_lisp_frontend_design_revision_iteration_decision.py
+                      - --revision-report
+                      - ${inputs.state_root}/design-revision-report.json
+                      - --review-decision-path
+                      - ${inputs.state_root}/design-revision-review-decision.txt
+                      - --output
+                      - ${inputs.state_root}/loop-design-revision-review-decision.txt
+                    expected_outputs:
+                      - name: design_revision_review_decision
+                        path: ${inputs.state_root}/loop-design-revision-review-decision.txt
+                        type: enum
+                        allowed: ["APPROVE", "REVISE", "BLOCKED"]
+              COMPLETE:
+                id: no_design_revision_complete_path
+                outputs:
+                  design_revision_review_decision: &no_design_revision_decision_output
+                    kind: scalar
+                    type: enum
+                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
+                    from:
+                      ref: self.steps.WriteNoDesignRevisionNeeded.artifacts.design_revision_review_decision
+                steps:
+                  - name: WriteNoDesignRevisionNeeded
+                    id: write_no_design_revision_needed
+                    set_scalar:
+                      artifact: design_revision_review_decision
+                      value: APPROVE
+              PLAN_REVIEW_EXHAUSTED:
+                id: no_design_revision_plan_exhausted_path
+                outputs:
+                  design_revision_review_decision: *no_design_revision_decision_output
+                steps:
+                  - name: WriteNoDesignRevisionNeeded
+                    id: write_no_design_revision_needed
+                    set_scalar:
+                      artifact: design_revision_review_decision
+                      value: APPROVE
+              IMPLEMENTATION_BLOCKED:
+                id: no_design_revision_implementation_blocked_path
+                outputs:
+                  design_revision_review_decision: *no_design_revision_decision_output
+                steps:
+                  - name: WriteNoDesignRevisionNeeded
+                    id: write_no_design_revision_needed
+                    set_scalar:
+                      artifact: design_revision_review_decision
+                      value: APPROVE
+              IMPLEMENTATION_REVIEW_EXHAUSTED:
+                id: no_design_revision_implementation_review_exhausted_path
+                outputs:
+                  design_revision_review_decision: *no_design_revision_decision_output
+                steps:
+                  - name: WriteNoDesignRevisionNeeded
+                    id: write_no_design_revision_needed
+                    set_scalar:
+                      artifact: design_revision_review_decision
+                      value: APPROVE
 
   - name: RouteWorkItemTerminal
     id: route_work_item_terminal
@@ -315,6 +502,42 @@ steps:
                 - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
                 - --reason
                 - plan_review_exhausted
+                - --summary-path
+                - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
+                - --summary-pointer-path
+                - ${inputs.state_root}/item_summary_path.txt
+                - --drain-status-path
+                - ${inputs.state_root}/drain_status.txt
+              expected_outputs: *terminal_outputs
+        DESIGN_REVISION_ALLOWED:
+          id: design_revision_allowed_path
+          outputs:
+            drain_status:
+              kind: scalar
+              type: enum
+              allowed: ["CONTINUE", "BLOCKED"]
+              from:
+                ref: self.steps.RecordDesignRevisionOutcome.artifacts.drain_status
+            item_summary_path:
+              type: relpath
+              under: artifacts/work
+              must_exist_target: true
+              from:
+                ref: self.steps.RecordDesignRevisionOutcome.artifacts.item_summary_path
+          steps:
+            - name: RecordDesignRevisionOutcome
+              id: record_design_revision_outcome
+              command:
+                - python
+                - workflows/library/scripts/record_lisp_frontend_design_revision_outcome.py
+                - --review-decision
+                - ${steps.ReviewTargetDesignRevisionLoop.artifacts.design_revision_review_decision}
+                - --state-path
+                - ${inputs.run_state_path}
+                - --item-id
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_id}
+                - --source
+                - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
                 - --summary-path
                 - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
                 - --summary-pointer-path

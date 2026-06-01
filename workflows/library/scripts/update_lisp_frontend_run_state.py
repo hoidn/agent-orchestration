@@ -55,6 +55,18 @@ def _record_blocked(state: dict[str, Any], *, item_id: str, source: str, reason:
     )
 
 
+def _record_design_revision(state: dict[str, Any], *, item_id: str, source: str, reason: str) -> None:
+    state.setdefault("history", []).append(
+        {
+            "event": "design_revision",
+            "item_id": item_id,
+            "source": source,
+            "reason": reason,
+            "timestamp_utc": _timestamp(),
+        }
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--state-path", required=True)
@@ -75,6 +87,13 @@ def main() -> int:
     blocked.add_argument("--summary-path")
     blocked.add_argument("--summary-pointer-path")
     blocked.add_argument("--drain-status-path")
+    design_revision = sub.add_parser("design_revision")
+    design_revision.add_argument("--item-id", required=True)
+    design_revision.add_argument("--source", required=True, choices=["BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"])
+    design_revision.add_argument("--reason", required=True)
+    design_revision.add_argument("--summary-path")
+    design_revision.add_argument("--summary-pointer-path")
+    design_revision.add_argument("--drain-status-path")
     args = parser.parse_args()
 
     path = Path(args.state_path)
@@ -145,6 +164,33 @@ def main() -> int:
             status_path = Path(args.drain_status_path)
             status_path.parent.mkdir(parents=True, exist_ok=True)
             status_path.write_text("BLOCKED\n", encoding="utf-8")
+    elif args.command == "design_revision":
+        _record_design_revision(state, item_id=args.item_id, source=args.source, reason=args.reason)
+        if args.summary_path:
+            summary_path = Path(args.summary_path)
+            summary_path.parent.mkdir(parents=True, exist_ok=True)
+            summary_path.write_text(
+                json.dumps(
+                    {
+                        "work_item_id": args.item_id,
+                        "work_item_source": args.source,
+                        "item_status": "DESIGN_REVISED",
+                        "reason": args.reason,
+                        "run_state_path": path.as_posix(),
+                    },
+                    indent=2,
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            if args.summary_pointer_path:
+                pointer_path = Path(args.summary_pointer_path)
+                pointer_path.parent.mkdir(parents=True, exist_ok=True)
+                pointer_path.write_text(summary_path.as_posix() + "\n", encoding="utf-8")
+        if args.drain_status_path:
+            status_path = Path(args.drain_status_path)
+            status_path.parent.mkdir(parents=True, exist_ok=True)
+            status_path.write_text("CONTINUE\n", encoding="utf-8")
     _save(path, state)
     return 0
 

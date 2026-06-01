@@ -88,8 +88,11 @@ def _copy_runtime_files(workspace: Path) -> Path:
         "workflows/library/scripts/publish_lisp_frontend_selection_bundle.py",
         "workflows/library/scripts/materialize_lisp_frontend_work_item_inputs.py",
         "workflows/library/scripts/classify_lisp_frontend_work_item_terminal.py",
+        "workflows/library/scripts/classify_lisp_frontend_implementation_blocker.py",
         "workflows/library/scripts/validate_lisp_frontend_design_gap_architecture.py",
         "workflows/library/scripts/update_lisp_frontend_run_state.py",
+        "workflows/library/scripts/record_lisp_frontend_design_revision_outcome.py",
+        "workflows/library/scripts/write_lisp_frontend_design_revision_iteration_decision.py",
         "workflows/library/scripts/finalize_lisp_frontend_drain_summary.py",
         "workflows/library/scripts/run_neurips_backlog_checks.py",
     ]
@@ -121,6 +124,10 @@ def _copy_runtime_files(workspace: Path) -> Path:
         path.relative_to(ROOT).as_posix()
         for path in (ROOT / "workflows/library/prompts/lisp_frontend_design_delta_implementation_phase").rglob("*.md")
     )
+    files.extend(
+        path.relative_to(ROOT).as_posix()
+        for path in (ROOT / "workflows/library/prompts/lisp_frontend_design_delta_work_item").rglob("*.md")
+    )
     for relpath in sorted(set(files)):
         _copy_repo_file_to_workspace(workspace, relpath)
     return workspace / "workflows/examples/lisp_frontend_autonomous_drain.yaml"
@@ -131,6 +138,15 @@ def _workflow_inputs() -> dict:
         "steering_path": "docs/steering.md",
         "full_design_path": "docs/design/workflow_lisp_frontend_specification.md",
         "mvp_design_path": "docs/design/workflow_lisp_frontend_mvp_specification.md",
+        "progress_ledger_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json",
+    }
+
+
+def _design_delta_workflow_inputs() -> dict:
+    return {
+        "steering_path": "docs/steering.md",
+        "target_design_path": "docs/design/workflow_lisp_frontend_specification.md",
+        "baseline_design_path": "docs/design/workflow_lisp_frontend_mvp_specification.md",
         "progress_ledger_path": "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/progress_ledger.json",
     }
 
@@ -429,6 +445,104 @@ def test_architecture_index_lists_prior_docs_and_excludes_current_target(tmp_pat
     assert bundle["architecture_index_path"] == output_path.relative_to(workspace).as_posix()
 
 
+def test_classify_implementation_blocker_allows_roadmap_conflict(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_path = workspace / "state/implementation_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps({"implementation_state": "BLOCKED", "blocker_class": "roadmap_conflict"}) + "\n",
+        encoding="utf-8",
+    )
+    output_path = workspace / "state/blocker-route.json"
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/classify_lisp_frontend_implementation_blocker.py"),
+        "--implementation-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--work-item-source",
+        "DESIGN_GAP",
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload == {
+        "blocker_route": "DESIGN_REVISION_ALLOWED",
+        "blocker_class": "roadmap_conflict",
+        "block_reason": "implementation_design_revision_required",
+    }
+
+
+def test_classify_implementation_blocker_keeps_user_decision_terminal(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_path = workspace / "state/implementation_state.json"
+    state_path.parent.mkdir(parents=True)
+    state_path.write_text(
+        json.dumps({"implementation_state": "BLOCKED", "blocker_class": "user_decision_required"}) + "\n",
+        encoding="utf-8",
+    )
+    output_path = workspace / "state/blocker-route.json"
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/classify_lisp_frontend_implementation_blocker.py"),
+        "--implementation-state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "--work-item-source",
+        "DESIGN_GAP",
+        "--output",
+        output_path.relative_to(workspace).as_posix(),
+    )
+
+    payload = json.loads(output_path.read_text(encoding="utf-8"))
+    assert payload == {
+        "blocker_route": "TERMINAL_BLOCK",
+        "blocker_class": "user_decision_required",
+        "block_reason": "implementation_blocked",
+    }
+
+
+def test_update_run_state_records_design_revision_without_terminal_item_state(tmp_path):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    state_path = workspace / "state/run_state.json"
+    summary_path = workspace / "artifacts/work/parser-syntax-summary.json"
+    pointer_path = workspace / "state/item_summary_path.txt"
+    drain_status_path = workspace / "state/drain_status.txt"
+
+    _run_script(
+        workspace,
+        str(ROOT / "workflows/library/scripts/update_lisp_frontend_run_state.py"),
+        "--state-path",
+        state_path.relative_to(workspace).as_posix(),
+        "design_revision",
+        "--item-id",
+        "parser-syntax",
+        "--source",
+        "DESIGN_GAP",
+        "--reason",
+        "implementation_design_revision_required",
+        "--summary-path",
+        summary_path.relative_to(workspace).as_posix(),
+        "--summary-pointer-path",
+        pointer_path.relative_to(workspace).as_posix(),
+        "--drain-status-path",
+        drain_status_path.relative_to(workspace).as_posix(),
+    )
+
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    assert state["history"][-1]["event"] == "design_revision"
+    assert "parser-syntax" not in state["completed_design_gaps"]
+    assert "parser-syntax" not in state["blocked_design_gaps"]
+    assert drain_status_path.read_text(encoding="utf-8").strip() == "CONTINUE"
+    assert pointer_path.read_text(encoding="utf-8").strip() == summary_path.relative_to(workspace).as_posix()
+    summary = json.loads(summary_path.read_text(encoding="utf-8"))
+    assert summary["item_status"] == "DESIGN_REVISED"
+
+
 def test_design_gap_architect_stays_single_pass_for_stage7_scope():
     workflow = yaml.safe_load((ROOT / "workflows/library/lisp_frontend_design_gap_architect.v214.yaml").read_text())
     step_names = [step["name"] for step in workflow["steps"]]
@@ -509,6 +623,20 @@ def test_proc_ref_path_prompts_use_target_and_baseline_roles():
         assert "baseline" in text, path
 
 
+def test_design_delta_blocker_revision_prompts_keep_roles_clear():
+    prompt_paths = [
+        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_work_item/revise_target_design_for_blocker.md",
+        ROOT / "workflows/library/prompts/lisp_frontend_design_delta_work_item/review_target_design_revision.md",
+    ]
+
+    for path in prompt_paths:
+        text = path.read_text(encoding="utf-8").lower()
+        assert "target design" in text, path
+        assert "baseline design" in text, path
+        assert "workflow owns" not in text, path
+        assert "drain loop" not in text, path
+
+
 def test_shared_autonomous_prompt_roots_keep_full_mvp_semantics():
     shared_prompt_paths = [
         ROOT / "workflows/library/prompts/lisp_frontend_selector/select_next_work.md",
@@ -552,6 +680,31 @@ def test_design_delta_drain_uses_design_delta_library_variants():
     assert imports["selector"] == "../library/lisp_frontend_design_delta_selector.v214.yaml"
     assert imports["design_gap_architect"] == "../library/lisp_frontend_design_delta_design_gap_architect.v214.yaml"
     assert imports["work_item"] == "../library/lisp_frontend_design_delta_work_item.v214.yaml"
+
+
+def test_design_delta_work_item_routes_revisable_blockers_to_design_revision():
+    workflow = yaml.safe_load((ROOT / "workflows/library/lisp_frontend_design_delta_work_item.v214.yaml").read_text())
+
+    assert workflow["imports"] == {
+        "plan_phase": "./lisp_frontend_design_delta_plan_phase.v214.yaml",
+        "implementation_phase": "./lisp_frontend_design_delta_implementation_phase.v214.yaml",
+    }
+    classifier = next(step for step in workflow["steps"] if step["name"] == "ClassifyWorkItemTerminal")
+    assert "--implementation-bundle-path" in classifier["command"]
+    assert "--work-item-source" in classifier["command"]
+
+    revision_loop = next(step for step in workflow["steps"] if step["name"] == "ReviewTargetDesignRevisionLoop")
+    route_revision = next(step for step in revision_loop["repeat_until"]["steps"] if step["name"] == "RouteDesignRevisionWork")
+    design_case = route_revision["match"]["cases"]["DESIGN_REVISION_ALLOWED"]
+    assert any(step["name"] == "ReviseTargetDesignForBlocker" for step in design_case["steps"])
+    assert "COMPLETE" in route_revision["match"]["cases"]
+    route_terminal = next(step for step in workflow["steps"] if step["name"] == "RouteWorkItemTerminal")
+    allowed = route_terminal["match"]["cases"]["DESIGN_REVISION_ALLOWED"]
+    recorder = next(step for step in allowed["steps"] if step["name"] == "RecordDesignRevisionOutcome")
+    assert any(part.endswith("record_lisp_frontend_design_revision_outcome.py") for part in recorder["command"])
+    assert "${inputs.state_root}/drain_status.txt" in recorder["command"]
+    terminal = route_terminal["match"]["cases"]["IMPLEMENTATION_BLOCKED"]
+    assert any("blocked" in step.get("command", []) for step in terminal["steps"])
 
 
 def test_autonomous_drain_design_gap_path_stays_plan_scoped():
@@ -790,6 +943,31 @@ def _write_execution_state_noncanonical(workspace: Path) -> None:
     raise AssertionError("No pending implementation phase root found")
 
 
+def _write_blocked_roadmap_conflict(workspace: Path) -> None:
+    _write_blocked_implementation_state(workspace, "roadmap_conflict", "Blocked by design conflict.")
+
+
+def _write_blocked_user_decision_required(workspace: Path) -> None:
+    _write_blocked_implementation_state(workspace, "user_decision_required", "Blocked pending user decision.")
+
+
+def _write_blocked_implementation_state(workspace: Path, blocker_class: str, progress_text: str) -> None:
+    for root in sorted(workspace.glob("state/**/implementation-phase")):
+        bundle_path = root / "implementation_state.json"
+        if bundle_path.exists():
+            continue
+        progress_pointer = root / "progress_report_target_path.txt"
+        target = workspace / progress_pointer.read_text(encoding="utf-8").strip()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(f"# Progress Report\n\n{progress_text}\n", encoding="utf-8")
+        bundle_path.write_text(
+            json.dumps({"implementation_state": "BLOCKED", "blocker_class": blocker_class}, indent=2) + "\n",
+            encoding="utf-8",
+        )
+        return
+    raise AssertionError("No pending implementation phase root found")
+
+
 def _leave_execution_state_missing(_workspace: Path) -> None:
     return
 
@@ -845,6 +1023,49 @@ def _fix_implementation_noncanonical(workspace: Path) -> None:
     target.write_text("# Execution Report\n\nFixed after review at noncanonical path.\n", encoding="utf-8")
 
 
+def _design_revision_work_item_root(workspace: Path) -> Path:
+    for root in sorted(workspace.glob("state/**/design-gap-work-item")):
+        if (root / "work-item-inputs.json").exists():
+            return root
+    raise AssertionError("No design-gap work-item root found")
+
+
+def _revise_target_design_for_blocker(workspace: Path) -> None:
+    target = workspace / _design_delta_workflow_inputs()["target_design_path"]
+    target.write_text(
+        target.read_text(encoding="utf-8") + "\n\n## Blocker Revision\n\nAdded missing contract.\n",
+        encoding="utf-8",
+    )
+    root = _design_revision_work_item_root(workspace)
+    report = root / "design-revision-report.json"
+    report.write_text(
+        json.dumps(
+            {
+                "design_revision_decision": "REVISED",
+                "summary": "Updated the target design.",
+                "changed_sections": ["Blocker Revision"],
+                "blocker_class": "roadmap_conflict",
+                "reason": "implementation_design_revision_required",
+            },
+            indent=2,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+
+def _write_design_revision_review_approve(workspace: Path) -> None:
+    root = _design_revision_work_item_root(workspace)
+    report = workspace / "artifacts/review/LISP-FRONTEND-AUTONOMOUS-DRAIN/design-gaps/parser-syntax/design-revision-review.md"
+    report.parent.mkdir(parents=True, exist_ok=True)
+    report.write_text("# Design Revision Review\n\nApproved.\n", encoding="utf-8")
+    (root / "design-revision-review-report-path.txt").write_text(
+        report.relative_to(workspace).as_posix() + "\n",
+        encoding="utf-8",
+    )
+    (root / "design-revision-review-decision.txt").write_text("APPROVE\n", encoding="utf-8")
+
+
 def _provider_step_matches(actual: str | None, expected: str) -> bool:
     if actual is None:
         return True
@@ -856,11 +1077,15 @@ def _provider_step_called(state: dict, expected: str) -> bool:
 
 
 def _run_workflow_with_providers(
-    workspace: Path, workflow_path: Path, provider_sequence, require_all_providers: bool = True
+    workspace: Path,
+    workflow_path: Path,
+    provider_sequence,
+    require_all_providers: bool = True,
+    workflow_inputs: dict | None = None,
 ):
     loader = WorkflowLoader(workspace)
     workflow = loader.load(workflow_path)
-    bound_inputs = bind_workflow_inputs(workflow_input_contracts(workflow), _workflow_inputs(), workspace)
+    bound_inputs = bind_workflow_inputs(workflow_input_contracts(workflow), workflow_inputs or _workflow_inputs(), workspace)
     state_manager = StateManager(workspace=workspace, run_id="test-run")
     state_manager.initialize(
         workflow_path.relative_to(workspace).as_posix(),
@@ -1202,6 +1427,77 @@ def test_lisp_frontend_implementation_review_exhaustion_records_blocked(tmp_path
     assert summary["drain_status"] == "BLOCKED"
     assert summary["completed_design_gaps"] == []
     assert summary["blocked_design_gaps"]["parser-syntax"]["reason"] == "implementation_review_exhausted"
+
+
+def test_design_delta_revisable_blocker_revises_design_and_continues(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    workflow_path = workspace / "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_blocked_roadmap_conflict),
+            ("ReviseTargetDesignForBlocker", _revise_target_design_for_blocker),
+            ("ReviewTargetDesignRevision", _write_design_revision_review_approve),
+            ("SelectNextWork", _write_selector_done),
+        ],
+        workflow_inputs=_design_delta_workflow_inputs(),
+    )
+
+    summary = json.loads(
+        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    run_state = json.loads(
+        (workspace / "state/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain/run_state.json").read_text(encoding="utf-8")
+    )
+    target_text = (workspace / _design_delta_workflow_inputs()["target_design_path"]).read_text(encoding="utf-8")
+
+    assert state["status"] == "completed"
+    assert summary["drain_status"] == "DONE"
+    assert any(event["event"] == "design_revision" for event in run_state["history"])
+    assert "parser-syntax" not in run_state["blocked_design_gaps"]
+    assert "Blocker Revision" in target_text
+
+
+def test_design_delta_terminal_blocker_does_not_revise_design(tmp_path):
+    workspace = tmp_path / "workspace"
+    _copy_runtime_files(workspace)
+    workflow_path = workspace / "workflows/examples/lisp_frontend_design_delta_drain.yaml"
+
+    state = _run_workflow_with_providers(
+        workspace,
+        workflow_path,
+        [
+            ("SelectNextWork", _write_selector_design_gap),
+            ("DraftDesignGapArchitecture", _write_design_gap_architecture),
+            ("DraftPlan", _write_plan),
+            ("ReviewPlan", _write_plan_review),
+            ("ExecuteImplementation", _write_blocked_user_decision_required),
+        ],
+        workflow_inputs=_design_delta_workflow_inputs(),
+    )
+
+    summary = json.loads(
+        (workspace / "artifacts/work/LISP-FRONTEND-AUTONOMOUS-DRAIN/drain-summary.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert state["status"] == "completed"
+    assert summary["drain_status"] == "BLOCKED"
+    assert summary["blocked_design_gaps"]["parser-syntax"]["reason"] == "implementation_blocked"
+    assert state["__provider_calls"] == 5
+    assert "Blocker Revision" not in (
+        workspace / _design_delta_workflow_inputs()["target_design_path"]
+    ).read_text(encoding="utf-8")
 
 
 def test_lisp_frontend_drain_done_runtime_smoke(tmp_path):
