@@ -194,7 +194,10 @@ The currently implemented authoring surface includes:
 - `phase-target`
 - `run-provider-phase`
 - `resume-or-start`
-- `review-revise-loop`
+- `review-revise-loop` as an implemented authoring surface; primary-migration
+  parity for this form is pending the ordinary stdlib/generic composition
+  lowering described in
+  `docs/design/workflow_lisp_key_migration_parity_architecture.md`
 - `resource-transition` through the current library/certified-adapter path
 - `finalize-selected-item`
 - `backlog-drain`

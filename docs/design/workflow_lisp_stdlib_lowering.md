@@ -18,6 +18,14 @@ library abstraction.
 Each standard-library form needs an exact generated-shape contract before it can
 be implemented or promoted.
 
+For the key-workflow migration tranche, `review-revise-loop` is not accepted as
+a compiler-special primitive. Its parity path is ordinary stdlib/generic
+composition that emits the existing executable surfaces (`repeat_until`,
+structured provider results, `match`, projection/materialization, source maps,
+and resume-safe loop state). If implementation later proves that a
+review-loop-specific compiler branch is necessary, the migration architecture
+must be revised before primary promotion.
+
 ## Required Forms
 
 Initial forms:

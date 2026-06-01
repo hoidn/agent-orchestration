@@ -15,6 +15,22 @@
   - Deterministic artifact contracts:
     - `expected_outputs`: file-per-value contract validation (v1.1+).
     - `output_bundle`: JSON-bundled field extraction/validation (v1.3+).
+  - Command structured-bundle environment:
+    - For command steps with `output_bundle.path`, the runtime resolves the
+      workspace-relative bundle path before launch and sets
+      `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` to that target.
+    - The runtime-owned value wins over any caller-provided environment value
+      for the same name.
+    - After path-safety validation, the runtime creates or validates the parent
+      directory before launching the command.
+    - The bundle file, not stdout JSON, is semantic authority for the structured
+      result. Stdout remains ordinary captured output or debug/log material.
+    - If the command exits `0` but the bundle is missing or invalid, the step
+      fails as an output-contract failure. If the command exits non-zero, the
+      command failure remains primary.
+    - Future command-produced structured bundle surfaces with explicit paths
+      must use the same environment and validation contract unless their
+      normative spec says otherwise.
   - Reusable-call boundary:
     - `output_file`, `expected_outputs.path`, `output_bundle.path`, `consume_bundle.path`, and all deterministic `relpath` outputs stay workspace-relative whether a workflow runs top-level or under `call`.
     - `call` namespaces runtime-owned identities, provenance, and logs; it does not namespace authored output paths.

@@ -26,7 +26,8 @@ Related docs:
 - `docs/design/workflow_lisp_state_layout.md`
 - `docs/design/workflow_command_adapter_contract.md`
 - `docs/plans/2026-05-29-lisp-migrate-key-workflows-execution-summary.md`
-- `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/index.json`
+- Generated run evidence:
+  `artifacts/work/LISP-MIGRATE-KEY-WORKFLOWS/parity/index.json`
 
 Implementation target: staged changes to the Workflow Lisp frontend,
 remaining effectful composition gaps, shared validation, and runtime
@@ -186,7 +187,8 @@ The recommended approach is:
 6. Introduce generic structured dataflow guidance for stdlib review-result and
    finding records.
 7. Add a machine-validated migration promotion gate that keeps YAML primary
-   until parity evidence is non-regressive.
+   until parity evidence is non-regressive. `non_regressive` is computed by the
+   promotion command from evidence; authors must not assert it by hand.
 
 ### Minimum Migration Slice
 
@@ -237,6 +239,18 @@ Alternatives considered:
 | Default input parity | `.orc` boundary syntax and lowering for workflow input defaults | Workflow Lisp parser/typecheck/lowering | Existing DSL input default support | Compile/lower/default override tests |
 | Real smoke coverage | Migration promotion checklist and parity report schema | Migration policy/tests | New machine-readable migration report schema | Computed `non_regressive`, not manually asserted |
 
+Implementation owner matrix:
+
+| Concern | Owner / file area |
+| --- | --- |
+| Input defaults | `orchestrator/workflow_lisp/workflows.py`, `specs/dsl.md` |
+| Record, union, and findings contracts | `orchestrator/workflow_lisp/contracts.py`, `.orc` stdlib schemas |
+| Managed bundle paths | `orchestrator/workflow_lisp/lowering.py`, runtime command executor bridge |
+| `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` injection | runtime command execution, `specs/io.md`, `specs/dsl.md` |
+| `review-revise-loop` lowering | `.orc` stdlib/generic effectful composition and Workflow Lisp lowering |
+| State/reuse validation | Workflow Lisp state layout, shared validation, certified validators |
+| Parity report | migration tooling, parity tests, generated report schema |
+
 ## Architecture
 
 The architecture has four layers.
@@ -250,11 +264,11 @@ The architecture has four layers.
   -> migration parity evidence
 ```
 
-## Required Normative Spec Updates
+## Normative Spec Status
 
-Before any `.orc` candidate can replace a YAML primary, the following target
-behaviors must move out of this architecture doc and into normative specs or a
-machine-readable schema:
+Before any `.orc` candidate can replace a YAML primary, required behavior must
+live in normative specs or a machine-readable schema, not only in this
+architecture doc.
 
 - `specs/dsl.md`: command steps with deterministic structured bundle contracts
   receive a runtime-resolved bundle target.
@@ -262,18 +276,29 @@ machine-readable schema:
   creation, stdout-vs-bundle authority, and missing/invalid bundle behavior.
 - `specs/state.md`: define the output-contract failure shape for missing or
   invalid command bundles after process exit `0`.
+
+Remaining normative/schema work before acceptance:
+
 - Path-safety spec surface: define workspace-relative normalization, rejection
   of absolute paths and `..` escapes, and symlink policy for generated bundle
   and state paths.
 - Migration evidence schema: define the parity report fields and require
   `non_regressive` to be computed from evidence, not manually asserted.
 
-Command-produced union results should not depend on an implicit
-`variant_output` path. For this tranche, Workflow Lisp `command-result` unions
-must lower through one authoritative generated `output_bundle.path` containing
-the discriminant and variant payload, then apply variant validation/proof to
-that bundle. A future DSL extension may add explicit `variant_output.path`, but
-primary migration should not wait for that schema change.
+Command-produced union results must lower to a variant-proof surface and must
+not depend on an implicit `variant_output` path. Until `variant_output.path` is
+normative, primary-promotion candidates may use one of two explicit strategies:
+
+1. Add normative `variant_output.path` support and lower `command-result`
+   unions directly to `variant_output`.
+2. Lower the command to an `output_bundle` containing the raw discriminant and
+   payload, then generate a compiler-owned validator/projection step that emits
+   a variant-proof-compatible result.
+
+The compiler must not expose output-bundle variant fields directly as if they
+had selected-variant proof. Downstream variant-specific fields are available
+only through `variant_output` proof or the compiler-owned projection's
+equivalent discriminant proof.
 
 ## Related Doc Updates Required
 
@@ -402,7 +427,7 @@ New or completed authoring syntax:
   :must-exist true)
 
 (defrecord ReviewFindings
-  (schema_version String) ; must equal "ReviewFindings.v1"
+  (schema_version String)
   (items_path ReviewFindingsJsonPath))
 
 (defunion ReviewDecision
@@ -439,6 +464,15 @@ not satisfy primary-promotion parity. Until first-class list types exist,
 `items_path` must point to JSON that validates against `ReviewFindings.v1`
 before publication and before revise/fix receives it.
 
+`ReviewFindings.v1` is validated by a Workflow Lisp `defschema` validator if
+available in this tranche, or by a certified `review-findings-v1` validation
+adapter generated by the stdlib loop. `schema_version` must equal
+`ReviewFindings.v1`; a plain string value is not sufficient without that
+validation rule. Validation runs before the `ReviewFindings` record is
+published to loop state and again before revise/fix receives it after resume.
+Malformed findings fail as an output-contract failure, not as a review
+decision.
+
 Workflow input defaults should be expressible at the boundary:
 
 ```lisp
@@ -466,14 +500,38 @@ applicable, and compiler/language version; source-map provenance; collision
 checks across repeated calls and branch/loop expansions; resume reconstruction
 rules; and a debug/explain projection.
 
+Compiler-generated bundle and temporary paths must be run-isolated unless the
+authored contract explicitly requests a stable workspace artifact. Stable
+semantic identity is source-map/debug identity; the concrete write path must
+include the runtime run root or another collision-proof generated namespace.
+Resume must reconstruct the same concrete path for the same run.
+
+V1 managed bundle path model:
+
+- The compiler may emit internal managed write-root inputs for generated bundle
+  paths because the current lowering path already represents managed write roots
+  that way.
+- Loader/runtime binding owns those values before validation/execution. CLI
+  users and workflow callers must not be required to provide or override them.
+- Public compiled workflow documentation and promoted entrypoint help must hide
+  these inputs. Debug projections may show them only with generated-origin
+  metadata and source-map provenance.
+- Shared validation must distinguish public required inputs from internal
+  managed inputs. A promoted entrypoint fails parity if tests or users must pass
+  `__write_root__...` inputs manually.
+- The runtime reconstructs the same managed value for the same run on resume and
+  rejects caller-provided conflicting values for runtime-owned command bundle
+  targets.
+
 The compiler owns generic primitives and generic library expansion. It must not
 own workflow-specific control idioms such as `review-revise-loop`.
 
 `command-result` lowering must:
 
 - map record return types to deterministic JSON-bundle contracts;
-- map union return types to an authoritative generated `output_bundle.path`
-  with explicit discriminant handling and variant validation/proof;
+- map union return types to a variant-proof surface: either normative
+  `variant_output.path`, or an authoritative `output_bundle.path` followed by a
+  compiler-owned validator/projection step with equivalent discriminant proof;
 - generate a deterministic result-bundle path;
 - record source-map origins for the high-level form, generated step, and
   generated path;
@@ -610,6 +668,11 @@ These are general command-step contracts, not Lisp-specific runtime behavior.
 A `.orc` replacement can become primary only when a parity report says it is
 non-regressive.
 
+Intended YAML primary behavior is characterized from the current YAML primary at
+the promotion baseline commit, its accepted tests, and a baseline run when one is
+safe. Normative DSL specs win over accidental YAML behavior; explicit accepted
+differences must be listed in the parity report.
+
 Required evidence per promoted workflow family:
 
 - compile always emits source `.orc`, a lowered workflow dictionary accepted by
@@ -657,8 +720,10 @@ New behavior:
 - The runtime validates the bundle before exposing typed artifacts.
 - The compiler must not require callers to pass compiler-owned hidden bundle
   inputs for promoted entrypoints.
-- Command-produced union results use a generated `output_bundle.path` with a
-  discriminant and variant payload until `variant_output.path` is normative.
+- Command-produced union results use `variant_output.path` when that is
+  normative. Until then, they use a generated `output_bundle.path` only for the
+  raw discriminant and payload, followed by a compiler-owned
+  validator/projection step that establishes variant proof.
 
 Compatibility:
 
@@ -697,7 +762,7 @@ Transition table:
 | `ReviewDecision.APPROVE` | Exit | `APPROVED` | Phase approved |
 | `ReviewDecision.REVISE` with budget remaining | Run revise/fix and recur | None yet | Not completion |
 | `ReviewDecision.REVISE` with budget exhausted | Exit through final projection | `EXHAUSTED` | Blocked / revise-exhausted |
-| `ReviewDecision.BLOCKED` | Exit | `BLOCKED` | Blocked with blocker class |
+| Provider-authored `ReviewDecision.BLOCKED` | Exit | `BLOCKED` | Blocked with blocker class |
 | Invalid provider output | Fail contract | No semantic result | Provider output contract failure |
 
 Compatibility:
@@ -721,12 +786,18 @@ New behavior:
   referenced artifacts.
 - Invalid prior state routes to fresh execution or a typed non-reusable result,
   depending on the authored form.
+- `ReusablePhaseState.v1` is a derived, validated summary of canonical runtime
+  state, not an alternative authority.
 
 Minimum reusable-state shape:
 
 ```json
 {
   "schema": "ReusablePhaseState.v1",
+  "source_run_id": "",
+  "source_step_id": "",
+  "source_call_frame_id": "",
+  "workflow_checksum": "",
   "phase_id": "implementation",
   "producer_workflow": "",
   "producer_compiler": "",
@@ -772,6 +843,11 @@ Hash and fingerprint derivation:
 - Schema or version incompatibility wins over staleness: unsupported schema or
   compatibility metadata returns `SCHEMA_MISMATCH` or `UNSUPPORTED_VERSION`
   before hash comparison.
+- The producer records the source run id, source step id or call-frame id,
+  workflow checksum, input hash basis, artifact lineage basis, and artifact
+  content hashes used to validate reuse. On resume, the validator compares this
+  summary against current policy and referenced artifact contents; it must not
+  trust the summary alone.
 
 Compatibility:
 
@@ -931,9 +1007,9 @@ Minimum parity-report shape:
       "required": true,
       "passed": true,
       "waived": false,
-      "waiver_reason": "",
-      "owner": "",
-      "expires": ""
+      "waiver_reason": null,
+      "owner": null,
+      "expires": null
     },
     "baseline_characterization": {
       "inputs": "",

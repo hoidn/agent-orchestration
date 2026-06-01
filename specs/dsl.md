@@ -214,6 +214,9 @@
         - `must_exist_target: boolean` (optional, `relpath` only)
         - `required: boolean` (optional, default true; when false, missing pointer is allowed)
       - Runtime enforcement runs only when the step process exits with code `0`.
+      - For command steps, runtime must expose the resolved `path` as
+        `ORCHESTRATOR_OUTPUT_BUNDLE_PATH` before command launch. See
+        `specs/io.md`.
       - Parsed values are exposed as `steps.<Step>.artifacts` (unless `persist_artifacts_in_state:false`).
     - `variant_output` (optional; v2.14+): deterministic artifacts extracted from one JSON bundle with a tagged-union shape.
       - Mutually exclusive with `expected_outputs`, `output_bundle`, and `select_variant_output`.

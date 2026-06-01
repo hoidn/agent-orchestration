@@ -86,7 +86,9 @@
   - v2.13 managed provider jobs extend schema `2.1` additively; managed recovery metadata lives on the step result and run-owned sidecars rather than the artifact lineage surfaces.
 
 - Output contract failure shape
-  - If `expected_outputs` validation fails after a successful execution (`exit_code: 0`), the step is marked failed with:
+  - If `expected_outputs`, `output_bundle`, or another deterministic structured
+    output contract fails validation after a successful execution
+    (`exit_code: 0`), the step is marked failed with:
     - non-zero `exit_code` (currently `2`)
     - `error.type: "contract_violation"`
     - `error.context.violations: []` describing individual contract violations
