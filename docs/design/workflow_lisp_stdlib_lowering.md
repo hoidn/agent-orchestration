@@ -26,6 +26,13 @@ and resume-safe loop state). If implementation later proves that a
 review-loop-specific compiler branch is necessary, the migration architecture
 must be revised before primary promotion.
 
+For review/fix loops, consumed evidence artifacts such as `checks_report` are
+loop inputs/consumes, not review-provider output fields. Generated review
+provider contracts should omit evidence identity fields unless the provider
+actually produces that artifact. Route and final projection steps carry evidence
+refs from loop inputs/state, and negative validation should catch a lowering
+where provider output can replace consumed evidence identity.
+
 ## Required Forms
 
 Initial forms:

@@ -754,6 +754,11 @@ New behavior:
   produced the outputs required by the final projection.
 - Reports are views; typed review decisions, terminal results, and validated
   findings are authority.
+- Evidence artifact identities are carried from workflow state or consumed
+  artifacts, not authored by the review provider. A reviewer may inspect and
+  judge `checks_report`, but it must not redirect that evidence by returning a
+  different path. If `ReviewLoopResult` includes `checks_report`, final
+  projection copies it from the carried evidence input/state.
 
 Transition table:
 

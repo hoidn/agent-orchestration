@@ -70,6 +70,11 @@ Migration promotion checklist:
   revise/fix path or exhaust explicitly; it is not completion.
 - Validate schema-backed JSON, such as carried review findings, before it is
   published to loop state and again before it is consumed after resume.
+- Evidence paths are produced by workflow, checks, or materializer steps.
+  Review providers inspect and judge evidence, but they should not author
+  evidence identity. Do not put consumed evidence paths such as `checks_report`
+  in provider output contracts unless the provider actually produces that
+  artifact; carry them from state or inputs when terminal results need them.
 
 If you want the smallest concrete Workflow Lisp starting point, read
 `workflows/examples/kiss_backlog_item.orc` before studying the autonomous drain

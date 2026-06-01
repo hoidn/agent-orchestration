@@ -154,7 +154,12 @@ FinalizeImplementationPhaseOutputs
 ```
 
 `RunChecks` must publish `checks_report` so each review consumes fresh check
-evidence. `ReviewImplementation` publishes:
+evidence. `checks_report` identity is owned by the checks step/workflow state,
+not by the reviewer. `ReviewImplementation` may inspect and judge that evidence,
+but its decision bundle must not redirect `checks_report` by returning a
+different path.
+
+`ReviewImplementation` publishes:
 
 - `implementation_review_report`
 - `implementation_review_decision`
@@ -183,6 +188,8 @@ before the next loop iteration.
 
 The phase output `implementation_review_decision` must come from
 `FinalizeImplementationPhaseOutputs`, not from the first review step.
+Likewise, `checks_report_path` must be carried from the published checks
+artifact, not from the review decision output.
 
 ## Work-Item Terminal Routing
 
