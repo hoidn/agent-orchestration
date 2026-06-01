@@ -18,9 +18,70 @@ These are the highest-impact terminology and contract confusions.
 | Docs vs specs precedence | "Any docs page is authoritative." | `specs/` are normative. `docs/` are explanatory. | [Master Spec](../specs/index.md) |
 | Workflow authoring surfaces | "Workflow inputs, prompt files, dependencies, and artifacts are all the same kind of input." | Keep four surfaces separate: workflow boundary (`inputs`/`outputs`), runtime dependencies (`depends_on`/`consumes`), provider prompt sources (`input_file`/`asset_file`/`asset_depends_on`), and artifact storage or lineage (`artifacts`, `expected_outputs`, `output_bundle`, `publishes`). | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md) |
 | Semantic authority | "Reports, pointer files, debug YAML, and typed state can all decide workflow meaning." | Structured state, artifact values, contracts, snapshots, and semantic IR are authority. Reports, pointer files, rendered plans, and debug YAML are views or representations unless a specific contract says otherwise. | [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
+| Migration promotion | "If a `.orc` workflow compiles and dry-runs, it can replace the YAML primary." | Promotion requires computed parity evidence for output contracts, terminal states, artifacts, resume/reuse behavior, accepted differences, and deprecated mechanics. | [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md), [Workflow Language Design Principles](design/workflow_language_design_principles.md), [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) |
 | Inline command glue | "Python and shell commands should either be banned entirely or accepted as normal workflow authoring." | Command steps are allowed for external tools and certified adapters. Hidden workflow semantics in inline Python/shell, ad hoc JSON rewrites, pointer-as-state, or report parsing are migration debt and need typed procedures, certified command adapters, or runtime-native effects. | [Workflow Command Adapter Contract](design/workflow_command_adapter_contract.md), [Workflow Drafting Guide](workflow_drafting_guide.md) |
 | Adjudicated provider output | "The best candidate's stdout becomes the step output." | `adjudicated_provider` scores output-valid candidates, promotes only declared deterministic outputs, and suppresses candidate/evaluator stdout from normal step output state. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Step IO](../specs/io.md) |
 | Managed provider jobs | "Managed training jobs should be encoded as manual guard and recovery command steps." | `managed_jobs` is a v2.13 provider-step modifier. Workflow YAML declares policy, watch roots, backend, poll budget, and managed outcome routes; runtime-owned guard, shim, audit, recovery, and resumable state replace hand-authored recovery glue. | [Workflow Drafting Guide](workflow_drafting_guide.md), [DSL](../specs/dsl.md), [Providers](../specs/providers.md), [Managed Provider Jobs Demo](../workflows/examples/managed_provider_jobs_demo.yaml) |
+
+---
+
+## Reading Paths
+
+Use these paths when you know the kind of work you are doing but not yet which
+document owns the answer.
+
+### When Changing Specs
+
+- Start with [Master Spec](../specs/index.md).
+- Read the relevant normative spec, usually [DSL](../specs/dsl.md),
+  [Step IO](../specs/io.md), [State](../specs/state.md),
+  [Providers](../specs/providers.md), or [Dependencies](../specs/dependencies.md).
+- Check [Workflow Drafting Guide](workflow_drafting_guide.md) only for
+  author-facing explanation and examples.
+- If docs and specs disagree, specs win; update explanatory docs afterward.
+
+### When Writing Or Revising Design Docs
+
+- Start with [Design Template](templates/design_template.md).
+- Read [Workflow Language Design Principles](design/workflow_language_design_principles.md).
+- Read the closest existing design document before adding a new one.
+- If the design changes discoverability, update this index.
+- If the design introduces runtime or validation obligations, add or plan the
+  corresponding `specs/` update.
+
+### When Working On Workflow Lisp
+
+- Start with [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md).
+- Check the parent [Workflow Lisp Frontend Specification](design/workflow_lisp_frontend_specification.md).
+- Use the component docs for current-checkout behavior: Semantic IR, Executable
+  IR, Macro Surface, Stdlib Lowering, State Layout, and related frontend docs.
+- For promoted workflow migration, also read
+  [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md).
+
+### When Migrating YAML To `.orc`
+
+- Start with [Workflow Lisp Key Migration Parity Architecture](design/workflow_lisp_key_migration_parity_architecture.md).
+- Read [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md) and
+  [Workflow Language Design Principles](design/workflow_language_design_principles.md).
+- Check the relevant runtime specs for the behavior being preserved.
+- Treat compile, validation, and dry-run as necessary evidence, not promotion.
+
+### When Authoring Workflows
+
+- Start with [Workflow Drafting Guide](workflow_drafting_guide.md).
+- Check [DSL](../specs/dsl.md), [Step IO](../specs/io.md), and
+  [Providers](../specs/providers.md) for normative behavior.
+- Use [Prompt Index](../prompts/README.md) when provider prompts are involved.
+- For Lisp-first authoring, use [Workflow Lisp Drafting Guide](lisp_workflow_drafting_guide.md).
+
+### When Reviewing Plans Or Backlog Drains
+
+- Start with [Work Definition Model](work_definition_model.md).
+- Read the relevant work instructions under `docs/plans/`.
+- For generated gap designs, use
+  [Design Gap Architecture Template](templates/design_gap_implementation_architecture_template.md).
+- Check the active design, backlog item, run evidence, and any generated
+  summaries before changing status labels.
 
 ---
 

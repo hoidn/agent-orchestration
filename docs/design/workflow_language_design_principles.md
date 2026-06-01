@@ -35,6 +35,44 @@ Use these labels:
 - Legacy parsing and pointer conventions are quarantined.
 - Provider decisions produce structured state; reports remain views.
 - Every generated semantic node is source-mapped.
+- Promotion requires parity evidence, not successful compilation alone.
+- Compiler-hidden generated values still need explicit ownership.
+- Machine-computed gates are stronger than prose approval.
+- Per-step decisions and terminal workflow outcomes are distinct state layers.
+
+## Design Review Practices To Retain
+
+Status: `frontend requirement`
+
+Use these practices when reviewing DSL, frontend, compiler, or migration
+designs:
+
+- Architecture docs choose direction and name required contracts; normative
+  runtime and validation behavior belongs in `specs/`.
+- A frontend artifact that parses, typechecks, lowers, validates, or dry-runs is
+  not automatically promotable. Promotion requires parity evidence for outputs,
+  terminal states, artifacts, resume behavior, and accepted differences.
+- Structured state, artifact values, contracts, snapshots, and semantic IR are
+  authority. Reports, stdout, pointer files, debug projections, and source maps
+  are views unless a specific contract says otherwise.
+- Do not invent fake proof. For example, an `output_bundle` value is not
+  variant-specific proof unless a variant-proof surface or compiler-owned
+  projection establishes that proof.
+- Compiler-hidden generated values still need owners, binding rules, validation
+  timing, debug visibility, resume reconstruction, and public API boundaries.
+- Prefer generic composition and stdlib lowering over name-specific compiler
+  branches. If a compiler-special branch becomes necessary, revise the design
+  before promotion.
+- Keep per-step decisions separate from terminal workflow outcomes. For example,
+  `REVISE` is a review decision, not completion.
+- Exhaustion is explicit terminal non-completion, not approval and not hidden
+  control-flow failure.
+- Schema-backed JSON is acceptable only when a named schema or certified adapter
+  validates it before publication and consumption.
+- Promotion gates should be machine-computed from evidence. Authors must not
+  assert non-regression by hand.
+- Reconcile dependent docs when authority changes, especially drafting guides
+  and stdlib/lowering docs.
 
 ## 1. Semantics Precede Syntax
 

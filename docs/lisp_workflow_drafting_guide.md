@@ -49,6 +49,28 @@ For migrations, keep the existing YAML workflow authoritative until the `.orc`
 version has compile, shared-validation, dry-run or smoke, and parity evidence.
 Do not deprecate the YAML version only because an `.orc` version parses.
 
+Migration promotion checklist:
+
+- Treat compile, typecheck, lower, shared validation, and dry-run as necessary
+  evidence, not as promotion approval.
+- Require output contract parity, terminal-state parity, artifact parity, and
+  resume/reuse parity against the characterized YAML primary behavior.
+- Let migration tooling compute `non_regressive`; do not write or approve that
+  value by hand.
+- Keep structured bundles, typed artifacts, runtime state, and variant proof as
+  authority. Do not route migration behavior through reports, stdout, pointer
+  files, or debug YAML.
+- Do not expose compiler-generated write roots or result-bundle paths as public
+  entrypoint inputs. Debug projections may show generated bindings only with
+  origin metadata.
+- Do not treat `output_bundle` fields as variant-specific proof. Use
+  `variant_output`, `match` proof, `requires_variant`, or a compiler-owned
+  validator/projection that establishes equivalent proof.
+- Keep review decisions and terminal loop results separate. `REVISE` must run a
+  revise/fix path or exhaust explicitly; it is not completion.
+- Validate schema-backed JSON, such as carried review findings, before it is
+  published to loop state and again before it is consumed after resume.
+
 If you want the smallest concrete Workflow Lisp starting point, read
 `workflows/examples/kiss_backlog_item.orc` before studying the autonomous drain
 examples. It shows a single backlog item flowing through typed plan and
