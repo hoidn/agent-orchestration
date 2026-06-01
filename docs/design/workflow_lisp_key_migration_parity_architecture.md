@@ -375,6 +375,18 @@ a restart. Current support already includes pure `defun`, effectful `defproc`,
    library definitions that leak hidden write-root inputs, treat pointer files
    as state authority, hide effects in macros, or route on report prose.
 
+Readiness before acceptance:
+
+| Capability | Required for review loop? | Acceptance fixture | Acceptance status |
+| --- | --- | --- | --- |
+| Imported effectful stdlib `defproc` or workflow | Yes | Import stdlib loop and emit DSL-visible provider, command, loop, and match nodes | Must be proven by implementation audit |
+| ProviderRef specialization | Yes | Pass review/fix providers into stdlib with no runtime provider value | Must be proven by implementation audit |
+| PromptRef specialization | Yes | Pass prompts into stdlib with no hard-coded extern or runtime prompt value | Must be proven by implementation audit |
+| `loop/recur` to resume-safe DSL loop | Yes | `REVISE -> fix -> APPROVE` with a persisted loop checkpoint | Must be proven by implementation audit |
+| Generated bundle/path allocation | Yes | Compile stdlib loop without public hidden write-root inputs | Must be proven by implementation audit |
+| Effect graph and source maps across stdlib expansion | Yes | Generated nodes record call site, stdlib definition, and generated-node provenance | Must be proven by implementation audit |
+| Negative validation for abstraction leaks | Yes | Reject stdlib definitions that route on report prose, leak hidden roots, or hide effects | Must be proven by implementation audit |
+
 New or completed authoring syntax:
 
 ```lisp
@@ -496,6 +508,42 @@ The stdlib `review-revise-loop` definition must compile through those generic
 capabilities to the same executable families a hand-authored workflow would use:
 `repeat_until`, provider steps, structured output bundles, `match`, and
 materialization.
+
+Canonical generated executable shape for this migration slice:
+
+```text
+caller workflow
+  call generated/private workflow stdlib__review_revise_loop__<call_site_id>
+    inputs:
+      draft artifact refs, review provider ref, revise/fix provider ref,
+      prompt refs, loop budget, generated bundle roots
+    outputs:
+      ReviewLoopResult bundle, terminal status, review report, findings
+
+generated/private workflow
+  repeat_until review_loop:
+    loop-frame outputs:
+      review_status, latest_review_report, latest_findings,
+      latest_review_decision_bundle
+    steps:
+      provider step writes ReviewDecision bundle
+      match ReviewDecision:
+        APPROVE -> materialize latest outputs and stop
+        REVISE  -> run revise/fix, carry findings, recur
+        BLOCKED -> materialize blocker outputs and stop
+    on_exhausted.outputs:
+      review_status = "EXHAUSTED"
+  final projection:
+    build ReviewLoopResult from review_status and loop-frame outputs
+```
+
+The caller observes a normal call-frame boundary and typed outputs. The private
+workflow owns the `repeat_until` frame, generated bundle roots, and terminal
+projection. This generated/private workflow is produced by generic stdlib
+specialization, not by a review-loop-specific compiler primitive. If
+implementation proves that inlining is required instead, this design must be
+revised to spell out equivalent call-frame, source-map, and resume guarantees
+before promotion.
 
 Exhaustion lowering must respect current `repeat_until` behavior:
 
@@ -707,6 +755,24 @@ Validation outcomes are `REUSABLE`, `STALE`, `MISSING_ARTIFACT`,
 hash, producer fingerprint, dependency hash, or artifact checksum no longer
 matches the current reusable-state policy.
 
+Hash and fingerprint derivation:
+
+- `source_inputs_hash` is computed from canonical JSON for public workflow
+  inputs after defaults and caller overrides are resolved. Relative paths are
+  normalized workspace-relative. Inputs declared content-sensitive include the
+  referenced file digest; ordinary path-valued inputs include the normalized path
+  string. Generated hidden roots, run ids, timestamps, and absolute workspace
+  prefixes are excluded.
+- `producer_fingerprint` is computed from the `.orc` source digest, imported
+  stdlib definition digests, compiler version, target DSL version, lowering
+  options that affect executable shape, and specialized provider/prompt/workflow
+  refs. It excludes transient runtime state.
+- Artifact checksums are computed over the referenced artifact content after
+  path-safety validation. A missing artifact is `MISSING_ARTIFACT`, not `STALE`.
+- Schema or version incompatibility wins over staleness: unsupported schema or
+  compatibility metadata returns `SCHEMA_MISMATCH` or `UNSUPPORTED_VERSION`
+  before hash comparison.
+
 Compatibility:
 
 - Adapter-backed validators are acceptable initially.
@@ -887,6 +953,26 @@ Minimum parity-report shape:
   "non_regressive": false
 }
 ```
+
+`non_regressive` is computed as true only when:
+
+- `compile.status`, `shared_validation.status`, and `dry_run.status` are
+  `"pass"`;
+- smoke or targeted integration evidence passed, or the waiver is present,
+  owned, unexpired, justified, and accompanied by targeted evidence for the
+  skipped runtime behavior;
+- baseline characterization records inputs, outputs, terminal states, artifacts,
+  and resume behavior;
+- output contract parity, terminal state parity, artifact parity, and resume
+  parity are all `"pass"`;
+- every deprecated YAML mechanic has either a concrete replacement or an
+  accepted-risk waiver owned by the promotion policy;
+- optional compiler artifacts recorded as `not_implemented` are not required by
+  that workflow family's promotion policy.
+
+Any missing required field, expired waiver, manually asserted
+`non_regressive=true`, or required artifact recorded as `not_implemented`
+forces `non_regressive=false`.
 
 ## Compatibility And Migration
 
