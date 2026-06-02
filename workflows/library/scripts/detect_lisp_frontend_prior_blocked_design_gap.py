@@ -39,16 +39,17 @@ def _recovery_payload(run_state_path: Path, artifact_work_root: Path, progress_c
         progress_path = _find_progress_report(artifact_work_root, design_gap_id)
         if progress_path is None:
             continue
-        progress_text = progress_path.read_text(encoding="utf-8")
-        if "roadmap_conflict" not in progress_text:
-            continue
         progress_copy_path.parent.mkdir(parents=True, exist_ok=True)
-        progress_copy_path.write_text(progress_text, encoding="utf-8")
+        progress_copy_path.write_text(progress_path.read_text(encoding="utf-8"), encoding="utf-8")
+        blocker_class = str(entry.get("blocker_class") or "").strip()
+        if not blocker_class:
+            progress_text = progress_path.read_text(encoding="utf-8")
+            blocker_class = "roadmap_conflict" if "roadmap_conflict" in progress_text else "unknown"
         return {
             "recovery_status": "RECOVER_BLOCKED_DESIGN_GAP",
             "design_gap_id": design_gap_id,
             "progress_report_path": progress_path.as_posix(),
-            "blocker_class": "roadmap_conflict",
+            "blocker_class": blocker_class,
             "block_reason": "implementation_blocked",
         }
     return {

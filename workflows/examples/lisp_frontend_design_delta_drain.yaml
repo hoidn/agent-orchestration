@@ -177,10 +177,46 @@ steps:
               type: enum
               allowed: ["CONTINUE", "BLOCKED"]
               from:
-                ref: self.steps.RecordPriorBlockedDesignRevision.artifacts.drain_status
+                ref: self.steps.RecordPriorBlockedRecoveryOutcome.artifacts.prior_recovery_status
           steps:
+            - name: ClassifyPriorBlockedImplementationRecovery
+              id: classify_prior_blocked_implementation_recovery
+              provider: ${inputs.implementation_review_provider}
+              input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/classify_blocked_implementation_recovery.md
+              timeout_sec: 1800
+              depends_on:
+                required:
+                  - ${inputs.target_design_path}
+                  - ${inputs.baseline_design_path}
+                  - ${inputs.drain_state_root}/prior-blocked-recovery.json
+                  - ${inputs.drain_state_root}/prior-blocked-progress-report.md
+                inject:
+                  mode: content
+              output_bundle:
+                path: ${inputs.drain_state_root}/prior-blocked-recovery-decision.json
+                fields:
+                  - name: blocked_recovery_route
+                    json_pointer: /blocked_recovery_route
+                    type: enum
+                    allowed: ["GAP_DESIGN_REVISION_REQUIRED", "TARGET_DESIGN_REVISION_REQUIRED", "TERMINAL_BLOCKED"]
+                  - name: reason
+                    json_pointer: /reason
+                    type: enum
+                    allowed:
+                      - implementation_architecture_under_scoped
+                      - target_design_contract_gap
+                      - true_external_dependency
+                      - user_decision_required
+                      - unsupported_blocker
+
             - name: RevisePriorBlockedDesignGap
               id: revise_prior_blocked_design_gap
+              when:
+                compare:
+                  left:
+                    ref: self.steps.ClassifyPriorBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                  op: eq
+                  right: TARGET_DESIGN_REVISION_REQUIRED
               provider: ${inputs.implementation_execute_provider}
               input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/revise_prior_blocked_design_gap.md
               timeout_sec: 3600
@@ -202,11 +238,17 @@ steps:
             - name: ReviewPriorBlockedDesignRevision
               id: review_prior_blocked_design_revision
               when:
-                compare:
-                  left:
-                    ref: self.steps.RevisePriorBlockedDesignGap.artifacts.design_revision_decision
-                  op: eq
-                  right: REVISED
+                all_of:
+                  - compare:
+                      left:
+                        ref: self.steps.ClassifyPriorBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                      op: eq
+                      right: TARGET_DESIGN_REVISION_REQUIRED
+                  - compare:
+                      left:
+                        ref: self.steps.RevisePriorBlockedDesignGap.artifacts.design_revision_decision
+                      op: eq
+                      right: REVISED
               provider: ${inputs.implementation_review_provider}
               input_file: workflows/library/prompts/lisp_frontend_design_delta_work_item/review_prior_blocked_design_revision.md
               timeout_sec: 1800
@@ -231,6 +273,12 @@ steps:
 
             - name: WritePriorBlockedDesignRevisionDecision
               id: write_prior_blocked_design_revision_decision
+              when:
+                compare:
+                  left:
+                    ref: self.steps.ClassifyPriorBlockedImplementationRecovery.artifacts.blocked_recovery_route
+                  op: eq
+                  right: TARGET_DESIGN_REVISION_REQUIRED
               command:
                 - python
                 - workflows/library/scripts/write_lisp_frontend_design_revision_iteration_decision.py
@@ -246,13 +294,17 @@ steps:
                   type: enum
                   allowed: ["APPROVE", "REVISE", "BLOCKED"]
 
-            - name: RecordPriorBlockedDesignRevision
-              id: record_prior_blocked_design_revision
+            - name: RecordPriorBlockedRecoveryOutcome
+              id: record_prior_blocked_recovery_outcome
               command:
                 - python
-                - workflows/library/scripts/record_lisp_frontend_design_revision_outcome.py
-                - --review-decision
+                - workflows/library/scripts/record_lisp_frontend_blocked_recovery_outcome.py
+                - --recovery-bundle-path
+                - ${inputs.drain_state_root}/prior-blocked-recovery-decision.json
+                - --target-design-review-decision
                 - ${inputs.drain_state_root}/prior-blocked-design-revision-loop-decision.txt
+                - --terminal-action
+                - continue
                 - --state-path
                 - ${inputs.run_state_target_path}
                 - --item-id
@@ -260,21 +312,16 @@ steps:
                 - --source
                 - DESIGN_GAP
                 - --summary-path
-                - ${inputs.artifact_work_root}/prior-blocked-design-revision-summary.json
+                - ${inputs.artifact_work_root}/prior-blocked-recovery-summary.json
                 - --summary-pointer-path
-                - ${inputs.drain_state_root}/prior-blocked-design-revision-summary-path.txt
+                - ${inputs.drain_state_root}/prior-blocked-recovery-summary-path.txt
                 - --drain-status-path
-                - ${inputs.drain_state_root}/prior-blocked-design-revision-drain-status.txt
+                - ${inputs.drain_state_root}/prior-blocked-recovery-drain-status.txt
               expected_outputs:
-                - name: drain_status
-                  path: ${inputs.drain_state_root}/prior-blocked-design-revision-drain-status.txt
+                - name: prior_recovery_status
+                  path: ${inputs.drain_state_root}/prior-blocked-recovery-drain-status.txt
                   type: enum
                   allowed: ["CONTINUE", "BLOCKED"]
-                - name: item_summary_path
-                  path: ${inputs.drain_state_root}/prior-blocked-design-revision-summary-path.txt
-                  type: relpath
-                  under: artifacts/work
-                  must_exist_target: true
 
   - name: DrainLispFrontendWork
     id: drain_lisp_frontend_work

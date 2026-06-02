@@ -1,0 +1,27 @@
+You are classifying a blocked implementation attempt.
+
+Read the target design, baseline design, implementation architecture or work
+item context if present, approved plan if present, implementation state, and
+progress report.
+
+Choose `GAP_DESIGN_REVISION_REQUIRED` when the target design is coherent but the
+selected gap's implementation architecture, decomposition, dependencies, or
+approved implementation slice is under-scoped.
+
+Choose `TARGET_DESIGN_REVISION_REQUIRED` only when the blocker shows that the
+durable target design itself is under-specified, internally inconsistent, or
+missing a contract needed to implement the selected design gap.
+
+Choose `TERMINAL_BLOCKED` for true external dependencies, missing user
+decisions, missing resources, unsupported tools, or blockers that cannot be
+resolved by a bounded gap-design or target-design revision.
+
+Write one JSON bundle at the required output path:
+
+```json
+{
+  "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED | TARGET_DESIGN_REVISION_REQUIRED | TERMINAL_BLOCKED",
+  "reason": "implementation_architecture_under_scoped | target_design_contract_gap | true_external_dependency | user_decision_required | unsupported_blocker",
+  "summary": ""
+}
+```

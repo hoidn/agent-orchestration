@@ -7,9 +7,6 @@ import argparse
 import json
 from pathlib import Path
 
-REVISION_ALLOWED_BLOCKERS = {"roadmap_conflict"}
-
-
 def _read_required(path: Path) -> str:
     value = path.read_text(encoding="utf-8").strip()
     if not value:
@@ -33,16 +30,8 @@ def main() -> int:
     else:
         implementation_state = _read_required(Path(args.implementation_state_path))
         if implementation_state == "BLOCKED":
-            blocker_class = ""
-            if args.implementation_bundle_path:
-                bundle = json.loads(Path(args.implementation_bundle_path).read_text(encoding="utf-8"))
-                blocker_class = str(bundle.get("blocker_class") or "").strip()
-            if args.work_item_source == "DESIGN_GAP" and blocker_class in REVISION_ALLOWED_BLOCKERS:
-                terminal_route = "DESIGN_REVISION_ALLOWED"
-                block_reason = "implementation_design_revision_required"
-            else:
-                terminal_route = "IMPLEMENTATION_BLOCKED"
-                block_reason = "implementation_blocked"
+            terminal_route = "IMPLEMENTATION_BLOCKED"
+            block_reason = "implementation_blocked"
         elif implementation_state == "COMPLETED":
             review_decision = _read_required(Path(args.implementation_review_decision_path))
             if review_decision == "APPROVE":
