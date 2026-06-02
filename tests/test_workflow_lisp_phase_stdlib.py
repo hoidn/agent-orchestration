@@ -13,11 +13,14 @@ from orchestrator.workflow_lisp.adapters import (
 )
 from orchestrator.workflow_lisp.compiler import (
     _definition_only_syntax_module,
+    _imported_type_refs,
     _augment_resume_command_boundaries,
     _validate_definition_module,
+    compile_stage1_entrypoint,
     compile_stage3_entrypoint,
     compile_stage3_module,
 )
+from orchestrator.workflow_lisp.contracts import is_review_findings_type
 from orchestrator.workflow_lisp.definitions import elaborate_definition_module
 from orchestrator.workflow_lisp.diagnostics import LispFrontendCompileError
 from orchestrator.workflow_lisp.expressions import StdlibSpecializationExpr
@@ -28,6 +31,7 @@ from orchestrator.workflow_lisp.lowering import (
 )
 from orchestrator.workflow_lisp.reader import read_sexpr_file
 from orchestrator.workflow_lisp.stdlib_contracts import STDLIB_LOWERING_CONTRACTS_BY_FORM
+from orchestrator.workflow_lisp.modules import build_import_scope
 from orchestrator.workflow_lisp.syntax import build_syntax_module
 from orchestrator.workflow_lisp.type_env import FrontendTypeEnvironment
 from orchestrator.workflow_lisp.workflows import (
@@ -52,7 +56,7 @@ VALID_RESUME_FIXTURE = FIXTURES / "valid" / "phase_stdlib_resume_or_start.orc"
 INVALID_PHASE_CTX_FIXTURE = FIXTURES / "invalid" / "phase_ctx_contract_invalid.orc"
 INVALID_LEGACY_BRIDGE_FIXTURE = FIXTURES / "invalid" / "phase_ctx_legacy_bridge_misuse.orc"
 INVALID_PHASE_TARGET_FIXTURE = FIXTURES / "invalid" / "phase_target_unknown_generic.orc"
-INVALID_REVIEW_LOOP_FIXTURE = FIXTURES / "invalid" / "review_loop_result_contract_invalid.orc"
+INVALID_REVIEW_LOOP_FIXTURE = FIXTURES / "invalid" / "review_loop_findings_contract_invalid.orc"
 INVALID_RESUME_FIXTURE = FIXTURES / "invalid" / "resume_or_start_contract_invalid.orc"
 INVALID_RESUME_POINTER_FIXTURE = FIXTURES / "invalid" / "resume_or_start_pointer_authority_invalid.orc"
 INVALID_RESUME_RECORD_VALID_WHEN_FIXTURE = FIXTURES / "invalid" / "resume_or_start_record_valid_when_invalid.orc"
@@ -690,11 +694,129 @@ def test_reusable_phase_state_with_composed_with_phase_private_workflow_rejects_
     _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
 
 
-def test_typecheck_rejects_invalid_review_loop_result_contract() -> None:
+def test_typecheck_rejects_invalid_review_loop_findings_contract() -> None:
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _typecheck_fixture(INVALID_REVIEW_LOOP_FIXTURE)
 
     _assert_diagnostic_code(excinfo, "review_loop_result_contract_invalid")
+
+
+def test_typecheck_accepts_review_loop_result_contract_with_equivalent_findings_alias(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "phase_stdlib_review_loop_alias.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule phase_stdlib_review_loop_alias)",
+                "  (import std/phase :as phase :only (ReviewFindings))",
+                "  (defrecord WrappedFindings",
+                "    (findings phase.ReviewFindings)))",
+            ]
+        ),
+    )
+
+    linked = compile_stage1_entrypoint(path, source_roots=(tmp_path,))
+    entry_module = linked.compiled_modules_by_name["phase_stdlib_review_loop_alias"]
+    phase_module = linked.compiled_modules_by_name["std/phase"]
+    phase_env = FrontendTypeEnvironment.from_module(phase_module)
+    import_scope = build_import_scope(
+        entry_module,
+        export_surfaces_by_name=linked.graph.export_surfaces_by_name,
+    )
+    type_env = FrontendTypeEnvironment.from_module(
+        entry_module,
+        import_scope=import_scope,
+        imported_type_refs=_imported_type_refs(
+            import_scope,
+            {
+                "std/phase": {
+                    "ReviewFindings": phase_env.resolve_type(
+                        "ReviewFindings",
+                        span=phase_module.span,
+                        form_path=("workflow-lisp", "defrecord", "ReviewFindings"),
+                    )
+                }
+            },
+        ),
+    )
+    resolved = type_env.resolve_type(
+        "phase.ReviewFindings",
+        span=entry_module.span,
+        form_path=("workflow-lisp", "defrecord", "WrappedFindings"),
+    )
+
+    assert is_review_findings_type(resolved)
+
+
+def test_typecheck_rejects_non_alias_path_type_substitution(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "path_type_substitution_invalid.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule path_type_substitution_invalid)",
+                "  (defpath ReportA",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defpath ReportB",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord Input",
+                "    (report ReportA))",
+                "  (defrecord Output",
+                "    (report ReportB))",
+                "  (defworkflow demo",
+                "    ((input Input))",
+                "    -> Output",
+                "    (record Output",
+                "      :report input.report)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(path)
+
+    _assert_diagnostic_code(excinfo, "type_mismatch")
+
+
+def test_typecheck_rejects_review_findings_json_path_substitution(tmp_path: Path) -> None:
+    path = _write_module(
+        tmp_path / "review_findings_path_substitution_invalid.orc",
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule review_findings_path_substitution_invalid)",
+                "  (import std/phase :as phase :only (ReviewFindingsJsonPath))",
+                "  (defpath WorkReport",
+                "    :kind relpath",
+                '    :under "artifacts/work"',
+                "    :must-exist true)",
+                "  (defrecord Input",
+                "    (report WorkReport))",
+                "  (defrecord Output",
+                "    (report phase.ReviewFindingsJsonPath))",
+                "  (defworkflow demo",
+                "    ((input Input))",
+                "    -> Output",
+                "    (record Output",
+                "      :report input.report)))",
+            ]
+        ),
+    )
+
+    with pytest.raises(LispFrontendCompileError) as excinfo:
+        _typecheck_fixture(path)
+
+    _assert_diagnostic_code(excinfo, "type_mismatch")
 
 
 def test_typecheck_rejects_review_revise_loop_name_mismatch_with_active_phase(tmp_path: Path) -> None:
@@ -868,6 +990,50 @@ def test_lowering_review_loop_materializes_and_consumes_authored_inputs(tmp_path
     assert "prompt_consumes" not in review_step
     assert "consumes" not in fix_step
     assert "prompt_consumes" not in fix_step
+
+
+def test_review_loop_seed_state_does_not_reuse_initial_report_as_findings_path(tmp_path: Path) -> None:
+    result = _compile(VALID_REVIEW_LOOP_FIXTURE, tmp_path=tmp_path)
+
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
+    )
+    seed_step = next(step for step in authored["steps"] if step["name"].endswith("__seed"))
+    seed_values = {
+        value["name"]: value
+        for value in seed_step["materialize_artifacts"]["values"]
+    }
+
+    assert seed_values["state__latest_findings__items_path"]["source"] != {
+        "ref": "inputs.completed__execution_report_path"
+    }
+
+
+def test_review_loop_seed_state_uses_placeholder_for_noncanonical_completed_report_field(tmp_path: Path) -> None:
+    path = _rewrite_fixture(
+        VALID_REVIEW_LOOP_FIXTURE,
+        replacements=(("(execution_report_path WorkReport)", "(summary_report WorkReport)"),),
+        tmp_path=tmp_path,
+        filename="phase_stdlib_review_loop.orc",
+    )
+    result = _compile(path, tmp_path=tmp_path)
+
+    authored = next(
+        workflow.authored_mapping
+        for workflow in result.lowered_workflows
+        if workflow.typed_workflow.definition.name.endswith("::review-revise-loop-demo")
+    )
+    seed_step = next(step for step in authored["steps"] if step["name"].endswith("__seed"))
+    seed_values = {
+        value["name"]: value
+        for value in seed_step["materialize_artifacts"]["values"]
+    }
+
+    assert seed_values["state__latest_findings__items_path"]["source"] == {
+        "literal": "artifacts/work/review-findings-seed.json"
+    }
 
 
 def test_shared_validation_accepts_review_revise_loop(tmp_path: Path) -> None:
@@ -1396,10 +1562,11 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
 
     review_loop_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["review-revise-loop"]
     assert review_loop_contract.family == "review_reuse_control"
-    assert review_loop_contract.backend_kinds == ("provider",)
+    assert review_loop_contract.backend_kinds == ("provider", "certified_adapter")
     assert review_loop_contract.required_statement_families == (
         "repeat_until",
-        "provider_step",
+        "workflow_call",
+        "command_step",
         "output_bundle",
         "match",
         "materialize_artifacts",
@@ -1414,7 +1581,9 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
         "generated_step_span",
         "generated_hidden_input_span",
         "generated_hidden_path_span",
+        "adapter_command_step_origin",
     )
+    assert review_loop_contract.adapter_binding_names == ("validate_review_findings_v1",)
     review_loop_lowered = next(
         workflow
         for workflow in review_by_name.values()
@@ -1432,6 +1601,12 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
     review_workflow = review_by_name[review_call["call"]]
     review_step = next(step for step in review_workflow.authored_mapping["steps"] if step.get("provider") == "fake-review")
     review_path = review_step["variant_output"]["path"]
+    review_loop_adapter_step = next(
+        step
+        for step in _iter_nested_steps(review_repeat_step["repeat_until"]["steps"])
+        if isinstance(step.get("command"), list)
+        and "orchestrator.workflow_lisp.adapters.validate_review_findings_v1" in step["command"]
+    )
     _assert_contract_matches_observed_families(
         review_loop_contract,
         steps=review_loop_lowered.authored_mapping["steps"],
@@ -1439,8 +1614,9 @@ def test_phase_stdlib_contract_inventory_matches_lowering_families(tmp_path: Pat
     _assert_contract_source_map_expectations(
         review_loop_contract,
         review_loop_lowered,
-        generated_paths=(review_path,),
+        generated_paths=(review_loop_adapter_step["output_bundle"]["path"],),
     )
+    assert review_path in review_workflow.origin_map.generated_path_spans
 
     resume_contract = STDLIB_LOWERING_CONTRACTS_BY_FORM["resume-or-start"]
     assert resume_contract.family == "review_reuse_control"

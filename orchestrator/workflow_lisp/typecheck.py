@@ -541,10 +541,11 @@ def _typecheck(
             proc_ref_resolution_context=proc_ref_resolution_context,
         )
         current_type = typed_base.type_ref
+        base_name = expr.base.name if isinstance(expr.base, NameExpr) else ""
         for field_name in expr.fields:
             current_type = _resolve_field_access(
                 current_type,
-                base_name=expr.base.name,
+                base_name=base_name,
                 field_name=field_name,
                 span=expr.span,
                 form_path=expr.form_path,
@@ -596,12 +597,19 @@ def _typecheck(
                 proc_ref_resolution_context=proc_ref_resolution_context,
             )
             field_summaries.append(typed_field.effect_summary)
-            expected_type = type_env.resolve_type(
-                expected_field.type_name,
+            expected_type = record_type.field_types.get(field_name)
+            if expected_type is None:
+                expected_type = type_env.resolve_type(
+                    expected_field.type_name,
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
+            if not _type_refs_compatible(expected_type, typed_field.type_ref) and not _allow_stdlib_review_findings_seed_path(
+                field_name,
+                expected=expected_type,
+                actual=typed_field.type_ref,
                 span=field_expr.span,
-                form_path=field_expr.form_path,
-            )
-            if typed_field.type_ref != expected_type:
+            ):
                 _raise_error(
                     f"record field `{field_name}` expected `{_type_label(expected_type)}`"
                     f" but got `{_type_label(typed_field.type_ref)}`",
@@ -672,12 +680,14 @@ def _typecheck(
                 proc_ref_resolution_context=proc_ref_resolution_context,
             )
             field_summaries.append(typed_field.effect_summary)
-            expected_type = type_env.resolve_type(
-                expected_field.type_name,
-                span=field_expr.span,
-                form_path=field_expr.form_path,
-            )
-            if typed_field.type_ref != expected_type:
+            expected_type = union_type.variant_field_types.get(expr.variant_name, {}).get(field_name)
+            if expected_type is None:
+                expected_type = type_env.resolve_type(
+                    expected_field.type_name,
+                    span=field_expr.span,
+                    form_path=field_expr.form_path,
+                )
+            if not _type_refs_compatible(expected_type, typed_field.type_ref):
                 _raise_error(
                     f"union field `{field_name}` expected `{_type_label(expected_type)}`"
                     f" but got `{_type_label(typed_field.type_ref)}`",
@@ -2786,10 +2796,12 @@ def _validate_review_loop_result_contract(
     span: SourceSpan,
     form_path: tuple[str, ...],
 ) -> None:
+    from .contracts import is_review_findings_type
+
     required_variants = {
-        "APPROVED": {"checks_report", "review_report", "review_decision"},
-        "BLOCKED": {"progress_report", "blocker_class"},
-        "EXHAUSTED": {"last_review_report", "reason"},
+        "APPROVED": {"checks_report", "review_report", "review_decision", "findings"},
+        "BLOCKED": {"progress_report", "blocker_class", "findings"},
+        "EXHAUSTED": {"last_review_report", "reason", "findings"},
     }
     declared_variants = {variant.name for variant in return_type.definition.variants}
     if set(required_variants) != declared_variants:
@@ -2806,6 +2818,16 @@ def _validate_review_loop_result_contract(
         if missing:
             _raise_error(
                 f"`review-revise-loop` variant `{variant_name}` is missing `{missing[0]}`",
+                code="review_loop_result_contract_invalid",
+                span=span,
+                form_path=form_path,
+            )
+        findings_type = return_type.variant_field_types.get(variant_name, {}).get("findings")
+        if findings_type is None:
+            continue
+        if not is_review_findings_type(findings_type):
+            _raise_error(
+                f"`review-revise-loop` variant `{variant_name}` must use `std/phase.ReviewFindings` for `findings`",
                 code="review_loop_result_contract_invalid",
                 span=span,
                 form_path=form_path,
@@ -3081,6 +3103,7 @@ def _specialize_phase_review_loop_request(
         span=expr.span,
         form_path=expr.form_path,
     )
+    findings_type = _variant_field_type(type_env, approved_variant, "findings", expr)
     _register_generated_union_type(
         type_env,
         name=review_result_type_name,
@@ -3091,6 +3114,7 @@ def _specialize_phase_review_loop_request(
                     ("checks_report", _variant_field_type(type_env, approved_variant, "checks_report", expr)),
                     ("review_report", _variant_field_type(type_env, approved_variant, "review_report", expr)),
                     ("review_decision", _variant_field_type(type_env, approved_variant, "review_decision", expr)),
+                    ("findings", findings_type),
                 ),
             ),
             (
@@ -3098,11 +3122,15 @@ def _specialize_phase_review_loop_request(
                 (
                     ("progress_report", _variant_field_type(type_env, blocked_variant, "progress_report", expr)),
                     ("blocker_class", _variant_field_type(type_env, blocked_variant, "blocker_class", expr)),
+                    ("findings", findings_type),
                 ),
             ),
             (
                 "REVISE",
-                (("revise_review_report", _variant_field_type(type_env, approved_variant, "review_report", expr)),),
+                (
+                    ("revise_review_report", _variant_field_type(type_env, approved_variant, "review_report", expr)),
+                    ("findings", findings_type),
+                ),
             ),
         ),
         span=expr.span,
@@ -3114,6 +3142,7 @@ def _specialize_phase_review_loop_request(
         fields=(
             ("completed", completed_type),
             ("last_review_report", last_review_report_type),
+            ("latest_findings", findings_type),
         ),
         span=expr.span,
         form_path=expr.form_path,
@@ -3135,6 +3164,12 @@ def _specialize_phase_review_loop_request(
     max_param = NameExpr(name="max", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
     review_report_param = NameExpr(
         name="review_report",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    findings_param = NameExpr(
+        name="findings",
         span=generated_span,
         form_path=expr.form_path,
         expansion_stack=expr.expansion_stack,
@@ -3175,6 +3210,18 @@ def _specialize_phase_review_loop_request(
         form_path=expr.form_path,
         expansion_stack=expr.expansion_stack,
     )
+    validated_findings_ref = NameExpr(
+        name="__review_loop_validated_findings",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    revalidated_findings_ref = NameExpr(
+        name="__review_loop_revalidated_findings",
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
     approved_ref = NameExpr(name="approved", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
     blocked_ref = NameExpr(name="blocked", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
     revise_ref = NameExpr(name="revise", span=generated_span, form_path=expr.form_path, expansion_stack=expr.expansion_stack)
@@ -3210,6 +3257,13 @@ def _specialize_phase_review_loop_request(
         form_path=expr.form_path,
         expansion_stack=expr.expansion_stack,
     )
+    latest_findings_ref = FieldAccessExpr(
+        base=state_ref,
+        fields=("latest_findings",),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
     initial_last_review_report_expr = _initial_review_loop_report_expr(
         expr,
         completed_expr=completed_param,
@@ -3218,6 +3272,118 @@ def _specialize_phase_review_loop_request(
         inputs_type=inputs_type,
         last_review_report_type=last_review_report_type,
         generated_span=generated_span,
+    )
+    initial_findings_expr = RecordExpr(
+        type_name=_type_name(findings_type),
+        fields=(
+            (
+                "schema_version",
+                LiteralExpr(
+                    value="ReviewFindings.v1",
+                    literal_kind="string",
+                    span=generated_span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+            ),
+            ("items_path", initial_last_review_report_expr),
+        ),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    findings_schema_version_param = FieldAccessExpr(
+        base=validated_findings_ref,
+        fields=("schema_version",),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    findings_items_path_param = FieldAccessExpr(
+        base=validated_findings_ref,
+        fields=("items_path",),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    revise_findings_schema_version_ref = FieldAccessExpr(
+        base=revise_ref,
+        fields=("findings", "schema_version"),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    revise_findings_items_path_ref = FieldAccessExpr(
+        base=revise_ref,
+        fields=("findings", "items_path"),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    approved_findings_schema_version_ref = FieldAccessExpr(
+        base=review_wrapper_approved_ref,
+        fields=("findings", "schema_version"),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    approved_findings_items_path_ref = FieldAccessExpr(
+        base=review_wrapper_approved_ref,
+        fields=("findings", "items_path"),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    blocked_findings_schema_version_ref = FieldAccessExpr(
+        base=review_wrapper_blocked_ref,
+        fields=("findings", "schema_version"),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    blocked_findings_items_path_ref = FieldAccessExpr(
+        base=review_wrapper_blocked_ref,
+        fields=("findings", "items_path"),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    revise_wrapper_findings_schema_version_ref = FieldAccessExpr(
+        base=review_wrapper_revise_ref,
+        fields=("findings", "schema_version"),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    revise_wrapper_findings_items_path_ref = FieldAccessExpr(
+        base=review_wrapper_revise_ref,
+        fields=("findings", "items_path"),
+        span=generated_span,
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+    review_findings_validator_argv = (
+        LiteralExpr(
+            value="python",
+            literal_kind="string",
+            span=generated_span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        LiteralExpr(
+            value="-m",
+            literal_kind="string",
+            span=generated_span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
+        LiteralExpr(
+            value="orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+            literal_kind="string",
+            span=generated_span,
+            form_path=expr.form_path,
+            expansion_stack=expr.expansion_stack,
+        ),
     )
     review_signature = _generated_procedure_signature(
         name=review_wrapper_name,
@@ -3254,22 +3420,52 @@ def _specialize_phase_review_loop_request(
                     MatchArm(
                         variant_name="APPROVED",
                         binding_name="review_wrapper_approved",
-                        body=UnionVariantExpr(
-                            type_name=review_result_type_name,
-                            variant_name="APPROVED",
-                            fields=(
+                        body=LetStarExpr(
+                            bindings=(
                                 (
-                                    "checks_report",
-                                    _field_ref(review_wrapper_approved_ref, "checks_report", expr),
+                                    "__review_loop_validated_findings",
+                                    CommandResultExpr(
+                                        step_name="validate_review_findings_v1",
+                                        argv=(
+                                            *review_findings_validator_argv,
+                                            approved_findings_schema_version_ref,
+                                            approved_findings_items_path_ref,
+                                        ),
+                                        returns_type_name=_type_name(findings_type),
+                                        span=generated_span,
+                                        form_path=expr.form_path,
+                                        expansion_stack=expr.expansion_stack,
+                                    ),
                                 ),
-                                (
-                                    "review_report",
-                                    _field_ref(review_wrapper_approved_ref, "review_report", expr),
+                            ),
+                            body=UnionVariantExpr(
+                                type_name=review_result_type_name,
+                                variant_name="APPROVED",
+                                fields=(
+                                    (
+                                        "checks_report",
+                                        _field_ref(review_wrapper_approved_ref, "checks_report", expr),
+                                    ),
+                                    (
+                                        "review_report",
+                                        _field_ref(review_wrapper_approved_ref, "review_report", expr),
+                                    ),
+                                    (
+                                        "review_decision",
+                                        _field_ref(review_wrapper_approved_ref, "review_decision", expr),
+                                    ),
+                                    (
+                                        "findings",
+                                        _review_findings_record_expr(
+                                            findings_type=findings_type,
+                                            base=validated_findings_ref,
+                                            expr=expr,
+                                        ),
+                                    ),
                                 ),
-                                (
-                                    "review_decision",
-                                    _field_ref(review_wrapper_approved_ref, "review_decision", expr),
-                                ),
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
                             ),
                             span=generated_span,
                             form_path=expr.form_path,
@@ -3282,18 +3478,48 @@ def _specialize_phase_review_loop_request(
                     MatchArm(
                         variant_name="BLOCKED",
                         binding_name="review_wrapper_blocked",
-                        body=UnionVariantExpr(
-                            type_name=review_result_type_name,
-                            variant_name="BLOCKED",
-                            fields=(
+                        body=LetStarExpr(
+                            bindings=(
                                 (
-                                    "progress_report",
-                                    _field_ref(review_wrapper_blocked_ref, "progress_report", expr),
+                                    "__review_loop_validated_findings",
+                                    CommandResultExpr(
+                                        step_name="validate_review_findings_v1",
+                                        argv=(
+                                            *review_findings_validator_argv,
+                                            blocked_findings_schema_version_ref,
+                                            blocked_findings_items_path_ref,
+                                        ),
+                                        returns_type_name=_type_name(findings_type),
+                                        span=generated_span,
+                                        form_path=expr.form_path,
+                                        expansion_stack=expr.expansion_stack,
+                                    ),
                                 ),
-                                (
-                                    "blocker_class",
-                                    _field_ref(review_wrapper_blocked_ref, "blocker_class", expr),
+                            ),
+                            body=UnionVariantExpr(
+                                type_name=review_result_type_name,
+                                variant_name="BLOCKED",
+                                fields=(
+                                    (
+                                        "progress_report",
+                                        _field_ref(review_wrapper_blocked_ref, "progress_report", expr),
+                                    ),
+                                    (
+                                        "blocker_class",
+                                        _field_ref(review_wrapper_blocked_ref, "blocker_class", expr),
+                                    ),
+                                    (
+                                        "findings",
+                                        _review_findings_record_expr(
+                                            findings_type=findings_type,
+                                            base=validated_findings_ref,
+                                            expr=expr,
+                                        ),
+                                    ),
                                 ),
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
                             ),
                             span=generated_span,
                             form_path=expr.form_path,
@@ -3306,18 +3532,48 @@ def _specialize_phase_review_loop_request(
                     MatchArm(
                         variant_name="REVISE",
                         binding_name="review_wrapper_revise",
-                        body=UnionVariantExpr(
-                            type_name=review_result_type_name,
-                            variant_name="REVISE",
-                            fields=(
+                        body=LetStarExpr(
+                            bindings=(
                                 (
-                                    "revise_review_report",
-                                    _field_ref(
-                                        review_wrapper_revise_ref,
-                                        "revise_review_report",
-                                        expr,
+                                    "__review_loop_validated_findings",
+                                    CommandResultExpr(
+                                        step_name="validate_review_findings_v1",
+                                        argv=(
+                                            *review_findings_validator_argv,
+                                            revise_wrapper_findings_schema_version_ref,
+                                            revise_wrapper_findings_items_path_ref,
+                                        ),
+                                        returns_type_name=_type_name(findings_type),
+                                        span=generated_span,
+                                        form_path=expr.form_path,
+                                        expansion_stack=expr.expansion_stack,
                                     ),
                                 ),
+                            ),
+                            body=UnionVariantExpr(
+                                type_name=review_result_type_name,
+                                variant_name="REVISE",
+                                fields=(
+                                    (
+                                        "revise_review_report",
+                                        _field_ref(
+                                            review_wrapper_revise_ref,
+                                            "revise_review_report",
+                                            expr,
+                                        ),
+                                    ),
+                                    (
+                                        "findings",
+                                        _review_findings_record_expr(
+                                            findings_type=findings_type,
+                                            base=validated_findings_ref,
+                                            expr=expr,
+                                        ),
+                                    ),
+                                ),
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
                             ),
                             span=generated_span,
                             form_path=expr.form_path,
@@ -3363,6 +3619,7 @@ def _specialize_phase_review_loop_request(
             ("completed", completed_type),
             ("inputs", inputs_type),
             ("review_report", last_review_report_type),
+            ("findings", findings_type),
         ),
         return_type=completed_type,
         requested_lowering_mode=ProcedureLoweringMode.PRIVATE_WORKFLOW,
@@ -3375,7 +3632,7 @@ def _specialize_phase_review_loop_request(
         body=ProviderResultExpr(
             provider=fix_provider_expr,
             prompt=fix_prompt_expr,
-            inputs=(completed_param, inputs_param, review_report_param),
+            inputs=(completed_param, inputs_param, review_report_param, findings_param),
             returns_type_name=_type_name(completed_type),
             span=generated_span,
             form_path=expr.form_path,
@@ -3429,6 +3686,7 @@ def _specialize_phase_review_loop_request(
                     fields=(
                         ("completed", completed_param),
                         ("last_review_report", initial_last_review_report_expr),
+                        ("latest_findings", initial_findings_expr),
                     ),
                     span=generated_span,
                     form_path=expr.form_path,
@@ -3462,6 +3720,14 @@ def _specialize_phase_review_loop_request(
                                             ("checks_report", _field_ref(approved_ref, "checks_report", expr)),
                                             ("review_report", _field_ref(approved_ref, "review_report", expr)),
                                             ("review_decision", _field_ref(approved_ref, "review_decision", expr)),
+                                            (
+                                                "findings",
+                                                _review_findings_record_expr(
+                                                    findings_type=findings_type,
+                                                    base=_field_ref(approved_ref, "findings", expr),
+                                                    expr=expr,
+                                                ),
+                                            ),
                                         ),
                                         span=generated_span,
                                         form_path=expr.form_path,
@@ -3485,6 +3751,14 @@ def _specialize_phase_review_loop_request(
                                         fields=(
                                             ("progress_report", _field_ref(blocked_ref, "progress_report", expr)),
                                             ("blocker_class", _field_ref(blocked_ref, "blocker_class", expr)),
+                                            (
+                                                "findings",
+                                                _review_findings_record_expr(
+                                                    findings_type=findings_type,
+                                                    base=_field_ref(blocked_ref, "findings", expr),
+                                                    expr=expr,
+                                                ),
+                                            ),
                                         ),
                                         span=generated_span,
                                         form_path=expr.form_path,
@@ -3504,6 +3778,21 @@ def _specialize_phase_review_loop_request(
                                 body=LetStarExpr(
                                     bindings=(
                                         (
+                                            "__review_loop_revalidated_findings",
+                                            CommandResultExpr(
+                                                step_name="validate_review_findings_v1",
+                                                argv=(
+                                                    *review_findings_validator_argv,
+                                                    revise_findings_schema_version_ref,
+                                                    revise_findings_items_path_ref,
+                                                ),
+                                                returns_type_name=_type_name(findings_type),
+                                                span=generated_span,
+                                                form_path=expr.form_path,
+                                                expansion_stack=expr.expansion_stack,
+                                            ),
+                                        ),
+                                        (
                                             "__review_loop_fixed",
                                             ProcedureCallExpr(
                                                 callee_name=fix_wrapper_name,
@@ -3511,6 +3800,7 @@ def _specialize_phase_review_loop_request(
                                                     state_completed_ref,
                                                     inputs_param,
                                                     _field_ref(revise_ref, "revise_review_report", expr),
+                                                    revalidated_findings_ref,
                                                 ),
                                                 span=generated_span,
                                                 form_path=expr.form_path,
@@ -3526,6 +3816,14 @@ def _specialize_phase_review_loop_request(
                                                 (
                                                     "last_review_report",
                                                     _field_ref(revise_ref, "revise_review_report", expr),
+                                                ),
+                                                (
+                                                    "latest_findings",
+                                                    _review_findings_record_expr(
+                                                        findings_type=findings_type,
+                                                        base=revalidated_findings_ref,
+                                                        expr=expr,
+                                                    ),
                                                 ),
                                             ),
                                             span=generated_span,
@@ -3558,6 +3856,37 @@ def _specialize_phase_review_loop_request(
                     variant_name="EXHAUSTED",
                     fields=(
                         ("last_review_report", last_review_report_ref),
+                        (
+                            "findings",
+                            RecordExpr(
+                                type_name=_type_name(findings_type),
+                                fields=(
+                                    (
+                                        "schema_version",
+                                        LiteralExpr(
+                                            value="ReviewFindings.v1",
+                                            literal_kind="string",
+                                            span=generated_span,
+                                            form_path=expr.form_path,
+                                            expansion_stack=expr.expansion_stack,
+                                        ),
+                                    ),
+                                    (
+                                        "items_path",
+                                        FieldAccessExpr(
+                                            base=latest_findings_ref,
+                                            fields=("items_path",),
+                                            span=generated_span,
+                                            form_path=expr.form_path,
+                                            expansion_stack=expr.expansion_stack,
+                                        ),
+                                    ),
+                                ),
+                                span=generated_span,
+                                form_path=expr.form_path,
+                                expansion_stack=expr.expansion_stack,
+                            ),
+                        ),
                         (
                             "reason",
                             LiteralExpr(
@@ -3700,6 +4029,43 @@ def _field_ref(base: NameExpr, field_name: str, expr: StdlibSpecializationExpr) 
         base=base,
         fields=(field_name,),
         span=_generated_expr_span(expr),
+        form_path=expr.form_path,
+        expansion_stack=expr.expansion_stack,
+    )
+
+
+def _review_findings_record_expr(
+    *,
+    findings_type: TypeRef,
+    base: ExprNode,
+    expr: StdlibSpecializationExpr,
+) -> RecordExpr:
+    generated_span = _generated_expr_span(expr)
+    return RecordExpr(
+        type_name=_type_name(findings_type),
+        fields=(
+            (
+                "schema_version",
+                FieldAccessExpr(
+                    base=base,
+                    fields=("schema_version",),
+                    span=generated_span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+            ),
+            (
+                "items_path",
+                FieldAccessExpr(
+                    base=base,
+                    fields=("items_path",),
+                    span=generated_span,
+                    form_path=expr.form_path,
+                    expansion_stack=expr.expansion_stack,
+                ),
+            ),
+        ),
+        span=generated_span,
         form_path=expr.form_path,
         expansion_stack=expr.expansion_stack,
     )
@@ -4114,6 +4480,34 @@ def _literal_type_name(literal_kind: str) -> str:
     if literal_kind == "bool":
         return "Bool"
     raise ValueError(f"unsupported literal kind: {literal_kind}")
+
+
+def _type_refs_compatible(expected: TypeRef, actual: TypeRef) -> bool:
+    from .contracts import review_findings_types_compatible
+
+    if expected == actual:
+        return True
+    return review_findings_types_compatible(expected, actual)
+
+
+def _allow_stdlib_review_findings_seed_path(
+    field_name: str,
+    *,
+    expected: TypeRef,
+    actual: TypeRef,
+    span: SourceSpan,
+) -> bool:
+    from .contracts import is_review_findings_json_path_type
+
+    return (
+        field_name == "items_path"
+        and is_review_findings_json_path_type(expected)
+        and isinstance(actual, PathTypeRef)
+        and actual.definition.kind == "relpath"
+        and actual.definition.under == "artifacts/work"
+        and actual.definition.must_exist is True
+        and span.start.path.endswith("orchestrator/workflow_lisp/stdlib_modules/std/phase.orc")
+    )
 
 
 def _unify_loop_control_types(

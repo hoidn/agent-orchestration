@@ -2559,7 +2559,9 @@ def _build_loop_seed_step(
                 projection=state_projection,
                 local_values=local_values,
                 context=context,
+                normalize_review_findings_seed_path=True,
                 allow_missing_target_fields=state_projection.optional_relpath_fields,
+                allow_missing_active_fields=True,
             ),
         )
 
@@ -2594,7 +2596,9 @@ def _build_loop_seed_step(
                         local_values=local_values,
                         context=context,
                         active_variant_name=variant.name,
+                        normalize_review_findings_seed_path=True,
                         allow_missing_target_fields=state_projection.optional_relpath_fields,
+                        allow_missing_active_fields=True,
                     ),
                 )
             ],
@@ -3054,12 +3058,22 @@ def _loop_projection_materialize_values(
     local_values: Mapping[str, Any],
     context: _LoweringContext,
     active_variant_name: str | None = None,
+    normalize_review_findings_seed_path: bool = False,
     allow_missing_target_fields: frozenset[str] = frozenset(),
     allow_missing_active_fields: bool = False,
 ) -> list[dict[str, Any]]:
     """Project one expression into flattened materialized loop outputs."""
 
     resolved_value = _resolve_inline_expr_value(expr, local_values=local_values)
+
+    def normalize_source(field: FlattenedContractField, source: dict[str, Any]) -> dict[str, Any]:
+        if normalize_review_findings_seed_path and field.source_path == (
+            "state",
+            "latest_findings",
+            "items_path",
+        ):
+            return {"literal": "artifacts/work/review-findings-seed.json"}
+        return source
 
     def current_value_for(field_path: tuple[str, ...]) -> Any:
         if isinstance(expr, UnionVariantExpr):
@@ -3096,9 +3110,9 @@ def _loop_projection_materialize_values(
                 relative_path = field.source_path[1:]
                 current_value = current_value_for(relative_path)
                 if isinstance(current_value, LiteralExpr):
-                    source = {"literal": current_value.value}
+                    source = normalize_source(field, {"literal": current_value.value})
                 elif isinstance(current_value, str):
-                    source = {"ref": current_value}
+                    source = normalize_source(field, {"ref": current_value})
                 else:
                     raise _compile_error(
                         code="workflow_return_not_exportable",
@@ -3127,9 +3141,9 @@ def _loop_projection_materialize_values(
         relative_path = field.source_path[1:]
         current_value = current_value_for(relative_path)
         if isinstance(current_value, LiteralExpr):
-            source = {"literal": current_value.value}
+            source = normalize_source(field, {"literal": current_value.value})
         elif isinstance(current_value, str):
-            source = {"ref": current_value}
+            source = normalize_source(field, {"ref": current_value})
         else:
             raise _compile_error(
                 code="workflow_return_not_exportable",
@@ -3329,6 +3343,30 @@ def _loop_body_scope_value(value: Any) -> Any:
         return value
     if isinstance(value, Mapping):
         return {name: _loop_body_scope_value(item) for name, item in value.items()}
+    return value
+
+
+def _match_case_scope_value(value: Any) -> Any:
+    """Localize one match-case binding value to the current branch scope."""
+
+    if isinstance(value, str):
+        if value.startswith("root.steps."):
+            return "self.steps." + value.removeprefix("root.steps.")
+        return value
+    if isinstance(value, Mapping):
+        return {name: _match_case_scope_value(item) for name, item in value.items()}
+    return value
+
+
+def _match_subject_scope_value(value: Any) -> Any:
+    """Localize matched-subject refs so nested branch steps can still resolve them."""
+
+    if isinstance(value, str):
+        if value.startswith("self.steps."):
+            return "root.steps." + value.removeprefix("self.steps.")
+        return value
+    if isinstance(value, Mapping):
+        return {name: _match_subject_scope_value(item) for name, item in value.items()}
     return value
 
 
@@ -3935,15 +3973,18 @@ def _normalize_let_binding(
         local_values=local_values,
         step_name_prefix=step_name_prefix,
     )
+    local_value = _binding_local_value_from_terminal(
+        binding_expr,
+        binding_type=binding_type,
+        binding_terminal=binding_terminal,
+    )
+    if binding_terminal is not None and "__match__" in context.step_name_prefix:
+        local_value = _match_case_scope_value(local_value)
     return _NormalizedBindingResult(
         binding_type=binding_type,
         emitted_steps=binding_steps,
         terminal=binding_terminal,
-        local_value=_binding_local_value_from_terminal(
-            binding_expr,
-            binding_type=binding_type,
-            binding_terminal=binding_terminal,
-        ),
+        local_value=local_value,
     )
 
 
@@ -6460,7 +6501,7 @@ def _resolve_expr_local_value(expr: Any, *, local_values: Mapping[str, Any]) -> 
     if isinstance(expr, NameExpr):
         return local_values.get(expr.name)
     if isinstance(expr, FieldAccessExpr):
-        base_value = local_values.get(expr.base.name)
+        base_value = _resolve_expr_local_value(expr.base, local_values=local_values)
         return _resolve_nested_local_value(base_value, tuple(expr.fields))
     if isinstance(expr, PhaseTargetExpr):
         return None
@@ -7404,7 +7445,7 @@ def _match_arm_local_values(
     """Expose one matched structured value inside a match arm."""
 
     localized_output_refs = {
-        output_name: _conditional_case_ref(output_ref, terminal_step_name=binding_terminal.step_name)
+        output_name: _match_subject_scope_value(output_ref)
         for output_name, output_ref in binding_terminal.output_refs.items()
     }
     return {
@@ -7555,9 +7596,17 @@ def _record_expr_value_at_path(record_expr: RecordExpr, field_path: tuple[str, .
     return current
 
 
+def _normalize_union_field_path(field_path: tuple[str, ...]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for segment in field_path:
+        normalized.extend(part for part in segment.split("__") if part)
+    return tuple(normalized)
+
+
 def _union_variant_expr_value_at_path(union_expr: UnionVariantExpr, field_path: tuple[str, ...]) -> Any:
     """Read a field from one compiler-generated union variant literal."""
 
+    field_path = _normalize_union_field_path(field_path)
     if not field_path:
         return union_expr
     field_name = field_path[0]
@@ -8463,7 +8512,6 @@ def _lower_union_variant_expr(
     values: list[dict[str, Any]] = []
     placeholders = _boundary_placeholder_literals(typed_expr.type_ref, span=union_expr.span, form_path=union_expr.form_path)
     active_field_names = {name for name, _ in union_expr.fields}
-    active_values = {name: value for name, value in union_expr.fields}
     for field in derive_workflow_boundary_fields(
         typed_expr.type_ref,
         generated_name="return",
@@ -8471,13 +8519,13 @@ def _lower_union_variant_expr(
         span=union_expr.span,
         form_path=union_expr.form_path,
     ):
-        field_path = field.source_path[1:]
+        field_path = _normalize_union_field_path(field.source_path[1:])
         field_name = field_path[0] if field_path else ""
         contract = dict(field.contract_definition)
         if field_name == "variant":
             source = {"literal": union_expr.variant_name}
         elif field_name in active_field_names:
-            leaf_expr = active_values[field_name]
+            leaf_expr = _union_variant_expr_value_at_path(union_expr, field_path)
             leaf_value = _resolve_inline_expr_value(leaf_expr, local_values=local_values)
             if isinstance(leaf_value, LiteralExpr):
                 source = {"literal": leaf_value.value}
@@ -8539,7 +8587,12 @@ def _render_existing_output_ref(
     value = _resolve_inline_expr_value(expr, local_values=local_values)
     if not isinstance(value, str):
         return None
-    if value.startswith("root.steps.") or value.startswith("self.steps.") or value.startswith("inputs."):
+    if (
+        value.startswith("root.steps.")
+        or value.startswith("self.steps.")
+        or value.startswith("parent.steps.")
+        or value.startswith("inputs.")
+    ):
         return value
     return None
 
@@ -9336,9 +9389,14 @@ def _private_workflow_result_type_for_expr(
     if isinstance(expr, NameExpr):
         return local_type_bindings.get(expr.name)
     if isinstance(expr, FieldAccessExpr):
-        current_type = local_type_bindings.get(expr.base.name)
+        current_type = _private_workflow_result_type_for_expr(
+            expr.base,
+            local_type_bindings=local_type_bindings,
+            typed_procedures_by_name=typed_procedures_by_name,
+            type_env=type_env,
+        )
         for field_name in expr.fields:
-            if not isinstance(current_type, RecordTypeRef):
+            if not isinstance(current_type, (RecordTypeRef, VariantCaseTypeRef)):
                 return None
             current_type = type_env.record_field(
                 current_type,
@@ -9493,6 +9551,11 @@ def _private_workflow_binding_local_value(
 ) -> Any | None:
     """Return the step-backed local shape one private-workflow binding exports."""
 
+    step_name = (
+        f"{binding_name}__{expr.step_name}"
+        if isinstance(expr, CommandResultExpr)
+        else binding_name
+    )
     if _is_inline_let_binding_expr(expr):
         return _resolve_inline_expr_value(expr, local_values=local_values)
     if isinstance(expr, WithPhaseExpr):
@@ -9565,7 +9628,7 @@ def _private_workflow_binding_local_value(
         return None
     return _private_workflow_local_value_for_type(
         binding_type,
-        step_name=binding_name,
+        step_name=step_name,
         span=expr.span,
         form_path=expr.form_path,
     )
@@ -9781,7 +9844,7 @@ def _record_outputs_are_step_backed(
     for _, field_path in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
         value = _record_expr_value_at_path(record_expr, field_path)
         source_ref = _render_existing_output_ref(value, local_values=local_values)
-        if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.")):
+        if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
             return False
     return True
 
@@ -9796,10 +9859,15 @@ def _union_variant_outputs_are_step_backed(
 
     if not isinstance(return_type_ref, UnionTypeRef):
         return False
-    active_values = dict(union_expr.fields)
-    for field_name, value in active_values.items():
+    active_field_names = {name for name, _ in union_expr.fields}
+    for _, raw_field_path in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
+        field_path = _normalize_union_field_path(raw_field_path)
+        field_name = field_path[0] if field_path else ""
+        if field_name != "variant" and field_name not in active_field_names:
+            continue
+        value = _union_variant_expr_value_at_path(union_expr, field_path)
         source_ref = _render_existing_output_ref(value, local_values=local_values)
-        if source_ref is not None and source_ref.startswith(("root.steps.", "self.steps.")):
+        if source_ref is not None and source_ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
             continue
         resolved = _resolve_inline_expr_value(value, local_values=local_values)
         if isinstance(resolved, LiteralExpr):
@@ -9823,7 +9891,7 @@ def _inline_outputs_are_step_backed(
         return False
     for output_name, _ in _flatten_boundary_leaf_paths(return_type_ref, generated_name="return"):
         source_ref = output_refs.get(output_name)
-        if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.")):
+        if not isinstance(source_ref, str) or not source_ref.startswith(("root.steps.", "self.steps.", "parent.steps.")):
             return False
     return True
 

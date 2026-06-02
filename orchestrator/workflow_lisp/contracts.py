@@ -31,6 +31,46 @@ from .type_env import (
 from .workflows import WorkflowSignature
 
 
+def is_review_findings_type(type_ref: TypeRef) -> bool:
+    """Return whether a type resolves to the canonical stdlib ReviewFindings carrier."""
+
+    if not isinstance(type_ref, RecordTypeRef):
+        return False
+    if type_ref.definition.name != "ReviewFindings":
+        return False
+    if not type_ref.definition.span.start.path.endswith("orchestrator/workflow_lisp/stdlib_modules/std/phase.orc"):
+        return False
+    schema_version_type = type_ref.field_types.get("schema_version")
+    items_path_type = type_ref.field_types.get("items_path")
+    return schema_version_type == PrimitiveTypeRef(name="String") and is_review_findings_json_path_type(
+        items_path_type
+    )
+
+
+def is_review_findings_json_path_type(type_ref: TypeRef | None) -> bool:
+    if not isinstance(type_ref, PathTypeRef):
+        return False
+    if type_ref.definition.name != "ReviewFindingsJsonPath":
+        return False
+    if not type_ref.definition.span.start.path.endswith("orchestrator/workflow_lisp/stdlib_modules/std/phase.orc"):
+        return False
+    return (
+        type_ref.definition.kind == "relpath"
+        and type_ref.definition.under == "artifacts/work"
+        and type_ref.definition.must_exist is True
+    )
+
+
+def review_findings_types_compatible(expected: TypeRef, actual: TypeRef) -> bool:
+    """Allow only the bounded ReviewFindings alias surface to bypass identity checks."""
+
+    if is_review_findings_type(expected) and is_review_findings_type(actual):
+        return True
+    if is_review_findings_json_path_type(expected) and is_review_findings_json_path_type(actual):
+        return True
+    return False
+
+
 @dataclass(frozen=True)
 class GeneratedBundleContract:
     """Workflow output contract generated from a frontend record or union type.

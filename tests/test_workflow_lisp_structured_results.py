@@ -685,6 +685,107 @@ def test_build_command_boundary_environment_rejects_incomplete_certified_adapter
     _assert_diagnostic_code(excinfo, "command_adapter_missing_contract")
 
 
+def test_review_findings_certified_adapter_accepts_valid_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from orchestrator.workflow_lisp.adapters import validate_review_findings_v1
+
+    findings_path = tmp_path / "artifacts" / "work" / "review_findings.json"
+    findings_path.parent.mkdir(parents=True, exist_ok=True)
+    findings_path.write_text(
+        '{"items":[{"id":"finding-1","severity":"high","summary":"Broken contract","evidence":"details"}]}',
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = validate_review_findings_v1.main(
+        [
+            "validate_review_findings_v1",
+            '{"schema_version":"ReviewFindings.v1","items_path":"artifacts/work/review_findings.json"}',
+        ]
+    )
+
+    assert exit_code == 0
+    assert capsys.readouterr().out.strip() == (
+        '{"schema_version": "ReviewFindings.v1", "items_path": "artifacts/work/review_findings.json"}'
+    )
+
+
+def test_review_findings_certified_adapter_rejects_pointer_authority_payload(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from orchestrator.workflow_lisp.adapters import validate_review_findings_v1
+
+    findings_path = tmp_path / "artifacts" / "work" / "review_findings.json"
+    findings_path.parent.mkdir(parents=True, exist_ok=True)
+    findings_path.write_text('"artifacts/work/other.json"', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = validate_review_findings_v1.main(
+        [
+            "validate_review_findings_v1",
+            '{"schema_version":"ReviewFindings.v1","items_path":"artifacts/work/review_findings.json"}',
+        ]
+    )
+
+    assert exit_code == 1
+    assert '"review_findings_pointer_authority_forbidden"' in capsys.readouterr().out
+
+
+def test_review_findings_certified_adapter_rejects_path_outside_artifacts_work(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from orchestrator.workflow_lisp.adapters import validate_review_findings_v1
+
+    findings_path = tmp_path / "tmp" / "review_findings.json"
+    findings_path.parent.mkdir(parents=True, exist_ok=True)
+    findings_path.write_text('{"items":[]}', encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = validate_review_findings_v1.main(
+        [
+            "validate_review_findings_v1",
+            '{"schema_version":"ReviewFindings.v1","items_path":"tmp/review_findings.json"}',
+        ]
+    )
+
+    assert exit_code == 1
+    assert '"review_findings_path_unsafe"' in capsys.readouterr().out
+
+
+def test_review_findings_certified_adapter_rejects_symlinked_external_findings(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from orchestrator.workflow_lisp.adapters import validate_review_findings_v1
+
+    external_root = tmp_path.parent / f"{tmp_path.name}_external"
+    external_root.mkdir()
+    external_findings_path = external_root / "review_findings.json"
+    external_findings_path.write_text('{"items":[]}', encoding="utf-8")
+    findings_link = tmp_path / "artifacts" / "work" / "review_findings.json"
+    findings_link.parent.mkdir(parents=True, exist_ok=True)
+    findings_link.symlink_to(external_findings_path)
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = validate_review_findings_v1.main(
+        [
+            "validate_review_findings_v1",
+            '{"schema_version":"ReviewFindings.v1","items_path":"artifacts/work/review_findings.json"}',
+        ]
+    )
+
+    assert exit_code == 1
+    assert '"review_findings_path_unsafe"' in capsys.readouterr().out
+
+
 def test_derive_structured_result_contract_builds_output_bundle_for_record_results() -> None:
     type_env = _build_type_env()
     checks_result = type_env.resolve_type(

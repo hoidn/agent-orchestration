@@ -404,6 +404,12 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text("artifact\n", encoding="utf-8")
 
+    def _write_findings(relpath: str) -> str:
+        target = tmp_path / relpath
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps({"items": []}, indent=2) + "\n", encoding="utf-8")
+        return relpath
+
     def _success():
         return SimpleNamespace(
             exit_code=0,
@@ -451,6 +457,10 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
                 {
                     "variant": "REVISE",
                     "revise_review_report": "artifacts/work/review_round_1.md",
+                    "findings": {
+                        "schema_version": "ReviewFindings.v1",
+                        "items_path": _write_findings("artifacts/work/review_round_1_findings.json"),
+                    },
                 },
             )
             return _success()
@@ -465,6 +475,10 @@ def test_review_loop_imported_stdlib_route_resumes_after_revise_checkpoint(tmp_p
                 "checks_report": "artifacts/work/checks_report.md",
                 "review_report": "artifacts/work/review_round_2.md",
                 "review_decision": "APPROVE",
+                "findings": {
+                    "schema_version": "ReviewFindings.v1",
+                    "items_path": _write_findings("artifacts/work/review_round_2_findings.json"),
+                },
             },
         )
         return _success()

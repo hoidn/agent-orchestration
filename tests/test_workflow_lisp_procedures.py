@@ -484,7 +484,7 @@ def test_lowering_rejects_private_workflow_for_non_boundary_type(tmp_path: Path)
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(PRIVATE_BOUNDARY_FIXTURE, tmp_path=tmp_path)
 
-    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
+    _assert_diagnostic_code(excinfo, "procedure_effect_mismatch")
 
 def test_auto_lowering_stays_inline_when_call_sites_cannot_bind_through_stage3_seam(tmp_path: Path) -> None:
     path = _write_module(
@@ -761,7 +761,7 @@ def test_explicit_private_workflow_rejects_input_projection_body(tmp_path: Path)
     with pytest.raises(LispFrontendCompileError) as excinfo:
         _compile(path, tmp_path=tmp_path)
 
-    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
+    _assert_diagnostic_code(excinfo, "procedure_effect_mismatch")
 
 
 def test_direct_command_result_procedure_effects_do_not_require_hidden_bundle_writes(tmp_path: Path) -> None:
@@ -933,7 +933,7 @@ def test_private_workflow_review_phase_procedure_rejects_review_loop_result_proj
             '  (:language "0.1")',
             '  (:target-dsl "2.14")',
             "  (defmodule procedure_review_phase_private_workflow)",
-            "  (import std/phase :only (review-revise-loop))",
+            "  (import std/phase :only (ReviewFindings review-revise-loop))",
             "  (defenum BlockerClass",
             "    user_decision_required)",
             "  (defenum ReviewDecision",
@@ -963,12 +963,15 @@ def test_private_workflow_review_phase_procedure_rejects_review_loop_result_proj
             "    (APPROVED",
             "      (checks_report WorkReport)",
             "      (review_report WorkReport)",
-            "      (review_decision ReviewDecision))",
+            "      (review_decision ReviewDecision)",
+            "      (findings ReviewFindings))",
             "    (BLOCKED",
             "      (progress_report WorkReport)",
-            "      (blocker_class BlockerClass))",
+            "      (blocker_class BlockerClass)",
+            "      (findings ReviewFindings))",
             "    (EXHAUSTED",
             "      (last_review_report WorkReport)",
+            "      (findings ReviewFindings)",
             "      (reason String)))",
             "  (defproc review-phase-helper",
             "    ((phase-ctx PhaseCtx)",
@@ -1023,7 +1026,7 @@ def test_private_workflow_review_phase_procedure_rejects_review_loop_result_proj
             workspace_root=tmp_path,
         )
 
-    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
+    _assert_diagnostic_code(excinfo, "procedure_effect_mismatch")
 
 
 def test_private_workflow_call_rejects_review_loop_boundary_before_allocator_reuse(
@@ -1036,7 +1039,7 @@ def test_private_workflow_call_rejects_review_loop_boundary_before_allocator_reu
             '  (:language "0.1")',
             '  (:target-dsl "2.14")',
             "  (defmodule procedure_review_phase_private_workflow_allocator)",
-            "  (import std/phase :only (review-revise-loop))",
+            "  (import std/phase :only (ReviewFindings review-revise-loop))",
             "  (defenum BlockerClass",
             "    user_decision_required)",
             "  (defenum ReviewDecision",
@@ -1066,12 +1069,15 @@ def test_private_workflow_call_rejects_review_loop_boundary_before_allocator_reu
             "    (APPROVED",
             "      (checks_report WorkReport)",
             "      (review_report WorkReport)",
-            "      (review_decision ReviewDecision))",
+            "      (review_decision ReviewDecision)",
+            "      (findings ReviewFindings))",
             "    (BLOCKED",
             "      (progress_report WorkReport)",
-            "      (blocker_class BlockerClass))",
+            "      (blocker_class BlockerClass)",
+            "      (findings ReviewFindings))",
             "    (EXHAUSTED",
             "      (last_review_report WorkReport)",
+            "      (findings ReviewFindings)",
             "      (reason String)))",
             "  (defproc review-phase-helper",
             "    ((phase-ctx PhaseCtx)",
@@ -1126,7 +1132,7 @@ def test_private_workflow_call_rejects_review_loop_boundary_before_allocator_reu
             workspace_root=tmp_path,
         )
 
-    _assert_diagnostic_code(excinfo, "proc_private_workflow_boundary_invalid")
+    _assert_diagnostic_code(excinfo, "procedure_effect_mismatch")
 
 
 def test_private_workflow_with_phase_binding_exports_step_backed_outputs(tmp_path: Path) -> None:

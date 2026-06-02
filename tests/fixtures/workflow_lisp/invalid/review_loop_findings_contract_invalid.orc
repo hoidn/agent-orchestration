@@ -1,20 +1,23 @@
 (workflow-lisp
   (:language "0.1")
   (:target-dsl "2.14")
-  (defmodule phase_stdlib_review_loop)
+  (defmodule review_loop_findings_contract_invalid)
   (import std/phase :only (ReviewFindings review-revise-loop))
   (defenum BlockerClass
-    missing_resource
-    unavailable_hardware
-    roadmap_conflict
-    external_dependency_outside_authority
-    user_decision_required
-    unrecoverable_after_fix_attempt)
+    missing_resource)
   (defenum ReviewDecision
     APPROVE
     REVISE
     BLOCKED)
-  (defpath WorkReport
+  (defpath ReviewReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defpath ChecksReport
+    :kind relpath
+    :under "artifacts/work"
+    :must-exist true)
+  (defpath ProgressReport
     :kind relpath
     :under "artifacts/work"
     :must-exist true)
@@ -28,27 +31,29 @@
     (state-root Path.state-root)
     (artifact-root Path.artifact-root))
   (defrecord CompletedAttempt
-    (execution_report_path WorkReport))
+    (execution_report_path ReviewReport))
   (defrecord ReviewInputs
-    (design_review_prompt WorkReport)
-    (fix_plan_prompt WorkReport))
-  (defunion ReviewLoopResult
+    (design_review_prompt ReviewReport)
+    (fix_plan_prompt ReviewReport))
+  (defrecord WrongFindings
+    (schema_version String)
+    (items_path ReviewReport))
+  (defunion BrokenReviewLoopResult
     (APPROVED
-      (checks_report WorkReport)
-      (review_report WorkReport)
+      (checks_report ChecksReport)
+      (review_report ReviewReport)
       (review_decision ReviewDecision)
-      (findings ReviewFindings))
+      (findings WrongFindings))
     (BLOCKED
-      (progress_report WorkReport)
+      (progress_report ProgressReport)
       (blocker_class BlockerClass)
-      (findings ReviewFindings))
+      (findings WrongFindings))
     (EXHAUSTED
-      (last_review_report WorkReport)
-      (reason String)
-      (findings ReviewFindings)))
+      (last_review_report ReviewReport)
+      (reason String)))
   (defrecord ReviewLoopSurfaceResult
-    (report_path WorkReport))
-  (defworkflow review-revise-loop-demo
+    (report_path ReviewReport))
+  (defworkflow invalid-review-loop-contract
     ((phase-ctx PhaseCtx)
      (completed CompletedAttempt)
      (inputs ReviewInputs))
@@ -64,14 +69,11 @@
                  :review-prompt prompts.implementation.review
                  :fix-prompt prompts.implementation.fix
                  :max 5
-                 :returns ReviewLoopResult)))
+                 :returns BrokenReviewLoopResult)))
         (match result
           ((APPROVED approved)
            (record ReviewLoopSurfaceResult
              :report_path approved.review_report))
           ((BLOCKED blocked)
            (record ReviewLoopSurfaceResult
-             :report_path blocked.progress_report))
-          ((EXHAUSTED exhausted)
-           (record ReviewLoopSurfaceResult
-             :report_path exhausted.last_review_report)))))))
+             :report_path blocked.progress_report)))))))

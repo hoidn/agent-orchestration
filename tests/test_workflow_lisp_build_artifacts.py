@@ -999,6 +999,87 @@ def test_source_map_serializes_generated_semantic_effects_for_frontend_build(tmp
     )
 
 
+def test_review_loop_command_boundary_surfaces_validate_review_findings_adapter(
+    tmp_path: Path,
+) -> None:
+    build = _build_module()
+    build_frontend_bundle = getattr(build, "build_frontend_bundle")
+    request_cls = getattr(build, "FrontendBuildRequest")
+
+    module_dir = tmp_path / "review_findings_build"
+    module_dir.mkdir(parents=True, exist_ok=True)
+    module_path = module_dir / "entry.orc"
+    module_path.write_text(
+        "\n".join(
+            [
+                "(workflow-lisp",
+                '  (:language "0.1")',
+                '  (:target-dsl "2.14")',
+                "  (defmodule review_findings_build/entry)",
+                "  (import std/phase :only (ReviewFindings ReviewFindingsJsonPath))",
+                "  (export validate-findings)",
+                "  (defworkflow validate-findings",
+                "    ((items_path ReviewFindingsJsonPath))",
+                "    -> ReviewFindings",
+                "    (command-result validate_review_findings_v1",
+                '      :argv ("python" "-m" "orchestrator.workflow_lisp.adapters.validate_review_findings_v1" items_path)',
+                "      :returns ReviewFindings)))",
+            ]
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+    manifest_path = module_dir / "commands.json"
+    manifest_path.write_text(
+        json.dumps(
+            {
+                "validate_review_findings_v1": {
+                    "kind": "certified_adapter",
+                    "stable_command": [
+                        "python",
+                        "-m",
+                        "orchestrator.workflow_lisp.adapters.validate_review_findings_v1",
+                    ],
+                    "input_contract": {"type": "object"},
+                    "output_type_name": "ReviewFindings",
+                    "effects": ["structured_result"],
+                    "path_safety": {"kind": "workspace_relpath"},
+                    "source_map_behavior": "step",
+                    "fixture_ids": ["review_findings_valid"],
+                    "negative_fixture_ids": ["review_findings_pointer_authority_forbidden"],
+                }
+            },
+            indent=2,
+            sort_keys=True,
+        ),
+        encoding="utf-8",
+    )
+
+    result = build_frontend_bundle(
+        request_cls(
+            source_path=module_path,
+            source_roots=(tmp_path,),
+            entry_workflow="validate-findings",
+            provider_externs_path=None,
+            prompt_externs_path=None,
+            imported_workflow_bundles_path=None,
+            command_boundaries_path=manifest_path,
+            emit_debug_yaml=False,
+            workspace_root=tmp_path,
+        )
+    )
+    semantic_ir = json.loads(result.artifact_paths["semantic_ir"].read_text(encoding="utf-8"))
+    source_map = json.loads(result.artifact_paths["source_map"].read_text(encoding="utf-8"))
+    workflow_name = result.entry_selection.canonical_name
+
+    assert any(
+        boundary["boundary_kind"] == "certified_adapter"
+        and boundary["boundary_name"] == "validate_review_findings_v1"
+        for boundary in semantic_ir["command_boundaries"].values()
+    )
+    assert source_map["workflows"][workflow_name]["command_boundaries"]
+
+
 def test_stdlib_contract_inventory_is_compile_time_only_and_not_serialized_into_frontend_build_artifacts(
     tmp_path: Path,
 ) -> None:
