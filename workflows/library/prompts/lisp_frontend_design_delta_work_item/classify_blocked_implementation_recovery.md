@@ -12,16 +12,20 @@ Choose `TARGET_DESIGN_REVISION_REQUIRED` only when the blocker shows that the
 durable target design itself is under-specified, internally inconsistent, or
 missing a contract needed to implement the selected design gap.
 
+Choose `PREREQUISITE_GAP_REQUIRED` when the blocker shows that a different
+missing prerequisite capability or design gap must be completed before this
+selected gap can be implemented.
+
 Choose `TERMINAL_BLOCKED` for true external dependencies, missing user
 decisions, missing resources, unsupported tools, or blockers that cannot be
-resolved by a bounded gap-design or target-design revision.
+resolved by a bounded gap-design, target-design, or prerequisite-gap route.
 
 Write one JSON bundle at the required output path:
 
 ```json
 {
-  "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED | TARGET_DESIGN_REVISION_REQUIRED | TERMINAL_BLOCKED",
-  "reason": "implementation_architecture_under_scoped | target_design_contract_gap | true_external_dependency | user_decision_required | unsupported_blocker",
+  "blocked_recovery_route": "GAP_DESIGN_REVISION_REQUIRED | TARGET_DESIGN_REVISION_REQUIRED | PREREQUISITE_GAP_REQUIRED | TERMINAL_BLOCKED",
+  "reason": "implementation_architecture_under_scoped | target_design_contract_gap | prerequisite_gap_required | true_external_dependency | user_decision_required | unsupported_blocker",
   "summary": ""
 }
 ```

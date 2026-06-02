@@ -12,6 +12,7 @@ from pathlib import Path
 RECOVERY_ROUTES = {
     "GAP_DESIGN_REVISION_REQUIRED",
     "TARGET_DESIGN_REVISION_REQUIRED",
+    "PREREQUISITE_GAP_REQUIRED",
     "TERMINAL_BLOCKED",
 }
 
@@ -60,27 +61,52 @@ def _write_outputs(
 
 
 def _run_update(args: argparse.Namespace, command: str, reason: str) -> int:
-    return subprocess.run(
-        [
-            "python",
-            "workflows/library/scripts/update_lisp_frontend_run_state.py",
-            "--state-path",
-            args.state_path,
-            command,
-            "--item-id",
-            args.item_id,
-            "--source",
-            args.source,
-            "--reason",
-            reason,
-            "--summary-path",
-            args.summary_path,
-            "--summary-pointer-path",
-            args.summary_pointer_path,
-            "--drain-status-path",
-            args.drain_status_path,
-        ]
-    ).returncode
+    state_reason = "implementation_blocked" if command == "blocked" else reason
+    command_args = [
+        "python",
+        "workflows/library/scripts/update_lisp_frontend_run_state.py",
+        "--state-path",
+        args.state_path,
+        command,
+        "--item-id",
+        args.item_id,
+        "--source",
+        args.source,
+        "--reason",
+        state_reason,
+        "--summary-path",
+        args.summary_path,
+        "--summary-pointer-path",
+        args.summary_pointer_path,
+        "--drain-status-path",
+        args.drain_status_path,
+    ]
+    if command == "blocked":
+        optional = {
+            "--recovery-route": args.recovery_route,
+            "--recovery-reason": reason,
+            "--progress-report-path": args.progress_report_path,
+            "--implementation-state-path": args.implementation_state_path,
+            "--architecture-path": _architecture_path(args),
+            "--plan-path": args.plan_path,
+            "--recovery-event-id": args.recovery_event_id,
+        }
+        for flag, value in optional.items():
+            if value:
+                command_args.extend([flag, value])
+    return subprocess.run(command_args).returncode
+
+
+def _architecture_path(args: argparse.Namespace) -> str:
+    if args.architecture_path:
+        return args.architecture_path
+    if not args.architecture_bundle_path:
+        return ""
+    bundle_path = Path(args.architecture_bundle_path)
+    if not bundle_path.exists():
+        return ""
+    bundle = json.loads(bundle_path.read_text(encoding="utf-8"))
+    return str(bundle.get("architecture_path") or "").strip()
 
 
 def main() -> int:
@@ -97,6 +123,12 @@ def main() -> int:
     parser.add_argument("--summary-path", required=True)
     parser.add_argument("--summary-pointer-path", required=True)
     parser.add_argument("--drain-status-path", required=True)
+    parser.add_argument("--progress-report-path", default="")
+    parser.add_argument("--implementation-state-path", default="")
+    parser.add_argument("--architecture-path", default="")
+    parser.add_argument("--architecture-bundle-path", default="")
+    parser.add_argument("--plan-path", default="")
+    parser.add_argument("--recovery-event-id", default="")
     args = parser.parse_args()
 
     route = args.recovery_route.strip()
@@ -109,25 +141,46 @@ def main() -> int:
         raise SystemExit(f"Unexpected recovery route: {route}")
     if not reason:
         raise SystemExit("Recovery reason is required")
+    args.recovery_route = route
+
+    revision_report_path = Path(args.revision_report) if args.revision_report else None
+    revision_report_exists = revision_report_path is not None and revision_report_path.exists()
 
     if route == "GAP_DESIGN_REVISION_REQUIRED":
-        if args.revision_report:
-            report = json.loads(Path(args.revision_report).read_text(encoding="utf-8"))
+        if revision_report_exists:
+            report = json.loads(revision_report_path.read_text(encoding="utf-8"))
             decision = str(report.get("design_revision_decision") or "").strip()
             if decision == "BLOCKED":
                 return _run_update(args, "blocked", "gap_design_revision_blocked")
             if decision != "REVISED":
                 raise SystemExit(f"Unexpected gap design revision decision: {decision}")
-        return _run_update(args, "gap_design_revision", reason)
+            result = _run_update(args, "gap_design_revision", reason)
+            if result == 0 and args.terminal_action == "continue":
+                Path(args.drain_status_path).write_text("RUN_RECOVERED_GAP\n", encoding="utf-8")
+            return result
+        result = _run_update(args, "blocked", reason)
+        if result == 0 and args.terminal_action == "continue":
+            Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
+        return result
     if route == "TARGET_DESIGN_REVISION_REQUIRED":
+        if not revision_report_exists:
+            result = _run_update(args, "blocked", reason)
+            if result == 0 and args.terminal_action == "continue":
+                Path(args.drain_status_path).write_text("CONTINUE\n", encoding="utf-8")
+            return result
         decision = _read_value_or_path(args.target_design_review_decision)
         if decision == "APPROVE":
-            return _run_update(args, "design_revision", "implementation_design_revision_required")
+            result = _run_update(args, "design_revision", "implementation_design_revision_required")
+            if result == 0 and args.terminal_action == "continue":
+                Path(args.drain_status_path).write_text("RUN_RECOVERED_GAP\n", encoding="utf-8")
+            return result
         if decision in {"REVISE", "BLOCKED"}:
             return _run_update(args, "blocked", "design_revision_exhausted")
         raise SystemExit(f"Unexpected target design review decision: {decision}")
+    if route == "PREREQUISITE_GAP_REQUIRED":
+        return _run_update(args, "blocked", reason)
 
-    if args.terminal_action == "block":
+    if route == "TERMINAL_BLOCKED" or args.terminal_action == "block":
         return _run_update(args, "blocked", "implementation_blocked")
 
     _write_outputs(

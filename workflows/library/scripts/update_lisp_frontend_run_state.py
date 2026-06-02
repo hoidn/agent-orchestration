@@ -40,26 +40,56 @@ def _record_completed(state: dict[str, Any], *, item_id: str, source: str) -> No
     if item_id not in values:
         values.append(item_id)
     state[key] = values
+    blocked_key = "blocked_design_gaps" if source == "DESIGN_GAP" else "blocked_items"
+    blocked = dict(state.get(blocked_key, {}))
+    blocked.pop(item_id, None)
+    state[blocked_key] = blocked
     state.setdefault("history", []).append(
         {"event": "completed", "item_id": item_id, "source": source, "timestamp_utc": _timestamp()}
     )
 
 
-def _record_blocked(state: dict[str, Any], *, item_id: str, source: str, reason: str) -> None:
+def _record_blocked(
+    state: dict[str, Any],
+    *,
+    item_id: str,
+    source: str,
+    reason: str,
+    recovery_route: str = "",
+    recovery_reason: str = "",
+    progress_report_path: str = "",
+    implementation_state_path: str = "",
+    architecture_path: str = "",
+    plan_path: str = "",
+    recovery_event_id: str = "",
+) -> None:
     key = "blocked_design_gaps" if source == "DESIGN_GAP" else "blocked_items"
     blocked = dict(state.get(key, {}))
-    blocked[item_id] = {"reason": reason, "timestamp_utc": _timestamp()}
+    entry = {"reason": reason, "timestamp_utc": _timestamp()}
+    optional_fields = {
+        "recovery_route": recovery_route,
+        "recovery_reason": recovery_reason,
+        "progress_report_path": progress_report_path,
+        "implementation_state_path": implementation_state_path,
+        "architecture_path": architecture_path,
+        "plan_path": plan_path,
+        "recovery_event_id": recovery_event_id,
+    }
+    entry.update({key: value for key, value in optional_fields.items() if value})
+    blocked[item_id] = entry
     state[key] = blocked
-    state.setdefault("history", []).append(
-        {"event": "blocked", "item_id": item_id, "source": source, "reason": reason, "timestamp_utc": _timestamp()}
-    )
+    history_entry = {
+        "event": "blocked",
+        "item_id": item_id,
+        "source": source,
+        "reason": reason,
+        "timestamp_utc": _timestamp(),
+    }
+    history_entry.update({key: value for key, value in optional_fields.items() if value})
+    state.setdefault("history", []).append(history_entry)
 
 
 def _record_design_revision(state: dict[str, Any], *, item_id: str, source: str, reason: str) -> None:
-    key = "blocked_design_gaps" if source == "DESIGN_GAP" else "blocked_items"
-    blocked = dict(state.get(key, {}))
-    blocked.pop(item_id, None)
-    state[key] = blocked
     state.setdefault("history", []).append(
         {
             "event": "design_revision",
@@ -72,10 +102,6 @@ def _record_design_revision(state: dict[str, Any], *, item_id: str, source: str,
 
 
 def _record_gap_design_revision(state: dict[str, Any], *, item_id: str, source: str, reason: str) -> None:
-    key = "blocked_design_gaps" if source == "DESIGN_GAP" else "blocked_items"
-    blocked = dict(state.get(key, {}))
-    blocked.pop(item_id, None)
-    state[key] = blocked
     state.setdefault("history", []).append(
         {
             "event": "gap_design_revision",
@@ -107,6 +133,13 @@ def main() -> int:
     blocked.add_argument("--summary-path")
     blocked.add_argument("--summary-pointer-path")
     blocked.add_argument("--drain-status-path")
+    blocked.add_argument("--recovery-route", default="")
+    blocked.add_argument("--recovery-reason", default="")
+    blocked.add_argument("--progress-report-path", default="")
+    blocked.add_argument("--implementation-state-path", default="")
+    blocked.add_argument("--architecture-path", default="")
+    blocked.add_argument("--plan-path", default="")
+    blocked.add_argument("--recovery-event-id", default="")
     design_revision = sub.add_parser("design_revision")
     design_revision.add_argument("--item-id", required=True)
     design_revision.add_argument("--source", required=True, choices=["BACKLOG_ITEM", "DESIGN_GAP", "RECOVERED_IN_PROGRESS"])
@@ -167,7 +200,19 @@ def main() -> int:
                 item_id = str(selection.get("selected_item_id") or "").strip()
         if not item_id:
             raise SystemExit("blocked requires --item-id or --selection-path with an item id")
-        _record_blocked(state, item_id=item_id, source=args.source, reason=args.reason)
+        _record_blocked(
+            state,
+            item_id=item_id,
+            source=args.source,
+            reason=args.reason,
+            recovery_route=args.recovery_route,
+            recovery_reason=args.recovery_reason,
+            progress_report_path=args.progress_report_path,
+            implementation_state_path=args.implementation_state_path,
+            architecture_path=args.architecture_path,
+            plan_path=args.plan_path,
+            recovery_event_id=args.recovery_event_id,
+        )
         if args.summary_path:
             summary_path = Path(args.summary_path)
             summary_path.parent.mkdir(parents=True, exist_ok=True)

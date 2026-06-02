@@ -297,13 +297,14 @@ steps:
         - name: blocked_recovery_route
           json_pointer: /blocked_recovery_route
           type: enum
-          allowed: ["GAP_DESIGN_REVISION_REQUIRED", "TARGET_DESIGN_REVISION_REQUIRED", "TERMINAL_BLOCKED"]
+          allowed: ["GAP_DESIGN_REVISION_REQUIRED", "TARGET_DESIGN_REVISION_REQUIRED", "PREREQUISITE_GAP_REQUIRED", "TERMINAL_BLOCKED"]
         - name: reason
           json_pointer: /reason
           type: enum
           allowed:
             - implementation_architecture_under_scoped
             - target_design_contract_gap
+            - prerequisite_gap_required
             - true_external_dependency
             - user_decision_required
             - unsupported_blocker
@@ -330,7 +331,7 @@ steps:
         - name: blocked_recovery_route
           json_pointer: /blocked_recovery_route
           type: enum
-          allowed: ["NOT_APPLICABLE", "GAP_DESIGN_REVISION_REQUIRED", "TARGET_DESIGN_REVISION_REQUIRED", "TERMINAL_BLOCKED"]
+          allowed: ["NOT_APPLICABLE", "GAP_DESIGN_REVISION_REQUIRED", "TARGET_DESIGN_REVISION_REQUIRED", "PREREQUISITE_GAP_REQUIRED", "TERMINAL_BLOCKED"]
         - name: reason
           json_pointer: /reason
           type: enum
@@ -339,158 +340,10 @@ steps:
             - implementation_blocked
             - implementation_architecture_under_scoped
             - target_design_contract_gap
+            - prerequisite_gap_required
             - true_external_dependency
             - user_decision_required
             - unsupported_blocker
-
-  - name: ReviewTargetDesignRevisionLoop
-    id: review_target_design_revision_loop
-    repeat_until:
-      id: design_revision_review_iteration
-      max_iterations: 3
-      outputs:
-        design_revision_review_decision:
-          kind: scalar
-          type: enum
-          allowed: ["APPROVE", "REVISE", "BLOCKED"]
-          from:
-            ref: self.steps.RouteDesignRevisionWork.artifacts.design_revision_review_decision
-      condition:
-        any_of:
-          - compare:
-              left:
-                ref: self.outputs.design_revision_review_decision
-              op: eq
-              right: APPROVE
-          - compare:
-              left:
-                ref: self.outputs.design_revision_review_decision
-              op: eq
-              right: BLOCKED
-      on_exhausted:
-        outputs:
-          design_revision_review_decision: REVISE
-      steps:
-        - name: RouteDesignRevisionWork
-          id: route_design_revision_work
-          match:
-            ref: parent.steps.SelectBlockedRecoveryRoute.artifacts.blocked_recovery_route
-            cases:
-              TARGET_DESIGN_REVISION_REQUIRED:
-                id: run_design_revision_path
-                outputs:
-                  design_revision_review_decision:
-                    kind: scalar
-                    type: enum
-                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
-                    from:
-                      ref: self.steps.WriteDesignRevisionIterationDecision.artifacts.design_revision_review_decision
-                steps:
-                  - name: ReviseTargetDesignForBlocker
-                    id: revise_target_design_for_blocker
-                    provider: ${inputs.implementation_execute_provider}
-                    asset_file: prompts/lisp_frontend_design_delta_work_item/revise_target_design_for_blocker.md
-                    timeout_sec: 3600
-                    depends_on:
-                      required:
-                        - ${inputs.target_design_path}
-                        - ${inputs.baseline_design_path}
-                        - ${inputs.state_root}/implementation-phase/plan_path.txt
-                        - ${inputs.state_root}/implementation-phase/progress_report_path.txt
-                      optional:
-                        - ${inputs.state_root}/design-revision-review-report.md
-                      inject:
-                        mode: content
-                    output_bundle:
-                      path: ${inputs.state_root}/design-revision-report.json
-                      fields:
-                        - name: design_revision_decision
-                          json_pointer: /design_revision_decision
-                          type: enum
-                          allowed: ["REVISED", "BLOCKED"]
-
-                  - name: ReviewTargetDesignRevision
-                    id: review_target_design_revision
-                    when:
-                      compare:
-                        left:
-                          ref: self.steps.ReviseTargetDesignForBlocker.artifacts.design_revision_decision
-                        op: eq
-                        right: REVISED
-                    provider: ${inputs.implementation_review_provider}
-                    asset_file: prompts/lisp_frontend_design_delta_work_item/review_target_design_revision.md
-                    timeout_sec: 1800
-                    depends_on:
-                      required:
-                        - ${inputs.target_design_path}
-                        - ${inputs.baseline_design_path}
-                        - ${inputs.state_root}/implementation-phase/plan_path.txt
-                        - ${inputs.state_root}/implementation-phase/progress_report_path.txt
-                        - ${inputs.state_root}/design-revision-report.json
-                      inject:
-                        mode: content
-                    expected_outputs:
-                      - name: design_revision_review_report_path
-                        path: ${inputs.state_root}/design-revision-review-report-path.txt
-                        type: relpath
-                        under: artifacts/review
-                        must_exist_target: true
-                      - name: design_revision_review_decision
-                        path: ${inputs.state_root}/design-revision-review-decision.txt
-                        type: enum
-                        allowed: ["APPROVE", "REVISE"]
-
-                  - name: WriteDesignRevisionIterationDecision
-                    id: write_design_revision_iteration_decision
-                    command:
-                      - python
-                      - workflows/library/scripts/write_lisp_frontend_design_revision_iteration_decision.py
-                      - --revision-report
-                      - ${inputs.state_root}/design-revision-report.json
-                      - --review-decision-path
-                      - ${inputs.state_root}/design-revision-review-decision.txt
-                      - --output
-                      - ${inputs.state_root}/loop-design-revision-review-decision.txt
-                    expected_outputs:
-                      - name: design_revision_review_decision
-                        path: ${inputs.state_root}/loop-design-revision-review-decision.txt
-                        type: enum
-                        allowed: ["APPROVE", "REVISE", "BLOCKED"]
-              NOT_APPLICABLE:
-                id: no_design_revision_not_applicable_path
-                outputs:
-                  design_revision_review_decision: &no_design_revision_decision_output
-                    kind: scalar
-                    type: enum
-                    allowed: ["APPROVE", "REVISE", "BLOCKED"]
-                    from:
-                      ref: self.steps.WriteNoDesignRevisionNeeded.artifacts.design_revision_review_decision
-                steps:
-                  - name: WriteNoDesignRevisionNeeded
-                    id: write_no_design_revision_needed
-                    set_scalar:
-                      artifact: design_revision_review_decision
-                      value: APPROVE
-              GAP_DESIGN_REVISION_REQUIRED:
-                id: no_design_revision_gap_design_path
-                outputs:
-                  design_revision_review_decision: *no_design_revision_decision_output
-                steps:
-                  - name: WriteNoDesignRevisionNeeded
-                    id: write_no_design_revision_needed
-                    set_scalar:
-                      artifact: design_revision_review_decision
-                      value: APPROVE
-              TERMINAL_BLOCKED:
-                id: no_design_revision_terminal_block_path
-                outputs:
-                  design_revision_review_decision: *no_design_revision_decision_output
-                steps:
-                  - name: WriteNoDesignRevisionNeeded
-                    id: write_no_design_revision_needed
-                    set_scalar:
-                      artifact: design_revision_review_decision
-                      value: APPROVE
 
   - name: RouteWorkItemTerminal
     id: route_work_item_terminal
@@ -604,15 +457,25 @@ steps:
                 - --reason
                 - ${steps.SelectBlockedRecoveryRoute.artifacts.reason}
                 - --target-design-review-decision
-                - ${steps.ReviewTargetDesignRevisionLoop.artifacts.design_revision_review_decision}
+                - NOT_APPLICABLE
                 - --terminal-action
-                - block
+                - continue
                 - --state-path
                 - ${inputs.run_state_path}
                 - --item-id
                 - ${steps.ResolveWorkItemInputs.artifacts.work_item_id}
                 - --source
                 - ${steps.ResolveWorkItemInputs.artifacts.work_item_source}
+                - --progress-report-path
+                - ${steps.ResolveWorkItemInputs.artifacts.progress_report_target_path}
+                - --implementation-state-path
+                - ${steps.ResolveWorkItemInputs.artifacts.implementation_phase_state_root}/implementation_state.json
+                - --architecture-bundle-path
+                - ${inputs.architecture_bundle_path}
+                - --plan-path
+                - ${steps.RunPlanPhase.artifacts.plan_path}
+                - --recovery-event-id
+                - ${run.id}:${steps.ResolveWorkItemInputs.artifacts.work_item_id}:implementation-blocked
                 - --summary-path
                 - ${steps.ResolveWorkItemInputs.artifacts.item_summary_target_path}
                 - --summary-pointer-path
